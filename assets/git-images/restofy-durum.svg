@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="380" viewBox="0 0 1000 380" role="img" aria-label="Geliştirme durumu: Başlangıç ve Altyapı aşamaları tamamlandı, Geliştirme aşaması şu an devam ediyor, Entegrasyon ve Yayın aşamaları sırada">
+<style>text{font-family:"Segoe UI",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1b2038"/></linearGradient>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="accv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffa63d" stop-opacity="0.35"/><stop offset="1" stop-color="#ffa63d" stop-opacity="0"/></radialGradient>
+<clipPath id="page"><rect width="1000" height="380" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#page)">
+<rect width="1000" height="380" fill="url(#bg)"/>
+<circle cx="960" cy="30" r="220" fill="url(#glow)"><animate attributeName="r" values="200;250;200" dur="7s" repeatCount="indefinite"/></circle>
+<rect y="0" width="300" height="380" fill="url(#sweep)"><animate attributeName="x" values="-300;1000" dur="7s" repeatCount="indefinite"/></rect>
+<text x="500" y="56" font-size="32" font-weight="800" fill="url(#acc)" text-anchor="middle">Proje yol haritası</text>
+<text x="500" y="84" font-size="15" font-weight="400" fill="#94a3b8" text-anchor="middle" >Altyapı tamamlandı, ürün özellikleri şu an geliştiriliyor</text>
+<rect x="408" y="104" width="184" height="250" rx="18" fill="#141a2e" stroke="#ffa63d" stroke-width="2"><animate attributeName="stroke-opacity" values="1;0.35;1" dur="2.4s" repeatCount="indefinite"/></rect>
+<rect x="464" y="114" width="72" height="20" rx="10" fill="url(#acc)"/>
+<text x="500" y="128" font-size="11" font-weight="800" fill="#fff" text-anchor="middle" letter-spacing="1.5">ŞU AN</text>
+<rect x="100" y="172" width="800" height="8" rx="4" fill="#2a3150"/>
+<rect x="100" y="172" width="0" height="8" rx="4" fill="url(#acc)"><animate attributeName="width" values="0;400;400" keyTimes="0;0.35;1" dur="7s" repeatCount="indefinite"/></rect>
+<line x1="534" y1="176" x2="900" y2="176" stroke="#ffa63d" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="1s" repeatCount="indefinite"/></line>
+<g><circle r="9" fill="#fff" fill-opacity="0.3"/><circle r="4.5" fill="#fff"/><animateMotion dur="7s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.35;1" calcMode="linear" path="M100 176 L500 176"/></g>
+<circle cx="100" cy="176" r="24" fill="url(#acc)"/>
+<path d="M91 176 l6 7 l12 -14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="100" y="240" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="middle" >Başlangıç</text>
+<rect x="46.0" y="252" width="108" height="24" rx="12" fill="#0a0f1e" stroke="#4ade80"/>
+<text x="100" y="268" font-size="12.5" font-weight="700" fill="#4ade80" text-anchor="middle" >Tamamlandı</text>
+<text x="100" y="302" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >Mimari ve servis</text>
+<text x="100" y="320" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >dağılımı belirlendi</text>
+<circle cx="300" cy="176" r="24" fill="url(#acc)"/>
+<path d="M291 176 l6 7 l12 -14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="300" y="240" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="middle" >Altyapı</text>
+<rect x="246.0" y="252" width="108" height="24" rx="12" fill="#0a0f1e" stroke="#4ade80"/>
+<text x="300" y="268" font-size="12.5" font-weight="700" fill="#4ade80" text-anchor="middle" >Tamamlandı</text>
+<text x="300" y="302" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >13 servis iskeleti,</text>
+<text x="300" y="320" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >Gateway, PostgreSQL,</text>
+<text x="300" y="338" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >kalite altyapısı</text>
+<circle cx="500" cy="176" r="28" fill="none" stroke="#ffa63d" stroke-width="3"><animate attributeName="r" values="28;44;28" dur="2.4s" repeatCount="indefinite"/><animate attributeName="stroke-opacity" values="0.9;0;0.9" dur="2.4s" repeatCount="indefinite"/></circle>
+<circle cx="500" cy="176" r="28" fill="url(#acc)"/>
+<text x="500" y="185" font-size="26" font-weight="800" fill="#fff" text-anchor="middle" >3</text>
+<text x="500" y="240" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="middle" >Geliştirme</text>
+<rect x="446.0" y="252" width="108" height="24" rx="12" fill="#0a0f1e" stroke="#ffa63d"/>
+<text x="500" y="268" font-size="12.5" font-weight="700" fill="#ffa63d" text-anchor="middle" >Geliştiriliyor</text>
+<text x="500" y="302" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >İş endpoint’leri,</text>
+<text x="500" y="320" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >kimlik doğrulama ve</text>
+<text x="500" y="338" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="middle" >frontend ekranları</text>
+<circle cx="700" cy="176" r="24" fill="#141a2e" stroke="#2a3150" stroke-width="3"/>
+<text x="700" y="184" font-size="22" font-weight="800" fill="#94a3b8" text-anchor="middle" >4</text>
+<text x="700" y="240" font-size="19" font-weight="700" fill="#cbd5e1" text-anchor="middle" >Entegrasyon</text>
+<rect x="646.0" y="252" width="108" height="24" rx="12" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="700" y="268" font-size="12.5" font-weight="700" fill="#94a3b8" text-anchor="middle" >Sırada</text>
+<text x="700" y="302" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="middle" >Servisler arası</text>
+<text x="700" y="320" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="middle" >iş akışlarının</text>
+<text x="700" y="338" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="middle" >bağlanması</text>
+<circle cx="900" cy="176" r="24" fill="#141a2e" stroke="#2a3150" stroke-width="3"/>
+<text x="900" y="184" font-size="22" font-weight="800" fill="#94a3b8" text-anchor="middle" >5</text>
+<text x="900" y="240" font-size="19" font-weight="700" fill="#cbd5e1" text-anchor="middle" >Yayın</text>
+<rect x="846.0" y="252" width="108" height="24" rx="12" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="900" y="268" font-size="12.5" font-weight="700" fill="#94a3b8" text-anchor="middle" >Sırada</text>
+<text x="900" y="302" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="middle" >Test, kalite ve</text>
+<text x="900" y="320" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="middle" >yayına hazırlık</text>
+</g>
+</svg>

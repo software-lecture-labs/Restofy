@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" role="img" aria-label="Kurulum akışı: repository klonla, ENV dosyasını oluştur, profili seç, backend’i başlat, frontend’i başlat, tarayıcıda aç">
+<style>text{font-family:"Segoe UI",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1b2038"/></linearGradient>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="accv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffa63d" stop-opacity="0.35"/><stop offset="1" stop-color="#ffa63d" stop-opacity="0"/></radialGradient>
+<clipPath id="page"><rect width="1000" height="500" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#page)">
+<rect width="1000" height="500" fill="url(#bg)"/>
+<circle cx="960" cy="30" r="220" fill="url(#glow)"><animate attributeName="r" values="200;250;200" dur="7s" repeatCount="indefinite"/></circle>
+<rect y="0" width="300" height="500" fill="url(#sweep)"><animate attributeName="x" values="-300;1000" dur="7s" repeatCount="indefinite"/></rect>
+<text x="500" y="56" font-size="32" font-weight="800" fill="url(#acc)" text-anchor="middle">6 adımda çalıştır</text>
+<text x="500" y="84" font-size="15" font-weight="400" fill="#94a3b8" text-anchor="middle" >Klonlamadan tarayıcıda açılışa kadar kurulum akışı</text>
+<rect x="35" y="110" width="290" height="150" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="2"><animate attributeName="stroke" keyTimes="0;0.1;1" values="#ffa63d;#2a3150;#2a3150" dur="12s" repeatCount="indefinite"/></rect>
+<circle cx="73" cy="150" r="20" fill="url(#acc)"/>
+<text x="73" y="156" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" >1</text>
+<text x="105" y="156" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Klonla</text>
+<rect x="55" y="180" width="250" height="34" rx="9" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="67" y="202" font-size="13" fill="#ffc46b" style="font-family:Consolas,Menlo,monospace">$ <tspan fill="#cbd5e1">git clone &lt;repo-url&gt;</tspan></text>
+<text x="57" y="240" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="start" >Repository’yi indir</text>
+<rect x="355" y="110" width="290" height="150" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="2"><animate attributeName="stroke" keyTimes="0;0.1666;0.1667;0.2667;1" values="#2a3150;#2a3150;#ffa63d;#2a3150;#2a3150" dur="12s" repeatCount="indefinite"/></rect>
+<circle cx="393" cy="150" r="20" fill="url(#acc)"/>
+<text x="393" y="156" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" >2</text>
+<text x="425" y="156" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >ENV oluştur</text>
+<rect x="375" y="180" width="250" height="34" rx="9" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="387" y="202" font-size="13" fill="#ffc46b" style="font-family:Consolas,Menlo,monospace">$ <tspan fill="#cbd5e1">cp .env.example .env.dev</tspan></text>
+<text x="377" y="240" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="start" >POSTGRES_PASSWORD’ü doldur</text>
+<rect x="675" y="110" width="290" height="150" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="2"><animate attributeName="stroke" keyTimes="0;0.3332;0.3333;0.4333;1" values="#2a3150;#2a3150;#ffa63d;#2a3150;#2a3150" dur="12s" repeatCount="indefinite"/></rect>
+<circle cx="713" cy="150" r="20" fill="url(#acc)"/>
+<text x="713" y="156" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" >3</text>
+<text x="745" y="156" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Profili seç</text>
+<rect x="695" y="180" width="250" height="34" rx="9" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="707" y="202" font-size="13" fill="#ffc46b" style="font-family:Consolas,Menlo,monospace">$ <tspan fill="#cbd5e1">sh ./ops/env.sh use dev</tspan></text>
+<text x="697" y="240" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="start" >DEV profilini .env’e kopyala</text>
+<rect x="35" y="320" width="290" height="150" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="2"><animate attributeName="stroke" keyTimes="0;0.4999;0.5000;0.6000;1" values="#2a3150;#2a3150;#ffa63d;#2a3150;#2a3150" dur="12s" repeatCount="indefinite"/></rect>
+<circle cx="73" cy="360" r="20" fill="url(#acc)"/>
+<text x="73" y="366" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" >4</text>
+<text x="105" y="366" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Backend’i başlat</text>
+<rect x="55" y="390" width="250" height="34" rx="9" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="67" y="412" font-size="13" fill="#ffc46b" style="font-family:Consolas,Menlo,monospace">$ <tspan fill="#cbd5e1">docker compose up --build -d</tspan></text>
+<text x="57" y="450" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="start" >PostgreSQL + 13 servis</text>
+<rect x="355" y="320" width="290" height="150" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="2"><animate attributeName="stroke" keyTimes="0;0.6666;0.6667;0.7667;1" values="#2a3150;#2a3150;#ffa63d;#2a3150;#2a3150" dur="12s" repeatCount="indefinite"/></rect>
+<circle cx="393" cy="360" r="20" fill="url(#acc)"/>
+<text x="393" y="366" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" >5</text>
+<text x="425" y="366" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Frontend’i başlat</text>
+<rect x="375" y="390" width="250" height="34" rx="9" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="387" y="412" font-size="13" fill="#ffc46b" style="font-family:Consolas,Menlo,monospace">$ <tspan fill="#cbd5e1">npm run dev -- --port 5000</tspan></text>
+<text x="377" y="450" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="start" >frontend/ içinde, önce npm ci</text>
+<rect x="675" y="320" width="290" height="150" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="2"><animate attributeName="stroke" keyTimes="0;0.8332;0.8333;0.97;1" values="#2a3150;#2a3150;#ffa63d;#ffa63d;#2a3150" dur="12s" repeatCount="indefinite"/></rect>
+<circle cx="713" cy="360" r="20" fill="url(#acc)"/>
+<text x="713" y="366" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" >6</text>
+<text x="745" y="366" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Tarayıcıda aç</text>
+<rect x="695" y="390" width="250" height="34" rx="9" fill="#0a0f1e" stroke="#2a3150"/>
+<text x="707" y="412" font-size="13" fill="#ffc46b" style="font-family:Consolas,Menlo,monospace">$ <tspan fill="#cbd5e1">http://localhost:5000</tspan></text>
+<text x="697" y="450" font-size="13" font-weight="400" fill="#94a3b8" text-anchor="start" >API Gateway: localhost:5050</text>
+<line x1="327" y1="185.0" x2="349" y2="185.0" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="1s" repeatCount="indefinite"/></line>
+<polygon points="352,185.0 342,179.0 342,191.0" fill="#ffa63d"/>
+<g><circle r="8.8" fill="#fff" fill-opacity="0.25"/><circle r="4" fill="#fff"/><animateMotion dur="1.6s" begin="-0.0s" repeatCount="indefinite" path="M327 185.0 L349 185.0"/></g>
+<line x1="647" y1="185.0" x2="669" y2="185.0" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="1s" repeatCount="indefinite"/></line>
+<polygon points="672,185.0 662,179.0 662,191.0" fill="#ffa63d"/>
+<g><circle r="8.8" fill="#fff" fill-opacity="0.25"/><circle r="4" fill="#fff"/><animateMotion dur="1.6s" begin="-0.5s" repeatCount="indefinite" path="M647 185.0 L669 185.0"/></g>
+<line x1="327" y1="395.0" x2="349" y2="395.0" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="1s" repeatCount="indefinite"/></line>
+<polygon points="352,395.0 342,389.0 342,401.0" fill="#ffa63d"/>
+<g><circle r="8.8" fill="#fff" fill-opacity="0.25"/><circle r="4" fill="#fff"/><animateMotion dur="1.6s" begin="-1.0s" repeatCount="indefinite" path="M327 395.0 L349 395.0"/></g>
+<line x1="647" y1="395.0" x2="669" y2="395.0" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="1s" repeatCount="indefinite"/></line>
+<polygon points="672,395.0 662,389.0 662,401.0" fill="#ffa63d"/>
+<g><circle r="8.8" fill="#fff" fill-opacity="0.25"/><circle r="4" fill="#fff"/><animateMotion dur="1.6s" begin="-1.5s" repeatCount="indefinite" path="M647 395.0 L669 395.0"/></g>
+<path d="M820.0 262 V288.0 H180.0 V314" fill="none" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="1s" repeatCount="indefinite"/></path>
+<polygon points="180.0,317 174.0,307 186.0,307" fill="#ffa63d"/>
+<g><circle r="8.8" fill="#fff" fill-opacity="0.25"/><circle r="4" fill="#fff"/><animateMotion dur="3s" begin="0s" repeatCount="indefinite" path="M820.0 262 V288.0 H180.0 V314"/></g>
+</g>
+</svg>

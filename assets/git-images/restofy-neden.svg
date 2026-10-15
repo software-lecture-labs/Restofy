@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" role="img" aria-label="Neden Restofy? Uçtan uca operasyon, QR kodun ötesinde, rol bazlı kullanım, bağımsız mikroservisler, modern kullanıcı deneyimi, genişletilebilir altyapı">
+<style>text{font-family:"Segoe UI",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1b2038"/></linearGradient>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="accv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffa63d" stop-opacity="0.35"/><stop offset="1" stop-color="#ffa63d" stop-opacity="0"/></radialGradient>
+<clipPath id="page"><rect width="1000" height="560" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#page)">
+<rect width="1000" height="560" fill="url(#bg)"/>
+<circle cx="960" cy="30" r="220" fill="url(#glow)"><animate attributeName="r" values="200;250;200" dur="7s" repeatCount="indefinite"/></circle>
+<rect y="0" width="300" height="560" fill="url(#sweep)"><animate attributeName="x" values="-300;1000" dur="7s" repeatCount="indefinite"/></rect>
+<text x="500" y="64" font-size="42" font-weight="800" fill="url(#acc)" text-anchor="middle">Neden Restofy?</text>
+<text x="500" y="96" font-size="16" font-weight="400" fill="#94a3b8" text-anchor="middle" >Bir QR menüden fazlası: restoranın tamamı için tek platform</text>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.0s" begin="-0.00s" repeatCount="indefinite"/>
+<rect x="30" y="130" width="300" height="190" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-0.0s" repeatCount="indefinite"/></rect>
+<circle cx="74" cy="178" r="20" fill="url(#acc)"/>
+<text x="74" y="184" font-size="15" font-weight="800" fill="#fff" text-anchor="middle" >01</text>
+<text x="104" y="184" font-size="17" font-weight="700" fill="#f8fafc" text-anchor="start" >Uçtan uca operasyon</text>
+<text x="58" y="236" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >Müşteri, mutfak, garson ve</text>
+<text x="58" y="258" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >yönetim tek iş akışında buluşur.</text>
+<rect x="58" y="286" width="40" height="4" rx="2" fill="url(#acc)"><animate attributeName="width" values="40;140;40" dur="4s" begin="-0.0s" repeatCount="indefinite"/></rect>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.6s" begin="-0.83s" repeatCount="indefinite"/>
+<rect x="350" y="130" width="300" height="190" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-1.0s" repeatCount="indefinite"/></rect>
+<circle cx="394" cy="178" r="20" fill="url(#acc)"/>
+<text x="394" y="184" font-size="15" font-weight="800" fill="#fff" text-anchor="middle" >02</text>
+<text x="424" y="184" font-size="17" font-weight="700" fill="#f8fafc" text-anchor="start" >QR kodun ötesinde</text>
+<text x="378" y="236" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >QR; sipariş, ödeme ve operasyon</text>
+<text x="378" y="258" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >yönetiminin başlangıç noktası.</text>
+<rect x="378" y="286" width="40" height="4" rx="2" fill="url(#acc)"><animate attributeName="width" values="40;140;40" dur="4s" begin="-0.7s" repeatCount="indefinite"/></rect>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="6.2s" begin="-1.66s" repeatCount="indefinite"/>
+<rect x="670" y="130" width="300" height="190" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-2.0s" repeatCount="indefinite"/></rect>
+<circle cx="714" cy="178" r="20" fill="url(#acc)"/>
+<text x="714" y="184" font-size="15" font-weight="800" fill="#fff" text-anchor="middle" >03</text>
+<text x="744" y="184" font-size="17" font-weight="700" fill="#f8fafc" text-anchor="start" >Rol bazlı kullanım</text>
+<text x="698" y="236" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >Müşteri, garson, mutfak ve</text>
+<text x="698" y="258" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >yönetici için ayrı arayüzler.</text>
+<rect x="698" y="286" width="40" height="4" rx="2" fill="url(#acc)"><animate attributeName="width" values="40;140;40" dur="4s" begin="-1.4s" repeatCount="indefinite"/></rect>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.0s" begin="-2.49s" repeatCount="indefinite"/>
+<rect x="30" y="340" width="300" height="190" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-3.0s" repeatCount="indefinite"/></rect>
+<circle cx="74" cy="388" r="20" fill="url(#acc)"/>
+<text x="74" y="394" font-size="15" font-weight="800" fill="#fff" text-anchor="middle" >04</text>
+<text x="104" y="394" font-size="17" font-weight="700" fill="#f8fafc" text-anchor="start" >Bağımsız mikroservisler</text>
+<text x="58" y="446" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >Sipariş, ödeme, QR, mutfak ve</text>
+<text x="58" y="468" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >diğer alanlar ayrı servislerde.</text>
+<rect x="58" y="496" width="40" height="4" rx="2" fill="url(#acc)"><animate attributeName="width" values="40;140;40" dur="4s" begin="-2.0999999999999996s" repeatCount="indefinite"/></rect>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.6s" begin="-3.32s" repeatCount="indefinite"/>
+<rect x="350" y="340" width="300" height="190" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-4.0s" repeatCount="indefinite"/></rect>
+<circle cx="394" cy="388" r="20" fill="url(#acc)"/>
+<text x="394" y="394" font-size="15" font-weight="800" fill="#fff" text-anchor="middle" >05</text>
+<text x="424" y="394" font-size="17" font-weight="700" fill="#f8fafc" text-anchor="start" >Modern kullanıcı deneyimi</text>
+<text x="378" y="446" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >Responsive, mobil odaklı ve</text>
+<text x="378" y="468" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >erişilebilir arayüz yaklaşımı.</text>
+<rect x="378" y="496" width="40" height="4" rx="2" fill="url(#acc)"><animate attributeName="width" values="40;140;40" dur="4s" begin="-2.8s" repeatCount="indefinite"/></rect>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="6.2s" begin="-4.15s" repeatCount="indefinite"/>
+<rect x="670" y="340" width="300" height="190" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-5.0s" repeatCount="indefinite"/></rect>
+<circle cx="714" cy="388" r="20" fill="url(#acc)"/>
+<text x="714" y="394" font-size="15" font-weight="800" fill="#fff" text-anchor="middle" >06</text>
+<text x="744" y="394" font-size="17" font-weight="700" fill="#f8fafc" text-anchor="start" >Genişletilebilir altyapı</text>
+<text x="698" y="446" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >Servis başına ayrı veritabanı;</text>
+<text x="698" y="468" font-size="14" font-weight="400" fill="#cbd5e1" text-anchor="start" >yeni modüller kolayca eklenir.</text>
+<rect x="698" y="496" width="40" height="4" rx="2" fill="url(#acc)"><animate attributeName="width" values="40;140;40" dur="4s" begin="-3.5s" repeatCount="indefinite"/></rect>
+</g>
+</g>
+</svg>

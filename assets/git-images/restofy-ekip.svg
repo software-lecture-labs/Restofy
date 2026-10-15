@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="400" viewBox="0 0 1000 400" role="img" aria-label="Geliştirici ekibi: Kerem, Alper, Hamza, Merve, Nisa ve Umut ve sorumlu oldukları mikroservisler">
+<style>text{font-family:"Segoe UI",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1b2038"/></linearGradient>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="accv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffa63d" stop-opacity="0.35"/><stop offset="1" stop-color="#ffa63d" stop-opacity="0"/></radialGradient>
+<clipPath id="page"><rect width="1000" height="400" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#page)">
+<rect width="1000" height="400" fill="url(#bg)"/>
+<circle cx="960" cy="30" r="220" fill="url(#glow)"><animate attributeName="r" values="200;250;200" dur="7s" repeatCount="indefinite"/></circle>
+<rect y="0" width="300" height="400" fill="url(#sweep)"><animate attributeName="x" values="-300;1000" dur="7s" repeatCount="indefinite"/></rect>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.0s" begin="-0.00s" repeatCount="indefinite"/>
+<rect x="30" y="30" width="300" height="160" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-0s" repeatCount="indefinite"/></rect>
+<circle cx="86" cy="110" r="46" fill="none" stroke="#ffa63d" stroke-width="2" stroke-dasharray="5 7" opacity="0.8"><animateTransform attributeName="transform" type="rotate" from="0 86 110" to="360 86 110" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="86" cy="110" r="36" fill="url(#acc)"/>
+<text x="86" y="121" font-size="32" font-weight="800" fill="#fff" text-anchor="middle" >K</text>
+<text x="148" y="80" font-size="24" font-weight="800" fill="#f8fafc" text-anchor="start" >Kerem</text>
+<rect x="148" y="100" width="115" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="162" cy="114.0" r="3.5" fill="url(#acc)"/>
+<text x="174" y="118.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Auth Service</text>
+<rect x="148" y="136" width="115" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="162" cy="150.0" r="3.5" fill="url(#acc)"/>
+<text x="174" y="154.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Mail Service</text>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.6s" begin="-0.83s" repeatCount="indefinite"/>
+<rect x="350" y="30" width="300" height="160" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-1s" repeatCount="indefinite"/></rect>
+<circle cx="406" cy="110" r="46" fill="none" stroke="#ffa63d" stroke-width="2" stroke-dasharray="5 7" opacity="0.8"><animateTransform attributeName="transform" type="rotate" from="0 406 110" to="360 406 110" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="406" cy="110" r="36" fill="url(#acc)"/>
+<text x="406" y="121" font-size="32" font-weight="800" fill="#fff" text-anchor="middle" >A</text>
+<text x="468" y="80" font-size="24" font-weight="800" fill="#f8fafc" text-anchor="start" >Alper</text>
+<rect x="468" y="100" width="101" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="482" cy="114.0" r="3.5" fill="url(#acc)"/>
+<text x="494" y="118.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >QR Service</text>
+<rect x="468" y="136" width="136" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="482" cy="150.0" r="3.5" fill="url(#acc)"/>
+<text x="494" y="154.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Payment Service</text>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="6.2s" begin="-1.66s" repeatCount="indefinite"/>
+<rect x="670" y="30" width="300" height="160" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-2s" repeatCount="indefinite"/></rect>
+<circle cx="726" cy="110" r="46" fill="none" stroke="#ffa63d" stroke-width="2" stroke-dasharray="5 7" opacity="0.8"><animateTransform attributeName="transform" type="rotate" from="0 726 110" to="360 726 110" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="726" cy="110" r="36" fill="url(#acc)"/>
+<text x="726" y="121" font-size="32" font-weight="800" fill="#fff" text-anchor="middle" >H</text>
+<text x="788" y="80" font-size="24" font-weight="800" fill="#f8fafc" text-anchor="start" >Hamza</text>
+<rect x="788" y="100" width="122" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="802" cy="114.0" r="3.5" fill="url(#acc)"/>
+<text x="814" y="118.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Order Service</text>
+<rect x="788" y="136" width="172" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="802" cy="150.0" r="3.5" fill="url(#acc)"/>
+<text x="814" y="154.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Notification Service</text>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.0s" begin="-2.49s" repeatCount="indefinite"/>
+<rect x="30" y="210" width="300" height="160" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-3s" repeatCount="indefinite"/></rect>
+<circle cx="86" cy="290" r="46" fill="none" stroke="#ffa63d" stroke-width="2" stroke-dasharray="5 7" opacity="0.8"><animateTransform attributeName="transform" type="rotate" from="0 86 290" to="360 86 290" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="86" cy="290" r="36" fill="url(#acc)"/>
+<text x="86" y="301" font-size="32" font-weight="800" fill="#fff" text-anchor="middle" >M</text>
+<text x="148" y="260" font-size="24" font-weight="800" fill="#f8fafc" text-anchor="start" >Merve</text>
+<rect x="148" y="280" width="115" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="162" cy="294.0" r="3.5" fill="url(#acc)"/>
+<text x="174" y="298.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Menu Service</text>
+<rect x="148" y="316" width="122" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="162" cy="330.0" r="3.5" fill="url(#acc)"/>
+<text x="174" y="334.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Timer Service</text>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="5.6s" begin="-3.32s" repeatCount="indefinite"/>
+<rect x="350" y="210" width="300" height="160" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-4s" repeatCount="indefinite"/></rect>
+<circle cx="406" cy="290" r="46" fill="none" stroke="#ffa63d" stroke-width="2" stroke-dasharray="5 7" opacity="0.8"><animateTransform attributeName="transform" type="rotate" from="0 406 290" to="360 406 290" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="406" cy="290" r="36" fill="url(#acc)"/>
+<text x="406" y="301" font-size="32" font-weight="800" fill="#fff" text-anchor="middle" >N</text>
+<text x="468" y="260" font-size="24" font-weight="800" fill="#f8fafc" text-anchor="start" >Nisa</text>
+<rect x="468" y="280" width="136" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="482" cy="294.0" r="3.5" fill="url(#acc)"/>
+<text x="494" y="298.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Kitchen Service</text>
+<rect x="468" y="316" width="129" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="482" cy="330.0" r="3.5" fill="url(#acc)"/>
+<text x="494" y="334.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Rating Service</text>
+</g>
+<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -5;0 0" dur="6.2s" begin="-4.15s" repeatCount="indefinite"/>
+<rect x="670" y="210" width="300" height="160" rx="18" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"><animate attributeName="stroke" values="#2a3150;#ffa63d;#2a3150" dur="6s" begin="-5s" repeatCount="indefinite"/></rect>
+<circle cx="726" cy="290" r="46" fill="none" stroke="#ffa63d" stroke-width="2" stroke-dasharray="5 7" opacity="0.8"><animateTransform attributeName="transform" type="rotate" from="0 726 290" to="360 726 290" dur="14s" repeatCount="indefinite"/></circle>
+<circle cx="726" cy="290" r="36" fill="url(#acc)"/>
+<text x="726" y="301" font-size="32" font-weight="800" fill="#fff" text-anchor="middle" >U</text>
+<text x="788" y="260" font-size="24" font-weight="800" fill="#f8fafc" text-anchor="start" >Umut</text>
+<rect x="788" y="280" width="129" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="802" cy="294.0" r="3.5" fill="url(#acc)"/>
+<text x="814" y="298.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Waiter Service</text>
+<rect x="788" y="316" width="122" height="28" rx="14" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="802" cy="330.0" r="3.5" fill="url(#acc)"/>
+<text x="814" y="334.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Admin Service</text>
+</g>
+</g>
+</svg>

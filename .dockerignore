@@ -1,0 +1,45 @@
+
+# Git
+.git/
+.gitignore
+
+# Environment and secrets
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets/
+
+# Java / Maven output
+**/target/
+**/build/
+
+# Frontend runs locally, outside Docker
+frontend/
+
+# Generated output
+**/coverage/
+**/dist/
+
+# Testing
+**/playwright-report/
+**/test-results/
+
+# SonarQube
+**/.scannerwork/
+**/.sonar/
+
+# IDE
+**/.vscode/
+**/.idea/
+
+# AI tools
+**/.agents/
+**/.claude/
+**/.codex/
+
+# Logs
+**/*.log
+
+# Temporary files
+**/*.tmp
+**/*.bak

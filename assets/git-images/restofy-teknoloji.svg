@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="674" viewBox="0 0 1000 674" role="img" aria-label="Teknoloji yığını: Frontend, Backend, Veritabanı, Altyapı, Test ve kalite, isteğe bağlı SonarQube">
+<style>text{font-family:"Segoe UI",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1b2038"/></linearGradient>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="accv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffa63d"/><stop offset="1" stop-color="#f0460a"/></linearGradient>
+<linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffa63d" stop-opacity="0.35"/><stop offset="1" stop-color="#ffa63d" stop-opacity="0"/></radialGradient>
+<clipPath id="page"><rect width="1000" height="674" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#page)">
+<rect width="1000" height="674" fill="url(#bg)"/>
+<circle cx="960" cy="30" r="220" fill="url(#glow)"><animate attributeName="r" values="200;250;200" dur="7s" repeatCount="indefinite"/></circle>
+<rect y="0" width="300" height="674" fill="url(#sweep)"><animate attributeName="x" values="-300;1000" dur="7s" repeatCount="indefinite"/></rect>
+<rect x="24" y="24" width="952" height="66" rx="16" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"/>
+<rect x="24" y="38" width="5" height="38" rx="2.5" fill="url(#accv)"/>
+<text x="52" y="63.0" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Frontend</text>
+<rect x="230" y="42" width="129" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="57.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="61.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Next.js 16.4.1</text>
+<rect x="369" y="42" width="115" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="383" cy="57.0" r="3.5" fill="url(#acc)"/>
+<text x="395" y="61.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >React 19.3.0</text>
+<rect x="494" y="42" width="115" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="508" cy="57.0" r="3.5" fill="url(#acc)"/>
+<text x="520" y="61.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >TypeScript 5</text>
+<rect x="619" y="42" width="129" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="633" cy="57.0" r="3.5" fill="url(#acc)"/>
+<text x="645" y="61.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Tailwind CSS 4</text>
+<rect x="758" y="42" width="151" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="772" cy="57.0" r="3.5" fill="url(#acc)"/>
+<text x="784" y="61.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >next-intl (TR/EN)</text>
+<line x1="117" y1="92" x2="117" y2="114" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="0.9s" repeatCount="indefinite"/></line>
+<polygon points="117,117 111,107 123,107" fill="#ffa63d"/>
+<rect x="24" y="120" width="952" height="106" rx="16" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"/>
+<rect x="24" y="134" width="5" height="78" rx="2.5" fill="url(#accv)"/>
+<text x="52" y="179.0" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Backend</text>
+<rect x="230" y="138" width="80" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="153.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="157.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Java 25</text>
+<rect x="320" y="138" width="151" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="334" cy="153.0" r="3.5" fill="url(#acc)"/>
+<text x="346" y="157.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Spring Boot 4.1.1</text>
+<rect x="481" y="138" width="236" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="495" cy="153.0" r="3.5" fill="url(#acc)"/>
+<text x="507" y="157.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Spring Cloud Gateway (WebMVC)</text>
+<rect x="727" y="138" width="179" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="741" cy="153.0" r="3.5" fill="url(#acc)"/>
+<text x="753" y="157.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Spring Cloud 2025.1.3</text>
+<rect x="230" y="178" width="151" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="193.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="197.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Spring RestClient</text>
+<rect x="391" y="178" width="222" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="405" cy="193.0" r="3.5" fill="url(#acc)"/>
+<text x="417" y="197.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Spring Data JPA / Hibernate</text>
+<rect x="623" y="178" width="136" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="637" cy="193.0" r="3.5" fill="url(#acc)"/>
+<text x="649" y="197.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Spring Security</text>
+<rect x="769" y="178" width="73" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="783" cy="193.0" r="3.5" fill="url(#acc)"/>
+<text x="795" y="197.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Flyway</text>
+<rect x="852" y="178" width="66" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="866" cy="193.0" r="3.5" fill="url(#acc)"/>
+<text x="878" y="197.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Maven</text>
+<line x1="117" y1="228" x2="117" y2="250" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="0.9s" repeatCount="indefinite"/></line>
+<polygon points="117,253 111,243 123,243" fill="#ffa63d"/>
+<rect x="24" y="256" width="952" height="66" rx="16" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"/>
+<rect x="24" y="270" width="5" height="38" rx="2.5" fill="url(#accv)"/>
+<text x="52" y="295.0" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Veritabanı</text>
+<rect x="230" y="274" width="122" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="289.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="293.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >PostgreSQL 17</text>
+<line x1="117" y1="324" x2="117" y2="346" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="0.9s" repeatCount="indefinite"/></line>
+<polygon points="117,349 111,339 123,339" fill="#ffa63d"/>
+<rect x="24" y="352" width="952" height="66" rx="16" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"/>
+<rect x="24" y="366" width="5" height="38" rx="2.5" fill="url(#accv)"/>
+<text x="52" y="391.0" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Altyapı</text>
+<rect x="230" y="370" width="73" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="385.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="389.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Docker</text>
+<rect x="313" y="370" width="129" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="327" cy="385.0" r="3.5" fill="url(#acc)"/>
+<text x="339" y="389.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Docker Compose</text>
+<rect x="452" y="370" width="293" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="466" cy="385.0" r="3.5" fill="url(#acc)"/>
+<text x="478" y="389.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >ENV profilleri (.env.dev / .env.prod)</text>
+<line x1="117" y1="420" x2="117" y2="442" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="0.9s" repeatCount="indefinite"/></line>
+<polygon points="117,445 111,435 123,435" fill="#ffa63d"/>
+<rect x="24" y="448" width="952" height="106" rx="16" fill="#141a2e" stroke="#2a3150" stroke-width="1.5"/>
+<rect x="24" y="462" width="5" height="78" rx="2.5" fill="url(#accv)"/>
+<text x="52" y="507.0" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >Test ve kalite</text>
+<rect x="230" y="466" width="66" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="481.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="485.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >JUnit</text>
+<rect x="306" y="466" width="129" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="320" cy="481.0" r="3.5" fill="url(#acc)"/>
+<text x="332" y="485.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Testcontainers</text>
+<rect x="445" y="466" width="73" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="459" cy="481.0" r="3.5" fill="url(#acc)"/>
+<text x="471" y="485.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >JaCoCo</text>
+<rect x="528" y="466" width="73" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="542" cy="481.0" r="3.5" fill="url(#acc)"/>
+<text x="554" y="485.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Vitest</text>
+<rect x="611" y="466" width="101" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="625" cy="481.0" r="3.5" fill="url(#acc)"/>
+<text x="637" y="485.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Playwright</text>
+<rect x="722" y="466" width="73" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="736" cy="481.0" r="3.5" fill="url(#acc)"/>
+<text x="748" y="485.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >ESLint</text>
+<rect x="230" y="506" width="200" height="30" rx="15" fill="#1e2542" stroke="#2a3150"/>
+<circle cx="244" cy="521.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="525.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >Pre-Push kalite kontrolü</text>
+<line x1="117" y1="556" x2="117" y2="578" stroke="#ffa63d" stroke-width="3" stroke-linecap="round" stroke-dasharray="3 9"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="0.9s" repeatCount="indefinite"/></line>
+<polygon points="117,581 111,571 123,571" fill="#ffa63d"/>
+<rect x="24" y="584" width="952" height="66" rx="16" fill="#141a2e" stroke="#2a3150" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="24" y="598" width="5" height="38" rx="2.5" fill="url(#accv)"/>
+<text x="52" y="623.0" font-size="19" font-weight="700" fill="#f8fafc" text-anchor="start" >İsteğe bağlı</text>
+<rect x="230" y="602" width="208" height="30" rx="15" fill="#1e2542" stroke="#2a3150" stroke-dasharray="4 4"/>
+<circle cx="244" cy="617.0" r="3.5" fill="url(#acc)"/>
+<text x="256" y="621.55" font-size="13" font-weight="400" fill="#cbd5e1" text-anchor="start" >SonarQube Community Build</text>
+</g>
+</svg>

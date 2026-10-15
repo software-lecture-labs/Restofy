@@ -1,0 +1,8 @@
+pre-push/*.sh text eol=lf
+pre-push/*.cmd text eol=crlf
+sonarqube/*.sh text eol=lf
+sonarqube/*.cmd text eol=crlf
+ops/*.sh text eol=lf
+ops/*.cmd text eol=crlf
+ops/*.ps1 text eol=crlf
+postgres/*.sh text eol=lf

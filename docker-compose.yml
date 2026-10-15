@@ -1,0 +1,315 @@
+
+name: ${COMPOSE_PROJECT_NAME:-restofy-dev}
+
+# ==========================================
+# SHARED MICROSERVICE CONFIGURATION
+# ==========================================
+
+x-service-base: &service-base
+  restart: unless-stopped
+  networks:
+    - restofy_network
+
+x-database-service-base: &database-service-base
+  <<: *service-base
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+x-runtime-env: &runtime-env
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:?}
+  BACKEND_INTERNAL_PORT: ${BACKEND_INTERNAL_PORT:-8080}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?}
+
+  JWT_ISSUER: ${JWT_ISSUER:-restofy-auth}
+  JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+  JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-604800}
+
+  REST_CLIENT_CONNECT_TIMEOUT_MS: ${REST_CLIENT_CONNECT_TIMEOUT_MS:-3000}
+  REST_CLIENT_READ_TIMEOUT_MS: ${REST_CLIENT_READ_TIMEOUT_MS:-5000}
+
+  AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?}
+  ORDER_SERVICE_URL: ${ORDER_SERVICE_URL:?}
+  KITCHEN_SERVICE_URL: ${KITCHEN_SERVICE_URL:?}
+  WAITER_SERVICE_URL: ${WAITER_SERVICE_URL:?}
+  MENU_SERVICE_URL: ${MENU_SERVICE_URL:?}
+  QR_SERVICE_URL: ${QR_SERVICE_URL:?}
+  PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:?}
+  NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:?}
+  ADMIN_SERVICE_URL: ${ADMIN_SERVICE_URL:?}
+  RATING_SERVICE_URL: ${RATING_SERVICE_URL:?}
+  MAIL_SERVICE_URL: ${MAIL_SERVICE_URL:?}
+  TIMER_SERVICE_URL: ${TIMER_SERVICE_URL:?}
+
+
+x-database-env: &database-env
+  <<: *runtime-env
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_USER: ${POSTGRES_USER:?}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+
+  # HIKARICP CONNECTION POOL
+  SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: ${DB_POOL_MAX_SIZE:-5}
+  SPRING_DATASOURCE_HIKARI_MINIMUMIDLE: ${DB_POOL_MIN_IDLE:-1}
+
+
+# ==========================================
+# SERVICES
+# ==========================================
+
+services:
+
+  # POSTGRESQL
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+
+      DB_ADMIN_NAME: ${DB_ADMIN_NAME:?}
+      DB_AUTH_NAME: ${DB_AUTH_NAME:?}
+      DB_KITCHEN_NAME: ${DB_KITCHEN_NAME:?}
+      DB_MAIL_NAME: ${DB_MAIL_NAME:?}
+      DB_MENU_NAME: ${DB_MENU_NAME:?}
+      DB_NOTIFICATION_NAME: ${DB_NOTIFICATION_NAME:?}
+      DB_ORDER_NAME: ${DB_ORDER_NAME:?}
+      DB_PAYMENT_NAME: ${DB_PAYMENT_NAME:?}
+      DB_QR_NAME: ${DB_QR_NAME:?}
+      DB_RATING_NAME: ${DB_RATING_NAME:?}
+      DB_TIMER_NAME: ${DB_TIMER_NAME:?}
+      DB_WAITER_NAME: ${DB_WAITER_NAME:?}
+
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5489}:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/01-init-databases.sh:ro
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        # Wait for TCP after initial database scripts finish, rather than the temporary init socket.
+        - pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+    networks:
+      - restofy_network
+
+  # API GATEWAY
+  api-gateway:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: backend/services/api-gateway/Dockerfile
+      args:
+        SERVICE_NAME: api-gateway
+    image: restofy/api-gateway:${APP_ENV:-dev}
+    environment:
+      <<: *runtime-env
+    ports:
+      - "127.0.0.1:${API_GATEWAY_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # AUTH SERVICE
+  auth-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/auth-service/Dockerfile
+      args:
+        SERVICE_NAME: auth-service
+    image: restofy/auth-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_AUTH_NAME: ${DB_AUTH_NAME:?}
+    ports:
+      - "127.0.0.1:${AUTH_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # ORDER SERVICE
+  order-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/order-service/Dockerfile
+      args:
+        SERVICE_NAME: order-service
+    image: restofy/order-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_ORDER_NAME: ${DB_ORDER_NAME:?}
+    ports:
+      - "127.0.0.1:${ORDER_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # KITCHEN SERVICE
+  kitchen-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/kitchen-service/Dockerfile
+      args:
+        SERVICE_NAME: kitchen-service
+    image: restofy/kitchen-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_KITCHEN_NAME: ${DB_KITCHEN_NAME:?}
+    ports:
+      - "127.0.0.1:${KITCHEN_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # WAITER SERVICE
+  waiter-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/waiter-service/Dockerfile
+      args:
+        SERVICE_NAME: waiter-service
+    image: restofy/waiter-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_WAITER_NAME: ${DB_WAITER_NAME:?}
+    ports:
+      - "127.0.0.1:${WAITER_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # MENU SERVICE
+  menu-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/menu-service/Dockerfile
+      args:
+        SERVICE_NAME: menu-service
+    image: restofy/menu-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_MENU_NAME: ${DB_MENU_NAME:?}
+    ports:
+      - "127.0.0.1:${MENU_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # QR SERVICE
+  qr-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/qr-service/Dockerfile
+      args:
+        SERVICE_NAME: qr-service
+    image: restofy/qr-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_QR_NAME: ${DB_QR_NAME:?}
+    ports:
+      - "127.0.0.1:${QR_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # PAYMENT SERVICE
+  payment-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/payment-service/Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    image: restofy/payment-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_PAYMENT_NAME: ${DB_PAYMENT_NAME:?}
+    ports:
+      - "127.0.0.1:${PAYMENT_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # NOTIFICATION SERVICE
+  notification-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/notification-service/Dockerfile
+      args:
+        SERVICE_NAME: notification-service
+    image: restofy/notification-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_NOTIFICATION_NAME: ${DB_NOTIFICATION_NAME:?}
+    ports:
+      - "127.0.0.1:${NOTIFICATION_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # ADMIN SERVICE
+  admin-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/admin-service/Dockerfile
+      args:
+        SERVICE_NAME: admin-service
+    image: restofy/admin-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_ADMIN_NAME: ${DB_ADMIN_NAME:?}
+    ports:
+      - "127.0.0.1:${ADMIN_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # RATING SERVICE
+  rating-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/rating-service/Dockerfile
+      args:
+        SERVICE_NAME: rating-service
+    image: restofy/rating-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_RATING_NAME: ${DB_RATING_NAME:?}
+    ports:
+      - "127.0.0.1:${RATING_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # MAIL SERVICE
+  mail-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/mail-service/Dockerfile
+      args:
+        SERVICE_NAME: mail-service
+    image: restofy/mail-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_MAIL_NAME: ${DB_MAIL_NAME:?}
+    ports:
+      - "127.0.0.1:${MAIL_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+  # TIMER SERVICE
+  timer-service:
+    <<: *database-service-base
+    build:
+      context: .
+      dockerfile: backend/services/timer-service/Dockerfile
+      args:
+        SERVICE_NAME: timer-service
+    image: restofy/timer-service:${APP_ENV:-dev}
+    environment:
+      <<: *database-env
+      DB_TIMER_NAME: ${DB_TIMER_NAME:?}
+    ports:
+      - "127.0.0.1:${TIMER_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
+
+# ==========================================
+# PERSISTENCE
+# ==========================================
+
+volumes:
+  postgres_data:
+
+# ==========================================
+# NETWORK
+# ==========================================
+
+networks:
+  restofy_network:
+    driver: bridge
