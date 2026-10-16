@@ -36,6 +36,31 @@ public final class PriceCalculator {
         return Math.addExact(basePriceGrossMinor, extrasUnitDeltaMinor);
     }
 
+    /**
+     * Order totals are the exact integer sums of the line amounts (never recomputed from a rounded total), so
+     * {@code net + vat == gross} holds for the order exactly as it does for each line.
+     *
+     * @throws IllegalArgumentException if a line has no tax split (an order may not be priced with unknown tax)
+     * @throws ArithmeticException      if a total does not fit into a long
+     */
+    public static OrderAmounts totalOf(java.util.List<LinePrice> lines) {
+        long net = 0L;
+        long vat = 0L;
+        long gross = 0L;
+        for (LinePrice line : lines) {
+            if (line.lineNetMinor() == null || line.lineVatMinor() == null) {
+                throw new IllegalArgumentException("every line needs a known tax split to total an order");
+            }
+            net = Math.addExact(net, line.lineNetMinor());
+            vat = Math.addExact(vat, line.lineVatMinor());
+            gross = Math.addExact(gross, line.lineGrossMinor());
+        }
+        if (net + vat != gross) {
+            throw new IllegalStateException("net + vat must equal gross");
+        }
+        return new OrderAmounts(net, vat, gross);
+    }
+
     static long netOfGross(long gross, int taxRateBps) {
         if (taxRateBps < 0) {
             throw new IllegalArgumentException("taxRateBps must not be negative");
@@ -44,6 +69,9 @@ public final class PriceCalculator {
         // gross >= 0, so floor((2*num + div) / (2*div)) is ROUND_HALF_UP(num / div).
         long numerator = Math.multiplyExact(gross, BPS_BASE);
         return Math.floorDiv(Math.addExact(Math.multiplyExact(numerator, 2L), divisor), 2L * divisor);
+    }
+
+    public record OrderAmounts(long netMinor, long vatMinor, long grossMinor) {
     }
 
     /** @param lineNetMinor and lineVatMinor are {@code null} when the tax rate is unknown */
