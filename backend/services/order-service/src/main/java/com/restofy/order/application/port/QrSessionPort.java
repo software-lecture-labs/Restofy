@@ -1,6 +1,7 @@
 package com.restofy.order.application.port;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Contract with the QR Service (session owner). The Order Service never creates or closes sessions.
@@ -16,4 +17,12 @@ public interface QrSessionPort {
      * including whether that session is still ACTIVE (not EXPIRED/CLOSED).
      */
     Optional<GuestSessionContext> validateGuestSession(String guestSessionToken);
+
+    /**
+     * Current state of the given main table session + guest session, asked again at the moment an order is
+     * placed. Empty means the QR Service does not know that (table session, guest session) pair, which must be
+     * treated as not active.
+     */
+    Optional<GuestSessionContext.SessionState> currentSessionState(UUID restaurantId, UUID tableSessionId,
+                                                                   UUID guestSessionId);
 }

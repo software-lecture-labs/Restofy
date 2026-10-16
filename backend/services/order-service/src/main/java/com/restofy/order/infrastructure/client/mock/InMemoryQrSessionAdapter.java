@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -32,6 +33,16 @@ public class InMemoryQrSessionAdapter implements QrSessionPort {
     @Override
     public Optional<GuestSessionContext> validateGuestSession(String guestSessionToken) {
         return Optional.ofNullable(guestSessionToken).map(sessions::get);
+    }
+
+    @Override
+    public Optional<SessionState> currentSessionState(UUID restaurantId, UUID tableSessionId, UUID guestSessionId) {
+        return sessions.values().stream()
+                .filter(context -> context.restaurantId().equals(restaurantId)
+                        && context.tableSessionId().equals(tableSessionId)
+                        && context.guestSessionId().equals(guestSessionId))
+                .map(GuestSessionContext::state)
+                .findFirst();
     }
 
     public void register(String token, GuestSessionContext context) {
