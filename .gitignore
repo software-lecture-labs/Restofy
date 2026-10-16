@@ -46,6 +46,9 @@
 **/.agent-cache/
 **/.ai-cache/
 
+# Local Waiter documentation
+/docs/waiter/**/*.md
+
 
 # ============================================================
 # 3. JAVA / SPRING BOOT / MAVEN
