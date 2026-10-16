@@ -23,7 +23,7 @@ public class StaffPasswordVerification {
     }
 
     /** Password proof only. This result is not an authenticated session or MFA proof. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = BadCredentialsException.class)
     public PasswordProof verify(String email, String password) {
         Optional<StaffUser> user;
         try {
@@ -36,9 +36,9 @@ public class StaffPasswordVerification {
             throw new BadCredentialsException("Invalid credentials");
         }
         StaffUser verified = user.get();
-        return new PasswordProof(verified.getId(), verified.getRole());
+        return new PasswordProof(verified.getId(), verified.getRole(), verified.getVersion());
     }
 
-    public record PasswordProof(UUID staffUserId, StaffRole role) {
+    public record PasswordProof(UUID staffUserId, StaffRole role, long version) {
     }
 }

@@ -28,8 +28,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = AuthSecurityTests.ProbeController.class)
-@Import({AuthSecurityConfiguration.class, AuthSecurityTests.MethodFixtures.class})
-class AuthSecurityTests {
+@Import({AuthSecurityConfiguration.class, AuthSecurityTests.MethodFixtures.class,
+        com.restofy.auth.infrastructure.config.AuthSettings.class, AuthCookies.class,
+        AuthCsrfTokens.class, StaffJwtTokens.class})
+class AuthSecurityTests extends com.restofy.auth.support.AuthSessionTestSupport {
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    private com.restofy.auth.application.service.StaffSessionService sessions;
     @Autowired private MockMvc mvc;
     @Autowired private RoleProbe roles;
     @Autowired private AuthenticationManager authenticationManager;
@@ -54,9 +58,9 @@ class AuthSecurityTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/login", "/api/v1/auth/login", "/api/v1/auth/token"})
+    @ValueSource(strings = {"/login", "/api/v1/auth/sessions", "/api/v1/auth/token"})
     void hasNoUsableLoginOrTokenPath(String path) throws Exception {
-        mvc.perform(post(path).with(csrf())).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).header("Origin", "http://localhost:5000").with(csrf())).andExpect(status().isUnauthorized());
     }
 
     @Test

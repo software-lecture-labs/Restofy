@@ -1,7 +1,7 @@
-# Auth Service — AUTH-01
+# Auth Service — AUTH-01 / AUTH-02
 
 AUTH-01; tek restoran kurulumu ve personel başına tek rol için personel/parola altyapısıdır.
-Kullanılabilir HTTP login, oturum veya MFA sağlamaz. ADMIN dahil tüm iş HTTP yolları kapalıdır.
+AUTH-02 aşağıdaki HTTP oturum sözleşmesini ekler. TOTP ve tam ADMIN girişi AUTH-03 kapsamındadır.
 Parola doğrulaması yalnız `PasswordProof` döndürür; `Authentication`, cookie veya token üretmez,
 SecurityContext'e kimlik yerleştirmez. Bu sonuç tam giriş/MFA kanıtı olarak kullanılamaz.
 
@@ -61,10 +61,10 @@ Başlangıç ADMIN'i MFA olmadan yönetim erişimi kazanmaz. MFA kurulumu AUTH-0
 ## Güvenlik sınırı
 
 Spring method security etkindir; roller hiyerarşik değildir. Henüz iş endpoint'i yoktur.
-Yalnız mevcut GET health/liveness/readiness yolları anonim açıktır; diğer tüm HTTP yolları
-ADMIN dahil reddedilir. Basic/form login kapalıdır, varsayılan Spring kullanıcısıyla
+GET health/liveness/readiness ve aşağıda belirtilen Auth yolları dışında HTTP yolları
+reddedilir. Basic/form login kapalıdır, varsayılan Spring kullanıcısıyla
 geçici giriş yoktur. Sunucu HTTP oturumu oluşturmaz veya mevcut oturum kimliğini yüklemez.
-CSRF varsayılan koruması açıktır. İstemci rol/kullanıcı/restoran header'ları işlenmez.
+CSRF koruması aşağıdaki imzalı cookie sözleşmesini kullanır. İstemci rol/kullanıcı/restoran header'ları işlenmez.
 Swagger ENV'si açık olsa bile bu aşamada dokümantasyon HTTP erişimi verilmez.
 
 Çok restoranlı dokümanlarla tek restoran hedefinin uyumu açık ekip kararıdır.
@@ -97,7 +97,7 @@ Geliştirme DB'si test hedefi değildir. PostgreSQL testlerini geçebilmek için
 kısıtını aşmadan bu komutları normal PowerShell'de çalıştırın. Testleri atlamak veya
 uygulama DB'sine yönlendirmek çözüm değildir.
 
-`AuthTestDatabaseInitializer`, DB kullanan iki Auth uygulama testinde context refresh'ten
+`AuthTestDatabaseInitializer`, DB kullanan bütün Auth uygulama testlerinde context refresh'ten
 önce çalışır; henüz datasource/Flyway bileşenleri oluşturulmadan yanlış ayarı reddeder.
 Yalnız `test` profili, yukarıdaki tam Testcontainers URL'si ve `ContainerDatabaseDriver`
 kabul edilir. Bağımsız Flyway bağlantısı, alternatif datasource/JNDI ve Hikari bağlantı
@@ -125,17 +125,100 @@ adımlar ayrıca raporlanır. SonarQube ayrı ve isteğe bağlıdır. Commit/pus
 
 ## Yerel geliştirme DB'sine uygulamadan önce
 
-Kullanıcının önceki kontrolüne göre yerel `restofy_auth` Flyway geçmişi boş ve
-`staff_users` yoktur. Bu bilgi her ortam için geçerli kabul edilmez.
+AŞAMA A salt okunur kontrolünde yerel `restofy_auth` üzerinde başarılı V1 ve
+`staff_users` görüldü; V2 henüz yoktu. Bu bilgi her ortam için geçerli kabul edilmez.
 Normal PowerShell'de önce aşağıdaki salt okunur kontrolü çalıştırın:
 
 ```powershell
 docker compose --env-file .env.dev exec -T postgres sh -c 'test "$DB_AUTH_NAME" = restofy_auth && psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$DB_AUTH_NAME" -c "SELECT current_database(); SELECT installed_rank,version,description,success FROM flyway_schema_history ORDER BY installed_rank; SELECT to_regclass(''public.staff_users'');"'
 ```
 
-Sonuçta hedef `restofy_auth` olmalı ve V1 henüz uygulanmamış olmalıdır. Uygulanacak
-değişiklik yalnız bu tabloda CREATE TABLE ve kısıtlardır; veri silmez. Auth'un kendi
+Sonuçta hedef `restofy_auth` olmalı ve V1 başarılı, V2 uygulanmamış olmalıdır. Uygulanacak
+V2 değişikliği iki session tablosunu ve kısıtlarını oluşturur; veri silmez. Auth'un kendi
 datasource hedefini de doğrulamadan servisi başlatmayın. Hedef doğrulandıktan ve
-testler geçtikten sonra yalnız Auth servisini build/yeniden oluşturmak Flyway V1'i
+testler geçtikten ve ayrıca açık uygulama onayı alındıktan sonra yalnız Auth servisini build/yeniden oluşturmak Flyway V2'yi
 uygular; bu README herhangi bir DB'ye migration uygulanmış olduğu iddiası değildir.
 `clean`, `repair`, `baseline`, veri/volume silme yapılmaz.
+
+## AUTH-02 sözleşmesi
+
+| Method / path | Yetki | Request / response |
+| --- | --- | --- |
+| GET `/api/v1/auth/csrf` | Anonim | `token` alanında yalnız CSRF değeri |
+| POST `/api/v1/auth/login` | Anonim + CSRF + izinli Origin | `email,password,deviceLabel?` / session özeti |
+| POST `/api/v1/auth/refresh` | Refresh cookie + CSRF + Origin | Gövde yok / session özeti |
+| POST `/api/v1/auth/logout` | Kendi credential'ı + CSRF + Origin | Gövde yok / 204; idempotent |
+| GET `/api/v1/auth/session` | Tam veya MFA_PENDING session | Session özeti |
+| POST `/api/v1/auth/activity` | Tam session + CSRF + Origin | Gövde yok / 204 |
+
+Session özeti yalnız `status,role,idleExpiresAt,absoluteExpiresAt` içerir.
+Kimlik tokenları JSON gövdesinde dönmez. Doğrulama 400, geçersiz kimlik 401, CSRF/yetki
+403, eşzamanlı sürüm çatışması 409, login limiti 429 (`Retry-After`) üretir.
+Hatalar hassas veri içermeyen `application/problem+json`; cevaplar `no-store` kullanır.
+
+Access JWT tek aktif RSA anahtarıyla RS256 imzalanır; `kid` ve anahtar halkası yoktur.
+Claim'ler: `sub,iss,aud,iat,nbf,exp,jti,role,sid,token_type,auth_state,restaurant_id`.
+Normal audience `restofy-staff-api`, pending audience `restofy-auth-mfa`.
+JJWT 0.13.0 builder/parser Clock sözleşmesi `java.util.Date` gerektirir. Zaman hesabı ve
+karşılaştırmalar `Instant` ve enjekte `Clock` ile yapılır; `Date` yalnız kütüphane
+sınırındaki dönüşümlerde kullanılır. Sonar'ın dosya düzeyindeki S2143 bulgusu bu zorunlu
+uyumluluk nedeniyle açık kalır; Sonar'da kabul kararı ayrıca onay gerektirir. Kural
+bastırma anotasyonu, profil değişikliği veya bulgu kapatma işlemi uygulanmaz.
+İmza/algoritma, issuer, audience, tür, zaman ve restoran doğrulanır; sonra Auth'un kendi
+DB'sinden kullanıcı aktifliği, rol ve session durumu kontrol edilir.
+Diğer servislerin JWT/session doğrulaması, introspection ve servis kimliği bu teslimde yoktur.
+Tek anahtarı değiştirmek mevcut access JWT'lerini geçersiz kılar; planlı rotasyon uygulanmadı.
+
+`restofy_access`: HttpOnly, Path=/api/v1, en fazla 900 sn.
+`restofy_refresh`: HttpOnly, Path=/api/v1/auth, session mutlak son tarihine kadar.
+`restofy_mfa`: HttpOnly, Path=/api/v1/auth, en fazla 300 sn; refresh üretilmez.
+`restofy_csrf`: JS okunabilir, Path=/api/v1, 900 sn. Bütün cookie'ler host-only,
+SameSite=Lax; production'da Secure zorunludur. Cookie'ler portla ayrılmaz.
+Logout sunucu iptaliyle birlikte aynı path'lerde cookie temizler.
+
+CSRF, rastgele nonce + son tarih + HMAC içerir; refresh veya pending credential digest'ine
+bağlanır. Giriş öncesi anonim bağlam kullanılır. POST isteklerinde `Origin` tam allowlist
+eşleşmesi ve cookie ile aynı `X-CSRF-TOKEN` gerekir. Login ve refresh CSRF cookie'sini de
+yeniler. UI sayfası `/api/v1` dışında olduğunda dar path'li CSRF cookie'si
+`document.cookie` ile okunamaz; istemci ilk login öncesinde ve her başarılı login/refresh
+sonrasında GET `/api/v1/auth/csrf` yanıtındaki yeni değeri alır ve sonraki POST'ta
+`X-CSRF-TOKEN` olarak gönderir. Cross-origin fetch çağrıları `credentials: include`
+kullanır. CSRF GET'i etkinlik sayılmaz; kimlik tokenları JavaScript'e açılmaz.
+İzinli origin'lerde credential CORS açıktır; GET/POST/OPTIONS ve Content-Type/X-CSRF-TOKEN
+dışında izin eklenmez. Farklı site deployment'ı ayrıca tasarlanmalıdır.
+
+Her login ayrı session açar. Refresh 32 rastgele bayttan üretilir; DB yalnız SHA-256
+digest saklar. Tek kullanım/rotation kullanıcı satırı kilidi altında atomiktir.
+Reuse ilgili session ve bütün refresh geçmişini iptal eder; diğer cihazlar etkilenmez.
+İki sekmenin eşzamanlı refresh'i de reuse sayılabilir; frontend sekmeler arası koordinasyon
+sağlamalıdır. Ağda kaybolan rotation cevabı sonrası tekrar giriş gerekebilir.
+
+Session mutlak üst sınırı 604800 sn'dir; refresh bunu uzatmaz. Idle ADMIN/WAITER 900 sn,
+KITCHEN 3600 sn. Pending ADMIN ayrıca 300 sn mutlak sınırla ve iş authority'si olmadan
+kısıtlanır. Yalnız başarılı `/activity`, sunucu saatiyle last_activity_at günceller;
+session okuma, polling, heartbeat ve refresh güncellemez. Frontend activity'yi yalnız
+kullanıcı etkileşiminde göndermelidir; sunucu insan etkileşimini kriptografik kanıtlayamaz.
+`StaffSessionService.deactivate` kullanıcı ve bütün session'ları aynı transaction'da
+kapatır. Doğrudan pasifleştirme de sonraki Auth kontrolünde erişimi reddeder ve iptali tamamlar.
+
+Login limiti normalize hesap başına 15 dakikada 10 denemedir; başarılı denemeler de sayılır.
+En fazla 10000 hesap penceresi tutulur; kapasite dolunca yeni hesaplar 429 alır.
+Bu limit yalnız tek süreç içindir; yeniden başlatmada sıfırlanır. IP/Gateway/distributed
+rate limit ve refresh rate limit bu kapsamda uygulanmadı.
+
+## AUTH-02 zorunlu ayarlar ve işletim sınırı
+
+Yeni ENV değerleri `AUTH_RESTAURANT_ID`, `AUTH_JWT_PRIVATE_KEY`, `AUTH_CSRF_SECRET`,
+`AUTH_COOKIE_SECURE` olarak application.properties üzerinden varsayılansız beklenir.
+RSA anahtarı Base64 PKCS#8, en az 2048 bit; CSRF sırrı ayrı Base64, en az 32 rastgele bayt
+olmalıdır. Gerçek değerler dosyalara/loga/sohbete yazılmaz. Issuer ve CORS allowlist boş
+olamaz; mevcut TTL anahtarları bu sözleşmede 900/604800 olmalıdır.
+Secure=false yalnız salt dev/local/test profillerinde kabul edilir; production origin'leri
+HTTPS olmalıdır. Eksik/geçersiz ayarlar uygulamanın başlamasını durdurur.
+
+Kök `.env.example` ve Compose bu görevde değiştirilmedi. Alper onayından sonra yeni dört
+anahtarın şablonu ve yalnız Auth container'ına aktarımı hazırlanmalıdır; mevcut container
+henüz bu kodun çalıştığını kanıtlamaz. Testler kendi JVM-içi anahtarlarını üretir.
+V2 yalnız `user_sessions` ve `refresh_tokens` ekler. Canlı V2 uygulaması/rebuild ayrı onay
+gerektirir; bu teslim bu işlemlere izin vermez. Audit tablosu, session listesi/silme API'si,
+MFA doğrulaması ve frontend ekranları kapsam dışındadır.

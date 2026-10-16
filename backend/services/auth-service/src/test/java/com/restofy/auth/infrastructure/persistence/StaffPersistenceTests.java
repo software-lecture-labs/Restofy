@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Uses only the Maven test profile's disposable jdbc:tc PostgreSQL database. */
 @SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
 @ContextConfiguration(initializers = AuthTestDatabaseInitializer.class)
-class StaffPersistenceTests {
+class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupport {
     private static final String TEST_PASSWORD = "Test-only-password-01";
     @Autowired private StaffUserRepository users;
     @Autowired private StaffBootstrapService bootstrap;
@@ -54,6 +54,8 @@ class StaffPersistenceTests {
         String database = jdbc.queryForObject("SELECT current_database()", String.class);
         assertThat(url).contains("jdbc:postgresql:");
         assertThat(database).isEqualTo("restofy_test");
+        jdbc.update("DELETE FROM refresh_tokens");
+        jdbc.update("DELETE FROM user_sessions");
         users.deleteAll();
         hash = passwords.hash(TEST_PASSWORD);
     }
@@ -61,7 +63,8 @@ class StaffPersistenceTests {
     @Test
     void flywayAppliesV1AndHibernateValidatesStaffSchema() {
         flyway.validate();
-        assertThat(flyway.info().applied()).hasSize(1);
+        assertThat(flyway.info().applied()).hasSize(2);
+        assertThat(flyway.info().applied()[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(flyway.info().applied()[0].getVersion().getVersion()).isEqualTo("1");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))
                 .isEqualTo(8);
