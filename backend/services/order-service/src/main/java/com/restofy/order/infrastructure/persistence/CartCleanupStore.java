@@ -23,7 +23,8 @@ public class CartCleanupStore {
 
     /**
      * Deletes up to {@code batchSize} EXPIRED carts last updated before {@code olderThan}; their items and options go
-     * with them (ON DELETE CASCADE). Only EXPIRED carts are ever deleted.
+     * with them (ON DELETE CASCADE). The NOT EXISTS guard is defense in depth: a cart that already produced an order
+     * is never deleted, whatever its status says.
      *
      * @return the number of deleted carts
      */
@@ -33,6 +34,7 @@ public class CartCleanupStore {
                 DELETE FROM carts WHERE id IN (
                     SELECT c.id FROM carts c
                     WHERE c.status = 'EXPIRED' AND c.updated_at < ?
+                      AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.restaurant_id = c.restaurant_id AND o.cart_id = c.id)
                     ORDER BY c.updated_at
                     LIMIT ?
                     FOR UPDATE OF c SKIP LOCKED)

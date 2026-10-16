@@ -157,6 +157,19 @@ class CartIdempotencyApiTests extends AbstractCartApiTest {
     }
 
     @Test
+    void aRetryForACartThatWasOrderedIsNotAnsweredWithAnotherCart() throws Exception {
+        String key = newKey();
+        addWithKey(A1, key, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
+        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isCreated());
+
+        addWithKey(A1, key, product(DevFixtures.SALAD, 1))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        getCart(A1).andExpect(jsonPath("$.items.length()").value(0));
+        assertEquals(1, count("orders"));
+    }
+
+    @Test
     void aRetryAfterTheCartWasClearedDoesNotAddAgain() throws Exception {
         String key = newKey();
         addWithKey(A1, key, product(DevFixtures.BURGER, 2)).andExpect(status().isOk());

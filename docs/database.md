@@ -27,7 +27,7 @@ Gerçek DB adları ENV değerleridir; bu belgede sabit ad kabul edilmez. Compose
 - **Yerel FK:** Aynı DB içindedir. Tenant taşıyan ebeveynde `UNIQUE(restaurant_id,id)` ve çocukta bileşik `(restaurant_id,parent_id)` FK önerilir. UUID tekilliği tenant karışmasını tek başına engellemez.
 - **Mantıksal REF:** Başka servisin DB'sine FK/JOIN kurulmaz. UUID, yetkili API/olay + snapshot ile doğrulanır. Aşağıda REF bu anlama gelir.
 - **Zaman:** `timestamptz`; API UTC anı, rapor restoran saat dilimiyle. `date` yalnız rapor iş günü gibi takvim kavramları için.
-- **Para:** `numeric(19,4)` + `currency char(3)` önerisi; gösterim/tahsilat ölçeği ve vergi yuvarlaması D-08'de kesinleşir. `float/double` kullanılmaz. Oran `numeric(7,4)` ve `0..100`.
+- **Para:** `numeric(19,4)` + `currency char(3)` önerisi; gösterim/tahsilat ölçeği ve vergi yuvarlaması D-08'de kesinleşir. `float/double` kullanılmaz. Oran `numeric(7,4)` ve `0..100`. **İstisna — Order DB:** Order Service parasal tutarları `bigint` en küçük para birimi (TRY için kuruş) olarak tutar ve KDV oranını `integer` baz puan (bps) olarak saklar; bkz. §7 notu ve `docs/order-service/DECISIONS.md` (D-08). Diğer servislerin şemalarını bu karar etkilemez.
 - **Adet:** V1 ürün/fire adetleri pozitif integer. Gramaj `numeric(12,3)` olabilir; miktar stoğu izlenmez.
 - **Durum:** Kontrollü `varchar` + CHECK veya eşdeğer uygulama/DB kısıtı. Native enum zorunlu değildir. `version bigint NOT NULL DEFAULT 0` eşzamanlı güncelleme için.
 - **İzleme:** İş kayıtlarına `created_at`, değişebilir kayıtlara `updated_at`, kritik geçişlere aktör REF'i eklenir. Bu ortak alanlar aşağıda her tabloda tekrarlanmamıştır.
@@ -156,6 +156,8 @@ AVAILABLE/OUT_OF_STOCK/TEMPORARILY_CLOSED. Kapalı durumlarda neden zorunlu; her
 `UNIQUE(restaurant_id,command_id)` tekrar kapatma komutunu tekilleştirir. Ürün yayın pasifliğiyle mutfak kapanışı farklı kavramlardır. Geçerli müşteri görünürlüğü kategori/yayın + availability koşullarından türetilir.
 
 ## 7. Order DB — sepet, sipariş ve iptal
+
+> **Uygulama notu (Order Service, Flyway V41–V44):** Bu bölümdeki tablolardan sepet, sipariş, kalem, seçenek, `order_number_counters`, `idempotency_records` ve `outbox_*` tabloları **uygulandı**; iptal tabloları ve `order_status_history` henüz yok. Aşağıdaki öneriden **bilinçli sapmalar**: (1) tüm tutarlar `bigint` minor birimdir (`numeric(19,4)` önerisi Order DB için geçersiz; D-08), KDV oranı `integer` bps; (2) tek `status`/`service_status` yerine ayrı `fulfillment_status` ve `payment_status`; (3) sütun adı `order_no` (`order_number` değil), `cart_id` ve `line_no` eklendi, `admission_id` yok (QR fencing henüz yok); (4) sepet seçenekleri `jsonb` yerine `cart_item_options` tablosunda. Gerçek şema için migration dosyaları esastır; aşağıdaki liste tasarım önerisidir.
 
 ### `carts` / `cart_items`
 

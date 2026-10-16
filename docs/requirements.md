@@ -179,7 +179,7 @@ Kaynak Word'deki teknik maddeler öneridir; repository'deki `docs/SECURITY.md` u
 - **D-05 / Ürün + Admin + Auth:** Garson login/mesai ile sipariş açılması; son garson logout davranışı ve admin OFF önceliği.
 - **D-06 / Kitchen UX:** Yeni gelen üstte / en eski bekleyen önce ayrımı ve gecikme etiketi eşiği.
 - **D-07 / Timer + operasyon:** Ağ cihazı/API, cihaz eşleme, izin gereksinimleri, süre yenileme ve kesme başarısızlığının telafisi.
-- **D-08 / Ödeme:** Yemek kartı, bahşiş, bölüşme ve vergi/yuvarlama kapsamı; ülke bazlı kurallar bu analizde hukuken doğrulanmamıştır.
+- **D-08 / Ödeme:** Yemek kartı, bahşiş, bölüşme ve vergi/yuvarlama kapsamı; ülke bazlı kurallar bu analizde hukuken doğrulanmamıştır. *Kısmi karar (Order Service, yalnız saklama biçimi):* Order DB parasal tutarları `bigint` minor birim, KDV oranını bps olarak tutar; fiyatlar KDV dahil brüttür ve KDV/net satır başına ROUND_HALF_UP ile ayrıştırılır. Yemek kartı, bahşiş, bölüşme ve ülke kuralları **açık kalır**. Ayrıntı: `docs/order-service/DECISIONS.md`.
 - **D-09 / Mimari + Auth:** Kullanıcı kimlik yöntemi, cookie/JWT, CSRF, TOTP ve servis kimliği sözleşmesi.
 - **D-10 / Mimari:** Olay aktarımı için ilk etap outbox + iç HTTP mi, broker mı? Broker repository'de bulunmuyor.
 - **D-11 / Veri + operasyon:** Saklama, anonimleştirme, yedek, RPO/RTO ve hacim hedefleri.

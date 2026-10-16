@@ -1,0 +1,324 @@
+package com.restofy.order.application.service;
+
+import com.restofy.order.api.dto.request.CheckoutRequest;
+import com.restofy.order.api.dto.response.OrderResponse;
+import com.restofy.order.application.mapper.CartMapper;
+import com.restofy.order.application.mapper.OrderMapper;
+import com.restofy.order.application.port.GuestSessionContext;
+import com.restofy.order.application.port.GuestSessionContext.SessionState;
+import com.restofy.order.application.port.MenuCatalogPort;
+import com.restofy.order.application.port.ProductSnapshot;
+import com.restofy.order.application.port.QrSessionPort;
+import com.restofy.order.application.service.CartLinePricer.Evaluation;
+import com.restofy.order.application.service.CartLinePricer.PricedLine;
+import com.restofy.order.application.service.CartLinePricer.PricedOption;
+import com.restofy.order.domain.entity.Cart;
+import com.restofy.order.domain.entity.CartItem;
+import com.restofy.order.domain.entity.Order;
+import com.restofy.order.domain.entity.OrderItem;
+import com.restofy.order.domain.entity.OrderItemOption;
+import com.restofy.order.domain.event.EventDestination;
+import com.restofy.order.domain.event.OrderPlacedEvent;
+import com.restofy.order.domain.exception.BusinessException;
+import com.restofy.order.domain.exception.ErrorCode;
+import com.restofy.order.domain.pricing.PriceCalculator;
+import com.restofy.order.domain.pricing.PriceCalculator.OrderAmounts;
+import com.restofy.order.infrastructure.config.CorrelationIdFilter;
+import com.restofy.order.infrastructure.config.IdempotencyProperties;
+import com.restofy.order.infrastructure.messaging.OutboxEventWriter;
+import com.restofy.order.infrastructure.persistence.IdempotencyStore;
+import com.restofy.order.infrastructure.persistence.OrderNumberGenerator;
+import com.restofy.order.infrastructure.persistence.repository.CartRepository;
+import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+/**
+ * Turns the guest's cart into an order, atomically and at most once.
+ *
+ * <p>Flow: validate the idempotency key and replay a finished request; check session, cart, catalog, tax and the
+ * client's confirmed total WITHOUT any DB lock (remote calls happen here); re-check the QR session; then one
+ * short transaction claims the idempotency key, locks the cart, allocates the order number, writes the order
+ * snapshot, marks the cart CHECKED_OUT and records the OrderPlaced outbox event. Any failure rolls all of it back.
+ */
+@Slf4j
+@Service
+public class OrderCheckoutService {
+
+    static final String OPERATION = "CREATE_ORDER";
+    private static final Pattern KEY_FORMAT = Pattern.compile("[A-Za-z0-9._:-]{8,120}");
+    private static final int CREATED = 201;
+
+    public record CheckoutResult(OrderResponse order, boolean replayed) {
+    }
+
+    private record PricedItem(CartItem item, PricedLine line) {
+    }
+
+    private record Prepared(List<PricedItem> items, OrderAmounts amounts, Map<UUID, ProductSnapshot> catalog) {
+    }
+
+    private final CartRepository carts;
+    private final OrderRepository orders;
+    private final MenuCatalogPort catalog;
+    private final QrSessionPort qrSessions;
+    private final CartLinePricer pricer;
+    private final CartMapper cartMapper;
+    private final OrderMapper orderMapper;
+    private final IdempotencyStore idempotency;
+    private final OrderNumberGenerator orderNumbers;
+    private final OutboxEventWriter outbox;
+    private final IdempotencyProperties retention;
+    private final Clock clock;
+    private final TransactionTemplate writeTx;
+    private final TransactionTemplate readTx;
+
+    public OrderCheckoutService(CartRepository carts, OrderRepository orders, MenuCatalogPort catalog,
+                                QrSessionPort qrSessions, CartLinePricer pricer, CartMapper cartMapper,
+                                OrderMapper orderMapper, IdempotencyStore idempotency,
+                                OrderNumberGenerator orderNumbers, OutboxEventWriter outbox,
+                                IdempotencyProperties retention, Clock clock,
+                                PlatformTransactionManager txManager) {
+        this.carts = carts;
+        this.orders = orders;
+        this.catalog = catalog;
+        this.qrSessions = qrSessions;
+        this.pricer = pricer;
+        this.cartMapper = cartMapper;
+        this.orderMapper = orderMapper;
+        this.idempotency = idempotency;
+        this.orderNumbers = orderNumbers;
+        this.outbox = outbox;
+        this.retention = retention;
+        this.clock = clock;
+        this.writeTx = new TransactionTemplate(txManager);
+        this.readTx = new TransactionTemplate(txManager);
+        this.readTx.setReadOnly(true);
+    }
+
+    public CheckoutResult checkout(GuestSessionContext guest, String idempotencyKey, CheckoutRequest request) {
+        String key = requireValidKey(idempotencyKey);
+        String note = CartSelectionResolver.normalizeNote(request.note());
+        String digest = digest(request, note);
+        String actor = "guest:" + guest.guestSessionId();
+
+        // A retry is answered only to a guest whose session is still active; a closed or expired session gets
+        // nothing back (the order is then read through the order read API with its own authorization).
+        requireActiveSession(guest.isActive());
+        // A finished request is replayed even if the cart has changed since.
+        Optional<IdempotencyStore.Record> previous = idempotency.find(guest.restaurantId(), actor, OPERATION, key);
+        if (previous.isPresent()) {
+            return replay(guest, previous.get(), digest);
+        }
+
+        Cart cart = readTx.execute(status -> carts.findActiveWithItems(guest.restaurantId(), guest.guestSessionId()))
+                .orElseThrow(() -> new BusinessException(ErrorCode.CART_EMPTY, "The cart is empty"));
+        if (cart.getItems().isEmpty()) {
+            throw new BusinessException(ErrorCode.CART_EMPTY, "The cart is empty");
+        }
+        if (cart.getVersion() != request.expectedCartVersion()) {
+            throw new BusinessException(ErrorCode.CART_VERSION_CONFLICT,
+                    "The cart was changed in the meantime; reload it and try again",
+                    Map.of("currentVersion", cart.getVersion()));
+        }
+
+        Prepared prepared = price(guest, cart);
+        // Reconcile per line, not only the total: two prices that move in opposite directions keep the total equal
+        // but are still a change the guest has not seen. Any component difference (unit price, extras, VAT rate,
+        // price version) or a different total means the guest must look at the cart again.
+        List<PricedItem> changed = prepared.items().stream()
+                .filter(p -> pricer.differsFromSnapshot(p.item(), p.line())).toList();
+        if (!changed.isEmpty() || prepared.amounts().grossMinor() != request.expectedTotalMinor()) {
+            throw priceChanged(guest, cart, request, prepared, changed);
+        }
+
+        // Re-ask the QR Service at the moment of ordering; the session may have closed since the request began.
+        SessionState state = qrSessions.currentSessionState(guest.restaurantId(), guest.tableSessionId(),
+                guest.guestSessionId()).orElse(SessionState.CLOSED);
+        requireActiveSession(state == SessionState.ACTIVE);
+
+        UUID orderId = UUID.randomUUID();
+        String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
+        Order placed = writeTx.execute(status -> place(guest, key, digest, actor, orderId, request, note, prepared,
+                correlationId));
+        if (placed == null) {
+            // A concurrent request with the same key committed first.
+            IdempotencyStore.Record winner = idempotency.find(guest.restaurantId(), actor, OPERATION, key)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT,
+                            "The request conflicts with the current state, please retry"));
+            return replay(guest, winner, digest);
+        }
+        log.info("Order placed: orderNo={} orderId={} restaurantId={} tableSessionId={}", placed.getOrderNo(),
+                placed.getId(), placed.getRestaurantId(), placed.getTableSessionId());
+        return new CheckoutResult(orderMapper.toResponse(placed), false);
+    }
+
+    /** Prices every line from the live catalog; nothing is ordered unless every line is priced with a known tax. */
+    private Prepared price(GuestSessionContext guest, Cart cart) {
+        Set<UUID> productIds = cart.getItems().stream().map(CartItem::getProductId).collect(Collectors.toSet());
+        Map<UUID, ProductSnapshot> products = catalog.findProducts(guest.restaurantId(), productIds);
+        List<PricedItem> items = new ArrayList<>();
+        for (CartItem item : cart.getItems().stream()
+                .sorted(Comparator.comparing(CartItem::getCreatedAt).thenComparing(CartItem::getId)).toList()) {
+            Evaluation evaluation = pricer.evaluate(cart.getCurrency(), item, products.get(item.getProductId()));
+            if (evaluation.line() == null) {
+                throw new BusinessException(evaluation.failure(), evaluation.reason(),
+                        Map.of("productId", item.getProductId()));
+            }
+            if (evaluation.line().price().lineNetMinor() == null) {
+                throw new BusinessException(ErrorCode.TAX_DATA_MISSING,
+                        "The tax rate of a product is unknown, so it cannot be ordered right now",
+                        Map.of("productId", item.getProductId()));
+            }
+            items.add(new PricedItem(item, evaluation.line()));
+        }
+        try {
+            OrderAmounts amounts = PriceCalculator.totalOf(items.stream().map(i -> i.line().price()).toList());
+            return new Prepared(items, amounts, products);
+        } catch (ArithmeticException overflow) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "The order amount exceeds the allowed limit");
+        }
+    }
+
+    /** Runs inside the write transaction. Returns null when the idempotency key was already claimed. */
+    private Order place(GuestSessionContext guest, String key, String digest, String actor, UUID orderId,
+                        CheckoutRequest request, String note, Prepared prepared, String correlationId) {
+        // PostgreSQL stores microseconds; truncating here keeps the first response identical to every replay.
+        Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        if (!idempotency.tryClaim(guest.restaurantId(), actor, OPERATION, key, digest, orderId, CREATED, now,
+                now.plus(retention.checkoutRetention()))) {
+            return null;
+        }
+        Cart cart = carts.findActiveForUpdate(guest.restaurantId(), guest.guestSessionId()).orElseThrow(() ->
+                new BusinessException(ErrorCode.CART_ALREADY_CHECKED_OUT, "This cart has already been ordered"));
+        if (cart.getVersion() != request.expectedCartVersion()) {
+            throw new BusinessException(ErrorCode.CART_VERSION_CONFLICT,
+                    "The cart was changed in the meantime; reload it and try again",
+                    Map.of("currentVersion", cart.getVersion()));
+        }
+
+        // Last step before the inserts: allocating the number takes the per-restaurant counter lock.
+        String orderNo = orderNumbers.next(guest.restaurantId());
+        OrderAmounts amounts = prepared.amounts();
+        Order order = new Order(orderId, orderNo, guest.restaurantId(), cart.getId(), guest.tableId(),
+                guest.tableSessionId(), guest.guestSessionId(), cart.getCurrency(), amounts.netMinor(),
+                amounts.vatMinor(), amounts.grossMinor(), note, now);
+        int lineNo = 0;
+        for (PricedItem priced : prepared.items()) {
+            var price = priced.line().price();
+            OrderItem line = new OrderItem(order, ++lineNo, priced.item().getProductId(), priced.line().product().name(),
+                    priced.item().getQuantity(), cart.getCurrency(), price.unitGrossMinor(),
+                    priced.line().product().taxRateBps(), price.lineGrossMinor(), price.lineNetMinor(),
+                    price.lineVatMinor(), priced.line().product().priceVersion(), priced.item().getNote(), now);
+            for (PricedOption option : priced.line().options()) {
+                line.addOption(new OrderItemOption(line, option.optionId(), option.action(), option.quantity(),
+                        option.name(), option.unitPriceDeltaMinor()));
+            }
+            order.addItem(line);
+        }
+        cart.checkOut(now);
+        orders.saveAndFlush(order);
+
+        UUID eventId = UUID.randomUUID();
+        OrderPlacedEvent event = orderMapper.toPlacedEvent(order, eventId, correlationId, now);
+        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), event.eventType(),
+                event.schemaVersion(), correlationId, event, now, List.of(EventDestination.KITCHEN,
+                        EventDestination.QR, EventDestination.NOTIFICATION, EventDestination.WAITER));
+        return order;
+    }
+
+    /**
+     * Builds the PRICE_CHANGED rejection. When lines really changed, the cart's stored line prices are brought up to
+     * the live catalog in one small transaction (which advances the cart version) so the guest's next look at the cart
+     * is consistent and confirming it succeeds. The response summary is built BEFORE that refresh, so it still marks
+     * the lines that changed. Nothing is refreshed for a mere wrong total.
+     */
+    private BusinessException priceChanged(GuestSessionContext guest, Cart cart, CheckoutRequest request,
+                                           Prepared prepared, List<PricedItem> changed) {
+        var summary = cartMapper.toResponse(guest, Optional.of(cart), prepared.catalog());
+        long currentVersion = cart.getVersion();
+        if (!changed.isEmpty()) {
+            writeTx.executeWithoutResult(status -> {
+                Cart locked = carts.findActiveForUpdate(guest.restaurantId(), guest.guestSessionId()).orElseThrow(() ->
+                        new BusinessException(ErrorCode.CART_ALREADY_CHECKED_OUT, "This cart has already been ordered"));
+                if (locked.getVersion() != request.expectedCartVersion()) {
+                    throw new BusinessException(ErrorCode.CART_VERSION_CONFLICT,
+                            "The cart was changed in the meantime; reload it and try again",
+                            Map.of("currentVersion", locked.getVersion()));
+                }
+                Instant now = clock.instant();
+                for (PricedItem priced : changed) {
+                    locked.findItem(priced.item().getId()).ifPresent(item -> {
+                        item.refreshSnapshot(priced.line().product().name(), priced.line().price().unitGrossMinor(),
+                                priced.line().product().taxRateBps(), priced.line().product().priceVersion(), now);
+                        item.refreshOptionPrices(priced.line().options().stream().collect(Collectors.toMap(
+                                PricedOption::optionId, PricedOption::unitPriceDeltaMinor)));
+                    });
+                }
+                locked.touch(now);
+            });
+            currentVersion = readTx.execute(status -> carts.findActiveWithItems(guest.restaurantId(),
+                    guest.guestSessionId())).map(Cart::getVersion).orElse(currentVersion);
+        }
+        return new BusinessException(ErrorCode.PRICE_CHANGED,
+                "The prices changed since you reviewed the cart; please review it and confirm again",
+                Map.of("currentTotalMinor", prepared.amounts().grossMinor(), "currentCartVersion", currentVersion,
+                        "changedLines", changed.stream().map(p -> p.item().getId()).toList(), "cart", summary));
+    }
+
+    private CheckoutResult replay(GuestSessionContext guest, IdempotencyStore.Record previous, String digest) {
+        if (!previous.requestDigest().equals(digest)) {
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
+                    "This Idempotency-Key was already used with a different request");
+        }
+        Order order = readTx.execute(status -> orders.findByIdAndRestaurantId(previous.resourceId(),
+                guest.restaurantId())).orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT,
+                "The request conflicts with the current state, please retry"));
+        return new CheckoutResult(orderMapper.toResponse(order), true);
+    }
+
+    private static void requireActiveSession(boolean active) {
+        if (!active) {
+            throw new BusinessException(ErrorCode.TABLE_SESSION_NOT_ACTIVE,
+                    "The table session is no longer active; an order cannot be placed");
+        }
+    }
+
+    private static String requireValidKey(String key) {
+        if (key == null || !KEY_FORMAT.matcher(key).matches()) {
+            throw new BusinessException(ErrorCode.INVALID_IDEMPOTENCY_KEY,
+                    "An Idempotency-Key header of 8-120 characters (letters, digits, . _ : -) is required");
+        }
+        return key;
+    }
+
+    private static String digest(CheckoutRequest request, String note) {
+        String canonical = "v1|" + request.expectedCartVersion() + "|" + request.expectedTotalMinor() + "|"
+                + (note == null ? "" : note);
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is required by the JVM specification", e);
+        }
+    }
+}

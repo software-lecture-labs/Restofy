@@ -90,6 +90,12 @@ public class Cart {
         items.clear();
     }
 
+    /** Marks the cart as turned into an order; it can never be changed or checked out again. */
+    public void checkOut(Instant now) {
+        this.status = CartStatus.CHECKED_OUT;
+        touch(now);
+    }
+
     public void useCurrency(String currency) {
         this.currency = currency;
     }

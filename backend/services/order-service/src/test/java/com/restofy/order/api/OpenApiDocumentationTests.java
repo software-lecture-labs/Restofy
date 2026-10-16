@@ -1,0 +1,70 @@
+package com.restofy.order.api;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** The OpenAPI document (enabled only for this test) is the machine-readable API contract of the service. */
+@SpringBootTest(properties = {"springdoc.api-docs.enabled=true"})
+@AutoConfigureMockMvc
+class OpenApiDocumentationTests {
+
+    @Autowired
+    private MockMvc mvc;
+    @Autowired
+    private JsonMapper json;
+
+    private JsonNode document() throws Exception {
+        return json.readTree(mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString());
+    }
+
+    @Test
+    void documentsEveryImplementedEndpointWithItsSecurityScheme() throws Exception {
+        JsonNode paths = document().path("paths");
+        assertTrue(paths.has("/api/v1/carts/current"));
+        assertTrue(paths.has("/api/v1/carts/current/items"));
+        assertTrue(paths.has("/api/v1/carts/current/items/{cartItemId}"));
+        assertTrue(paths.has("/api/v1/orders"));
+        // GET current; POST + DELETE items; PATCH + DELETE item
+        assertEquals(5, paths.path("/api/v1/carts/current").size() + paths.path("/api/v1/carts/current/items").size()
+                + paths.path("/api/v1/carts/current/items/{cartItemId}").size());
+
+        JsonNode scheme = document().path("components").path("securitySchemes").path("guestSession");
+        assertEquals("http", scheme.path("type").asString());
+        assertEquals("bearer", scheme.path("scheme").asString());
+    }
+
+    @Test
+    void orderPlacementDocumentsTheIdempotencyKeyAndTheErrorResponses() throws Exception {
+        JsonNode post = document().path("paths").path("/api/v1/orders").path("post");
+        boolean keyIsRequiredHeader = false;
+        for (JsonNode parameter : post.path("parameters")) {
+            if ("Idempotency-Key".equals(parameter.path("name").asString())) {
+                keyIsRequiredHeader = "header".equals(parameter.path("in").asString())
+                        && parameter.path("required").asBoolean();
+            }
+        }
+        assertTrue(keyIsRequiredHeader, "Idempotency-Key must be documented as a required header");
+        for (String code : new String[]{"201", "400", "401", "409", "422", "503"}) {
+            assertTrue(post.path("responses").has(code), "response " + code + " must be documented");
+        }
+        assertTrue(post.path("security").toString().contains("guestSession"));
+    }
+
+    @Test
+    void theDocumentExposesNoInternalOrderPathsThatDoNotExistYet() throws Exception {
+        JsonNode paths = document().path("paths");
+        assertTrue(!paths.has("/api/v1/orders/{orderId}"), "order reading is not implemented yet");
+        assertTrue(!paths.has("/api/v1/internal/order-events/kitchen"));
+    }
+}

@@ -48,9 +48,26 @@ abstract class AbstractCartApiTest {
     void resetState() {
         qr.reset();
         menu.reset();
-        for (String table : new String[]{"idempotency_records", "carts"}) {
+        for (String table : new String[]{"outbox_deliveries", "outbox_events", "idempotency_records",
+                "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);
         }
+    }
+
+    protected ResultActions placeOrder(String token, String idempotencyKey, Object body) throws Exception {
+        var request = authorized(post("/api/v1/orders"), token)
+                .contentType(MediaType.APPLICATION_JSON).content(toJson(body));
+        if (idempotencyKey != null) {
+            request.header("Idempotency-Key", idempotencyKey);
+        }
+        return mvc.perform(request);
+    }
+
+    /** Reads the cart as the guest sees it and builds the matching "I confirm this" checkout body. */
+    protected Map<String, Object> confirmedCheckout(String token) throws Exception {
+        var cart = json.readTree(getCart(token).andReturn().getResponse().getContentAsString());
+        return Map.of("expectedCartVersion", cart.path("version").asLong(),
+                "expectedTotalMinor", cart.path("totals").path("grossMinor").asLong());
     }
 
     protected static String newKey() {

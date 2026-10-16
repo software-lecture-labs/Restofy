@@ -4,6 +4,7 @@ import com.restofy.order.application.port.QrSessionPort;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -34,6 +35,8 @@ public class SecurityConfiguration {
                         // OpenAPI endpoints exist only when SWAGGER_ENABLED=true (off by default); otherwise 404.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/carts/**").hasAuthority(GuestAuthentication.ROLE)
+                        // Only order placement is open to guests for now; reading/managing orders comes later.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/orders").hasAuthority(GuestAuthentication.ROLE)
                         .anyRequest().denyAll())
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),
                         AnonymousAuthenticationFilter.class)

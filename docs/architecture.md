@@ -153,6 +153,8 @@ Sadece “oturum açık mı?” GET'i yeterli değildir: kontrol ile Order commi
 
 Order commit olup QR teyidi kaybolursa rezervasyon zaman aşımıyla kör silinmez; sabit orderId/idempotency eşlemesiyle Order sorgulanır. Rezervasyon iptali ile geciken Order commit yarışı için version/fencing ve komut son tarihi gerekir. Bu koordinasyon uygulanmadan atomik kapanış garantisi verilemez. Basit bir kontrol + event yayını bu ihtiyacı karşılamaz.
 
+**Order Service uygulama durumu (ORDER-01/02):** Order checkout, commit'ten hemen önce `QrSessionPort.currentSessionState(...)` ile oturumu yeniden sorar; bu **yarışı kapatmaz** (kontrol ile commit arasında masa kapanabilir) ve rezervasyon/fencing **uygulanmamıştır**. Yerel olarak doğrulanan: aynı sepetten çift sipariş yok, rollback tutarlı, kontrol anında kapalı oturum reddedilir. Öneri sözleşme ve açık noktalar: `docs/order-service/INTEGRATION_CONTRACTS.md` (QR) ve `docs/order-service/DECISIONS.md` §5–6. `OrderPlaced` olayı outbox'a yazılır ancak dispatcher/tüketici yoktur (D-10 açık).
+
 ### 5.2 Menü değişimi ve checkout yarışı
 
 Menu'den fiyat/availability alınması başka servisteki commit ile atomik değildir. Öneri: Menü yetkili sürümlü/süreli teklif üretir, Order bu teklif anını fiyat geçerliliği sınırı kabul eder. “Kapatma anından sonra hiçbir kabul olamaz” şartı istenirse Menu tarafında ayrıca reserve/confirm/fencing protokolü gerekir. Kaynakta bu dağıtık yarışın kesin zaman sınırı verilmediği için garanti uydurulmaz.
