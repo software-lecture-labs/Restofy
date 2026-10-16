@@ -88,7 +88,7 @@ class CartIsolationApiTests extends AbstractCartApiTest {
         mvc.perform(get("/api/v1/carts/" + cartId)).andExpect(status().isUnauthorized());
         // everything outside the cart API is deny-by-default
         mvc.perform(get("/api/v1/orders")).andExpect(status().isUnauthorized());
-        mvc.perform(authorized(get("/api/v1/orders"), A1))
+        mvc.perform(authorized(get("/api/v1/admin/order-cancellations"), A1))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
         mvc.perform(get("/actuator/info")).andExpect(status().isUnauthorized());

@@ -56,9 +56,9 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
         }
     }
 
-    /** GET one order and its history are open to the order's own guest and to staff since ORDER-03 task 1. */
+    /** GET orders (list, one order, its history) are open to the own guest and to staff since ORDER-03 tasks 1 and 2. */
     private static boolean guestMayCall(String[] route) {
-        return route[0].equals("GET") && route[1].matches("/api/v1/orders/[0-9a-f-]{36}(/history)?");
+        return route[0].equals("GET") && route[1].matches("/api/v1/orders(/[0-9a-f-]{36}(/history)?)?");
     }
 
     @Test

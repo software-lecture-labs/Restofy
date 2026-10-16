@@ -2,6 +2,7 @@ package com.restofy.order.application.service;
 
 import com.restofy.order.api.dto.response.OrderDetailResponse;
 import com.restofy.order.api.dto.response.OrderHistoryResponse;
+import com.restofy.order.api.dto.response.OrderListResponse;
 import com.restofy.order.application.mapper.OrderMapper;
 import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.enums.StaffRole;
@@ -9,9 +10,17 @@ import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.infrastructure.persistence.OrderStatusHistoryStore;
 import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -56,6 +65,79 @@ public class OrderQueryService {
                         revealActorIds ? entry.actorId() : null, entry.source(), entry.reason(), entry.occurredAt()))
                 .toList();
         return new OrderHistoryResponse(order.getId(), entries);
+    }
+
+    /**
+     * Lists orders. Scope is decided by WHO asks, never by the filters: a guest always gets only their own orders of
+     * their own table session (a foreign tableSessionId/tableId is refused, not silently ignored); staff get the
+     * orders of their own restaurant, optionally narrowed to one table session or one table.
+     */
+    public OrderListResponse list(RequestActor actor, OrderListQuery query) {
+        UUID restaurantId;
+        UUID guestSessionId = null;
+        UUID tableSessionId = query.tableSessionId();
+        switch (actor) {
+            case RequestActor.Guest(var context) -> {
+                if (!context.isActive()) {
+                    throw new BusinessException(ErrorCode.TABLE_SESSION_NOT_ACTIVE,
+                            "The table session is no longer active; orders can no longer be viewed");
+                }
+                if ((query.tableSessionId() != null && !query.tableSessionId().equals(context.tableSessionId()))
+                        || (query.tableId() != null && !query.tableId().equals(context.tableId()))) {
+                    throw new BusinessException(ErrorCode.ACCESS_DENIED, "You may only list your own orders");
+                }
+                restaurantId = context.restaurantId();
+                guestSessionId = context.guestSessionId();
+                tableSessionId = context.tableSessionId();
+            }
+            case RequestActor.Staff(var staff) -> {
+                if (!STAFF_READERS.contains(staff.role())) {
+                    throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not view orders");
+                }
+                restaurantId = staff.restaurantId();
+            }
+        }
+
+        Specification<Order> filter = listFilter(restaurantId, guestSessionId, tableSessionId, query);
+        // placedAt first, the id as tie-breaker, so a page boundary can never skip or repeat an order
+        Sort sort = Sort.by(query.direction(), "placedAt").and(Sort.by(query.direction(), "id"));
+        Page<Order> page = orders.findAll(filter, PageRequest.of(query.page(), query.limit(), sort));
+
+        Map<UUID, Long> units = new HashMap<>();
+        if (!page.isEmpty()) {
+            orders.unitCounts(page.getContent().stream().map(Order::getId).toList())
+                    .forEach(count -> units.put(count.getOrderId(), count.getUnits()));
+        }
+        List<OrderListResponse.Summary> items = page.getContent().stream()
+                .map(order -> new OrderListResponse.Summary(order.getId(), order.getOrderNo(), order.getTableId(),
+                        order.getTableSessionId(), order.getFulfillmentStatus().name(),
+                        order.getPaymentStatus().name(), order.getCurrency(), order.getInitialGrossMinor(),
+                        order.getCurrentDueMinor(), units.getOrDefault(order.getId(), 0L), order.getPlacedAt()))
+                .toList();
+        return new OrderListResponse(items, page.getNumber(), page.getSize(), page.getTotalElements(),
+                page.getTotalPages(), query.view().name().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private static Specification<Order> listFilter(UUID restaurantId, UUID guestSessionId, UUID tableSessionId,
+                                                    OrderListQuery query) {
+        return (root, criteria, builder) -> {
+            List<Predicate> all = new ArrayList<>();
+            all.add(builder.equal(root.get("restaurantId"), restaurantId));
+            if (guestSessionId != null) {
+                all.add(builder.equal(root.get("guestSessionId"), guestSessionId));
+            }
+            if (tableSessionId != null) {
+                all.add(builder.equal(root.get("tableSessionId"), tableSessionId));
+            }
+            if (query.tableId() != null) {
+                all.add(builder.equal(root.get("tableId"), query.tableId()));
+            }
+            all.add(root.get("fulfillmentStatus").in(query.view().statuses()));
+            if (query.paymentStatus() != null) {
+                all.add(builder.equal(root.get("paymentStatus"), query.paymentStatus()));
+            }
+            return builder.and(all.toArray(Predicate[]::new));
+        };
     }
 
     private Order load(RequestActor actor, UUID orderId) {

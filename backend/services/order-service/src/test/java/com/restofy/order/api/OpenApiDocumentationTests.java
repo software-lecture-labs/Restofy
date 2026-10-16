@@ -66,6 +66,11 @@ class OpenApiDocumentationTests {
         JsonNode paths = document().path("paths");
         assertTrue(paths.has("/api/v1/orders/{orderId}"));
         assertTrue(paths.has("/api/v1/orders/{orderId}/history"));
+        JsonNode list = paths.path("/api/v1/orders").path("get");
+        assertTrue(list.has("operationId"), "the order list must be documented");
+        assertTrue(list.path("security").toString().contains("staff")
+                && list.path("security").toString().contains("guestSession"));
+        assertTrue(list.path("parameters").toString().contains("tableSessionId"));
         assertTrue(paths.path("/api/v1/orders/{orderId}").path("get").path("security").toString().contains("staff"));
         assertTrue(!paths.has("/api/v1/internal/order-events/kitchen"));
     }

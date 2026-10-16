@@ -3,9 +3,11 @@ package com.restofy.order.api.controller;
 import com.restofy.order.api.dto.request.CheckoutRequest;
 import com.restofy.order.api.dto.response.OrderDetailResponse;
 import com.restofy.order.api.dto.response.OrderHistoryResponse;
+import com.restofy.order.api.dto.response.OrderListResponse;
 import com.restofy.order.api.dto.response.OrderResponse;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.service.OrderCheckoutService;
+import com.restofy.order.application.service.OrderListQuery;
 import com.restofy.order.application.service.OrderQueryService;
 import com.restofy.order.application.service.RequestActor;
 import com.restofy.order.application.service.OrderCheckoutService.CheckoutResult;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -47,6 +50,28 @@ public class OrderController {
     public OrderController(OrderCheckoutService checkout, OrderQueryService queries) {
         this.checkout = checkout;
         this.queries = queries;
+    }
+
+    @GetMapping
+    @Operation(summary = "List orders of a table session or table (active, completed or cancelled), paged",
+            description = "view filters on the FULFILLMENT status only: active = RECEIVED, PREPARING, READY, SERVED; "
+                    + "completed = COMPLETED; cancelled = CANCELLED (default active). Payment is a separate axis: use "
+                    + "paymentStatus to filter it. A guest always gets only their own orders of their own table "
+                    + "session (a foreign tableSessionId/tableId is 403); staff (ADMIN, WAITER) get their restaurant orders, "
+                    + "optionally narrowed by tableSessionId (one visit) or tableId (the table across visits). "
+                    + "page is 0-based, limit 1-100 (default 20), sort placedAt,desc (default) or placedAt,asc.")
+    @SecurityRequirement(name = "guestSession")
+    @SecurityRequirement(name = "staff")
+    public OrderListResponse list(Authentication authentication,
+                                  @RequestParam(required = false) UUID tableSessionId,
+                                  @RequestParam(required = false) UUID tableId,
+                                  @RequestParam(required = false) String view,
+                                  @RequestParam(required = false) String paymentStatus,
+                                  @RequestParam(required = false) Integer page,
+                                  @RequestParam(required = false) Integer limit,
+                                  @RequestParam(required = false) String sort) {
+        return queries.list(RequestActor.from(authentication),
+                OrderListQuery.of(tableSessionId, tableId, view, paymentStatus, page, limit, sort));
     }
 
     @GetMapping("/{orderId}")

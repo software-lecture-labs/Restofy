@@ -42,7 +42,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/orders").hasAuthority(GuestAuthentication.ROLE)
                         // Reading one order: its own guest or staff; who exactly may see which order is decided
                         // (with tenant and ownership checks) in OrderQueryService, not only here.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/orders/*", "/api/v1/orders/*/history")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders", "/api/v1/orders/*", "/api/v1/orders/*/history")
                         .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
                         .anyRequest().denyAll())
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),

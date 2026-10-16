@@ -134,15 +134,17 @@ public class OrderCheckoutService {
             return replay(guest, previous.get(), digest);
         }
 
-        Cart cart = readTx.execute(status -> carts.findActiveWithItems(guest.restaurantId(), guest.guestSessionId()))
-                .orElseThrow(() -> new BusinessException(ErrorCode.CART_EMPTY, "The cart is empty"));
-        if (cart.getItems().isEmpty()) {
-            throw new BusinessException(ErrorCode.CART_EMPTY, "The cart is empty");
-        }
-        if (cart.getVersion() != request.expectedCartVersion()) {
-            throw new BusinessException(ErrorCode.CART_VERSION_CONFLICT,
-                    "The cart was changed in the meantime; reload it and try again",
-                    Map.of("currentVersion", cart.getVersion()));
+        Cart cart;
+        try {
+            cart = loadConfirmedCart(guest, request);
+        } catch (BusinessException cartChanged) {
+            // Another checkout may have committed after our first key lookup, consuming this cart.
+            // Its idempotency record commits with the order, so re-read it before reporting a cart error.
+            Optional<IdempotencyStore.Record> committed = idempotency.find(guest.restaurantId(), actor, OPERATION, key);
+            if (committed.isPresent()) {
+                return replay(guest, committed.get(), digest);
+            }
+            throw cartChanged;
         }
 
         Prepared prepared = price(guest, cart);
@@ -174,6 +176,20 @@ public class OrderCheckoutService {
         log.info("Order placed: orderNo={} orderId={} restaurantId={} tableSessionId={}", placed.getOrderNo(),
                 placed.getId(), placed.getRestaurantId(), placed.getTableSessionId());
         return new CheckoutResult(orderMapper.toResponse(placed), false);
+    }
+
+    private Cart loadConfirmedCart(GuestSessionContext guest, CheckoutRequest request) {
+        Cart cart = readTx.execute(status -> carts.findActiveWithItems(guest.restaurantId(), guest.guestSessionId()))
+                .orElseThrow(() -> new BusinessException(ErrorCode.CART_EMPTY, "The cart is empty"));
+        if (cart.getItems().isEmpty()) {
+            throw new BusinessException(ErrorCode.CART_EMPTY, "The cart is empty");
+        }
+        if (cart.getVersion() != request.expectedCartVersion()) {
+            throw new BusinessException(ErrorCode.CART_VERSION_CONFLICT,
+                    "The cart was changed in the meantime; reload it and try again",
+                    Map.of("currentVersion", cart.getVersion()));
+        }
+        return cart;
     }
 
     /** Prices every line from the live catalog; nothing is ordered unless every line is priced with a known tax. */
