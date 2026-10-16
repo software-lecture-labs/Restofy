@@ -201,6 +201,8 @@ REQUESTED/APPROVED/REJECTED. Tam iptal bütün kalan miktarları, kısmi iptal s
 
 `UNIQUE(event_id)` önerilir. İş/teslim/projeksiyon değişimleri ayrıştırılır. Mutfak asıl durum geçmişi Kitchen'dadır. Onaylı iptal ve finansal geçmiş korunur.
 
+**Uygulama (Order Service V45):** `order_status_history` **uygulandı** ve yukarıdaki öneriden şu noktalarda ayrılır: iki eksen (`state_axis` = `FULFILLMENT` | `PAYMENT`) ayrı satırlarla tutulur ve değerleri eksene göre `CHECK` ile sınırlıdır; `actor_type` (`SYSTEM`/`GUEST`/`STAFF`/`SERVICE`), `actor_id`, `actor_role`, `source`, `source_event_id`, `reason`, `correlation_id` ve sıralamayı belirleyen `seq` (identity) eklidir; `UNIQUE(order_id, state_axis, source_event_id)` aynı dış olayın iki kez kaydedilmesini engeller. Tablo **append-only**'dir: `UPDATE`/`DELETE` tetikleyiciyle reddedilir (düzeltme yeni satırdır; üretim DB rolünden `TRUNCATE` yetkisi de alınmalıdır). V45, mevcut siparişler için eksen başına bir `BACKFILL` satırı yazar. Her yeni sipariş, checkout transaction'ında iki başlangıç satırı alır.
+
 ## 8. Kitchen DB — hazırlık ve fire
 
 ### `kitchen_orders`

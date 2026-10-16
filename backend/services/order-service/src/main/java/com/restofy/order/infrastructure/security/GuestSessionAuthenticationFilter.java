@@ -37,7 +37,9 @@ public class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/");
+        // The Staff scheme belongs to StaffAuthenticationFilter; guests only ever use Bearer.
+        return !request.getRequestURI().startsWith("/api/")
+                || StaffAuthenticationFilter.isStaffScheme(request.getHeader(HttpHeaders.AUTHORIZATION));
     }
 
     @Override

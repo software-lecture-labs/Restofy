@@ -18,6 +18,7 @@ import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.entity.OrderItem;
 import com.restofy.order.domain.entity.OrderItemOption;
 import com.restofy.order.domain.event.EventDestination;
+import com.restofy.order.domain.history.ChangeActor;
 import com.restofy.order.domain.event.OrderPlacedEvent;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
@@ -28,6 +29,7 @@ import com.restofy.order.infrastructure.config.IdempotencyProperties;
 import com.restofy.order.infrastructure.messaging.OutboxEventWriter;
 import com.restofy.order.infrastructure.persistence.IdempotencyStore;
 import com.restofy.order.infrastructure.persistence.OrderNumberGenerator;
+import com.restofy.order.infrastructure.persistence.OrderStatusHistoryStore;
 import com.restofy.order.infrastructure.persistence.repository.CartRepository;
 import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -87,6 +89,7 @@ public class OrderCheckoutService {
     private final IdempotencyStore idempotency;
     private final OrderNumberGenerator orderNumbers;
     private final OutboxEventWriter outbox;
+    private final OrderStatusHistoryStore history;
     private final IdempotencyProperties retention;
     private final Clock clock;
     private final TransactionTemplate writeTx;
@@ -95,7 +98,7 @@ public class OrderCheckoutService {
     public OrderCheckoutService(CartRepository carts, OrderRepository orders, MenuCatalogPort catalog,
                                 QrSessionPort qrSessions, CartLinePricer pricer, CartMapper cartMapper,
                                 OrderMapper orderMapper, IdempotencyStore idempotency,
-                                OrderNumberGenerator orderNumbers, OutboxEventWriter outbox,
+                                OrderNumberGenerator orderNumbers, OutboxEventWriter outbox, OrderStatusHistoryStore history,
                                 IdempotencyProperties retention, Clock clock,
                                 PlatformTransactionManager txManager) {
         this.carts = carts;
@@ -108,6 +111,7 @@ public class OrderCheckoutService {
         this.idempotency = idempotency;
         this.orderNumbers = orderNumbers;
         this.outbox = outbox;
+        this.history = history;
         this.retention = retention;
         this.clock = clock;
         this.writeTx = new TransactionTemplate(txManager);
@@ -237,6 +241,12 @@ public class OrderCheckoutService {
         }
         cart.checkOut(now);
         orders.saveAndFlush(order);
+        // The timeline starts with the order itself: one initial row per independent status axis.
+        history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(), OrderStatusHistoryStore.Axis.FULFILLMENT, null,
+                order.getFulfillmentStatus().name(), ChangeActor.guest(guest.guestSessionId()), "CHECKOUT", null,
+                null, now, correlationId));
+        history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(), OrderStatusHistoryStore.Axis.PAYMENT, null,
+                order.getPaymentStatus().name(), ChangeActor.system(), "CHECKOUT", null, null, now, correlationId));
 
         UUID eventId = UUID.randomUUID();
         OrderPlacedEvent event = orderMapper.toPlacedEvent(order, eventId, correlationId, now);

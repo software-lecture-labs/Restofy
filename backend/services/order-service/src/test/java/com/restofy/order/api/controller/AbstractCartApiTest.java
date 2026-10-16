@@ -1,5 +1,6 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.infrastructure.client.mock.InMemoryAuthContextAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryMenuCatalogAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryQrSessionAdapter;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,11 +44,16 @@ abstract class AbstractCartApiTest {
     protected InMemoryMenuCatalogAdapter menu;
     @Autowired
     protected JdbcTemplate jdbc;
+    @Autowired
+    protected InMemoryAuthContextAdapter auth;
 
     @BeforeEach
     void resetState() {
         qr.reset();
         menu.reset();
+        auth.reset();
+        // append-only table: rows cannot be DELETEd, TRUNCATE is the test-only way to clear it
+        jdbc.execute("TRUNCATE order_status_history");
         for (String table : new String[]{"outbox_deliveries", "outbox_events", "idempotency_records",
                 "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);
@@ -68,6 +74,33 @@ abstract class AbstractCartApiTest {
         var cart = json.readTree(getCart(token).andReturn().getResponse().getContentAsString());
         return Map.of("expectedCartVersion", cart.path("version").asLong(),
                 "expectedTotalMinor", cart.path("totals").path("grossMinor").asLong());
+    }
+
+    protected static String guest(String token) {
+        return "Bearer " + token;
+    }
+
+    protected static String staff(String credential) {
+        return "Staff " + credential;
+    }
+
+    /** GET with a complete Authorization header value (Bearer for guests, Staff for staff). */
+    protected ResultActions getWith(String authorization, String path) throws Exception {
+        var request = get(path);
+        if (authorization != null) {
+            request.header(HttpHeaders.AUTHORIZATION, authorization);
+        }
+        return mvc.perform(request);
+    }
+
+    /** A guest fills the cart with one salad and orders it; returns the new order id. */
+    protected java.util.UUID placeSaladOrder(String guestToken) throws Exception {
+        addItem(guestToken, product(com.restofy.order.infrastructure.client.mock.DevFixtures.SALAD, 1))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        String body = placeOrder(guestToken, newKey(), confirmedCheckout(guestToken))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return java.util.UUID.fromString(json.readTree(body).path("orderId").asString());
     }
 
     protected static String newKey() {

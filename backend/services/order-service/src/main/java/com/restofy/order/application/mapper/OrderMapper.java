@@ -2,6 +2,7 @@ package com.restofy.order.application.mapper;
 
 import com.restofy.order.api.dto.response.CartResponse.ExtraIngredient;
 import com.restofy.order.api.dto.response.CartResponse.RemovedIngredient;
+import com.restofy.order.api.dto.response.OrderDetailResponse;
 import com.restofy.order.api.dto.response.OrderResponse;
 import com.restofy.order.api.dto.response.OrderResponse.Amounts;
 import com.restofy.order.api.dto.response.OrderResponse.OrderItemResponse;
@@ -38,6 +39,14 @@ public class OrderMapper {
                 order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), order.getCurrency(),
                 new Amounts(order.getInitialNetMinor(), order.getInitialVatMinor(), order.getInitialGrossMinor()),
                 items, order.getNote(), order.getPlacedAt());
+    }
+
+    public OrderDetailResponse toDetail(Order order) {
+        OrderResponse base = toResponse(order);
+        return new OrderDetailResponse(order.getId(), order.getOrderNo(), order.getTableId(), order.getTableSessionId(),
+                order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), order.getCurrency(),
+                base.amounts(), order.getCurrentDueMinor(), base.items(), order.getNote(), order.getPlacedAt(),
+                order.getUpdatedAt(), order.getVersion());
     }
 
     public OrderPlacedEvent toPlacedEvent(Order order, UUID eventId, String correlationId, Instant occurredAt) {

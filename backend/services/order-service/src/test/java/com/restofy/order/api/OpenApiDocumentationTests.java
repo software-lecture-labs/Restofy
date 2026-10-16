@@ -62,9 +62,11 @@ class OpenApiDocumentationTests {
     }
 
     @Test
-    void theDocumentExposesNoInternalOrderPathsThatDoNotExistYet() throws Exception {
+    void theDocumentListsOrderReadingAndNoPathsThatDoNotExistYet() throws Exception {
         JsonNode paths = document().path("paths");
-        assertTrue(!paths.has("/api/v1/orders/{orderId}"), "order reading is not implemented yet");
+        assertTrue(paths.has("/api/v1/orders/{orderId}"));
+        assertTrue(paths.has("/api/v1/orders/{orderId}/history"));
+        assertTrue(paths.path("/api/v1/orders/{orderId}").path("get").path("security").toString().contains("staff"));
         assertTrue(!paths.has("/api/v1/internal/order-events/kitchen"));
     }
 }

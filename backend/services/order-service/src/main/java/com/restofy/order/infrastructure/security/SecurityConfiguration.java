@@ -1,5 +1,6 @@
 package com.restofy.order.infrastructure.security;
 
+import com.restofy.order.application.port.AuthContextPort;
 import com.restofy.order.application.port.QrSessionPort;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.springframework.context.annotation.Bean;
@@ -13,16 +14,19 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 
 /**
- * Deny-by-default HTTP security. Only health probes and the guest cart API are reachable, and the cart API requires a
- * guest authenticated through the QR Service. The API is stateless and bearer-header based (no cookie credentials),
- * which is why CSRF protection is off: re-enable it before ever moving guest credentials into cookies (SECURITY.md 3).
+ * Deny-by-default HTTP security. Guests and staff authenticate only through explicit Authorization headers,
+ * verified by their respective ports. Neither filter reads cookies; HTTP Basic and form login are disabled,
+ * and STATELESS prevents an existing HTTP session from supplying an authenticated security context.
+ * Browsers do not automatically attach these Bearer/Staff credentials to forged cross-site requests.
+ * HeaderAuthenticationSecurityTests verifies rejection of cookie, session and Basic credentials on mutations.
+ * CSRF protection must be integrated before adding any browser-automatic authentication (SECURITY.md 3).
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
 
     @Bean
-    SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, ApiErrorWriter errors)
-            throws Exception {
+    SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
+                                    ApiErrorWriter errors) {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -35,14 +39,19 @@ public class SecurityConfiguration {
                         // OpenAPI endpoints exist only when SWAGGER_ENABLED=true (off by default); otherwise 404.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/carts/**").hasAuthority(GuestAuthentication.ROLE)
-                        // Only order placement is open to guests for now; reading/managing orders comes later.
                         .requestMatchers(HttpMethod.POST, "/api/v1/orders").hasAuthority(GuestAuthentication.ROLE)
+                        // Reading one order: its own guest or staff; who exactly may see which order is decided
+                        // (with tenant and ownership checks) in OrderQueryService, not only here.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders/*", "/api/v1/orders/*/history")
+                        .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
                         .anyRequest().denyAll())
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),
                         AnonymousAuthenticationFilter.class)
+                .addFilterBefore(new StaffAuthenticationFilter(authContext, errors),
+                        AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->
-                                errors.write(response, ErrorCode.UNAUTHENTICATED, "A valid guest session is required"))
+                                errors.write(response, ErrorCode.UNAUTHENTICATED, "A valid guest session or staff credential is required"))
                         .accessDeniedHandler((request, response, ex) ->
                                 errors.write(response, ErrorCode.ACCESS_DENIED, "Access to this resource is denied")))
                 .build();

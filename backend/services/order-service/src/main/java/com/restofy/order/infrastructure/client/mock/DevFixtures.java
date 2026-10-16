@@ -24,6 +24,19 @@ public final class DevFixtures {
     public static final UUID TABLE_SESSION_B1 = UUID.fromString("00000000-0000-4000-8000-0000000b5e01");
     public static final UUID GUEST_B1 = UUID.fromString("00000000-0000-4000-8000-00000000ee03");
 
+    public static final UUID USER_ADMIN_A = UUID.fromString("00000000-0000-4000-8000-0000000d0a01");
+    public static final UUID USER_WAITER_A = UUID.fromString("00000000-0000-4000-8000-0000000d0a02");
+    public static final UUID USER_KITCHEN_A = UUID.fromString("00000000-0000-4000-8000-0000000d0a03");
+    public static final UUID USER_ADMIN_B = UUID.fromString("00000000-0000-4000-8000-0000000d0b01");
+    public static final UUID USER_WAITER_B = UUID.fromString("00000000-0000-4000-8000-0000000d0b02");
+
+    /** Placeholder staff credentials of the MOCK Auth adapter (dev/test only). */
+    public static final String STAFF_ADMIN_A = "dev-mock-staff-admin-a";
+    public static final String STAFF_WAITER_A = "dev-mock-staff-waiter-a";
+    public static final String STAFF_KITCHEN_A = "dev-mock-staff-kitchen-a";
+    public static final String STAFF_ADMIN_B = "dev-mock-staff-admin-b";
+    public static final String STAFF_WAITER_B = "dev-mock-staff-waiter-b";
+
     public static final String TOKEN_A1 = "dev-mock-guest-token-a1";
     public static final String TOKEN_A2 = "dev-mock-guest-token-a2";
     public static final String TOKEN_B1 = "dev-mock-guest-token-b1";

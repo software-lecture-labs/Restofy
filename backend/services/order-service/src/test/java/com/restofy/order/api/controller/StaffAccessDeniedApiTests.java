@@ -56,11 +56,16 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
         }
     }
 
+    /** GET one order and its history are open to the order's own guest and to staff since ORDER-03 task 1. */
+    private static boolean guestMayCall(String[] route) {
+        return route[0].equals("GET") && route[1].matches("/api/v1/orders/[0-9a-f-]{36}(/history)?");
+    }
+
     @Test
     void aGuestSessionIsNeverStaffAuthority() throws Exception {
         for (String[] route : STAFF_ROUTES) {
             boolean orderPlacement = route[0].equals("POST") && route[1].equals("/api/v1/orders");
-            if (orderPlacement) {
+            if (orderPlacement || guestMayCall(route)) {
                 continue;
             }
             mvc.perform(call(route).header("Authorization", "Bearer " + A1).header("X-Role", "ADMIN"))
@@ -70,7 +75,13 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
     }
 
     @Test
-    void theOnlyOrderRouteOpenToGuestsIsPlacingTheirOwnOrder() throws Exception {
+    void guestsMayOnlyPlaceAndReadTheirOwnOrders() throws Exception {
+        // reading an unknown order reaches the service and is a plain 404 (no existence leak), not 401/403
+        mvc.perform(request(HttpMethod.GET, "/api/v1/orders/" + SOME_ID).header("Authorization", "Bearer " + A1))
+                .andExpect(status().isNotFound());
+        mvc.perform(request(HttpMethod.GET, "/api/v1/orders/" + SOME_ID + "/history")
+                        .header("Authorization", "Bearer " + A1))
+                .andExpect(status().isNotFound());
         // POST /api/v1/orders with a guest session reaches the controller: a validation error, not 401/403
         mvc.perform(request(HttpMethod.POST, "/api/v1/orders").header("Authorization", "Bearer " + A1)
                         .contentType("application/json").content("{}"))

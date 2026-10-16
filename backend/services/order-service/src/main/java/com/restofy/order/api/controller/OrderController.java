@@ -1,9 +1,13 @@
 package com.restofy.order.api.controller;
 
 import com.restofy.order.api.dto.request.CheckoutRequest;
+import com.restofy.order.api.dto.response.OrderDetailResponse;
+import com.restofy.order.api.dto.response.OrderHistoryResponse;
 import com.restofy.order.api.dto.response.OrderResponse;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.service.OrderCheckoutService;
+import com.restofy.order.application.service.OrderQueryService;
+import com.restofy.order.application.service.RequestActor;
 import com.restofy.order.application.service.OrderCheckoutService.CheckoutResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -15,17 +19,22 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+
 /** Order placement for a QR guest. Reading and managing orders arrives in a later phase. */
 @RestController
 @RequestMapping("/api/v1/orders")
-@Tag(name = "Order", description = "Order placement from the guest's cart")
+@Tag(name = "Order", description = "Order placement, detail and status history")
 @SecurityRequirement(name = "guestSession")
 public class OrderController {
 
@@ -33,9 +42,31 @@ public class OrderController {
     static final String REPLAYED = "Idempotent-Replayed";
 
     private final OrderCheckoutService checkout;
+    private final OrderQueryService queries;
 
-    public OrderController(OrderCheckoutService checkout) {
+    public OrderController(OrderCheckoutService checkout, OrderQueryService queries) {
         this.checkout = checkout;
+        this.queries = queries;
+    }
+
+    @GetMapping("/{orderId}")
+    @Operation(summary = "Order detail with its immutable price snapshot and both independent statuses",
+            description = "A guest sees only their own orders while their table session is active. Staff (ADMIN, "
+                    + "WAITER) see the orders of their own restaurant. An order that does not exist, belongs to "
+                    + "another restaurant or to another guest is a 404; KITCHEN is 403.")
+    @SecurityRequirement(name = "guestSession")
+    @SecurityRequirement(name = "staff")
+    public OrderDetailResponse detail(Authentication authentication, @PathVariable UUID orderId) {
+        return queries.detail(RequestActor.from(authentication), orderId);
+    }
+
+    @GetMapping("/{orderId}/history")
+    @Operation(summary = "Append-only status timeline of an order (fulfillment and payment axes)",
+            description = "Oldest first. Staff identifiers are visible to ADMIN only.")
+    @SecurityRequirement(name = "guestSession")
+    @SecurityRequirement(name = "staff")
+    public OrderHistoryResponse history(Authentication authentication, @PathVariable UUID orderId) {
+        return queries.history(RequestActor.from(authentication), orderId);
     }
 
     @PostMapping

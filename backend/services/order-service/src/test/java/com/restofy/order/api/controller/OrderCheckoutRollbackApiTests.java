@@ -43,6 +43,7 @@ class OrderCheckoutRollbackApiTests extends AbstractCartApiTest {
         assertEquals(0, count("orders"), "no half-written order");
         assertEquals(0, count("order_items"));
         assertEquals(0, count("order_item_options"));
+        assertEquals(0, count("order_status_history"), "no timeline for an order that does not exist");
         assertEquals(0, count("outbox_events"));
         assertEquals(0, count("idempotency_records"), "the key must not be burned by a failed attempt");
         assertEquals(0, count("order_number_counters"), "the order number must not be consumed");
@@ -56,6 +57,7 @@ class OrderCheckoutRollbackApiTests extends AbstractCartApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.orderNo").value("ORD-000001"));
         assertEquals(1, count("orders"));
+        assertEquals(2, count("order_status_history"), "the retried order gets exactly its two initial rows");
         assertEquals(1, count("outbox_events"));
         assertEquals("CHECKED_OUT", jdbc.queryForObject("SELECT status FROM carts", String.class));
     }
