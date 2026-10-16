@@ -48,8 +48,8 @@ class AuthSecurityTests {
                 .andExpect(status().isUnauthorized()).andReturn();
         assertThat(result.getRequest().getSession(false)).isNull();
         assertThat(result.getResponse().getHeaders("Set-Cookie")).isEmpty();
-        assertThatThrownBy(() -> authenticationManager.authenticate(
-                UsernamePasswordAuthenticationToken.unauthenticated("admin", "test-only")))
+        var credentials = UsernamePasswordAuthenticationToken.unauthenticated("admin", "test-only");
+        assertThatThrownBy(() -> authenticationManager.authenticate(credentials))
                 .isInstanceOf(BadCredentialsException.class);
     }
 

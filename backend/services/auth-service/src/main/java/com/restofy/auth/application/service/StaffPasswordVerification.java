@@ -28,7 +28,7 @@ public class StaffPasswordVerification {
         Optional<StaffUser> user;
         try {
             user = users.findByEmailNormalized(StaffEmail.normalize(email));
-        } catch (IllegalArgumentException exception) {
+        } catch (IllegalArgumentException _) {
             user = Optional.empty();
         }
         boolean matched = passwords.matches(password, user.map(StaffUser::getPasswordHash).orElse(null));

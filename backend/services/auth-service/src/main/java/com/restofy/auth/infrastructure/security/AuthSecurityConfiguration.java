@@ -22,7 +22,7 @@ public class AuthSecurityConfiguration {
     }
 
     @Bean
-    SecurityFilterChain authSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain authSecurityFilterChain(HttpSecurity http) {
         return http
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/liveness",

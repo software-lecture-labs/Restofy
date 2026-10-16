@@ -118,10 +118,10 @@ class AuthTestDatabaseInitializerTests {
     @Test
     void refusalDoesNotIncludeCredentialValuesOrBindingCauses() {
         StartupProbe probe = new StartupProbe();
-        assertThatThrownBy(() -> {
-            try (var ignored = start(probe, new String[]{"test"}, Map.of(),
-                    Map.of("spring.flyway.password", "test-only-hidden-value"))) { }
-        }).isInstanceOf(IllegalStateException.class)
+        String[] profiles = {"test"};
+        Map<String, Object> systemProperties = Map.of("spring.flyway.password", "test-only-hidden-value");
+        assertThatThrownBy(() -> startAndClose(probe, profiles, Map.of(), systemProperties))
+                .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Unsafe Auth test database configuration: spring.flyway.password")
                 .hasNoCause();
         assertNoDatabaseStartup(probe);
@@ -130,11 +130,15 @@ class AuthTestDatabaseInitializerTests {
     private void assertRejected(String[] profiles, Map<String, Object> environment,
             Map<String, Object> systemProperties) {
         StartupProbe probe = new StartupProbe();
-        assertThatThrownBy(() -> {
-            try (var ignored = start(probe, profiles, environment, systemProperties)) { }
-        }).isInstanceOf(IllegalStateException.class)
+        assertThatThrownBy(() -> startAndClose(probe, profiles, environment, systemProperties))
+                .isInstanceOf(IllegalStateException.class)
                 .hasMessageStartingWith("Unsafe Auth test database configuration:");
         assertNoDatabaseStartup(probe);
+    }
+
+    private void startAndClose(StartupProbe probe, String[] profiles,
+            Map<String, Object> environmentVariables, Map<String, Object> systemProperties) {
+        start(probe, profiles, environmentVariables, systemProperties).close();
     }
 
     private void assertNoDatabaseStartup(StartupProbe probe) {
@@ -193,7 +197,7 @@ class AuthTestDatabaseInitializerTests {
             when(flyway.migrate()).thenAnswer(call -> {
                 probe.events.add("migration");
                 probe.migrations.incrementAndGet();
-                try (Connection ignored = dataSource.getConnection()) { }
+                dataSource.getConnection().close();
                 return null;
             });
             return flyway;

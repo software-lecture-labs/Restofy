@@ -91,10 +91,12 @@ class StaffPersistenceTests {
     void databaseRejectsUnknownRolePlaintextAndInvalidVersionOrDates() {
         assertThatThrownBy(() -> insert("staff@example.com", hash, "SUPERADMIN")).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> insert("staff@example.com", TEST_PASSWORD, "ADMIN")).isInstanceOf(DataAccessException.class);
+        UUID negativeVersionId = UUID.randomUUID();
         assertThatThrownBy(() -> jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at,version) VALUES (?,?,?,'ADMIN',now(),now(),-1)",
-                UUID.randomUUID(), "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
+                negativeVersionId, "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
+        UUID invalidDatesId = UUID.randomUUID();
         assertThatThrownBy(() -> jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at) VALUES (?,?,?,'ADMIN',now(),now()-interval '1 second')",
-                UUID.randomUUID(), "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
+                invalidDatesId, "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
         assertThat(users.count()).isZero();
     }
 
@@ -148,7 +150,8 @@ class StaffPersistenceTests {
     @Test
     void developmentConflictRollsBackAllNewAccounts() {
         users.saveAndFlush(new StaffUser("kitchen@example.com", hash, StaffRole.WAITER));
-        assertThatThrownBy(() -> bootstrap.initialize(development(), new String[]{"test"})).isInstanceOf(IllegalStateException.class);
+        var properties = development();
+        assertThatThrownBy(() -> bootstrap.initialize(properties, new String[]{"test"})).isInstanceOf(IllegalStateException.class);
         assertThat(users.count()).isEqualTo(1);
         assertThat(users.findByEmailNormalized("admin@example.com")).isEmpty();
         assertThat(users.findByEmailNormalized("waiter@example.com")).isEmpty();
@@ -164,7 +167,7 @@ class StaffPersistenceTests {
         try {
             bootstrap.initialize(properties, new String[]{"test"});
             return true;
-        } catch (IllegalStateException exception) {
+        } catch (IllegalStateException _) {
             return false;
         }
     }
@@ -173,7 +176,7 @@ class StaffPersistenceTests {
         try {
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> insert(email, passwordHash, "ADMIN"));
             return true;
-        } catch (DataAccessException exception) {
+        } catch (DataAccessException _) {
             return false;
         }
     }

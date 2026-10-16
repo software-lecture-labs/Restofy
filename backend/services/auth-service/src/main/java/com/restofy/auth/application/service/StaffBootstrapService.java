@@ -39,19 +39,7 @@ public class StaffBootstrapService {
             throw new IllegalStateException("Development and initial ADMIN bootstrap must not run together");
         }
         if (dev.isEnabled()) {
-            if (activeProfiles.length == 0 || !DEVELOPMENT_PROFILES.containsAll(List.of(activeProfiles))
-                    || (!properties.getEnvironment().isBlank()
-                    && !DEVELOPMENT_PROFILES.contains(properties.getEnvironment()))) {
-                throw new IllegalStateException("Development staff bootstrap requires only dev/local/test profiles and environment");
-            }
-            List<Account> accounts = List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen());
-            Set<String> emails = new HashSet<>();
-            for (Account account : accounts) {
-                validate(account);
-                if (!emails.add(StaffEmail.normalize(account.getEmail()))) {
-                    throw new IllegalStateException("Development staff emails must be distinct");
-                }
-            }
+            validateDevelopment(properties, activeProfiles);
         } else {
             validate(initial);
         }
@@ -64,19 +52,40 @@ public class StaffBootstrapService {
             createOrPreserve(dev.getWaiter(), StaffRole.WAITER);
             createOrPreserve(dev.getKitchen(), StaffRole.KITCHEN);
         } else {
-            String email = StaffEmail.normalize(initial.getEmail());
-            var existing = users.findByEmailNormalized(email);
-            if (existing.isPresent()) {
-                if (existing.get().getRole() != StaffRole.ADMIN) {
-                    throw new IllegalStateException("Initial ADMIN email is already assigned to a different role");
-                }
-                return; // Preserve password, activation state and identity, including a disabled ADMIN.
-            }
-            if (users.existsByRole(StaffRole.ADMIN)) {
-                throw new IllegalStateException("Initial ADMIN bootstrap cannot create an additional ADMIN");
-            }
-            createOrPreserve(initial, StaffRole.ADMIN);
+            createInitialAdmin(initial);
         }
+    }
+
+    private void validateDevelopment(StaffBootstrapProperties properties, String[] activeProfiles) {
+        var dev = properties.getDevUsers();
+        if (activeProfiles.length == 0 || !DEVELOPMENT_PROFILES.containsAll(List.of(activeProfiles))
+                || (!properties.getEnvironment().isBlank()
+                && !DEVELOPMENT_PROFILES.contains(properties.getEnvironment()))) {
+            throw new IllegalStateException("Development staff bootstrap requires only dev/local/test profiles and environment");
+        }
+        List<Account> accounts = List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen());
+        Set<String> emails = new HashSet<>();
+        for (Account account : accounts) {
+            validate(account);
+            if (!emails.add(StaffEmail.normalize(account.getEmail()))) {
+                throw new IllegalStateException("Development staff emails must be distinct");
+            }
+        }
+    }
+
+    private void createInitialAdmin(Account initial) {
+        String email = StaffEmail.normalize(initial.getEmail());
+        var existing = users.findByEmailNormalized(email);
+        if (existing.isPresent()) {
+            if (existing.get().getRole() != StaffRole.ADMIN) {
+                throw new IllegalStateException("Initial ADMIN email is already assigned to a different role");
+            }
+            return; // Preserve password, activation state and identity, including a disabled ADMIN.
+        }
+        if (users.existsByRole(StaffRole.ADMIN)) {
+            throw new IllegalStateException("Initial ADMIN bootstrap cannot create an additional ADMIN");
+        }
+        createOrPreserve(initial, StaffRole.ADMIN);
     }
 
     private void validate(Account account) {

@@ -54,7 +54,7 @@ public final class AuthTestDatabaseInitializer
     private static String value(Binder binder, String property) {
         try {
             return binder.bind(property, String.class).orElse(null);
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException _) {
             // Never include values or the binding exception: either may contain credentials.
             throw unsafe(property);
         }
@@ -64,7 +64,7 @@ public final class AuthTestDatabaseInitializer
         Map<String, String> values;
         try {
             values = binder.bind(property, Bindable.mapOf(String.class, String.class)).orElse(Map.of());
-        } catch (RuntimeException exception) {
+        } catch (RuntimeException _) {
             throw unsafe(property);
         }
         if (!values.isEmpty()) {

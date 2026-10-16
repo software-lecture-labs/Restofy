@@ -68,7 +68,8 @@ class StaffBootstrapTests {
     @ValueSource(strings = {"prod", "production", "staging", "unknown", ""})
     void refusesDevelopmentUsersOutsideAllowedProfiles(String profile) {
         enableDevelopment();
-        assertThatThrownBy(() -> bootstrap.initialize(properties, profile.isEmpty() ? new String[0] : new String[]{profile}))
+        String[] profiles = profile.isEmpty() ? new String[0] : new String[]{profile};
+        assertThatThrownBy(() -> bootstrap.initialize(properties, profiles))
                 .isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(users, jdbc);
     }
