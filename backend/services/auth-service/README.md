@@ -97,6 +97,21 @@ Geliştirme DB'si test hedefi değildir. PostgreSQL testlerini geçebilmek için
 kısıtını aşmadan bu komutları normal PowerShell'de çalıştırın. Testleri atlamak veya
 uygulama DB'sine yönlendirmek çözüm değildir.
 
+`AuthTestDatabaseInitializer`, DB kullanan iki Auth uygulama testinde context refresh'ten
+önce çalışır; henüz datasource/Flyway bileşenleri oluşturulmadan yanlış ayarı reddeder.
+Yalnız `test` profili, yukarıdaki tam Testcontainers URL'si ve `ContainerDatabaseDriver`
+kabul edilir. Bağımsız Flyway bağlantısı, alternatif datasource/JNDI ve Hikari bağlantı
+override'ları reddedilir; yalnız DB adının `restofy_test` olması yeterli değildir.
+Ortam değişkenleri ve sistem özellikleri de etkin yapılandırma üzerinden denetlenir.
+Ret mesajları yalnız ayar adını içerir; kimlik bilgilerini veya binding hatasını taşımaz.
+Bu koruma yalnız test kaynaklarındadır; normal Auth başlangıcını değiştirmez.
+
+`AuthTestDatabaseInitializerTests`, gerçek Spring Boot başlangıcı ve Boot'un
+`FlywayMigrationInitializer` bileşeniyle sıralamayı doğrular. Yanlış hedef senaryolarında
+datasource/Flyway oluşturulmadığı, bağlantı ve migration çağrılarının sıfır kaldığı
+kontrol edilir. Bu senaryolarda bütün DB işlemleri mock'tur; gerçek DB'ye bağlanılmaz.
+`StaffPersistenceTests.setup()` içindeki mevcut kontrol ikinci savunma olarak korunur.
+
 `StaffPersistenceTests`: V1/Flyway/Hibernate uyumu, PostgreSQL kısıtları, eşzamanlı
 benzersizlik/bootstrap, transaction rollback ve optimistic locking.
 Diğer testler: e-posta, BCrypt 72 bayt sınırı, genel hata, pasif hesap, bootstrap profil

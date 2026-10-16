@@ -13,6 +13,7 @@ import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.config.StaffBootstrapProperties;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.security.StaffPasswords;
+import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -31,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Uses only the Maven test profile's disposable jdbc:tc PostgreSQL database. */
 @SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
+@ContextConfiguration(initializers = AuthTestDatabaseInitializer.class)
 class StaffPersistenceTests {
     private static final String TEST_PASSWORD = "Test-only-password-01";
     @Autowired private StaffUserRepository users;
@@ -44,7 +47,7 @@ class StaffPersistenceTests {
 
     @BeforeEach
     void setup() {
-        // Fail before any fixture mutation if this test is accidentally pointed at a real DB.
+        // Second guard before fixture mutation; the initializer guards startup before Flyway.
         assertThat(environment.getRequiredProperty("spring.datasource.url")).startsWith("jdbc:tc:postgresql:");
         String url = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<String>)
                 connection -> connection.getMetaData().getURL());
