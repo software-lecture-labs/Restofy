@@ -76,6 +76,18 @@ abstract class AbstractCartApiTest {
                 "expectedTotalMinor", cart.path("totals").path("grossMinor").asLong());
     }
 
+    /**
+     * Reads the cart as the guest sees it and builds the checkout body of a guest who looked at every changed price and
+     * accepts them explicitly: version, total, the fingerprint of exactly these prices, and the acknowledgement.
+     */
+    protected Map<String, Object> acknowledgedCheckout(String token) throws Exception {
+        var cart = json.readTree(getCart(token).andReturn().getResponse().getContentAsString());
+        return Map.of("expectedCartVersion", cart.path("version").asLong(),
+                "expectedTotalMinor", cart.path("totals").path("grossMinor").asLong(),
+                "expectedPriceFingerprint", cart.path("priceFingerprint").asString(),
+                "acknowledgePriceChanges", true);
+    }
+
     protected static String guest(String token) {
         return "Bearer " + token;
     }

@@ -61,11 +61,14 @@ class KitchenOrderEventApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void thePaymentEventPathStaysClosedUntilItsStage() throws Exception {
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/api/v1/internal/order-events/payment").contentType("application/json").content("{}")
-                        .header("Authorization", service(InMemoryServiceIdentityAdapter.PAYMENT_CREDENTIAL)))
-                .andExpect(status().isForbidden());
+    void theKitchenServiceCannotUseThePaymentPathAndPaymentCannotUseTheKitchenPath() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        paymentEvent(service(KITCHEN_CREDENTIAL), paymentBody(UUID.randomUUID(), orderId, "PENDING", SALAD_DUE, "TRY",
+                java.time.Instant.now())).andExpect(status().isForbidden());
+        kitchenEvent(service(InMemoryServiceIdentityAdapter.PAYMENT_CREDENTIAL),
+                kitchenBody(UUID.randomUUID(), RESTAURANT, orderId, "PREPARING")).andExpect(status().isForbidden());
+        assertEquals("NOT_REQUESTED", paymentOf(orderId));
+        assertEquals("RECEIVED", fulfillmentOf(orderId));
     }
 
     // ---- applying events --------------------------------------------------------------------------------------------

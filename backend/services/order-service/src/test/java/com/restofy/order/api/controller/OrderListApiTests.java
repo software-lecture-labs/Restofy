@@ -146,7 +146,8 @@ class OrderListApiTests extends AbstractCartApiTest {
             assertEquals(Set.of(a1.toString(), a2.toString()), seen);
         }
         assertEquals(List.of(b1.toString()), ids(list(staff(DevFixtures.STAFF_ADMIN_B), "")));
-        getWith(staff(DevFixtures.STAFF_KITCHEN_A), LIST).andExpect(status().isForbidden());
+        assertEquals(Set.of(a1.toString(), a2.toString()),
+                new HashSet<>(ids(list(staff(DevFixtures.STAFF_KITCHEN_A), ""))), "KITCHEN sees its own restaurant");
         getWith(staff("unknown-credential"), LIST).andExpect(status().isUnauthorized());
         getWith(null, LIST).andExpect(status().isUnauthorized());
     }

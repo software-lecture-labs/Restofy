@@ -9,7 +9,8 @@ import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
-@EnableConfigurationProperties({CartProperties.class, IdempotencyProperties.class})
+@EnableConfigurationProperties({CartProperties.class, IdempotencyProperties.class, PaymentProperties.class,
+        MessagingRetentionProperties.class})
 public class ApplicationConfiguration {
 
     /** Injected so time-dependent logic stays deterministic in tests. */

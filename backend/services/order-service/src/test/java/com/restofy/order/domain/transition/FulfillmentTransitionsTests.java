@@ -66,7 +66,7 @@ class FulfillmentTransitionsTests {
     void staffRolesMayOnlySetTheirOwnStatuses() {
         assertEquals(Set.of(PREPARING, READY), settableBy(StaffRole.KITCHEN));
         assertEquals(Set.of(SERVED, COMPLETED), settableBy(StaffRole.WAITER));
-        assertEquals(Set.of(COMPLETED), settableBy(StaffRole.ADMIN));
+        assertEquals(Set.of(SERVED, COMPLETED), settableBy(StaffRole.ADMIN));
         for (StaffRole role : StaffRole.values()) {
             assertFalse(FulfillmentTransitions.mayStaffSet(role, CANCELLED));
             assertFalse(FulfillmentTransitions.mayStaffSet(role, RECEIVED));

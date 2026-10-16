@@ -58,9 +58,11 @@ public class OrderFulfillmentService {
     private final OutboxEventWriter outbox;
     private final InboxStore inbox;
     private final Clock clock;
+    private final FulfillmentAuthorityPolicy authority;
 
     public OrderFulfillmentService(OrderRepository orders, OrderStatusHistoryStore history, OutboxEventWriter outbox,
-                                   InboxStore inbox, Clock clock) {
+                                   InboxStore inbox, Clock clock, FulfillmentAuthorityPolicy authority) {
+        this.authority = authority;
         this.orders = orders;
         this.history = history;
         this.outbox = outbox;
@@ -71,7 +73,9 @@ public class OrderFulfillmentService {
     /**
      * Staff moves an order one step. Order of checks: the requested status is valid, the role may set it (403), the
      * order exists in the caller's own restaurant (404, identical for a foreign order), the step is the next one (409).
-     * Repeating a step the same caller already made is a harmless no-op.
+     * If the order is already in the requested status the call is a harmless no-op for ANY authorised caller (no second
+     * history row, no second event): who reports an already-reached status does not matter, only that it is reached.
+     * A status behind the current one is never applied (409), so a late call cannot move an order backwards.
      */
     @Transactional
     public FulfillmentStatusResponse changeByStaff(StaffActor staff, UUID orderId, String requestedStatus,
@@ -84,9 +88,13 @@ public class OrderFulfillmentService {
         if (!FulfillmentTransitions.mayStaffSet(staff.role(), target)) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not set that status");
         }
+        if (staff.role() == StaffRole.KITCHEN && !authority.kitchenStaffMaySetPreparationStatuses()) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED,
+                    "In this environment PREPARING and READY are set only by the Kitchen Service");
+        }
         Order order = lock(staff.restaurantId(), orderId);
         FulfillmentStatus current = order.getFulfillmentStatus();
-        if (current == target && lastChangeWasBy(order, staff)) {
+        if (current == target) {
             return response(order, current, false);
         }
         if (!FulfillmentTransitions.isNextStep(current, target)) {
@@ -122,7 +130,7 @@ public class OrderFulfillmentService {
                         "This event id was already used for a different order");
             }
             return new OrderEventResponse(processed.get().outcome(), true, order.getId(),
-                    order.getFulfillmentStatus().name());
+                    order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), false);
         }
         FulfillmentStatus current = order.getFulfillmentStatus();
         String outcome;
@@ -139,7 +147,8 @@ public class OrderFulfillmentService {
         }
         inbox.append(InboxStore.KITCHEN, event.eventId(), order.getRestaurantId(), order.getId(), KITCHEN_EVENT_TYPE,
                 outcome, clock.instant().truncatedTo(ChronoUnit.MICROS));
-        return new OrderEventResponse(outcome, false, order.getId(), order.getFulfillmentStatus().name());
+        return new OrderEventResponse(outcome, false, order.getId(), order.getFulfillmentStatus().name(),
+                order.getPaymentStatus().name(), false);
     }
 
     private void apply(Order order, FulfillmentStatus target, ChangeActor actor, String source, UUID sourceEventId,
@@ -178,14 +187,6 @@ public class OrderFulfillmentService {
     private Order lock(UUID restaurantId, UUID orderId) {
         return orders.findForUpdate(orderId, restaurantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Order not found"));
-    }
-
-    private boolean lastChangeWasBy(Order order, StaffActor staff) {
-        return history.findLastFulfillmentChange(order.getRestaurantId(), order.getId())
-                .filter(last -> last.actorType() == ChangeActor.Type.STAFF
-                        && staff.userId().toString().equals(last.actorId())
-                        && order.getFulfillmentStatus().name().equals(last.toStatus()))
-                .isPresent();
     }
 
     private static FulfillmentStatus parse(String value) {

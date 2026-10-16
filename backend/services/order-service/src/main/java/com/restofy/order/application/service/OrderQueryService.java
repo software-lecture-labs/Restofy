@@ -32,7 +32,10 @@ import java.util.UUID;
  * <ul>
  *   <li>GUEST: only their OWN orders (same guest session), and only while their table session is ACTIVE.</li>
  *   <li>STAFF ADMIN and WAITER: every order of their own restaurant. ADMIN also sees staff identifiers in the history.</li>
- *   <li>STAFF KITCHEN: nothing here; Kitchen receives the order through the OrderPlaced event (least privilege).</li>
+ *   <li>STAFF KITCHEN: the orders and their details of its own restaurant, in a reduced view: what to prepare (lines,
+ *       quantities, extras, removed ingredients, notes) and the fulfillment status, but no payment status, amounts or
+ *       prices. It cannot filter by payment status and cannot read the history (which has the payment axis and staff
+ *       identifiers). The Kitchen service may later build its own read model from the OrderPlaced event.</li>
  * </ul>
  * An order that does not exist, belongs to another restaurant, or to another guest is reported identically as not
  * found, so its existence is not revealed.
@@ -40,7 +43,8 @@ import java.util.UUID;
 @Service
 public class OrderQueryService {
 
-    static final Set<StaffRole> STAFF_READERS = Set.of(StaffRole.ADMIN, StaffRole.WAITER);
+    static final Set<StaffRole> STAFF_READERS = Set.of(StaffRole.ADMIN, StaffRole.WAITER, StaffRole.KITCHEN);
+    static final Set<StaffRole> HISTORY_READERS = Set.of(StaffRole.ADMIN, StaffRole.WAITER);
 
     private final OrderRepository orders;
     private final OrderStatusHistoryStore history;
@@ -53,10 +57,14 @@ public class OrderQueryService {
     }
 
     public OrderDetailResponse detail(RequestActor actor, UUID orderId) {
-        return mapper.toDetail(load(actor, orderId));
+        Order order = load(actor, orderId);
+        return isKitchen(actor) ? mapper.toKitchenDetail(order) : mapper.toDetail(order);
     }
 
     public OrderHistoryResponse history(RequestActor actor, UUID orderId) {
+        if (actor instanceof RequestActor.Staff(var staff) && !HISTORY_READERS.contains(staff.role())) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not view the order history");
+        }
         Order order = load(actor, orderId);
         boolean revealActorIds = actor instanceof RequestActor.Staff(var staff) && staff.role() == StaffRole.ADMIN;
         List<OrderHistoryResponse.Entry> entries = history.find(order.getRestaurantId(), order.getId()).stream()
@@ -94,9 +102,13 @@ public class OrderQueryService {
                 if (!STAFF_READERS.contains(staff.role())) {
                     throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not view orders");
                 }
+                if (staff.role() == StaffRole.KITCHEN && query.paymentStatus() != null) {
+                    throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not filter by payment status");
+                }
                 restaurantId = staff.restaurantId();
             }
         }
+        boolean kitchen = isKitchen(actor);
 
         Specification<Order> filter = listFilter(restaurantId, guestSessionId, tableSessionId, query);
         // placedAt first, the id as tie-breaker, so a page boundary can never skip or repeat an order
@@ -109,13 +121,22 @@ public class OrderQueryService {
                     .forEach(count -> units.put(count.getOrderId(), count.getUnits()));
         }
         List<OrderListResponse.Summary> items = page.getContent().stream()
-                .map(order -> new OrderListResponse.Summary(order.getId(), order.getOrderNo(), order.getTableId(),
-                        order.getTableSessionId(), order.getFulfillmentStatus().name(),
-                        order.getPaymentStatus().name(), order.getCurrency(), order.getInitialGrossMinor(),
-                        order.getCurrentDueMinor(), units.getOrDefault(order.getId(), 0L), order.getPlacedAt()))
+                .map(order -> toListSummary(order, units.getOrDefault(order.getId(), 0L), kitchen))
                 .toList();
         return new OrderListResponse(items, page.getNumber(), page.getSize(), page.getTotalElements(),
                 page.getTotalPages(), query.view().name().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private static OrderListResponse.Summary toListSummary(Order order, long units, boolean kitchen) {
+        return new OrderListResponse.Summary(order.getId(), order.getOrderNo(), order.getTableId(),
+                order.getTableSessionId(), order.getFulfillmentStatus().name(),
+                kitchen ? null : order.getPaymentStatus().name(), kitchen ? null : order.getCurrency(),
+                kitchen ? null : order.getInitialGrossMinor(), kitchen ? null : order.getCurrentDueMinor(),
+                units, order.getPlacedAt());
+    }
+
+    private static boolean isKitchen(RequestActor actor) {
+        return actor instanceof RequestActor.Staff(var staff) && staff.role() == StaffRole.KITCHEN;
     }
 
     private static Specification<Order> listFilter(UUID restaurantId, UUID guestSessionId, UUID tableSessionId,

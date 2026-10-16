@@ -1,5 +1,7 @@
 package com.restofy.order.api.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -12,9 +14,15 @@ public record OrderResponse(UUID orderId, String orderNo, UUID tableSessionId, S
     public record Amounts(long netMinor, long vatMinor, long grossMinor) {
     }
 
+    /**
+     * One ordered line. The price fields are omitted only in the KITCHEN view of an order (the kitchen needs what to
+     * prepare, not what it costs); every other reader always gets them.
+     */
     public record OrderItemResponse(UUID orderItemId, UUID productId, String name, int quantity,
                                     List<CartResponse.RemovedIngredient> removedIngredients,
-                                    List<CartResponse.ExtraIngredient> extras, String note, long unitGrossMinor,
-                                    int taxRateBps, long lineGrossMinor, long lineNetMinor, long lineVatMinor) {
+                                    List<CartResponse.ExtraIngredient> extras, String note,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Long unitGrossMinor,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Integer taxRateBps, @JsonInclude(JsonInclude.Include.NON_NULL) Long lineGrossMinor,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Long lineNetMinor, @JsonInclude(JsonInclude.Include.NON_NULL) Long lineVatMinor) {
     }
 }

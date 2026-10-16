@@ -72,6 +72,9 @@ public class Order {
     @Column(name = "initial_gross_minor", nullable = false, updatable = false)
     private long initialGrossMinor;
 
+    @Column(name = "payment_event_at")
+    private Instant paymentEventAt;
+
     @Column(name = "current_due_minor", nullable = false)
     private long currentDueMinor;
 
@@ -124,6 +127,23 @@ public class Order {
      */
     public void changeFulfillmentStatus(FulfillmentStatus target, Instant now) {
         this.fulfillmentStatus = target;
+        this.updatedAt = now;
+    }
+
+    /**
+     * Records the new payment status and when the Payment Service says it happened. Whether the move is allowed is
+     * decided by the caller ({@code PaymentTransitions}); the database repeats the rule as a guard trigger. When the
+     * payment is PAID the remaining debt ({@code currentDueMinor}) becomes 0; the initial snapshot, the history and the
+     * verified amount (kept in the history row and the event) are what record how much was collected.
+     */
+    public void changePaymentStatus(PaymentStatus target, Instant eventAt, Instant now) {
+        this.paymentStatus = target;
+        // never moves backwards: a late event that is applied must not make newer ones look stale-free again
+        this.paymentEventAt = paymentEventAt == null || eventAt.isAfter(paymentEventAt) ? eventAt : paymentEventAt;
+        if (target == PaymentStatus.PAID) {
+            // the verified collection settles what was owed; the original amounts are untouched
+            this.currentDueMinor = 0L;
+        }
         this.updatedAt = now;
     }
 

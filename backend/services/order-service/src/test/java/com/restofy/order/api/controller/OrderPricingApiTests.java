@@ -120,9 +120,11 @@ class OrderPricingApiTests extends AbstractCartApiTest {
                 .andExpect(jsonPath("$.details.cart.items[0].priceChanged").value(true))
                 .andExpect(jsonPath("$.details.cart.items[0].unitGrossMinor").value(30_000))
                 .andExpect(jsonPath("$.details.changedLines.length()").value(1))
-                .andExpect(jsonPath("$.details.currentCartVersion").value(2));
+                .andExpect(jsonPath("$.details.acknowledgementRequired").value(true))
+                .andExpect(jsonPath("$.details.currentCartVersion").value(1));
         assertEquals(0, count("orders"));
         assertEquals(0, count("idempotency_records"), "a rejected confirmation must not burn the key");
+        assertEquals(1L, cartVersion(), "and must not change the cart");
     }
 
     @Test
@@ -133,8 +135,13 @@ class OrderPricingApiTests extends AbstractCartApiTest {
         republishBurger(30_000L, 2_500L, 1_000);
         String retryKey = newKey();
         placeOrder(A1, retryKey, reviewed).andExpect(status().isConflict());
+        // re-reading the version and total and retrying blindly is NOT an acceptance of the new price
+        placeOrder(A1, retryKey, confirmedCheckout(A1)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRICE_CHANGED"));
+        assertEquals(0, count("orders"));
 
-        placeOrder(A1, retryKey, confirmedCheckout(A1))
+        // only the explicit acknowledgement of the prices the guest was shown orders at the new price
+        placeOrder(A1, retryKey, acknowledgedCheckout(A1))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.amounts.grossMinor").value(60_000))
                 .andExpect(jsonPath("$.items[0].unitGrossMinor").value(30_000));
@@ -269,8 +276,9 @@ class OrderPricingApiTests extends AbstractCartApiTest {
                 .andExpect(jsonPath("$.details.cart.items[1].priceChanged").value(true));
         assertEquals(0, count("orders"));
 
-        // the guest looks again (stored line prices were brought up to date) and confirms; the order uses new prices
-        placeOrder(A1, newKey(), confirmedCheckout(A1))
+        // a blind retry stays refused; the guest who looked at both changes and acknowledges them orders at new prices
+        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isConflict());
+        placeOrder(A1, newKey(), acknowledgedCheckout(A1))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.items[0].unitGrossMinor").value(25_500))
                 .andExpect(jsonPath("$.items[1].unitGrossMinor").value(8_500))
@@ -291,8 +299,8 @@ class OrderPricingApiTests extends AbstractCartApiTest {
                 .andExpect(jsonPath("$.details.currentTotalMinor").value(55_000))
                 .andExpect(jsonPath("$.details.cart.items[0].unitGrossMinor").value(27_500));
         assertEquals(0, count("orders"));
-        // after the refresh the order records the new components
-        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isCreated())
+        // once the guest acknowledges, the order records the new components
+        placeOrder(A1, newKey(), acknowledgedCheckout(A1)).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.items[0].extras[0].unitPriceMinor").value(3_500));
         assertEquals(3_500L, jdbc.queryForObject("SELECT unit_price_delta_minor FROM order_item_options"
                 + " WHERE action = 'ADD'", Long.class));
@@ -308,7 +316,8 @@ class OrderPricingApiTests extends AbstractCartApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PRICE_CHANGED"))
                 .andExpect(jsonPath("$.details.currentTotalMinor").value(18_000));
-        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isCreated())
+        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isConflict());
+        placeOrder(A1, newKey(), acknowledgedCheckout(A1)).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.items[0].taxRateBps").value(1_000))
                 .andExpect(jsonPath("$.amounts.netMinor").value(16_364))      // 18000 * 10000 / 11000, half up
                 .andExpect(jsonPath("$.amounts.vatMinor").value(1_636));
@@ -325,7 +334,8 @@ class OrderPricingApiTests extends AbstractCartApiTest {
 
         placeOrder(A1, newKey(), reviewed).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PRICE_CHANGED"));
-        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isCreated());
+        placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isConflict());
+        placeOrder(A1, newKey(), acknowledgedCheckout(A1)).andExpect(status().isCreated());
         assertEquals("v2", jdbc.queryForObject("SELECT price_version FROM order_items", String.class),
                 "the order snapshot records the price version it was priced with");
     }
@@ -350,22 +360,27 @@ class OrderPricingApiTests extends AbstractCartApiTest {
     }
 
     @Test
-    void thePriceChangeRefreshAdvancesTheVersionSoStaleConfirmationsFail() throws Exception {
+    void aRefusedConfirmationWritesNothingAndAnAcknowledgementOfOldPricesIsStale() throws Exception {
         addItem(A1, product(DevFixtures.BURGER, 1)).andExpect(status().isOk());
         Map<String, Object> reviewed = confirmedCheckout(A1);
         long before = cartVersion();
         publishBurger(26_000L, 2_500L, 1_000, null);
 
         placeOrder(A1, newKey(), reviewed).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.details.currentCartVersion").value(before + 1));
-        assertEquals(before + 1, cartVersion());
-        assertEquals(26_000L, jdbc.queryForObject("SELECT unit_gross_minor_snapshot FROM cart_items", Long.class));
-        getCart(A1).andExpect(jsonPath("$.items[0].priceChanged").value(false));
+                .andExpect(jsonPath("$.details.currentCartVersion").value(before));
+        assertEquals(before, cartVersion(), "the refusal does not advance the cart version");
+        assertEquals(25_000L, jdbc.queryForObject("SELECT unit_gross_minor_snapshot FROM cart_items", Long.class),
+                "nor rewrite the stored price");
+        getCart(A1).andExpect(jsonPath("$.items[0].priceChanged").value(true));   // the change stays visible
 
-        // retrying with the OLD confirmation is refused: the guest must confirm what the cart shows now
-        placeOrder(A1, newKey(), reviewed).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("CART_VERSION_CONFLICT"));
+        // an acknowledgement given for the prices shown NOW is void once the price moves again
+        Map<String, Object> acknowledged = acknowledgedCheckout(A1);
+        publishBurger(27_000L, 2_500L, 1_000, null);
+        placeOrder(A1, newKey(), acknowledged).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRICE_CHANGED"));
         assertEquals(0, count("orders"));
+        placeOrder(A1, newKey(), acknowledgedCheckout(A1)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amounts.grossMinor").value(27_000));
     }
 
     @Test

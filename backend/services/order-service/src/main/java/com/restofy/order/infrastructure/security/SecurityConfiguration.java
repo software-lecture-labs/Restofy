@@ -53,6 +53,8 @@ public class SecurityConfiguration {
                         // Internal events: only the named calling service, never a guest or staff credential.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/payment")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.PAYMENT))
                         .anyRequest().denyAll())
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),
                         AnonymousAuthenticationFilter.class)

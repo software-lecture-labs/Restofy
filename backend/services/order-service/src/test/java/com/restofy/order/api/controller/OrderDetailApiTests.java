@@ -157,13 +157,14 @@ class OrderDetailApiTests extends AbstractCartApiTest {
     }
 
     @Test
-    void kitchenStaffMayNotReadOrdersEvenOfTheirOwnRestaurant() throws Exception {
+    void kitchenStaffReadOnlyTheirOwnRestaurantsOrdersAndAnotherRestaurantsOrderIsMissing() throws Exception {
         UUID orderId = customizedOrder(A1);
-        getWith(staff(DevFixtures.STAFF_KITCHEN_A), "/api/v1/orders/" + orderId)
-                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
-        // the role is checked before any lookup, so it does not reveal whether an id exists
+        getWith(staff(DevFixtures.STAFF_KITCHEN_A), "/api/v1/orders/" + orderId).andExpect(status().isOk());
         getWith(staff(DevFixtures.STAFF_KITCHEN_A), "/api/v1/orders/" + UUID.randomUUID())
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+        auth.register("kitchen-of-b", new com.restofy.order.application.port.StaffActor(UUID.randomUUID(),
+                DevFixtures.RESTAURANT_B, com.restofy.order.domain.enums.StaffRole.KITCHEN));
+        getWith(staff("kitchen-of-b"), "/api/v1/orders/" + orderId).andExpect(status().isNotFound());
     }
 
     @Test
@@ -172,7 +173,9 @@ class OrderDetailApiTests extends AbstractCartApiTest {
         getWith(staff(DevFixtures.STAFF_WAITER_A), "/api/v1/orders/" + orderId).andExpect(status().isOk());
         auth.register(DevFixtures.STAFF_WAITER_A, new com.restofy.order.application.port.StaffActor(
                 DevFixtures.USER_WAITER_A, DevFixtures.RESTAURANT_A, com.restofy.order.domain.enums.StaffRole.KITCHEN));
-        getWith(staff(DevFixtures.STAFF_WAITER_A), "/api/v1/orders/" + orderId).andExpect(status().isForbidden());
+        // the same credential, now a KITCHEN role at the Auth Service: the reduced view, no payment or amounts
+        getWith(staff(DevFixtures.STAFF_WAITER_A), "/api/v1/orders/" + orderId).andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentStatus").doesNotExist());
         auth.unregister(DevFixtures.STAFF_WAITER_A);
         getWith(staff(DevFixtures.STAFF_WAITER_A), "/api/v1/orders/" + orderId).andExpect(status().isUnauthorized());
     }

@@ -63,8 +63,10 @@ public class OrderController {
             description = "view filters on the FULFILLMENT status only: active = RECEIVED, PREPARING, READY, SERVED; "
                     + "completed = COMPLETED; cancelled = CANCELLED (default active). Payment is a separate axis: use "
                     + "paymentStatus to filter it. A guest always gets only their own orders of their own table "
-                    + "session (a foreign tableSessionId/tableId is 403); staff (ADMIN, WAITER) get their restaurant orders, "
+                    + "session (a foreign tableSessionId/tableId is 403); staff (ADMIN, WAITER, KITCHEN) get their restaurant orders, "
                     + "optionally narrowed by tableSessionId (one visit) or tableId (the table across visits). "
+                    + "KITCHEN gets a reduced view without payment status, amounts and prices and may not filter by "
+                    + "paymentStatus (403). "
                     + "page is 0-based, limit 1-100 (default 20), sort placedAt,desc (default) or placedAt,asc.")
     @SecurityRequirement(name = "guestSession")
     @SecurityRequirement(name = "staff")
@@ -83,8 +85,9 @@ public class OrderController {
     @GetMapping("/{orderId}")
     @Operation(summary = "Order detail with its immutable price snapshot and both independent statuses",
             description = "A guest sees only their own orders while their table session is active. Staff (ADMIN, "
-                    + "WAITER) see the orders of their own restaurant. An order that does not exist, belongs to "
-                    + "another restaurant or to another guest is a 404; KITCHEN is 403.")
+                    + "WAITER) see the orders of their own restaurant; KITCHEN sees its own restaurant's orders in a "
+                    + "reduced view (what to prepare, fulfillment status; no payment status, amounts or prices). An "
+                    + "order that does not exist, belongs to another restaurant or to another guest is a 404.")
     @SecurityRequirement(name = "guestSession")
     @SecurityRequirement(name = "staff")
     public OrderDetailResponse detail(Authentication authentication, @PathVariable UUID orderId) {
@@ -93,7 +96,8 @@ public class OrderController {
 
     @GetMapping("/{orderId}/history")
     @Operation(summary = "Append-only status timeline of an order (fulfillment and payment axes)",
-            description = "Oldest first. Staff identifiers are visible to ADMIN only.")
+            description = "Oldest first. Staff identifiers are visible to ADMIN only. KITCHEN may not read the history "
+                    + "(403): it contains the payment axis and staff identifiers.")
     @SecurityRequirement(name = "guestSession")
     @SecurityRequirement(name = "staff")
     public OrderHistoryResponse history(Authentication authentication, @PathVariable UUID orderId) {
@@ -102,14 +106,17 @@ public class OrderController {
 
     @PatchMapping("/{orderId}/fulfillment-status")
     @Operation(summary = "Move an order one step along its fulfillment lifecycle (staff only)",
-            description = "RECEIVED, PREPARING, READY, SERVED, COMPLETED, one step at a time. KITCHEN sets PREPARING "
-                    + "and READY, WAITER sets SERVED and COMPLETED, ADMIN sets COMPLETED; any other role is 403. "
+            description = "RECEIVED, PREPARING, READY, SERVED, COMPLETED, one step at a time. PREPARING and READY "
+                    + "belong to the Kitchen: the Kitchen Service sends them as events, KITCHEN staff may set them here "
+                    + "only in dev/test profiles (403 elsewhere). WAITER and ADMIN set SERVED and COMPLETED (an ADMIN "
+                    + "action is recorded with its actor); any other role is 403. "
                     + "Skipping a step, going back or leaving COMPLETED/CANCELLED is 409 INVALID_STATUS_TRANSITION. "
                     + "CANCELLED cannot be set here (cancellation is a separate process). COMPLETED does not require "
-                    + "payment: payment is an independent status. Repeating the step you just made is a harmless "
-                    + "no-op (changed=false). An order of another restaurant is 404. Guests cannot call this.")
+                    + "payment: payment is an independent status. If the order is already in the requested status the "
+                    + "call is a harmless no-op for any authorised caller (changed=false, no new history or event); a status "
+                    + "behind the current one is 409. An order of another restaurant is 404. Guests cannot call this.")
     @SecurityRequirement(name = "staff")
-    @ApiResponse(responseCode = "200", description = "Status changed (changed=true) or already set by you (false)")
+    @ApiResponse(responseCode = "200", description = "Status changed (changed=true) or already in that status (changed=false)")
     @ApiResponse(responseCode = "401", description = "Missing or invalid staff credential")
     @ApiResponse(responseCode = "403", description = "Not staff, or this role may not set that status")
     @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND (also for another restaurant's order)")
@@ -124,7 +131,12 @@ public class OrderController {
     @PostMapping
     @Operation(summary = "Turn the current cart into an order (idempotent per Idempotency-Key)",
             description = "The server re-prices the cart from the catalog and orders only if the client confirmed "
-                    + "the same cart version and total. Repeating a finished request with the same key and body "
+                    + "the same cart version and total. If any price differs from what the cart last validated (product, extra, VAT or "
+                    + "catalog price version) the order is NOT placed unless the request carries both expectedPriceFingerprint (the "
+                    + "priceFingerprint of the cart view the guest reviewed, bound to the cart version and every live price) and "
+                    + "acknowledgePriceChanges=true: otherwise 409 PRICE_CHANGED with the changed components (details.priceChanges), "
+                    + "details.currentPriceFingerprint and details.currentTotalMinor, and nothing is written (the cart, its version "
+                    + "and the Idempotency-Key stay untouched). When no price changed neither field is needed. Repeating a finished request with the same key and body "
                     + "returns the same order (header Idempotent-Replayed: true). The order number (ORD-000001) is a "
                     + "display identifier only and never grants access.")
     @SecurityRequirement(name = "guestSession")

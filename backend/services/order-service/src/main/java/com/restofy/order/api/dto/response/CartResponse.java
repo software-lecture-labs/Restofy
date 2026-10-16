@@ -9,10 +9,15 @@ import java.util.UUID;
  * The guest's current cart. Amounts are integer minor units and are ESTIMATES: the binding amounts are
  * fixed server-side at checkout. {@code cartId} is null while the guest has not added anything yet.
  * {@code totals.netMinor/vatMinor} are null unless every priced line has a known tax rate.
+ *
+ * <p>{@code priceFingerprint} (null for an empty cart) is a server-computed digest of the cart version and every live
+ * price component shown here. A client that wants its confirmation bound to exactly these prices sends it back as
+ * {@code expectedPriceFingerprint} at checkout; the server recomputes it and never trusts the value.
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public record CartResponse(UUID cartId, long version, String currency, boolean sessionActive,
-                           List<CartItemResponse> items, Totals totals, boolean estimate) {
+                           List<CartItemResponse> items, Totals totals, boolean estimate,
+                           String priceFingerprint) {
 
     public record Totals(long grossMinor, Long netMinor, Long vatMinor) {
     }
@@ -27,6 +32,7 @@ public record CartResponse(UUID cartId, long version, String currency, boolean s
     public record RemovedIngredient(UUID ingredientId, String name) {
     }
 
-    public record ExtraIngredient(UUID ingredientId, String name, int quantity, long unitPriceMinor) {
+    public record ExtraIngredient(UUID ingredientId, String name, int quantity,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL) Long unitPriceMinor) {
     }
 }

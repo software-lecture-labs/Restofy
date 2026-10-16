@@ -8,6 +8,7 @@ import com.restofy.order.api.dto.response.CartResponse.Totals;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.ProductSnapshot;
 import com.restofy.order.application.service.CartLinePricer;
+import com.restofy.order.application.service.PriceFingerprint;
 import com.restofy.order.domain.entity.Cart;
 import com.restofy.order.domain.entity.CartItem;
 import com.restofy.order.domain.entity.CartItemOption;
@@ -15,6 +16,7 @@ import com.restofy.order.domain.enums.SelectionAction;
 import com.restofy.order.domain.pricing.PriceCalculator.LinePrice;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -38,13 +40,18 @@ public class CartMapper {
     public CartResponse toResponse(GuestSessionContext context, Optional<Cart> cart,
                                    Map<UUID, ProductSnapshot> catalog) {
         if (cart.isEmpty()) {
-            return new CartResponse(null, 0L, null, context.isActive(), List.of(), new Totals(0L, 0L, 0L), true);
+            return new CartResponse(null, 0L, null, context.isActive(), List.of(), new Totals(0L, 0L, 0L), true, null);
         }
         Cart current = cart.get();
-        List<CartItemResponse> items = current.getItems().stream()
-                .sorted(Comparator.comparing(CartItem::getCreatedAt).thenComparing(CartItem::getId))
-                .map(item -> toItem(current, item, catalog.get(item.getProductId())))
-                .toList();
+        List<CartItemResponse> items = new ArrayList<>();
+        List<PriceFingerprint.Line> priceLines = new ArrayList<>();
+        for (CartItem item : current.getItems().stream()
+                .sorted(Comparator.comparing(CartItem::getCreatedAt).thenComparing(CartItem::getId)).toList()) {
+            CartLinePricer.PricedLine priced = pricer.evaluate(current.getCurrency(), item,
+                    catalog.get(item.getProductId())).line();
+            priceLines.add(new PriceFingerprint.Line(item, priced));
+            items.add(toItem(item, priced));
+        }
 
         long gross = 0L;
         long net = 0L;
@@ -64,10 +71,10 @@ public class CartMapper {
         }
         Totals totals = new Totals(gross, taxKnown ? net : null, taxKnown ? vat : null);
         return new CartResponse(current.getId(), current.getVersion(), current.getCurrency(), context.isActive(),
-                items, totals, true);
+                items, totals, true, PriceFingerprint.of(current, priceLines));
     }
 
-    private CartItemResponse toItem(Cart cart, CartItem item, ProductSnapshot product) {
+    private CartItemResponse toItem(CartItem item, CartLinePricer.PricedLine priced) {
         List<RemovedIngredient> removed = item.getOptions().stream()
                 .filter(option -> option.getAction() == SelectionAction.REMOVE)
                 .sorted(Comparator.comparing(CartItemOption::getNameSnapshot).thenComparing(CartItemOption::getOptionId))
@@ -80,7 +87,6 @@ public class CartMapper {
                         option.getQuantity(), option.getUnitPriceDeltaMinorSnapshot()))
                 .toList();
 
-        CartLinePricer.PricedLine priced = pricer.evaluate(cart.getCurrency(), item, product).line();
         if (priced == null) {
             return new CartItemResponse(item.getId(), item.getProductId(), item.getProductNameSnapshot(),
                     item.getQuantity(), removed, extras, item.getNote(), false, false,
@@ -88,6 +94,7 @@ public class CartMapper {
         }
         LinePrice price = priced.price();
         boolean priceChanged = pricer.differsFromSnapshot(item, priced);
+        ProductSnapshot product = priced.product();
         return new CartItemResponse(item.getId(), item.getProductId(), product.name(), item.getQuantity(),
                 removed, extras, item.getNote(), true, priceChanged, price.unitGrossMinor(),
                 price.lineGrossMinor(), product.taxRateBps(), price.lineNetMinor(), price.lineVatMinor());

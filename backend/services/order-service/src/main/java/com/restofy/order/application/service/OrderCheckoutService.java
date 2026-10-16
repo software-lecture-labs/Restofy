@@ -153,8 +153,22 @@ public class OrderCheckoutService {
         // price version) or a different total means the guest must look at the cart again.
         List<PricedItem> changed = prepared.items().stream()
                 .filter(p -> pricer.differsFromSnapshot(p.item(), p.line())).toList();
-        if (!changed.isEmpty() || prepared.amounts().grossMinor() != request.expectedTotalMinor()) {
-            throw priceChanged(guest, cart, request, prepared, changed);
+        String liveFingerprint = PriceFingerprint.of(cart, prepared.items().stream()
+                .map(p -> new PriceFingerprint.Line(p.item(), p.line())).toList());
+        boolean totalMatches = prepared.amounts().grossMinor() == request.expectedTotalMinor();
+        String sentFingerprint = request.expectedPriceFingerprint();
+        boolean fingerprintMatches = liveFingerprint.equals(sentFingerprint);
+        boolean acknowledged = Boolean.TRUE.equals(request.acknowledgePriceChanges());
+        // A price that differs from what the cart last validated is never ordered on the guest's behalf. It needs the
+        // fingerprint of exactly these live prices (bound to this cart version, so an old or foreign confirmation cannot
+        // be reused) AND an explicit acknowledgement; a client that sends neither (including every older client) is
+        // refused and told what changed, and a blind retry of the same request is refused again. A client that sends a
+        // fingerprint must always send the right one. Nothing is ever written to the cart by a refusal.
+        boolean rejected = !totalMatches
+                || (sentFingerprint != null && !fingerprintMatches)
+                || (!changed.isEmpty() && !(fingerprintMatches && acknowledged));
+        if (rejected) {
+            throw priceChanged(guest, cart, prepared, changed, liveFingerprint);
         }
 
         // Re-ask the QR Service at the moment of ordering; the session may have closed since the request began.
@@ -273,42 +287,25 @@ public class OrderCheckoutService {
     }
 
     /**
-     * Builds the PRICE_CHANGED rejection. When lines really changed, the cart's stored line prices are brought up to
-     * the live catalog in one small transaction (which advances the cart version) so the guest's next look at the cart
-     * is consistent and confirming it succeeds. The response summary is built BEFORE that refresh, so it still marks
-     * the lines that changed. Nothing is refreshed for a mere wrong total.
+     * Builds the PRICE_CHANGED refusal. It names what changed (per product and per extra), the live total and the live
+     * fingerprint, and tells whether an explicit acknowledgement is needed. It never writes anything: the cart (stored
+     * prices and version) and the idempotency key stay untouched, so the guest can look at the prices and confirm again
+     * with {@code expectedPriceFingerprint} = {@code currentPriceFingerprint}, {@code acknowledgePriceChanges=true} and
+     * {@code expectedTotalMinor} = {@code currentTotalMinor}, with the very same Idempotency-Key.
      */
-    private BusinessException priceChanged(GuestSessionContext guest, Cart cart, CheckoutRequest request,
-                                           Prepared prepared, List<PricedItem> changed) {
+    private BusinessException priceChanged(GuestSessionContext guest, Cart cart, Prepared prepared,
+                                           List<PricedItem> changed, String liveFingerprint) {
         var summary = cartMapper.toResponse(guest, Optional.of(cart), prepared.catalog());
-        long currentVersion = cart.getVersion();
-        if (!changed.isEmpty()) {
-            writeTx.executeWithoutResult(status -> {
-                Cart locked = carts.findActiveForUpdate(guest.restaurantId(), guest.guestSessionId()).orElseThrow(() ->
-                        new BusinessException(ErrorCode.CART_ALREADY_CHECKED_OUT, "This cart has already been ordered"));
-                if (locked.getVersion() != request.expectedCartVersion()) {
-                    throw new BusinessException(ErrorCode.CART_VERSION_CONFLICT,
-                            "The cart was changed in the meantime; reload it and try again",
-                            Map.of("currentVersion", locked.getVersion()));
-                }
-                Instant now = clock.instant();
-                for (PricedItem priced : changed) {
-                    locked.findItem(priced.item().getId()).ifPresent(item -> {
-                        item.refreshSnapshot(priced.line().product().name(), priced.line().price().unitGrossMinor(),
-                                priced.line().product().taxRateBps(), priced.line().product().priceVersion(), now);
-                        item.refreshOptionPrices(priced.line().options().stream().collect(Collectors.toMap(
-                                PricedOption::optionId, PricedOption::unitPriceDeltaMinor)));
-                    });
-                }
-                locked.touch(now);
-            });
-            currentVersion = readTx.execute(status -> carts.findActiveWithItems(guest.restaurantId(),
-                    guest.guestSessionId())).map(Cart::getVersion).orElse(currentVersion);
-        }
+        List<CartLinePricer.PriceChange> priceChanges = changed.stream()
+                .flatMap(p -> pricer.describeChanges(p.item(), p.line()).stream()).toList();
         return new BusinessException(ErrorCode.PRICE_CHANGED,
-                "The prices changed since you reviewed the cart; please review it and confirm again",
-                Map.of("currentTotalMinor", prepared.amounts().grossMinor(), "currentCartVersion", currentVersion,
-                        "changedLines", changed.stream().map(p -> p.item().getId()).toList(), "cart", summary));
+                changed.isEmpty() ? "The confirmed total or price fingerprint does not match the current cart"
+                        : "The prices changed since you reviewed the cart; review the changes and confirm them explicitly",
+                Map.of("currentTotalMinor", prepared.amounts().grossMinor(), "currentCartVersion", cart.getVersion(),
+                        "currentPriceFingerprint", liveFingerprint,
+                        "acknowledgementRequired", !changed.isEmpty(),
+                        "changedLines", changed.stream().map(p -> p.item().getId()).toList(),
+                        "priceChanges", priceChanges, "cart", summary));
     }
 
     private CheckoutResult replay(GuestSessionContext guest, IdempotencyStore.Record previous, String digest) {
@@ -338,8 +335,12 @@ public class OrderCheckoutService {
     }
 
     private static String digest(CheckoutRequest request, String note) {
+        // Without a fingerprint the canonical form is exactly the original one, so retries recorded before the
+        // fingerprint existed still match; with one, a different fingerprint is a different request.
         String canonical = "v1|" + request.expectedCartVersion() + "|" + request.expectedTotalMinor() + "|"
-                + (note == null ? "" : note);
+                + (note == null ? "" : note)
+                + (request.expectedPriceFingerprint() == null ? "" : "|fp:" + request.expectedPriceFingerprint())
+                + (Boolean.TRUE.equals(request.acknowledgePriceChanges()) ? "|ack" : "");
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8)));

@@ -32,6 +32,16 @@ public class CartLinePricer {
     public record PricedLine(LinePrice price, ProductSnapshot product, List<PricedOption> options) {
     }
 
+    /**
+     * One price component of a cart line that differs from what the cart last validated. {@code component} is
+     * PRODUCT_PRICE (base price, minor units), EXTRA_PRICE (one extra's unit price, minor units, {@code optionId} set),
+     * TAX_RATE (basis points) or PRICE_VERSION (the catalog's opaque version; {@code name} carries the new one and the
+     * numbers are null). {@code previous} and {@code current} are null when unknown.
+     */
+    public record PriceChange(UUID cartItemId, UUID productId, String component, UUID optionId, String name,
+                              Long previous, Long current) {
+    }
+
     /** Exactly one of {@code line} / {@code failure} is set. */
     public record Evaluation(PricedLine line, ErrorCode failure, String reason) {
 
@@ -69,6 +79,45 @@ public class CartLinePricer {
             }
         }
         return false;
+    }
+
+    /**
+     * Names the components that make a line differ from its stored snapshot, per product and per extra, so a guest (and
+     * a client) can see WHAT changed and not only that the total moved. Empty when {@link #differsFromSnapshot} is false.
+     */
+    public List<PriceChange> describeChanges(CartItem item, PricedLine live) {
+        List<PriceChange> changes = new ArrayList<>();
+        long storedExtras = 0L;
+        for (CartItemOption stored : item.getOptions()) {
+            if (stored.getAction() == SelectionAction.ADD) {
+                storedExtras += stored.getUnitPriceDeltaMinorSnapshot() * stored.getQuantity();
+            }
+        }
+        long previousBase = item.getUnitGrossMinorSnapshot() - storedExtras;
+        long currentBase = live.product().basePriceGrossMinor();
+        if (previousBase != currentBase) {
+            changes.add(new PriceChange(item.getId(), item.getProductId(), "PRODUCT_PRICE", null,
+                    live.product().name(), previousBase, currentBase));
+        }
+        for (CartItemOption stored : item.getOptions()) {
+            if (stored.getAction() != SelectionAction.ADD) {
+                continue;
+            }
+            live.options().stream().filter(o -> o.optionId().equals(stored.getOptionId())
+                            && o.unitPriceDeltaMinor() != stored.getUnitPriceDeltaMinorSnapshot()).findFirst()
+                    .ifPresent(o -> changes.add(new PriceChange(item.getId(), item.getProductId(), "EXTRA_PRICE",
+                            o.optionId(), o.name(), stored.getUnitPriceDeltaMinorSnapshot(), o.unitPriceDeltaMinor())));
+        }
+        if (!java.util.Objects.equals(live.product().taxRateBps(), item.getTaxRateBpsSnapshot())) {
+            changes.add(new PriceChange(item.getId(), item.getProductId(), "TAX_RATE", null, live.product().name(),
+                    item.getTaxRateBpsSnapshot() == null ? null : item.getTaxRateBpsSnapshot().longValue(),
+                    live.product().taxRateBps() == null ? null : live.product().taxRateBps().longValue()));
+        }
+        if (!java.util.Objects.equals(live.product().priceVersion(), item.getPriceVersionSnapshot())) {
+            changes.add(new PriceChange(item.getId(), item.getProductId(), "PRICE_VERSION", null,
+                    live.product().priceVersion(), null, null));
+        }
+        return changes;
     }
 
     public Evaluation evaluate(String cartCurrency, CartItem item, ProductSnapshot product) {

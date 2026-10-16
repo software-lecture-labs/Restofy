@@ -1,5 +1,7 @@
 package com.restofy.order.api.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -11,8 +13,9 @@ import java.util.UUID;
 public record OrderListResponse(List<Summary> items, int page, int limit, long totalItems, int totalPages,
                                 String view) {
 
+    /** The payment and amount fields are absent only in the KITCHEN view (see {@link OrderDetailResponse}). */
     public record Summary(UUID orderId, String orderNo, UUID tableId, UUID tableSessionId, String fulfillmentStatus,
-                          String paymentStatus, String currency, long grossMinor, long currentDueMinor,
-                          long unitCount, Instant placedAt) {
+                          @JsonInclude(JsonInclude.Include.NON_NULL) String paymentStatus, @JsonInclude(JsonInclude.Include.NON_NULL) String currency, @JsonInclude(JsonInclude.Include.NON_NULL) Long grossMinor,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) Long currentDueMinor, long unitCount, Instant placedAt) {
     }
 }

@@ -49,6 +49,21 @@ public class OrderMapper {
                 order.getUpdatedAt(), order.getVersion());
     }
 
+    /**
+     * What the kitchen may see of an order: the same lines, quantities, extras, removed ingredients and notes, but no
+     * payment status, no amounts and no prices.
+     */
+    public OrderDetailResponse toKitchenDetail(Order order) {
+        OrderResponse base = toResponse(order);
+        List<OrderItemResponse> items = base.items().stream().map(item -> new OrderItemResponse(item.orderItemId(),
+                item.productId(), item.name(), item.quantity(), item.removedIngredients(),
+                item.extras().stream().map(e -> new ExtraIngredient(e.ingredientId(), e.name(), e.quantity(), null))
+                        .toList(), item.note(), null, null, null, null, null)).toList();
+        return new OrderDetailResponse(order.getId(), order.getOrderNo(), order.getTableId(), order.getTableSessionId(),
+                order.getFulfillmentStatus().name(), null, null, null, null, items, order.getNote(),
+                order.getPlacedAt(), order.getUpdatedAt(), order.getVersion());
+    }
+
     public OrderPlacedEvent toPlacedEvent(Order order, UUID eventId, String correlationId, Instant occurredAt) {
         List<OrderPlacedEvent.Item> items = order.getItems().stream().sorted(ITEM_ORDER)
                 .map(item -> new OrderPlacedEvent.Item(item.getId(), item.getProductId(),

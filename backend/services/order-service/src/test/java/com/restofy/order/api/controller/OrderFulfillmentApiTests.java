@@ -78,7 +78,7 @@ class OrderFulfillmentApiTests extends AbstractOrderStatusApiTest {
         String[][] refused = {{DevFixtures.STAFF_KITCHEN_A, "SERVED"}, {DevFixtures.STAFF_KITCHEN_A, "COMPLETED"},
                 {DevFixtures.STAFF_WAITER_A, "PREPARING"}, {DevFixtures.STAFF_WAITER_A, "READY"},
                 {DevFixtures.STAFF_ADMIN_A, "PREPARING"}, {DevFixtures.STAFF_ADMIN_A, "READY"},
-                {DevFixtures.STAFF_ADMIN_A, "SERVED"}, {DevFixtures.STAFF_ADMIN_A, "RECEIVED"}};
+                {DevFixtures.STAFF_ADMIN_A, "RECEIVED"}};
         for (String[] attempt : refused) {
             patchStatus(staff(attempt[0]), orderId, attempt[1]).andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
@@ -188,13 +188,51 @@ class OrderFulfillmentApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void theSameStatusFromAnotherCallerIsAConflictNotASilentSuccess() throws Exception {
+    void theSameStatusReportedByAnotherAuthorisedPersonIsAlsoANoOp() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         advanceTo(orderId, "READY");
-        patchStatus(WAITER, orderId, "SERVED").andExpect(status().isOk());
-        String otherWaiter = staff(registerSecondWaiter());
-        patchStatus(otherWaiter, orderId, "SERVED").andExpect(status().isConflict())
+        patchStatus(WAITER, orderId, "SERVED").andExpect(status().isOk()).andExpect(jsonPath("$.changed").value(true));
+        long version = versionOf(orderId);
+        int historyRows = fulfillmentHistory(orderId).size();
+        int events = changeEvents(orderId);
+
+        // another waiter and an admin report the very same result: no error, nothing written twice
+        for (String other : new String[]{staff(registerSecondWaiter()), ADMIN}) {
+            patchStatus(other, orderId, "SERVED").andExpect(status().isOk())
+                    .andExpect(jsonPath("$.changed").value(false))
+                    .andExpect(jsonPath("$.fulfillmentStatus").value("SERVED"));
+        }
+        assertEquals(version, versionOf(orderId));
+        assertEquals(historyRows, fulfillmentHistory(orderId).size());
+        assertEquals(events, changeEvents(orderId));
+
+        // authority is still checked on a repeat: a role that may not set SERVED learns nothing from it
+        patchStatus(KITCHEN, orderId, "SERVED").andExpect(status().isForbidden());
+        // and an OLDER status is never a harmless repeat: it would move the order backwards
+        patchStatus(WAITER, orderId, "COMPLETED").andExpect(status().isOk());
+        patchStatus(WAITER, orderId, "SERVED").andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"));
+        assertEquals("COMPLETED", fulfillmentOf(orderId));
+    }
+
+    @Test
+    void anAdminMayServeAndTheActionIsRecordedWithTheAdmin() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        advanceTo(orderId, "READY");
+        patchStatus(ADMIN, orderId, "SERVED").andExpect(status().isOk()).andExpect(jsonPath("$.changed").value(true));
+        assertEquals("SERVED", fulfillmentOf(orderId));
+        assertEquals("ADMIN", jdbc.queryForObject("SELECT actor_role FROM order_status_history WHERE order_id = ?"
+                + " AND to_status = 'SERVED'", String.class, orderId));
+        assertEquals(DevFixtures.USER_ADMIN_A.toString(), jsonPath_actorOf(orderId, "SERVED"));
+        patchStatus(ADMIN, orderId, "COMPLETED").andExpect(status().isOk());
+        // an admin still cannot take over the Kitchen's statuses
+        UUID other = placeSaladOrder(DevFixtures.TOKEN_A2);
+        patchStatus(ADMIN, other, "PREPARING").andExpect(status().isForbidden());
+    }
+
+    private String jsonPath_actorOf(UUID orderId, String toStatus) {
+        return jdbc.queryForObject("SELECT actor_id FROM order_status_history WHERE order_id = ? AND to_status = ?",
+                String.class, orderId, toStatus);
     }
 
     // ---- input ------------------------------------------------------------------------------------------------------------

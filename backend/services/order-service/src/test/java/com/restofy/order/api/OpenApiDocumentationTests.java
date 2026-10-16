@@ -77,6 +77,8 @@ class OpenApiDocumentationTests {
                 .contains("staff"), paths.path("/api/v1/orders/{orderId}/fulfillment-status").toString());
         assertTrue(paths.path("/api/v1/internal/order-events/kitchen").path("post").path("security").toString()
                 .contains("service"));
-        assertTrue(!paths.has("/api/v1/internal/order-events/payment"), "payment events arrive in the next stage");
+        assertTrue(paths.path("/api/v1/internal/order-events/payment").path("post").path("security").toString()
+                .contains("service"));
+        assertTrue(!paths.has("/api/v1/orders/{orderId}/payment-status"), "no client can set a payment status");
     }
 }

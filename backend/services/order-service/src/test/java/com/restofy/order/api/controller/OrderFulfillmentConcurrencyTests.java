@@ -94,7 +94,7 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void twoDifferentWaitersServingTheSameOrderAtOnceOnlyOneWins() throws Exception {
+    void twoDifferentPeopleServingTheSameOrderAtOnceBothSucceedButOnlyOneChangesIt() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         advanceTo(orderId, "READY");
         String other = staff(registerSecondWaiter());
@@ -103,8 +103,8 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
                 () -> result(patchStatus(first, orderId, "SERVED")),
                 () -> result(patchStatus(other, orderId, "SERVED"))));
 
-        assertEquals(1, results.stream().filter(r -> r[0] == 200).count());
-        assertEquals(1, results.stream().filter(r -> r[0] == 409).count(), "the loser is told, not silently accepted");
+        assertEquals(2, results.stream().filter(r -> r[0] == 200).count(), "both reached the result they asked for");
+        assertEquals(1, results.stream().mapToInt(r -> r[1]).sum(), "but only one of them changed anything");
         assertEquals("SERVED", fulfillmentOf(orderId));
         long servedRows = fulfillmentHistory(orderId).stream().filter(h -> h.startsWith("READY>SERVED")).count();
         assertEquals(1, servedRows);
@@ -118,14 +118,106 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
                 () -> result(patchStatus(staff(DevFixtures.STAFF_KITCHEN_A), orderId, "PREPARING")),
                 () -> result(kitchenEvent(service(KITCHEN_CREDENTIAL), event))));
 
-        // whoever gets the lock first makes the step; the Kitchen service is acknowledged either way, while the
-        // staff caller is told (409) if the service already made that step, since it is not the same caller
-        assertEquals(2, results.stream().filter(r -> r[0] == 200 || r[0] == 409).count());
+        // whoever gets the lock first makes the step; the other one finds it done and is acknowledged
+        assertEquals(2, results.stream().filter(r -> r[0] == 200).count());
         assertEquals(true, results.stream().anyMatch(r -> r[0] == 200 && r[1] == 1), "one of them applied it");
         assertEquals("PREPARING", fulfillmentOf(orderId));
         long preparingRows = fulfillmentHistory(orderId).stream().filter(h -> h.startsWith("RECEIVED>PREPARING"))
                 .count();
         assertEquals(1, preparingRows, "the step happened exactly once, whoever got there first");
         assertEquals(1, changeEvents(orderId));
+    }
+    @Test
+    void thePaymentEventDeliveredManyTimesAtOnceIsAppliedExactlyOnce() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        pay(orderId, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .status().isOk());
+        var body = paymentBody(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY", java.time.Instant.now()
+                .minusSeconds(60));
+        List<Callable<int[]>> calls = new ArrayList<>();
+        for (int i = 0; i < THREADS; i++) {
+            calls.add(() -> result(paymentEvent(service(PAYMENT_CREDENTIAL), body)));
+        }
+        List<int[]> results = race(calls);
+
+        assertEquals(THREADS, results.stream().filter(r -> r[0] == 200).count());
+        assertEquals(1, results.stream().mapToInt(r -> r[1]).sum(), "exactly one delivery applied it");
+        assertEquals("PAID", paymentOf(orderId));
+        assertEquals(3, paymentHistory(orderId).size());
+        assertEquals(2, paymentChangeEvents(orderId));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE event_type = 'PaymentOrderStatus'", Integer.class));
+    }
+
+    @Test
+    void aPaidAndAFailedEventRacingOnAPendingPaymentLeaveExactlyOneOutcome() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        pay(orderId, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .status().isOk());
+        var paid = paymentBody(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY",
+                java.time.Instant.now().minusSeconds(60));
+        var failed = paymentBody(UUID.randomUUID(), orderId, "FAILED", null, null,
+                java.time.Instant.now().minusSeconds(61));
+        List<int[]> results = race(List.of(
+                () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), paid)),
+                () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), failed))));
+
+        // whichever got the lock first decided; the other one is stale or a conflict, never a second change
+        assertEquals(1, results.stream().filter(r -> r[1] == 1).count(), "exactly one was applied");
+        assertEquals(true, results.stream().allMatch(r -> r[0] == 200 || r[0] == 409));
+        String finalStatus = paymentOf(orderId);
+        assertEquals(true, finalStatus.equals("PAID") || finalStatus.equals("FAILED"), finalStatus);
+        assertEquals(3, paymentHistory(orderId).size(), "NOT_REQUESTED>PENDING plus exactly one more change");
+    }
+    @Test
+    void twoDifferentCollectionsRacingForOnePendingPaymentApplyExactlyOne() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        pay(orderId, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .status().isOk());
+        UUID attempt = attemptOf(orderId);
+        List<Callable<int[]>> calls = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            var body = paymentBodyWith(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY",
+                    java.time.Instant.now().minusSeconds(60), attempt, UUID.randomUUID());
+            calls.add(() -> result(paymentEvent(service(PAYMENT_CREDENTIAL), body)));
+        }
+        List<int[]> results = race(calls);
+
+        assertEquals(2, results.stream().filter(r -> r[0] == 200).count());
+        assertEquals(1, results.stream().mapToInt(r -> r[1]).sum(), "one collection settled the order");
+        assertEquals("PAID", paymentOf(orderId));
+        assertEquals(3, paymentHistory(orderId).size());
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE aggregate_id = ? AND event_type ="
+                + " 'OrderPaymentReconciliationRequired'", Integer.class, orderId), "the other one is a possible double"
+                + " charge and is recorded for reconciliation");
+    }
+
+    @Test
+    void oneCollectionRacingForTwoOrdersSettlesExactlyOneOfThem() throws Exception {
+        UUID first = placeSaladOrder(A1);
+        UUID second = placeSaladOrder(DevFixtures.TOKEN_A2);
+        pay(first, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .status().isOk());
+        pay(second, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .status().isOk());
+        UUID capture = UUID.randomUUID();
+        var forFirst = paymentBodyWith(UUID.randomUUID(), first, "PAID", SALAD_DUE, "TRY",
+                java.time.Instant.now().minusSeconds(60), attemptOf(first), capture);
+        var forSecond = paymentBodyWith(UUID.randomUUID(), second, "PAID", SALAD_DUE, "TRY",
+                java.time.Instant.now().minusSeconds(60), attemptOf(second), capture);
+        List<int[]> results = race(List.of(
+                () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), forFirst)),
+                () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), forSecond))));
+
+        assertEquals(1, results.stream().mapToInt(r -> r[1]).sum(), "the money settled one order, not both");
+        assertEquals(true, results.stream().allMatch(r -> r[0] == 200 || r[0] == 409));
+        // a 409 means 'retry': the loser's retry now finds the capture taken and is recorded for reconciliation
+        paymentEvent(service(PAYMENT_CREDENTIAL), forFirst);
+        paymentEvent(service(PAYMENT_CREDENTIAL), forSecond);
+        int paid = (paymentOf(first).equals("PAID") ? 1 : 0) + (paymentOf(second).equals("PAID") ? 1 : 0);
+        assertEquals(1, paid);
+        UUID loser = paymentOf(first).equals("PAID") ? second : first;
+        assertEquals("PENDING", paymentOf(loser));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE aggregate_id = ? AND event_type ="
+                + " 'OrderPaymentReconciliationRequired'", Integer.class, loser));
     }
 }

@@ -15,8 +15,9 @@ import java.util.Set;
  *
  * <p>Who sets which status (least privilege):
  * <ul>
- *   <li>PREPARING, READY: the Kitchen (the Kitchen service, or KITCHEN staff).</li>
- *   <li>SERVED: WAITER staff.</li>
+ *   <li>PREPARING, READY: the Kitchen (the Kitchen service; KITCHEN staff only where
+ *       {@code FulfillmentAuthorityPolicy} allows it, i.e. dev/test).</li>
+ *   <li>SERVED: WAITER or ADMIN staff (an ADMIN's action is recorded with its actor like any other).</li>
  *   <li>COMPLETED: WAITER or ADMIN staff. It does not require payment; payment is a separate axis.</li>
  * </ul>
  * Guests can never change a status. The same rules are repeated as a guard trigger in the database (V47).
@@ -32,7 +33,7 @@ public final class FulfillmentTransitions {
     private static final Map<StaffRole, Set<FulfillmentStatus>> STAFF_MAY_SET = Map.of(
             StaffRole.KITCHEN, Set.of(FulfillmentStatus.PREPARING, FulfillmentStatus.READY),
             StaffRole.WAITER, Set.of(FulfillmentStatus.SERVED, FulfillmentStatus.COMPLETED),
-            StaffRole.ADMIN, Set.of(FulfillmentStatus.COMPLETED));
+            StaffRole.ADMIN, Set.of(FulfillmentStatus.SERVED, FulfillmentStatus.COMPLETED));
 
     private static final Map<ServiceName, Set<FulfillmentStatus>> SERVICE_MAY_SET = Map.of(
             ServiceName.KITCHEN, Set.of(FulfillmentStatus.PREPARING, FulfillmentStatus.READY),
