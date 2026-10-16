@@ -31,6 +31,8 @@
 # ============================================================
 # 2. AI AGENTS & AI DEVELOPMENT TOOLS
 # ============================================================
+**/AGENTS.md
+**/CLAUDE.md
 
 **/.agents/
 **/.claude/
@@ -45,6 +47,9 @@
 # AI tool local state
 **/.agent-cache/
 **/.ai-cache/
+
+# Local Waiter documentation
+/docs/waiter/**/*.md
 
 
 # ============================================================
