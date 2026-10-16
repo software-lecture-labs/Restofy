@@ -6,9 +6,13 @@ import com.restofy.order.api.dto.response.CartResponse;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.service.CartService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +20,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,10 +50,26 @@ public class CartController {
     }
 
     @PostMapping("/items")
-    @Operation(summary = "Add a product (optionally customized); identical selections merge into one line")
-    public CartResponse addItem(@AuthenticationPrincipal GuestSessionContext guest,
-                                @Valid @RequestBody AddCartItemRequest request) {
-        return carts.addItem(guest, request);
+    @Operation(summary = "Add a product (optionally customized); identical selections merge into one line",
+            description = "Send an Idempotency-Key (a random UUID generated once per user action) to make retries "
+                    + "safe: repeating the same key with the same body does not add the quantity again and answers "
+                    + "with the current cart plus the header Idempotent-Replayed: true; the same key with a different "
+                    + "body is 409 IDEMPOTENCY_CONFLICT. Without the header every call adds again. Keys are kept "
+                    + "24 hours and are scoped to the guest session.")
+    @ApiResponse(responseCode = "409", description = "IDEMPOTENCY_CONFLICT, CART_VERSION_CONFLICT, "
+            + "PRODUCT_UNAVAILABLE or TABLE_SESSION_NOT_ACTIVE")
+    public ResponseEntity<CartResponse> addItem(
+            @AuthenticationPrincipal GuestSessionContext guest,
+            @Parameter(name = "Idempotency-Key", in = ParameterIn.HEADER, required = false,
+                    description = "8-120 characters of letters, digits, '.', '_', ':' or '-'. Scoped to the guest.")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody AddCartItemRequest request) {
+        CartService.CartMutation result = carts.addItem(guest, idempotencyKey, request);
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
+        if (result.replayed()) {
+            response.header("Idempotent-Replayed", "true");
+        }
+        return response.body(result.cart());
     }
 
     @PatchMapping("/items/{cartItemId}")

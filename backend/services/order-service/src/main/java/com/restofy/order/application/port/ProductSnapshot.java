@@ -10,9 +10,18 @@ import java.util.UUID;
  * @param published   visible on the menu
  * @param available   currently sellable (not out of stock / temporarily closed)
  * @param taxRateBps  VAT rate in basis points (1000 = 10%); {@code null} when the catalog gave none
+ * @param priceVersion opaque version of the product's price/option data, when the catalog provides one; compared by
+ *                     the cart reconciliation so a changed version is a changed price even if the amounts look equal
  */
 public record ProductSnapshot(UUID productId, String name, boolean published, boolean available, String currency,
-                              long basePriceGrossMinor, Integer taxRateBps, List<ProductOption> options) {
+                              long basePriceGrossMinor, Integer taxRateBps, List<ProductOption> options,
+                              String priceVersion) {
+
+    /** A snapshot from a catalog that does not provide a price version (the Menu Service does not yet). */
+    public ProductSnapshot(UUID productId, String name, boolean published, boolean available, String currency,
+                           long basePriceGrossMinor, Integer taxRateBps, List<ProductOption> options) {
+        this(productId, name, published, available, currency, basePriceGrossMinor, taxRateBps, options, null);
+    }
 
     /** Upper bound for any single catalog amount; keeps line/total arithmetic far from long overflow. */
     public static final long MAX_AMOUNT_MINOR = 1_000_000_000_000L;
@@ -31,6 +40,9 @@ public record ProductSnapshot(UUID productId, String name, boolean published, bo
         }
         if (taxRateBps != null && (taxRateBps < 0 || taxRateBps > 10_000)) {
             throw new IllegalArgumentException("taxRateBps must be within 0..10000");
+        }
+        if (priceVersion != null && (priceVersion.isBlank() || priceVersion.length() > 64)) {
+            throw new IllegalArgumentException("priceVersion must be 1..64 characters when present");
         }
         options = options == null ? List.of() : List.copyOf(options);
     }

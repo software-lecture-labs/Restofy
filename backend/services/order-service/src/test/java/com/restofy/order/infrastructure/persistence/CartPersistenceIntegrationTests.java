@@ -76,7 +76,7 @@ class CartPersistenceIntegrationTests {
         UUID itemId = tx.execute(status -> {
             Cart cart = carts.findActiveForUpdate(restaurant, guest).orElseThrow();
             CartItem item = new CartItem(cart, UUID.randomUUID(), 2, "k".repeat(64), "no salt", "Burger", "TRY",
-                    25_000L, 1_000, NOW);
+                    25_000L, 1_000, null, NOW);
             item.addOption(new CartItemOption(item, UUID.randomUUID(), SelectionAction.REMOVE, 1, "Onion", 0L));
             item.addOption(new CartItemOption(item, UUID.randomUUID(), SelectionAction.ADD, 2, "Cheese", 2_500L));
             cart.addItem(item);
@@ -99,8 +99,8 @@ class CartPersistenceIntegrationTests {
         UUID productId = UUID.randomUUID();
         assertThrows(DataIntegrityViolationException.class, () -> tx.executeWithoutResult(status -> {
             Cart cart = carts.findActiveForUpdate(restaurant, guest).orElseThrow();
-            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null, "Burger", "TRY", 100L, null, NOW));
-            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null, "Burger", "TRY", 100L, null, NOW));
+            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null, "Burger", "TRY", 100L, null, null, NOW));
+            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null, "Burger", "TRY", 100L, null, null, NOW));
         }));
     }
 

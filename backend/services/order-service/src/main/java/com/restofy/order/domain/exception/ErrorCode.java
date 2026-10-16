@@ -3,6 +3,7 @@ package com.restofy.order.domain.exception;
 /** Stable machine-readable error codes returned to API clients, with their HTTP status. */
 public enum ErrorCode {
     INVALID_REQUEST(400),
+    INVALID_IDEMPOTENCY_KEY(400),
     UNAUTHENTICATED(401),
     ACCESS_DENIED(403),
     NOT_FOUND(404),
@@ -13,6 +14,7 @@ public enum ErrorCode {
     TABLE_SESSION_NOT_ACTIVE(409),
     CART_VERSION_CONFLICT(409),
     CONFLICT(409),
+    IDEMPOTENCY_CONFLICT(409),
     UNSUPPORTED_MEDIA_TYPE(415),
     VALIDATION_ERROR(422),
     QUANTITY_LIMIT_EXCEEDED(422),

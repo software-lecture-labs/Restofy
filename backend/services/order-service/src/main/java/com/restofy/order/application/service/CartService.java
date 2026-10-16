@@ -17,6 +17,8 @@ import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.domain.pricing.PriceCalculator;
 import com.restofy.order.infrastructure.config.CartProperties;
+import com.restofy.order.infrastructure.config.IdempotencyProperties;
+import com.restofy.order.infrastructure.persistence.IdempotencyStore;
 import com.restofy.order.infrastructure.persistence.repository.CartRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -24,6 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,17 +46,22 @@ public class CartService {
     private final CartSelectionResolver selections;
     private final CartMapper mapper;
     private final CartProperties limits;
+    private final IdempotencyStore idempotency;
+    private final IdempotencyProperties retention;
     private final Clock clock;
     private final TransactionTemplate writeTx;
     private final TransactionTemplate readTx;
 
     public CartService(CartRepository carts, MenuCatalogPort catalog, CartSelectionResolver selections,
-                       CartMapper mapper, CartProperties limits, Clock clock, PlatformTransactionManager txManager) {
+                       CartMapper mapper, CartProperties limits, IdempotencyStore idempotency,
+                       IdempotencyProperties retention, Clock clock, PlatformTransactionManager txManager) {
         this.carts = carts;
         this.catalog = catalog;
         this.selections = selections;
         this.mapper = mapper;
         this.limits = limits;
+        this.idempotency = idempotency;
+        this.retention = retention;
         this.clock = clock;
         this.writeTx = new TransactionTemplate(txManager);
         this.readTx = new TransactionTemplate(txManager);
@@ -65,9 +73,30 @@ public class CartService {
         return view(context);
     }
 
-    public CartResponse addItem(GuestSessionContext context, AddCartItemRequest request) {
+    /** The cart after an addition, and whether it is the replay of an earlier identical request. */
+    public record CartMutation(CartResponse cart, boolean replayed) {
+    }
+
+    /**
+     * Adds a product. With an {@code Idempotency-Key} the call is idempotent per (guest, key): an exact retry does
+     * not add the quantity again, the same key with a different request is a conflict, and a failed attempt does not
+     * consume the key. Without a key the call is not idempotent (a retry adds again).
+     */
+    public CartMutation addItem(GuestSessionContext context, String idempotencyKey, AddCartItemRequest request) {
+        String key = IdempotencyKeys.optional(idempotencyKey);
         requireActiveSession(context);
         requireQuantityWithinLimit(request.quantity());
+        String note = CartSelectionResolver.normalizeNote(request.note());
+        String digest = key == null ? null : IdempotencyKeys.sha256(canonical(request, note));
+        String actor = "guest:" + context.guestSessionId();
+
+        if (key != null) {
+            Optional<IdempotencyStore.Record> previous = idempotency.find(context.restaurantId(), actor,
+                    IdempotencyKeys.CART_ITEM, key);
+            if (previous.isPresent()) {
+                return replay(context, previous.get(), digest);
+            }
+        }
 
         ProductSnapshot product = catalog.findProducts(context.restaurantId(), Set.of(request.productId()))
                 .get(request.productId());
@@ -90,10 +119,16 @@ public class CartService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "The line amount exceeds the allowed limit");
         }
 
-        writeTx.executeWithoutResult(status -> {
+        Boolean alreadyClaimed = writeTx.execute(status -> {
             Cart cart = lockOrCreateCart(context);
-            requireExpectedVersion(cart, request.expectedCartVersion());
             Instant now = clock.instant();
+            // The cart lock serializes this guest's requests, so a concurrent twin has already committed (or not
+            // started) by the time we claim. A failure further down rolls the claim back with everything else.
+            if (key != null && !idempotency.tryClaim(context.restaurantId(), actor, IdempotencyKeys.CART_ITEM, key,
+                    digest, cart.getId(), 200, now, now.plus(retention.cartItemRetention()))) {
+                return true;
+            }
+            requireExpectedVersion(cart, request.expectedCartVersion());
 
             if (cart.getItems().isEmpty()) {
                 cart.useCurrency(product.currency());
@@ -108,7 +143,9 @@ public class CartService {
                 int merged = item.getQuantity() + request.quantity();
                 requireQuantityWithinLimit(merged);
                 item.changeQuantity(merged, now);
-                item.refreshSnapshot(product.name(), unitGross, product.taxRateBps(), now);
+                item.refreshSnapshot(product.name(), unitGross, product.taxRateBps(), product.priceVersion(), now);
+                item.refreshOptionPrices(selection.options().stream().collect(java.util.stream.Collectors.toMap(
+                        ResolvedOption::optionId, ResolvedOption::unitPriceDeltaMinor)));
             } else {
                 if (cart.getItems().size() >= limits.maxLines()) {
                     throw new BusinessException(ErrorCode.CART_ITEM_LIMIT_EXCEEDED,
@@ -116,7 +153,7 @@ public class CartService {
                 }
                 CartItem item = new CartItem(cart, product.productId(), request.quantity(),
                         selection.selectionKey(), selection.note(), product.name(), product.currency(),
-                        unitGross, product.taxRateBps(), now);
+                        unitGross, product.taxRateBps(), product.priceVersion(), now);
                 for (ResolvedOption option : selection.options()) {
                     item.addOption(new CartItemOption(item, option.optionId(), option.action(), option.quantity(),
                             option.name(), option.unitPriceDeltaMinor()));
@@ -124,8 +161,45 @@ public class CartService {
                 cart.addItem(item);
             }
             cart.touch(now);
+            return false;
         });
-        return view(context);
+        if (Boolean.TRUE.equals(alreadyClaimed)) {
+            IdempotencyStore.Record winner = idempotency.find(context.restaurantId(), actor,
+                    IdempotencyKeys.CART_ITEM, key).orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT,
+                    "The request conflicts with the current state, please retry"));
+            return replay(context, winner, digest);
+        }
+        return new CartMutation(view(context), false);
+    }
+
+    /**
+     * Answers an exact retry with the cart as it is now (which already contains the original addition). Nothing is
+     * replayed to a guest whose session is no longer active, to a different request, or for a cart that was
+     * meanwhile ordered or replaced.
+     */
+    private CartMutation replay(GuestSessionContext context, IdempotencyStore.Record previous, String digest) {
+        if (!previous.requestDigest().equals(digest)) {
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
+                    "This Idempotency-Key was already used with a different request");
+        }
+        Optional<Cart> active = readTx.execute(status ->
+                carts.findActiveWithItems(context.restaurantId(), context.guestSessionId()));
+        if (active.isEmpty() || !active.get().getId().equals(previous.resourceId())) {
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
+                    "This Idempotency-Key belongs to a cart that is no longer active; use a new key");
+        }
+        return new CartMutation(view(context), true);
+    }
+
+    private static String canonical(AddCartItemRequest request, String note) {
+        String removed = request.removedIngredientIds() == null ? "" : request.removedIngredientIds().stream()
+                .map(UUID::toString).sorted().collect(java.util.stream.Collectors.joining(","));
+        String extras = request.extras() == null ? "" : request.extras().stream()
+                .sorted(Comparator.comparing((ExtraSelectionRequest e) -> e.ingredientId().toString()))
+                .map(e -> e.ingredientId() + ":" + e.quantity()).collect(java.util.stream.Collectors.joining(","));
+        return "v1|" + request.productId() + "|" + request.quantity() + "|" + removed + "|" + extras + "|"
+                + (note == null ? "" : note) + "|" + (request.expectedCartVersion() == null ? ""
+                : request.expectedCartVersion());
     }
 
     public CartResponse updateQuantity(GuestSessionContext context, UUID cartItemId,

@@ -63,6 +63,9 @@ public class CartItem {
     @Column(name = "tax_rate_bps_snapshot")
     private Integer taxRateBpsSnapshot;
 
+    @Column(name = "price_version_snapshot", length = 64)
+    private String priceVersionSnapshot;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -75,7 +78,7 @@ public class CartItem {
 
     public CartItem(Cart cart, UUID productId, int quantity, String selectionKey, String note,
                     String productNameSnapshot, String currency, long unitGrossMinorSnapshot,
-                    Integer taxRateBpsSnapshot, Instant now) {
+                    Integer taxRateBpsSnapshot, String priceVersionSnapshot, Instant now) {
         this.id = UUID.randomUUID();
         this.cart = cart;
         this.restaurantId = cart.getRestaurantId();
@@ -87,6 +90,7 @@ public class CartItem {
         this.currency = currency;
         this.unitGrossMinorSnapshot = unitGrossMinorSnapshot;
         this.taxRateBpsSnapshot = taxRateBpsSnapshot;
+        this.priceVersionSnapshot = priceVersionSnapshot;
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -101,11 +105,23 @@ public class CartItem {
     }
 
     /** Refreshes the last-validated catalog values (used when the same line is added again). */
-    public void refreshSnapshot(String name, long unitGrossMinor, Integer taxRateBps, Instant now) {
+    public void refreshSnapshot(String name, long unitGrossMinor, Integer taxRateBps, String priceVersion,
+                                Instant now) {
         this.productNameSnapshot = name;
         this.unitGrossMinorSnapshot = unitGrossMinor;
         this.taxRateBpsSnapshot = taxRateBps;
+        this.priceVersionSnapshot = priceVersion;
         this.updatedAt = now;
+    }
+
+    /** Re-reads the unit price of every paid extra from the validated selection (same options, current prices). */
+    public void refreshOptionPrices(java.util.Map<UUID, Long> unitPriceDeltaByOptionId) {
+        for (CartItemOption stored : options) {
+            Long current = unitPriceDeltaByOptionId.get(stored.getOptionId());
+            if (current != null) {
+                stored.refreshPrice(current);
+            }
+        }
     }
 
     @Override

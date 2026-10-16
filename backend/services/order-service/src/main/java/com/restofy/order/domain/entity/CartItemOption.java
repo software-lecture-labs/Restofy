@@ -46,7 +46,7 @@ public class CartItemOption {
     @Column(name = "name_snapshot", nullable = false, updatable = false)
     private String nameSnapshot;
 
-    @Column(name = "unit_price_delta_minor_snapshot", nullable = false, updatable = false)
+    @Column(name = "unit_price_delta_minor_snapshot", nullable = false)
     private long unitPriceDeltaMinorSnapshot;
 
     public CartItemOption(CartItem cartItem, UUID optionId, SelectionAction action, int quantity,
@@ -59,6 +59,11 @@ public class CartItemOption {
         this.quantity = quantity;
         this.nameSnapshot = nameSnapshot;
         this.unitPriceDeltaMinorSnapshot = unitPriceDeltaMinorSnapshot;
+    }
+
+    /** Only the last-validated price may change; the selection itself (option, action, quantity) never does. */
+    public void refreshPrice(long unitPriceDeltaMinor) {
+        this.unitPriceDeltaMinorSnapshot = unitPriceDeltaMinor;
     }
 
     @Override

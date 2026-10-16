@@ -48,7 +48,17 @@ abstract class AbstractCartApiTest {
     void resetState() {
         qr.reset();
         menu.reset();
-        jdbc.update("DELETE FROM carts");
+        for (String table : new String[]{"idempotency_records", "carts"}) {
+            jdbc.update("DELETE FROM " + table);
+        }
+    }
+
+    protected static String newKey() {
+        return UUID.randomUUID().toString();
+    }
+
+    protected int count(String table) {
+        return jdbc.queryForObject("SELECT count(*) FROM " + table, Integer.class);
     }
 
     protected ResultActions getCart(String token) throws Exception {

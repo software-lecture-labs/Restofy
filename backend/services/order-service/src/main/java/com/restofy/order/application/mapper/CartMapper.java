@@ -7,13 +7,11 @@ import com.restofy.order.api.dto.response.CartResponse.RemovedIngredient;
 import com.restofy.order.api.dto.response.CartResponse.Totals;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.ProductSnapshot;
-import com.restofy.order.application.port.ProductSnapshot.OptionType;
-import com.restofy.order.application.port.ProductSnapshot.ProductOption;
+import com.restofy.order.application.service.CartLinePricer;
 import com.restofy.order.domain.entity.Cart;
 import com.restofy.order.domain.entity.CartItem;
 import com.restofy.order.domain.entity.CartItemOption;
 import com.restofy.order.domain.enums.SelectionAction;
-import com.restofy.order.domain.pricing.PriceCalculator;
 import com.restofy.order.domain.pricing.PriceCalculator.LinePrice;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +28,12 @@ import java.util.UUID;
  */
 @Component
 public class CartMapper {
+
+    private final CartLinePricer pricer;
+
+    public CartMapper(CartLinePricer pricer) {
+        this.pricer = pricer;
+    }
 
     public CartResponse toResponse(GuestSessionContext context, Optional<Cart> cart,
                                    Map<UUID, ProductSnapshot> catalog) {
@@ -76,50 +80,16 @@ public class CartMapper {
                         option.getQuantity(), option.getUnitPriceDeltaMinorSnapshot()))
                 .toList();
 
-        LinePrice price = livePrice(cart, item, product);
-        if (price == null) {
+        CartLinePricer.PricedLine priced = pricer.evaluate(cart.getCurrency(), item, product).line();
+        if (priced == null) {
             return new CartItemResponse(item.getId(), item.getProductId(), item.getProductNameSnapshot(),
                     item.getQuantity(), removed, extras, item.getNote(), false, false,
                     null, null, null, null, null);
         }
-        boolean priceChanged = price.unitGrossMinor() != item.getUnitGrossMinorSnapshot()
-                || !java.util.Objects.equals(product.taxRateBps(), item.getTaxRateBpsSnapshot());
+        LinePrice price = priced.price();
+        boolean priceChanged = pricer.differsFromSnapshot(item, priced);
         return new CartItemResponse(item.getId(), item.getProductId(), product.name(), item.getQuantity(),
                 removed, extras, item.getNote(), true, priceChanged, price.unitGrossMinor(),
                 price.lineGrossMinor(), product.taxRateBps(), price.lineNetMinor(), price.lineVatMinor());
-    }
-
-    /** Live price of the line, or null when it can no longer be priced from the catalog. */
-    private LinePrice livePrice(Cart cart, CartItem item, ProductSnapshot product) {
-        if (product == null || !product.sellable() || !product.currency().equals(cart.getCurrency())) {
-            return null;
-        }
-        Map<UUID, ProductOption> catalogOptions = new java.util.HashMap<>();
-        product.options().forEach(option -> catalogOptions.put(option.optionId(), option));
-        try {
-            long extrasDelta = 0L;
-            for (CartItemOption chosen : item.getOptions()) {
-                ProductOption option = catalogOptions.get(chosen.getOptionId());
-                if (option == null) {
-                    return null;
-                }
-                if (chosen.getAction() == SelectionAction.REMOVE) {
-                    if (!option.removable()) {
-                        return null;
-                    }
-                } else {
-                    if (option.type() != OptionType.ADD || !option.active()
-                            || chosen.getQuantity() > option.maxQuantity()) {
-                        return null;
-                    }
-                    extrasDelta = Math.addExact(extrasDelta,
-                            Math.multiplyExact(option.priceDeltaMinor(), (long) chosen.getQuantity()));
-                }
-            }
-            long unitGross = PriceCalculator.unitGross(product.basePriceGrossMinor(), extrasDelta);
-            return PriceCalculator.priceLine(unitGross, item.getQuantity(), product.taxRateBps());
-        } catch (ArithmeticException overflow) {
-            return null;
-        }
     }
 }
