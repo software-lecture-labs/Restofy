@@ -1,6 +1,10 @@
 package com.restofy.order.api.controller;
 
 import com.restofy.order.api.dto.request.CheckoutRequest;
+import com.restofy.order.api.dto.request.FulfillmentStatusRequest;
+import com.restofy.order.api.dto.response.FulfillmentStatusResponse;
+import com.restofy.order.application.port.StaffActor;
+import com.restofy.order.application.service.OrderFulfillmentService;
 import com.restofy.order.api.dto.response.OrderDetailResponse;
 import com.restofy.order.api.dto.response.OrderHistoryResponse;
 import com.restofy.order.api.dto.response.OrderListResponse;
@@ -15,7 +19,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -24,6 +27,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,8 +41,7 @@ import java.util.UUID;
 /** Order placement for a QR guest. Reading and managing orders arrives in a later phase. */
 @RestController
 @RequestMapping("/api/v1/orders")
-@Tag(name = "Order", description = "Order placement, detail and status history")
-@SecurityRequirement(name = "guestSession")
+@Tag(name = "Order", description = "Order placement, detail, status history and status changes")
 public class OrderController {
 
     static final String IDEMPOTENCY_KEY = "Idempotency-Key";
@@ -46,10 +49,13 @@ public class OrderController {
 
     private final OrderCheckoutService checkout;
     private final OrderQueryService queries;
+    private final OrderFulfillmentService fulfillment;
 
-    public OrderController(OrderCheckoutService checkout, OrderQueryService queries) {
+    public OrderController(OrderCheckoutService checkout, OrderQueryService queries,
+                           OrderFulfillmentService fulfillment) {
         this.checkout = checkout;
         this.queries = queries;
+        this.fulfillment = fulfillment;
     }
 
     @GetMapping
@@ -94,22 +100,43 @@ public class OrderController {
         return queries.history(RequestActor.from(authentication), orderId);
     }
 
+    @PatchMapping("/{orderId}/fulfillment-status")
+    @Operation(summary = "Move an order one step along its fulfillment lifecycle (staff only)",
+            description = "RECEIVED, PREPARING, READY, SERVED, COMPLETED, one step at a time. KITCHEN sets PREPARING "
+                    + "and READY, WAITER sets SERVED and COMPLETED, ADMIN sets COMPLETED; any other role is 403. "
+                    + "Skipping a step, going back or leaving COMPLETED/CANCELLED is 409 INVALID_STATUS_TRANSITION. "
+                    + "CANCELLED cannot be set here (cancellation is a separate process). COMPLETED does not require "
+                    + "payment: payment is an independent status. Repeating the step you just made is a harmless "
+                    + "no-op (changed=false). An order of another restaurant is 404. Guests cannot call this.")
+    @SecurityRequirement(name = "staff")
+    @ApiResponse(responseCode = "200", description = "Status changed (changed=true) or already set by you (false)")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid staff credential")
+    @ApiResponse(responseCode = "403", description = "Not staff, or this role may not set that status")
+    @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND (also for another restaurant's order)")
+    @ApiResponse(responseCode = "409", description = "INVALID_STATUS_TRANSITION")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR (unknown status, bad reason)")
+    public FulfillmentStatusResponse changeFulfillmentStatus(@AuthenticationPrincipal StaffActor staff,
+                                                             @PathVariable UUID orderId,
+                                                             @Valid @RequestBody FulfillmentStatusRequest request) {
+        return fulfillment.changeByStaff(staff, orderId, request.status(), request.reason());
+    }
+
     @PostMapping
     @Operation(summary = "Turn the current cart into an order (idempotent per Idempotency-Key)",
             description = "The server re-prices the cart from the catalog and orders only if the client confirmed "
                     + "the same cart version and total. Repeating a finished request with the same key and body "
                     + "returns the same order (header Idempotent-Replayed: true). The order number (ORD-000001) is a "
                     + "display identifier only and never grants access.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Order placed (or replayed for the same Idempotency-Key)"),
-            @ApiResponse(responseCode = "400", description = "Missing/invalid Idempotency-Key, malformed body or "
-                    + "unknown fields (prices and ids are never accepted from the client)"),
-            @ApiResponse(responseCode = "401", description = "Missing or invalid guest session"),
-            @ApiResponse(responseCode = "409", description = "PRICE_CHANGED, CART_VERSION_CONFLICT, "
+    @SecurityRequirement(name = "guestSession")
+    @ApiResponse(responseCode = "201", description = "Order placed (or replayed for the same Idempotency-Key)")
+    @ApiResponse(responseCode = "400", description = "Missing/invalid Idempotency-Key, malformed body or "
+                    + "unknown fields (prices and ids are never accepted from the client)")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid guest session")
+    @ApiResponse(responseCode = "409", description = "PRICE_CHANGED, CART_VERSION_CONFLICT, "
                     + "IDEMPOTENCY_CONFLICT, CART_ALREADY_CHECKED_OUT, PRODUCT_UNAVAILABLE, TAX_DATA_MISSING or "
-                    + "TABLE_SESSION_NOT_ACTIVE"),
-            @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR or CART_EMPTY"),
-            @ApiResponse(responseCode = "503", description = "QR or Menu service unavailable (fail closed)")})
+                    + "TABLE_SESSION_NOT_ACTIVE")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR or CART_EMPTY")
+    @ApiResponse(responseCode = "503", description = "QR or Menu service unavailable (fail closed)")
     public ResponseEntity<OrderResponse> placeOrder(
             @AuthenticationPrincipal GuestSessionContext guest,
             @Parameter(name = IDEMPOTENCY_KEY, in = ParameterIn.HEADER, required = true,

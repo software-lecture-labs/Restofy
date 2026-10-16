@@ -3,11 +3,13 @@ package com.restofy.order.infrastructure.client;
 import com.restofy.order.application.port.AuthContextPort;
 import com.restofy.order.application.port.MenuCatalogPort;
 import com.restofy.order.application.port.QrSessionPort;
+import com.restofy.order.application.port.ServiceIdentityPort;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.infrastructure.client.mock.InMemoryAuthContextAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryMenuCatalogAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryQrSessionAdapter;
+import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -35,7 +37,8 @@ class IntegrationProfileWiringTests {
         return new ApplicationContextRunner()
                 .withUserConfiguration(InMemoryQrSessionAdapter.class, InMemoryMenuCatalogAdapter.class,
                         UnavailableQrSessionAdapter.class, UnavailableMenuCatalogAdapter.class,
-                        InMemoryAuthContextAdapter.class, UnavailableAuthContextAdapter.class)
+                        InMemoryAuthContextAdapter.class, UnavailableAuthContextAdapter.class,
+                        InMemoryServiceIdentityAdapter.class, UnavailableServiceIdentityAdapter.class)
                 .withInitializer(context -> {
                     MockEnvironment environment = new MockEnvironment();
                     if (profiles.length > 0) {
@@ -57,6 +60,10 @@ class IntegrationProfileWiringTests {
             assertInstanceOf(UnavailableAuthContextAdapter.class, context.getBean(AuthContextPort.class));
             assertEquals(0, context.getBeansOfType(InMemoryAuthContextAdapter.class).size(),
                     "the MOCK staff authentication must not exist outside dev/test");
+            assertEquals(1, context.getBeansOfType(ServiceIdentityPort.class).size());
+            assertInstanceOf(UnavailableServiceIdentityAdapter.class, context.getBean(ServiceIdentityPort.class));
+            assertEquals(0, context.getBeansOfType(InMemoryServiceIdentityAdapter.class).size(),
+                    "the MOCK service identity must not exist outside dev/test");
             assertEquals(0, context.getBeansOfType(InMemoryQrSessionAdapter.class).size());
             assertEquals(0, context.getBeansOfType(InMemoryMenuCatalogAdapter.class).size());
         });
@@ -84,6 +91,10 @@ class IntegrationProfileWiringTests {
             BusinessException staff = assertThrows(BusinessException.class,
                     () -> staffPort.resolveStaff("dev-mock-staff-admin-a"));
             assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, staff.code());
+            ServiceIdentityPort servicePort = context.getBean(ServiceIdentityPort.class);
+            BusinessException service = assertThrows(BusinessException.class,
+                    () -> servicePort.resolveService(InMemoryServiceIdentityAdapter.KITCHEN_CREDENTIAL));
+            assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, service.code());
             BusinessException menu = assertThrows(BusinessException.class,
                     () -> menuPort.findProducts(restaurantId, productIds));
             assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, menu.code());
@@ -97,6 +108,8 @@ class IntegrationProfileWiringTests {
             assertInstanceOf(InMemoryQrSessionAdapter.class, context.getBean(QrSessionPort.class));
             assertInstanceOf(InMemoryMenuCatalogAdapter.class, context.getBean(MenuCatalogPort.class));
             assertInstanceOf(InMemoryAuthContextAdapter.class, context.getBean(AuthContextPort.class));
+            assertInstanceOf(InMemoryServiceIdentityAdapter.class, context.getBean(ServiceIdentityPort.class));
+            assertEquals(0, context.getBeansOfType(UnavailableServiceIdentityAdapter.class).size());
             assertEquals(0, context.getBeansOfType(UnavailableAuthContextAdapter.class).size());
             assertEquals(0, context.getBeansOfType(UnavailableQrSessionAdapter.class).size());
         });

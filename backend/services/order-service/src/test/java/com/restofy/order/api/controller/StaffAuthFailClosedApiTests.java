@@ -2,6 +2,7 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.application.port.AuthContextPort;
 import com.restofy.order.application.port.QrSessionPort;
+import com.restofy.order.application.port.ServiceIdentityPort;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,10 @@ class StaffAuthFailClosedApiTests {
     private AuthContextPort auth;
     @MockitoBean
     private QrSessionPort qr;
+    // Not used here. It is declared so this class shares one Spring context (and one database connection pool) with
+    // ServiceAuthFailClosedApiTests; every extra context holds its own pool and the test database has limited slots.
+    @MockitoBean
+    private ServiceIdentityPort services;
 
     @Test
     void anAuthOutageIsA503AndNeverAuthenticatesAnybody() throws Exception {

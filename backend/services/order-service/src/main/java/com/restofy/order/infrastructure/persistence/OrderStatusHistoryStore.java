@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -47,6 +48,20 @@ public class OrderStatusHistoryStore {
                 change.fromStatus(), change.toStatus(), change.actor().type().name(), change.actor().id(),
                 change.actor().role(), change.source(), change.sourceEventId(), change.reason(),
                 Timestamp.from(change.occurredAt()), change.correlationId());
+    }
+
+    /** The most recent fulfillment change of an order (used to recognise a safe retry by the same caller). */
+    public Optional<Entry> findLastFulfillmentChange(UUID restaurantId, UUID orderId) {
+        return jdbc.query("""
+                SELECT state_axis, from_status, to_status, actor_type, actor_id, actor_role, source, reason, occurred_at
+                FROM order_status_history
+                WHERE restaurant_id = ? AND order_id = ? AND state_axis = 'FULFILLMENT'
+                ORDER BY seq DESC
+                LIMIT 1
+                """, (rs, row) -> new Entry(Axis.valueOf(rs.getString("state_axis")), rs.getString("from_status"),
+                rs.getString("to_status"), ChangeActor.Type.valueOf(rs.getString("actor_type")),
+                rs.getString("actor_id"), rs.getString("actor_role"), rs.getString("source"), rs.getString("reason"),
+                rs.getTimestamp("occurred_at").toInstant()), restaurantId, orderId).stream().findFirst();
     }
 
     /** The order's timeline, oldest first; the insertion sequence breaks ties so the order is deterministic. */

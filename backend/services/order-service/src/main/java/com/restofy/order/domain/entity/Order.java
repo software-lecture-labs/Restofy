@@ -118,6 +118,15 @@ public class Order {
         this.updatedAt = now;
     }
 
+    /**
+     * Records the new fulfillment status. Whether the step is allowed is decided by the caller
+     * ({@code FulfillmentTransitions}); the database repeats the rule as a guard trigger.
+     */
+    public void changeFulfillmentStatus(FulfillmentStatus target, Instant now) {
+        this.fulfillmentStatus = target;
+        this.updatedAt = now;
+    }
+
     public void addItem(OrderItem item) {
         items.add(item);
     }

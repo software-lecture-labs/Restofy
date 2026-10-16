@@ -2,6 +2,8 @@ package com.restofy.order.infrastructure.security;
 
 import com.restofy.order.application.port.AuthContextPort;
 import com.restofy.order.application.port.QrSessionPort;
+import com.restofy.order.application.port.ServiceIdentityPort;
+import com.restofy.order.domain.enums.ServiceName;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,7 +28,7 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
-                                    ApiErrorWriter errors) {
+                                    ServiceIdentityPort serviceIdentity, ApiErrorWriter errors) {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -44,10 +46,19 @@ public class SecurityConfiguration {
                         // (with tenant and ownership checks) in OrderQueryService, not only here.
                         .requestMatchers(HttpMethod.GET, "/api/v1/orders", "/api/v1/orders/*", "/api/v1/orders/*/history")
                         .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
+                        // Changing a status: authenticated staff only; which role may set which status is decided
+                        // (with tenant checks) in OrderFulfillmentService. Never open to a guest or a service.
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/orders/*/fulfillment-status")
+                        .hasAuthority(StaffAuthentication.ROLE)
+                        // Internal events: only the named calling service, never a guest or staff credential.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .anyRequest().denyAll())
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),
                         AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new StaffAuthenticationFilter(authContext, errors),
+                        AnonymousAuthenticationFilter.class)
+                .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors),
                         AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->

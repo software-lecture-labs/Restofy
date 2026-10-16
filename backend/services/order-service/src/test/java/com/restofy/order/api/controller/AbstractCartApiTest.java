@@ -54,7 +54,7 @@ abstract class AbstractCartApiTest {
         auth.reset();
         // append-only table: rows cannot be DELETEd, TRUNCATE is the test-only way to clear it
         jdbc.execute("TRUNCATE order_status_history");
-        for (String table : new String[]{"outbox_deliveries", "outbox_events", "idempotency_records",
+        for (String table : new String[]{"inbox_events", "outbox_deliveries", "outbox_events", "idempotency_records",
                 "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);
         }
@@ -82,6 +82,10 @@ abstract class AbstractCartApiTest {
 
     protected static String staff(String credential) {
         return "Staff " + credential;
+    }
+
+    protected static String service(String credential) {
+        return "Service " + credential;
     }
 
     /** GET with a complete Authorization header value (Bearer for guests, Staff for staff). */

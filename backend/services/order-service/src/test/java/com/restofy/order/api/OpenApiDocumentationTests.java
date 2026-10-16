@@ -72,6 +72,11 @@ class OpenApiDocumentationTests {
                 && list.path("security").toString().contains("guestSession"));
         assertTrue(list.path("parameters").toString().contains("tableSessionId"));
         assertTrue(paths.path("/api/v1/orders/{orderId}").path("get").path("security").toString().contains("staff"));
-        assertTrue(!paths.has("/api/v1/internal/order-events/kitchen"));
+        assertTrue(paths.has("/api/v1/orders/{orderId}/fulfillment-status"));
+        assertTrue(paths.path("/api/v1/orders/{orderId}/fulfillment-status").path("patch").path("security").toString()
+                .contains("staff"), paths.path("/api/v1/orders/{orderId}/fulfillment-status").toString());
+        assertTrue(paths.path("/api/v1/internal/order-events/kitchen").path("post").path("security").toString()
+                .contains("service"));
+        assertTrue(!paths.has("/api/v1/internal/order-events/payment"), "payment events arrive in the next stage");
     }
 }

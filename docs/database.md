@@ -205,6 +205,8 @@ REQUESTED/APPROVED/REJECTED. Tam iptal bütün kalan miktarları, kısmi iptal s
 
 **Uygulama (Order Service V46):** Masa bazlı sipariş listesi (`GET /api/v1/orders`) için `ix_orders_table (restaurant_id, table_id, placed_at DESC)` eklendi; masa oturumu ve misafir oturumu listeleri mevcut `ix_orders_table_session` / `ix_orders_guest_session` indekslerini kullanır. Sayfalama `placed_at` + `id` (sabit tie-breaker) ile sıralanır.
 
+**Uygulama (Order Service V47):** `inbox_events` (`source`, `event_id`, `order_id`, `outcome`; `UNIQUE(source, event_id)`) başka servislerden gelen olayları tekilleştirir ve değişiklikle aynı transaction'da yazılır. `orders` üzerinde `trg_orders_fulfillment_transition_guard` tetikleyicisi yalnız `RECEIVED→PREPARING→READY→SERVED→COMPLETED` adımlarına ve `RECEIVED/PREPARING→CANCELLED` iptaline izin verir; atlama, geri dönüş ve `COMPLETED/CANCELLED` sonrası geçiş veritabanında da reddedilir. `inbox_events` için saklama/temizlik henüz tanımlı değildir.
+
 ## 8. Kitchen DB — hazırlık ve fire
 
 ### `kitchen_orders`
