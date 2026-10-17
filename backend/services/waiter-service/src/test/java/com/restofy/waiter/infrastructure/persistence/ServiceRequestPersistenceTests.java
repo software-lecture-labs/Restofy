@@ -58,6 +58,7 @@ class ServiceRequestPersistenceTests {
     @BeforeEach
     @AfterEach
     void emptyTables() {
+        jdbc.update("DELETE FROM order_serve_commands");
         jdbc.update("DELETE FROM idempotency_records");
         jdbc.update("DELETE FROM notification_deliveries");
         jdbc.update("DELETE FROM service_call_events");
@@ -103,10 +104,10 @@ class ServiceRequestPersistenceTests {
     }
 
     @Test
-    void flywayAppliedV101ToV103AndHibernateValidatesTheSchema() {
+    void flywayAppliedV101ToV104AndHibernateValidatesTheSchema() {
         List<String> versions = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        assertEquals(List.of("101", "102", "103"), versions,
+        assertEquals(List.of("101", "102", "103", "104"), versions,
                 "Waiter migrations must stay inside the V101-V110 range, in order and without gaps");
         assertEquals("validate", entityManagerFactory.getProperties().get("hibernate.hbm2ddl.auto"));
     }
@@ -350,6 +351,60 @@ class ServiceRequestPersistenceTests {
         var foreignTenant = assertThrows(DataIntegrityViolationException.class,
                 () -> jdbc.update(sql, UUID.randomUUID(), OTHER_RESTAURANT, "STAFF:1", "RESOLVE", digest, call, 200));
         assertTrue(constraintOf(foreignTenant).contains("fk_idempotency_records_call"));
+    }
+
+    private static final String SERVE_COMMAND_INSERT = """
+            INSERT INTO order_serve_commands (id, restaurant_id, order_id, table_session_id, expected_version,
+                   requested_by_user_id, idempotency_key, request_digest, status, rejection_code, created_at, updated_at,
+                   completed_at)
+            VALUES (?, ?, ?, ?, 4, ?, ?, ?, ?, ?, now(), now(), ?)
+            """;
+
+    private void insertServeCommand(UUID staff, String key, String status, String rejectionCode, boolean completed) {
+        jdbc.update(SERVE_COMMAND_INSERT, UUID.randomUUID(), RESTAURANT, UUID.randomUUID(), SESSION, staff, key,
+                "a".repeat(64), status, rejectionCode, completed ? Timestamp.from(Instant.now()) : null);
+    }
+
+    @Test
+    void serveCommandsAreUniquePerStaffMemberAndKeyAndOnlyHoldKnownStates() {
+        UUID staff = UUID.randomUUID();
+        insertServeCommand(staff, "key-00000001", "PENDING", null, false);
+        var repeat = assertThrows(DataIntegrityViolationException.class,
+                () -> insertServeCommand(staff, "key-00000001", "UNKNOWN", null, false));
+        assertTrue(constraintOf(repeat).contains("uq_order_serve_commands_key"));
+        // Same key text for another staff member, and another key for the same staff member, are independent.
+        insertServeCommand(UUID.randomUUID(), "key-00000001", "UNKNOWN", null, false);
+        insertServeCommand(staff, "key-00000002", "CONFIRMED", null, true);
+        var unknownState = assertThrows(DataIntegrityViolationException.class,
+                () -> insertServeCommand(staff, "key-00000003", "SERVED", null, false));
+        assertTrue(constraintOf(unknownState).contains("ck_order_serve_commands_status"));
+    }
+
+    @Test
+    void aServeCommandIsCompletedExactlyWhenOrderAnsweredAndARejectionAlwaysHasItsReason() {
+        UUID staff = UUID.randomUUID();
+        var rejectedWithoutReason = assertThrows(DataIntegrityViolationException.class,
+                () -> insertServeCommand(staff, "key-00000001", "REJECTED", null, true));
+        assertTrue(constraintOf(rejectedWithoutReason).contains("ck_order_serve_commands_rejection"));
+        var reasonWithoutRejection = assertThrows(DataIntegrityViolationException.class,
+                () -> insertServeCommand(staff, "key-00000002", "CONFIRMED", "ORDER_NOT_READY", true));
+        assertTrue(constraintOf(reasonWithoutRejection).contains("ck_order_serve_commands_rejection"));
+        var confirmedNotCompleted = assertThrows(DataIntegrityViolationException.class,
+                () -> insertServeCommand(staff, "key-00000003", "CONFIRMED", null, false));
+        assertTrue(constraintOf(confirmedNotCompleted).contains("ck_order_serve_commands_completed"));
+        var unknownButCompleted = assertThrows(DataIntegrityViolationException.class,
+                () -> insertServeCommand(staff, "key-00000004", "UNKNOWN", null, true));
+        assertTrue(constraintOf(unknownButCompleted).contains("ck_order_serve_commands_completed"));
+        insertServeCommand(staff, "key-00000005", "REJECTED", "ORDER_NOT_READY", true);
+    }
+
+    @Test
+    void serveCommandsReferenceNothingOutsideTheWaiterDatabase() {
+        Integer foreignKeys = jdbc.queryForObject("""
+                SELECT count(*) FROM information_schema.table_constraints
+                WHERE table_name = 'order_serve_commands' AND constraint_type = 'FOREIGN KEY'
+                """, Integer.class);
+        assertEquals(0, foreignKeys, "order_id and table_session_id are logical references to other services");
     }
 
     @Test

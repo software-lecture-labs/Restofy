@@ -80,6 +80,7 @@ public abstract class ApiTestBase {
     }
 
     private void cleanTables() {
+        jdbc.update("DELETE FROM order_serve_commands");
         jdbc.update("DELETE FROM idempotency_records");
         jdbc.update("DELETE FROM notification_deliveries");
         jdbc.update("DELETE FROM service_call_events");
