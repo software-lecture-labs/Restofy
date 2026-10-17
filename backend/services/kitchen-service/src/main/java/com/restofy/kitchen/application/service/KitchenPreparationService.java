@@ -17,8 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Preparation lifecycle of an order: WAITING -> PREPARING -> READY. Each command is one local ACID transaction
@@ -54,18 +56,34 @@ public class KitchenPreparationService {
 	 */
 	@Transactional
 	public KitchenOrderDetailResponse startPreparation(UUID restaurantId, UUID actorUserId, UUID commandId, UUID orderId) {
+		return execute("Start preparation", restaurantId, actorUserId, commandId, orderId, KitchenOrderStatus.PREPARING,
+				order -> order.startPreparation(clock.instant()));
+	}
+
+	/**
+	 * PREPARING -> READY, same rules as the start: one transaction, row lock, and a repeat is a 200 only when it is
+	 * the same command (id, actor, order, target) and the order is still READY. WAITING -> READY does not exist.
+	 */
+	@Transactional
+	public KitchenOrderDetailResponse markReady(UUID restaurantId, UUID actorUserId, UUID commandId, UUID orderId) {
+		return execute("Mark ready", restaurantId, actorUserId, commandId, orderId, KitchenOrderStatus.READY,
+				order -> order.markReady(clock.instant()));
+	}
+
+	/** Runs one command; {@code transition} applies the domain move and returns the instant it wrote. */
+	private KitchenOrderDetailResponse execute(String command, UUID restaurantId, UUID actorUserId, UUID commandId,
+			UUID orderId, KitchenOrderStatus target, Function<KitchenOrder, Instant> transition) {
 		KitchenOrder order = orders.findForUpdate(restaurantId, orderId).orElseThrow(KitchenOrderNotFoundException::new);
-		KitchenOrderStatus target = KitchenOrderStatus.PREPARING;
 
 		if (isVerifiedRepeat(order, restaurantId, actorUserId, commandId, target)) {
-			log.info("Start preparation REPEAT: restaurantId={} orderId={} actor={}", restaurantId, orderId, actorUserId);
+			log.info("{} REPEAT: restaurantId={} orderId={} actor={}", command, restaurantId, orderId, actorUserId);
 			return views.toDetail(order);
 		}
 		KitchenOrderStatus from = order.getStatus();
-		order.startPreparation(clock.instant());
+		Instant occurredAt = transition.apply(order);
 		orders.saveAndFlush(order);
-		saveHistory(KitchenStatusHistory.transition(order, from, target, actorUserId, commandId, order.getStartedAt()));
-		log.info("Start preparation APPLIED: restaurantId={} orderId={} actor={}", restaurantId, orderId, actorUserId);
+		saveHistory(KitchenStatusHistory.transition(order, from, target, actorUserId, commandId, occurredAt));
+		log.info("{} APPLIED: restaurantId={} orderId={} actor={}", command, restaurantId, orderId, actorUserId);
 		return views.toDetail(order);
 	}
 

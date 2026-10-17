@@ -117,6 +117,17 @@ public class KitchenOrderController {
 		return preparation.startPreparation(principal.restaurantId(), principal.userId(), commandId, orderId);
 	}
 
+	/**
+	 * Finishes preparation (PREPARING -> READY). Same contract as {@code start-preparation}: KITCHEN role only, no
+	 * request body, required {@code Idempotency-Key}, tenant and actor from the verified principal. A WAITING order
+	 * cannot be marked ready (409).
+	 */
+	@PatchMapping("/{orderId}/mark-ready")
+	public KitchenOrderDetailResponse markReady(@AuthenticationPrincipal KitchenPrincipal principal,
+			@PathVariable UUID orderId, @RequestHeader("Idempotency-Key") UUID commandId) {
+		return preparation.markReady(principal.restaurantId(), principal.userId(), commandId, orderId);
+	}
+
 	/** Read-only detail by Order service id. 404 for unknown ids and for other restaurants' orders alike. */
 	@GetMapping("/{orderId}")
 	public KitchenOrderDetailResponse get(@AuthenticationPrincipal KitchenPrincipal principal,

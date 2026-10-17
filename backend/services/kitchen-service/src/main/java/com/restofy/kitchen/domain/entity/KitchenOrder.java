@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -119,17 +120,38 @@ public class KitchenOrder {
 	 * repeat is the same command is decided by the caller from the command id, never from the status alone.
 	 * {@code startedAt} is written once and never earlier than {@code receivedAt}.
 	 */
-	public void startPreparation(Instant now) {
+	public Instant startPreparation(Instant now) {
 		if (status != KitchenOrderStatus.WAITING) {
 			throw new InvalidKitchenTransitionException(status, KitchenOrderStatus.PREPARING);
 		}
 		status = KitchenOrderStatus.PREPARING;
 		startedAt = notBefore(now, receivedAt);
+		return startedAt;
 	}
 
-	/** The instant is never earlier than the lower bound, which keeps received <= started <= ready under clock skew. */
+	/**
+	 * PREPARING -> READY, the only valid way to finish preparation: a WAITING order can never jump to READY. READY
+	 * means the whole order is prepared (there is no per-item state) and is terminal for the kitchen; serving the
+	 * order later does not change it. {@code readyAt} is written once, never earlier than {@code startedAt}.
+	 *
+	 * @return the instant written to {@code readyAt}
+	 */
+	public Instant markReady(Instant now) {
+		if (status != KitchenOrderStatus.PREPARING) {
+			throw new InvalidKitchenTransitionException(status, KitchenOrderStatus.READY);
+		}
+		status = KitchenOrderStatus.READY;
+		readyAt = notBefore(now, startedAt);
+		return readyAt;
+	}
+
+	/**
+	 * The instant is never earlier than the lower bound, which keeps received <= started <= ready under clock skew.
+	 * It is cut to microseconds, the precision PostgreSQL stores, so the value a command returns is exactly the value
+	 * a later read shows.
+	 */
 	private static Instant notBefore(Instant instant, Instant lowerBound) {
-		return instant.isBefore(lowerBound) ? lowerBound : instant;
+		return (instant.isBefore(lowerBound) ? lowerBound : instant).truncatedTo(ChronoUnit.MICROS);
 	}
 
 	@PreUpdate

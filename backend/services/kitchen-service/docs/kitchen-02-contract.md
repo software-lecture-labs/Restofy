@@ -49,3 +49,25 @@ Durum: **Faz 2 çalışma notu.** Dış servislerle ilgili sözleşmeler *öneri
 Örnek 409: `{"status":409,"title":"Conflict","detail":"Order is already PREPARING and this command is not a repeat of the one that did it","currentStatus":"PREPARING"}`.
 
 **Atomiklik:** durum, `started_at`, `version` ve `kitchen_status_history` (`WAITING → PREPARING`, aktör, komut kimliği, zaman) tek transaction'dadır; history yazımı başarısız olursa hepsi geri alınır (testle kanıtlı). Paralel istekler sıraya girer: aynı komutun paralel tekrarları hepsi 200 (tek geçiş uygulanır); farklı komutlardan yalnız biri 200, kalanı 409 alır.
+
+## 4. Hazır yapma API'si — `PATCH /api/v1/kitchen/orders/{orderId}/mark-ready` (task 2.2)
+
+- **Erişim ve istek:** başlatma ile aynı kurallar (§3): yalnız **`KITCHEN`** (ADMIN dahil diğer roller 403, kimliksiz 401), gövde yok, zorunlu `Idempotency-Key` (UUID), restoran/kullanıcı doğrulanmış principal'dan, zaman sunucu saatinden. CSRF kapatılmadı.
+- **Geçiş:** yalnız `PREPARING → READY`. `WAITING → READY` için **hiçbir yol yoktur** (409, değişiklik yok). `READY` Kitchen için terminaldir; garsonun siparişi servis etmesi bu durumu değiştirmez ve Kitchen'a böyle bir komut yoktur.
+- **Başarı (200):** güncel sipariş detayı (GET detay ile aynı gövde, yeni DTO yok): `status = READY`, `startedAt` **değişmez**, `readyAt` dolu, kalemler/seçenekler/notlar aynen.
+- **Zaman:** `readyAt` sunucu saatinden bir kez yazılır ve `readyAt >= startedAt >= receivedAt` her zaman korunur (saat kayması `startedAt`'tan önceye düşürmez; DB CHECK'i de korur).
+- **Tekrar (onaylı karar):** başlatmadaki kuralın aynısı: yalnız **aynı komut kimliği + aynı kullanıcı + aynı sipariş + `READY` hedefi** ve sipariş hâlâ `READY` ise **200**, hiçbir şey değişmez (zaman, `version`, history). Başka komut kimliği veya başka operatör: **409**. *Başlatma* komutunun kimliği `mark-ready` için kullanılamaz (başka geçişe ait: 409).
+
+| Durum | Ne zaman |
+|---|---|
+| 200 | `PREPARING → READY` uygulandı **veya** doğrulanmış tekrar (sipariş hâlâ `READY`) |
+| 400 | `orderId` UUID değil; `Idempotency-Key` yok veya UUID değil |
+| 401 / 403 | kimliksiz / `KITCHEN` olmayan rol (ADMIN dahil) |
+| 404 | sipariş yok **veya başka restoranın siparişi** |
+| 409 | `WAITING` (henüz başlamadı); `READY` ama farklı komut; `CANCELLED`; komut kimliği başka bir komuta ait; eşzamanlı değişiklik/kilit zaman aşımı |
+
+**Atomiklik:** durum, `ready_at`, `version` ve `kitchen_status_history` (`PREPARING → READY`, aktör, komut kimliği, zaman) tek transaction'dadır. `(restaurant_id, kitchen_order_id, to_status)` benzersiz indeksi (V82) ikinci bir `READY` girişini veritabanı düzeyinde engeller. *Hazır olay/outbox kaydı Task 2.4'te aynı transaction'a eklenecektir; bu task'ta olay üretilmez.*
+
+**Listeler:** `READY` sipariş `status=READY` filtresinde görünür, `WAITING`/`PREPARING`/`ACTIVE` listelerinden çıkar; FIFO sırası ve `newArrival=false` (Faz 1 sözleşmesi) korunur.
+
+**Zaman hassasiyeti:** `startedAt` ve `readyAt` **mikrosaniyeye** kesilerek yazılır (PostgreSQL `timestamptz` hassasiyeti). Böylece komutun döndürdüğü zaman ile sonraki GET'in gösterdiği zaman birebir aynıdır (kesilmeseydi Windows'ta nanosaniyeli yanıt, mikrosaniyeli okumadan farklı olabilirdi).
