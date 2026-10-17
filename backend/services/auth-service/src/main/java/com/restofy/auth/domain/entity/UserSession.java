@@ -64,4 +64,13 @@ public class UserSession {
             revokedAt = now;
         }
     }
+
+    public void completeMfa(Instant now, long lifetime) {
+        if (roleSnapshot != StaffRole.ADMIN || authState != SessionAuthState.MFA_PENDING || !isUsable(now)) {
+            throw new IllegalStateException("Invalid MFA session transition");
+        }
+        authState = SessionAuthState.AUTHENTICATED;
+        absoluteExpiresAt = createdAt.plusSeconds(lifetime);
+        lastActivityAt = now;
+    }
 }

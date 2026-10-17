@@ -97,8 +97,11 @@ public class StaffSessionService {
         if (!session.getStaffUserId().equals(user.getId())) {
             throw invalid();
         }
+        if (identity.state() != session.getAuthState()) {
+            throw invalid();
+        }
         if (!session.isUsable(clock.instant()) || session.getRoleSnapshot() != user.getRole()
-                || identity.role() != user.getRole() || identity.state() != session.getAuthState()) {
+                || identity.role() != user.getRole()) {
             revoke(session, clock.instant());
             throw invalid();
         }
@@ -134,6 +137,20 @@ public class StaffSessionService {
         revokeAll(user.getId());
     }
 
+    public Grant completeMfa(Identity identity) {
+        UserSession session = authenticate(identity);
+        session.completeMfa(clock.instant(), settings.refreshTtl());
+        sessions.flush();
+        return grant(session, clock.instant(), 0);
+    }
+
+    public void revokeOtherSessions(Identity identity) {
+        authenticate(identity);
+        sessions.findByStaffUserId(identity.userId()).stream()
+                .filter(session -> !session.getId().equals(identity.sessionId()))
+                .forEach(session -> revoke(session, clock.instant()));
+    }
+
     private UUID logoutSession(String refresh, String access, String pending) {
         if (refresh != null && refresh.matches("[A-Za-z0-9_-]{43}")) {
             var found = refreshTokens.findByTokenHash(digest(refresh));
@@ -142,7 +159,10 @@ public class StaffSessionService {
             }
         }
         try {
-            return jwt.verify(access != null ? access : pending, access == null).sessionId();
+            var identity = jwt.verify(access != null ? access : pending, access == null);
+            var session = sessions.findById(identity.sessionId());
+            return session.filter(found -> found.getStaffUserId().equals(identity.userId())
+                    && found.getAuthState() == identity.state()).map(UserSession::getId).orElse(null);
         } catch (BadCredentialsException _) {
             return null;
         }

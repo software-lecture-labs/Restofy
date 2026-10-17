@@ -11,6 +11,7 @@ import com.restofy.auth.infrastructure.security.AuthCookies;
 import com.restofy.auth.infrastructure.security.AuthCsrfTokens;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
+import com.restofy.auth.application.service.MfaEnrollmentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -31,12 +32,15 @@ public class StaffAuthController {
     private final AuthCookies cookies;
     private final AuthCsrfTokens csrf;
     private final LoginRateLimiter limiter;
+    private final MfaEnrollmentService mfa;
 
-    public StaffAuthController(StaffSessionService sessions, AuthCookies cookies, AuthCsrfTokens csrf, LoginRateLimiter limiter) {
+    public StaffAuthController(StaffSessionService sessions, AuthCookies cookies, AuthCsrfTokens csrf, LoginRateLimiter limiter,
+            MfaEnrollmentService mfa) {
         this.sessions = sessions;
         this.cookies = cookies;
         this.csrf = csrf;
         this.limiter = limiter;
+        this.mfa = mfa;
     }
 
     @GetMapping("/csrf")
@@ -70,7 +74,9 @@ public class StaffAuthController {
 
     @GetMapping("/session")
     public SessionResponse session(@AuthenticationPrincipal Identity identity) {
-        return SessionResponse.from(sessions.authenticate(identity));
+        SessionResponse response = SessionResponse.from(sessions.authenticate(identity));
+        return identity.state() == SessionAuthState.MFA_PENDING
+                ? response.withMfaSetup(mfa.requiresSetup(identity)) : response;
     }
 
     @PostMapping("/activity")

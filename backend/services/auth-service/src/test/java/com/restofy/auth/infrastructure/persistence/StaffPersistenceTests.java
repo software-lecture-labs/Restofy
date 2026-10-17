@@ -63,7 +63,8 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     @Test
     void flywayAppliesV1AndHibernateValidatesStaffSchema() {
         flyway.validate();
-        assertThat(flyway.info().applied()).hasSize(2);
+        assertThat(flyway.info().applied()).hasSize(3);
+        assertThat(flyway.info().applied()[2].getVersion().getVersion()).isEqualTo("3");
         assertThat(flyway.info().applied()[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(flyway.info().applied()[0].getVersion().getVersion()).isEqualTo("1");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))

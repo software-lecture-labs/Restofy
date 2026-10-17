@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -23,6 +25,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
 public class AuthSecurityConfiguration {
+    private static final String STAFF_SESSION = "STAFF_SESSION";
     @Bean
     Clock authClock() { return Clock.systemUTC(); }
 
@@ -52,8 +55,13 @@ public class AuthSecurityConfiguration {
                                 "/actuator/health/readiness").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/session").hasAnyAuthority("STAFF_SESSION", "MFA_PENDING")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/activity").hasAuthority("STAFF_SESSION")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/session").hasAnyAuthority(STAFF_SESSION, "MFA_PENDING")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/activity").hasAuthority(STAFF_SESSION)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/enroll", "/api/v1/auth/mfa/enroll/confirm",
+                                "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover").hasAuthority("MFA_PENDING")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/recovery-codes/regenerate")
+                                .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
+                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
                         .anyRequest().denyAll())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())

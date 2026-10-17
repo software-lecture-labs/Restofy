@@ -22,6 +22,8 @@ public abstract class AuthSessionTestSupport {
 
     @DynamicPropertySource
     static void sessionProperties(DynamicPropertyRegistry registry) {
+        registry.add("auth.mfa.encryption-key", () -> Base64.getEncoder().encodeToString(
+                "0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
         registry.add("auth.session.restaurant-id", () -> "6c54daf0-9340-4a1c-981d-f9acc0261779");
         registry.add("auth.session.private-key", () -> Base64.getEncoder().encodeToString(KEYS.getPrivate().getEncoded()));
         registry.add("auth.session.csrf-secret", () -> Base64.getEncoder().encodeToString(

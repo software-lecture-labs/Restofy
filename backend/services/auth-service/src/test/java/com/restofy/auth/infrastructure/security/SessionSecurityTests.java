@@ -77,7 +77,7 @@ class SessionSecurityTests {
     @Test
     void rejectsWrongIssuerAudienceTypeRestaurantRoleAndMissingClaims() {
         Map<String, Object> overrides = Map.of("iss", "wrong", "aud", "wrong", "token_type", "refresh",
-                "restaurant_id", UUID.randomUUID().toString(), "auth_state", "MFA_PENDING", "role", "ADMIN",
+                "restaurant_id", UUID.randomUUID().toString(), "auth_state", "MFA_PENDING", "role", "UNKNOWN",
                 "sid", "invalid", "sub", "invalid", "jti", "invalid");
         overrides.forEach((name, value) -> {
             String raw = builder().claim(name, value).signWith(settings.privateKey(), Jwts.SIG.RS256).compact();
@@ -87,6 +87,18 @@ class SessionSecurityTests {
             String raw = builder().claim(name, null).signWith(settings.privateKey(), Jwts.SIG.RS256).compact();
             assertThatThrownBy(() -> jwt.verify(raw, false)).as(name).isInstanceOf(BadCredentialsException.class);
         }
+    }
+
+    @Test
+    void acceptsAdminAccessOnlyAfterPromotionAndRejectsPendingForNonAdmin() {
+        UserSession admin = new UserSession(new StaffUser("admin@example.com", HASH, StaffRole.ADMIN), clock.instant(), 604800, null);
+        String pending = jwt.issue(admin);
+        assertThat(jwt.verify(pending, true).state()).isEqualTo(com.restofy.auth.domain.enums.SessionAuthState.MFA_PENDING);
+        assertThatThrownBy(() -> jwt.verify(pending, false)).isInstanceOf(BadCredentialsException.class);
+        admin.completeMfa(clock.instant(), 604800);
+        String access = jwt.issue(admin);
+        assertThat(jwt.verify(access, false).role()).isEqualTo(StaffRole.ADMIN);
+        assertThatThrownBy(() -> jwt.verify(access, true)).isInstanceOf(BadCredentialsException.class);
     }
 
     @Test

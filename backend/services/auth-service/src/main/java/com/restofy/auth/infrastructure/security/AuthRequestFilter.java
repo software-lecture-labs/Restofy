@@ -42,7 +42,10 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             String path = request.getRequestURI().substring(request.getContextPath().length());
             boolean session = "GET".equals(request.getMethod()) && "/api/v1/auth/session".equals(path);
             boolean activity = "POST".equals(request.getMethod()) && "/api/v1/auth/activity".equals(path);
-            if (session || activity) {
+            boolean mfa = "POST".equals(request.getMethod()) && Set.of("/api/v1/auth/mfa/enroll",
+                    "/api/v1/auth/mfa/enroll/confirm", "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover",
+                    "/api/v1/auth/mfa/recovery-codes/regenerate").contains(path);
+            if (session || activity || mfa) {
                 authenticate(request);
             }
             chain.doFilter(request, response);

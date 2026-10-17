@@ -62,7 +62,7 @@ public class StaffJwtTokens {
                 throw new IllegalArgumentException();
             }
             StaffRole role = StaffRole.valueOf(claims.get("role", String.class));
-            if ((role == StaffRole.ADMIN) != pending) {
+            if (pending && role != StaffRole.ADMIN) {
                 throw new IllegalArgumentException();
             }
             UUID.fromString(claims.getId());

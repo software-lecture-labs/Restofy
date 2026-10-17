@@ -1,7 +1,7 @@
 # Auth Service — AUTH-01 / AUTH-02
 
 AUTH-01; tek restoran kurulumu ve personel başına tek rol için personel/parola altyapısıdır.
-AUTH-02 aşağıdaki HTTP oturum sözleşmesini ekler. TOTP ve tam ADMIN girişi AUTH-03 kapsamındadır.
+AUTH-02 aşağıdaki HTTP oturum sözleşmesini ekler. AUTH-03 ADMIN MFA sözleşmesi aşağıda açıklanmıştır.
 Parola doğrulaması yalnız `PasswordProof` döndürür; `Authentication`, cookie veya token üretmez,
 SecurityContext'e kimlik yerleştirmez. Bu sonuç tam giriş/MFA kanıtı olarak kullanılamaz.
 
@@ -219,6 +219,100 @@ HTTPS olmalıdır. Eksik/geçersiz ayarlar uygulamanın başlamasını durdurur.
 Kök `.env.example` ve Compose bu görevde değiştirilmedi. Alper onayından sonra yeni dört
 anahtarın şablonu ve yalnız Auth container'ına aktarımı hazırlanmalıdır; mevcut container
 henüz bu kodun çalıştığını kanıtlamaz. Testler kendi JVM-içi anahtarlarını üretir.
-V2 yalnız `user_sessions` ve `refresh_tokens` ekler. Canlı V2 uygulaması/rebuild ayrı onay
-gerektirir; bu teslim bu işlemlere izin vermez. Audit tablosu, session listesi/silme API'si,
-MFA doğrulaması ve frontend ekranları kapsam dışındadır.
+V2 yalnız `user_sessions` ve `refresh_tokens` ekler. Canlı migration/rebuild ayrı onay
+gerektirir. Audit tablosu, session listesi/silme API'si ve frontend ekranları kapsam dışındadır.
+
+## AUTH-03 ADMIN MFA
+
+MFA yalnız ADMIN içindir. Parola doğrulaması her zaman 300 saniyelik `MFA_PENDING`
+session üretir; kayıtlı MFA yoksa bu session kendi hesabında enrollment başlatabilir.
+MFA zorunludur; devre dışı bırakma, TOTP değiştirme ve otomatik sıfırlama endpoint'i yoktur.
+İlk ADMIN bootstrap aynı şekilde enrollment'a ulaşır; MFA atlama yetkisi sağlamaz.
+
+Backend `secret` ve `otpauthUri` döndürür; QR görselini frontend `otpauthUri`'den üretir. Gizli anahtar ve URI yalnız enrollment yanıtında bir kez gösterilir.
+
+| Method / path | Scope | Request / response |
+| --- | --- | --- |
+| POST `/api/v1/auth/mfa/enroll` | Pending ADMIN, henüz etkin MFA yok | Gövde yok / `secret,otpauthUri,expiresAt` |
+| POST `/api/v1/auth/mfa/enroll/confirm` | Enrollment'a bağlı pending ADMIN | `code` / `session,recoveryCodes` |
+| POST `/api/v1/auth/mfa/verify` | Pending ADMIN, etkin MFA | `code` / session özeti |
+| POST `/api/v1/auth/mfa/recover` | Pending ADMIN, etkin MFA | `code` / session özeti |
+| POST `/api/v1/auth/mfa/recovery-codes/regenerate` | Tam ADMIN + parola + yeni faktör | `password,totpCode` veya `password,recoveryCode` / `recoveryCodes` |
+
+Yeni anonim endpoint yoktur. Her POST mevcut izinli Origin ve `X-CSRF-TOKEN` gerektirir.
+`GET /api/v1/auth/session`, yalnız kendi pending kimliği için `mfaSetupRequired` döndürür;
+ayrı MFA status endpoint'i yoktur. Hatalar mevcut ProblemDetail şemasını kullanır:
+400 biçim, 401 kimlik/faktör, 403 scope/CSRF/Origin, 409 kurulum çakışması, 429 limit
+(`Retry-After`), 503 şifreleme altyapısı hatası. Hata detaylarında sır veya girdi yoktur.
+
+TOTP: HMAC-SHA1, 6 hane, 30 saniye, ±1 adım, 160 bit rastgele sır ve padding'siz Base32.
+Issuer `Restofy`, label `Restofy:<normalized-email>`; URI yalnız kurulum yanıtında döner.
+Sunucu UTC saati güvenilir biçimde senkron tutulmalıdır. Kabul edilen counter hesap
+genelinde monoton artar; başka cihazda aynı adım tekrar kullanılamaz. İleri adım kabul
+edildiyse daha eski adım da reddedilir. Kurulum onayı ilk counter'ı tüketir.
+
+Bekleyen sır, bağlı session'ın son tarihini aşmadan en fazla 300 saniye tutulur.
+Başlatmalar arasında 60 saniye gerekir. Aynı session yeniden başlatırsa eski sır
+geçersizleşir; başka session devam eden kurulumu devralamaz. URI/sır için tekrar okuma
+endpoint'i yoktur; yanıt kaybolursa kontrollü yeniden başlatma gerekir.
+
+TOTP sırları AES-256-GCM ile, her yazmada yeni 96 bit nonce ve 128 bit tag kullanılarak
+şifrelenir. AAD, amaç etiketi ve kullanıcı kimliğine bağlıdır. V3 ciphertext'i `BYTEA`
+olarak tutar; anahtar DB'de bulunmaz. Yeni zorunlu ayar:
+`auth.mfa.encryption-key=${AUTH_MFA_ENCRYPTION_KEY}`. Değer Base64 kodlu 32 rastgele bayt
+olmalıdır; signing/CSRF anahtarı yeniden kullanılmamalıdır. Eksik, bozuk, yanlış uzunlukta
+veya açıkça zayıf anahtar başlangıcı durdurur. Biçimce geçerli fakat yanlış anahtar,
+AAD uyuşmazlığı veya bozuk ciphertext doğrulamada 503 ile fail closed olur; sır açıklanmaz.
+Anahtar rotasyonu/halkası yoktur. Anahtar ve DB yedekleri ayrı korunmalı ve birlikte
+geri yüklenebilmelidir; kayıp anahtar eski TOTP sırlarının geri alınamaması demektir.
+
+Recovery seti 10 adet, her biri 100 bit entropili 20 Base32 karakterinden oluşur;
+gösterim 5×4 gruptur. DB yalnız kullanıcı/amaçla ayrıştırılmış SHA-256 digest tutar.
+Karşılaştırmalar sabit uzunluklu digest'lerle yapılır; tüketim koşullu DB UPDATE'tir.
+Kodlar yalnız üretim/yenileme yanıtında bir kez gösterilir, sunucudan tekrar okunamaz.
+Yanıt kaybolursa güncel parola ve kullanılmamış faktörle yeni set üretilmelidir.
+Recovery kullanımı ilgili pending session'ı yükseltir; TOTP sırrını otomatik değiştirmez.
+Yenileme eski kodları ve diğer cihaz session'larını iptal eder; işlemin session'ı korunur.
+
+Yükseltme aynı session kimliğini korur, yeni access/ilk refresh çifti verir; pending
+cookie temizlenir ve CSRF yeni refresh'e bağlanır. Eski pending token okuma, yükseltme
+ve logout üzerinden tam session'a etki edemez. Mutlak ömür parola girişinden 604800 sn,
+ADMIN idle MFA tamamlanmasından itibaren 900 sn'dir. MFA gerçek kullanıcı etkinliğidir;
+polling/refresh/okuma idle süresini yenilemez. Başarılı yükseltmeden sonra istemci CSRF
+token'ını yeniden almalıdır. Access/refresh tokenları yanıtta veya JS store'da tutulmaz.
+
+TOTP, recovery ve enrollment onayı aynı DB başarısızlık sayacını paylaşır. Kontrol
+kod doğrulamadan önce yapılır. Beş dakikada beş yanlış deneme beş dakikalık geçici
+kilit ve 429 üretir; yeni parola girişi ya da enrollment başlatma sayacı sıfırlamaz.
+Başarılı MFA sayacı temizler. `MfaAttemptLimiter.attempt`, Spring proxy üzerinden
+`REQUIRES_NEW` transaction açar; 401/429 için rollback yapılmaz. MFA giriş servisleri
+transaction başlatmadan bu sınıra girer; çağıran transaction'ın rollback'i sayacı geri
+almaz. Kullanıcı satır kilidi account genelinde yarışları sıralar; başarılı faktör
+tüketimi ve yükseltme aynı transaction'dadır. Teknik hatalar transaction'ı geri alır.
+Bu sınır, aynı kullanıcı/MFA satırını kilitlemiş dış transaction içinden çağrılmamalıdır.
+
+Peer-IP limiti süreç başına 60 saniyede 30 istektir; en fazla 10000 pencere tutulur.
+Yalnız servlet peer adresi kullanılır, `X-Forwarded-For` güvenilmez. Gateway arkasında
+bu adres gerçek kullanıcı IP'si olmayabilir; dağıtık IP limiti garantisi yoktur.
+Hesap kilidi mevcut doğrulanmış diğer cihazların yetkisini kendiliğinden kaldırmaz.
+
+### Bilinen güvenlik ve işletim sınırları
+
+- İlk enrollment'ı ADMIN parolasını bilen biri başlatabilir. Henüz kayıtlı ikinci
+  faktör olmadığından, çalınmış parola ile ilk faktörün saldırgan tarafından kurulması
+  riski vardır. İlk ADMIN parolası ve ilk kurulum güvenilir kanalda korunmalıdır.
+- Audit yapılandırılmış uygulama logudur; dayanıklı/transactional audit deposu değildir.
+  Başarı olayları commit sonrasında yazılır; commit ile log yazımı arasında süreç
+  kapanırsa olay kaybolabilir. Şifreleme arızası güvenli operasyonel olay olarak yazılır.
+  Log taşıma, erişim ve retention ayrı işletim sorumluluğudur.
+- Parola, OTP, TOTP sırrı, recovery kodu, URI, token ve cookie loglanmaz. Hassas DTO'ların
+  `toString` çıktıları içerik taşımaz; hassas HTTP yanıtları `Cache-Control: no-store` kullanır.
+- TOTP ve recovery birlikte kaybolursa otomatik kurtarma yoktur; tek ADMIN kilitlenebilir.
+  Kimlik doğrulamalı, kayıtlı ve işlem bazında onaylı operasyonel sıfırlama prosedürü
+  ayrıca kararlaştırılmalıdır. Geliştirici sessiz DB değişikliği yapmamalıdır.
+- V3 uygulanmış V1/V2'yi değiştirmez; iki MFA tablosu ekler ve ADMIN'in iki auth durumunu
+  kabul eden CHECK oluşturur. Migration mevcut pending session'ları yükseltmez veya
+  sürelerini yenilemez. Tam ADMIN satırları varken eski V2 CHECK'ine geri dönülemez.
+- Kök ENV şablonu/Compose değişikliği Alper onayı bekler; bu teslim onları değiştirmez.
+  Gerçek MFA anahtarını işletici hazırlamalıdır. Canlı V3/rebuild ve dev ADMIN enrollment
+  ayrıca izin gerektirir. DB/migration/HTTP entegrasyon testleri Docker ile doğrulanmalıdır.

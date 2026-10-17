@@ -1,6 +1,8 @@
 package com.restofy.auth.api.exception;
 
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
+import com.restofy.auth.infrastructure.security.MfaUnavailableException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -35,6 +37,14 @@ public class AuthExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ProblemDetail> failure() { return response(HttpStatus.INTERNAL_SERVER_ERROR); }
+
+    @ExceptionHandler(MfaUnavailableException.class)
+    ResponseEntity<ProblemDetail> unavailable() { return response(HttpStatus.SERVICE_UNAVAILABLE); }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<ProblemDetail> status(ResponseStatusException exception) {
+        return response(HttpStatus.valueOf(exception.getStatusCode().value()));
+    }
 
     private ResponseEntity<ProblemDetail> response(HttpStatus status) {
         return ResponseEntity.status(status).header("Cache-Control", "no-store").body(AuthProblems.detail(status));
