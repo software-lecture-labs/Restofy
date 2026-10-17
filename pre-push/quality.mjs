@@ -40,7 +40,7 @@ export async function runQualityChecks({ root = repositoryRoot, profile = 'dev',
     await step('Git / Secret Check', () => checkGitSecrets(run, say));
 
     await step('Backend Tests', async () => {
-      await requireMaven25(run, mvn, root);
+      await requireMaven25(run, mvn, root, { env, log: say });
       const result = await run(mvn, ['-B', '-ntp', '-f', 'backend/pom.xml', 'clean', 'verify']);
       rows['Backend Build'] = result.code === 0 ? 'PASS' : 'FAIL';
       return result.code === 0 && backendTests(root, modules, started) > 0;

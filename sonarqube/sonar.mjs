@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareBackendMaven } from './backend-tools.mjs';
 import { repositoryRoot, execute, redact, cleanGenerated, freshFile, backendResults, frontendResults, readModules, clearReports, withReportLock, withRunLog } from '../lib/quality-tools.mjs';
 
 // Read data, never execute/source an ENV file. Ambient variables take precedence.
@@ -64,7 +65,7 @@ export async function runScan({root=repositoryRoot, profile='dev', ambient=proce
   let env=ambient;
   const say=text=>log(redact(text,secrets));
   const run=(command,args,cwd=root,capture=false)=>runCommand(command,args,{cwd,env,capture,secrets,log:say});
-  const mvn=process.platform==='win32'?'mvn.cmd':'mvn';
+  let backendMaven;
   const npm=process.platform==='win32'?'npm.cmd':'npm';
   const front=path.join(root,'frontend');
   const started=Date.now();
@@ -101,9 +102,8 @@ export async function runScan({root=repositoryRoot, profile='dev', ambient=proce
     clearReports(root,modules);
     let backendReports=false, frontendReports=false;
     await step('Backend Reports',async()=>{
-      const version=await run(mvn,['-version'],root,true);
-      if(version.code!==0 || !/Java version:\s*25[.,]/.test(version.output)) throw new Error('Maven must be available and use Java 25');
-      const result=await run(mvn,['-B','-ntp','-f','backend/pom.xml','clean','verify']);
+      backendMaven=await prepareBackendMaven({root,env,runCommand,log:say});
+      const result=await backendMaven.run(['-B','-ntp','-f','backend/pom.xml','clean','verify']);
       if(result.code!==0) throw new Error('Backend build/tests failed');
       details.backend=backendResults(root,modules,started);
       backendReports=true;
@@ -122,11 +122,13 @@ export async function runScan({root=repositoryRoot, profile='dev', ambient=proce
     for(const area of ['Backend','Frontend']) {
       await step(area+' Analysis',async()=>{
         if(!(area==='Backend'?backendReports:frontendReports)) throw new Error('No current successful tests and measurable coverage for '+area);
+        if(area==='Backend') backendResults(root,modules,started);
         cleanGenerated(root,area==='Backend'?'backend/target/sonar':'frontend/.scannerwork');
         const props=['-Dsonar.projectKey='+keys[area],'-Dsonar.qualitygate.wait=true','-Dsonar.qualitygate.timeout=300'];
         const result=area==='Backend'
-          ?await run(mvn,['-B','-ntp','-f','backend/pom.xml','sonar:sonar',...props])
+          ?await backendMaven.run(['-B','-ntp','-f','backend/pom.xml','sonar:sonar',...props])
           :await run(npm,['run','sonar','--',...props],front);
+        if(area==='Backend' && result.code!==0) throw new Error('Backend scanner exited with code '+result.code);
         const metadata=freshFile(root,area==='Backend'?'backend/target/sonar/report-task.txt':'frontend/.scannerwork/report-task.txt',started);
         const taskId=metadata.match(/^ceTaskId=(.+)$/m)?.[1]?.trim();
         if(!taskId) throw new Error('Scanner did not submit a current analysis');

@@ -95,7 +95,7 @@ Aşağıdaki adımları sırayla izleyin.
 - **Node.js 22.12+** ve **npm** — Frontend'i çalıştırmak için. **Zorunlu.**
 - **JDK 25** ve **Maven** — Yalnızca [Pre-Push kalite kontrolü](#-test-ve-kalite-kontrolleri) için. Backend Docker içinde derlendiğinden uygulamayı çalıştırmak için gerekmez.
 
-Pre-Push betikleri sistemdeki `mvn` komutunu kullanır ve Java 25 ile çalışan Maven bekler. Servis klasörlerindeki `mvnw` dosyaları bu akışta kullanılmaz.
+Pre-Push betikleri sistemdeki `mvn` komutunu kullanır ve Java 25 ile çalışan Maven bekler. Servis klasörlerindeki `mvnw` dosyaları bu akışta kullanılmaz. `JAVA_HOME` tanımsızsa veya başka bir Java sürümünü gösteriyorsa betik, kurulu bir JDK 25'i otomatik bulup yalnızca kendi Maven süreçlerinde kullanır.
 
 ### 1. Repository'yi klonlayın
 

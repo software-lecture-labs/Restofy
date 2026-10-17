@@ -2,6 +2,8 @@
 
 Docker Engine/Desktop, Node.js, Java 25 kullanan Maven ve kurulu frontend paketleri gerekir. Mevcut root `.env` Sonar veritabanı ayarlarını içerir; gerçek ENV dosyaları Git'e gönderilmez. Kök `sonarqube/` yerleşimi ve ayrı `docker-compose.sonar.yml` korunur; pre-push bu sistemi çağırmaz.
 
+Backend raporlama ve analiz çağrıları önce Maven'in kullandığı Java sürümünü doğrular. Sürüm 25 değilse kurulu JDK 25 konumları (macOS'ta keg-only Homebrew dahil) denenir; yalnız backend alt süreçlerinin `JAVA_HOME` ve `PATH` değerleri ayarlanır. Shell profilleri ve ENV dosyaları değişmez. macOS/Linux'ta sistem Maven'i çalışmazsa mevcut `backend/services/menu-service/mvnw`, `sh` üzerinden kullanılır; `-f backend/pom.xml` tüm 13 modülü seçmeye devam eder. Wrapper dağıtımı önbellekte yoksa ilk kullanım indirme gerektirebilir. Windows sistem Maven'ini kullanmaya devam eder. SonarScanner'ın kendi Java runtime seçimi backend derlemesinin JDK 25 gereksiniminden ayrıdır.
+
 Windows:
 
 ```powershell

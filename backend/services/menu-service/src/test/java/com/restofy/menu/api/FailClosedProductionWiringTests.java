@@ -1,0 +1,64 @@
+package com.restofy.menu.api;
+
+import com.restofy.menu.application.security.CurrentActorProvider;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * No test actor imported: this is the production wiring until Auth is connected. Every category
+ * endpoint must refuse, even for a caller the framework considers logged in and even when the
+ * client sends identity headers.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+class FailClosedProductionWiringTests {
+
+    @Autowired MockMvc mvc;
+    @Autowired CurrentActorProvider provider;
+
+    @Test
+    void productionProviderNeverAuthenticatesAnyone() {
+        assertTrue(provider.current().isEmpty());
+    }
+
+    @Test
+    void everyCategoryEndpointAnswers401() throws Exception {
+        UUID id = UUID.randomUUID();
+        String body = "{\"name\":\"Drinks\",\"version\":0}";
+        var identity = new String[] {"X-Restaurant-Id", UUID.randomUUID().toString()};
+        mvc.perform(get("/api/v1/menu/categories").with(user("staff")).header(identity[0], identity[1]).header("X-Role", "ADMIN"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/categories/" + id).with(user("staff"))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/categories/" + id + "/subcategories").with(user("staff"))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/subcategories/" + id).with(user("staff"))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/categories").with(user("staff")).with(csrf()).header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/categories/" + id + "/subcategories").with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/categories/" + id).with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/subcategories/" + id).with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void requestsWithoutAnyFrameworkAuthenticationAreRefusedToo() throws Exception {
+        mvc.perform(get("/api/v1/menu/categories")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/categories").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+}

@@ -1,0 +1,16 @@
+package com.restofy.menu.support;
+
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+
+/** Replaces the fail-closed production provider for tests that import it. */
+@TestConfiguration(proxyBeanMethods = false)
+public class TestActorConfiguration {
+
+    @Bean
+    @Primary
+    TestActorProvider testActorProvider() {
+        return new TestActorProvider();
+    }
+}
