@@ -51,8 +51,8 @@ class CategorySchemaPostgresIntegrationTests {
     void flywayAppliedExactlyTheMenuMigrationsInOrder() {
         assertEquals(1, jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE success AND version = '61' AND type = 'SQL'", Integer.class));
-        // V62 (products) is the only migration after V61; nothing else may sneak in.
-        assertEquals(java.util.List.of("61", "62"), jdbc.queryForList(
+        // V62 (products) and V63 (availability) are the only migrations after V61; nothing else may sneak in.
+        assertEquals(java.util.List.of("61", "62", "63"), jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class));
     }
 

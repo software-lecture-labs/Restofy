@@ -6,6 +6,8 @@ import com.restofy.menu.domain.exception.DuplicateCategoryNameException;
 import com.restofy.menu.domain.exception.ForbiddenOperationException;
 import com.restofy.menu.domain.exception.InvalidCategoryException;
 import com.restofy.menu.domain.exception.InvalidProductException;
+import com.restofy.menu.domain.exception.ProductAvailabilityMissingException;
+import com.restofy.menu.domain.exception.ProductAvailabilityVersionConflictException;
 import com.restofy.menu.domain.exception.ProductNotFoundException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
@@ -47,7 +49,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler({DuplicateCategoryNameException.class, CategoryVersionConflictException.class,
-            ProductVersionConflictException.class})
+            ProductVersionConflictException.class, ProductAvailabilityVersionConflictException.class,
+            ProductAvailabilityMissingException.class})
     ProblemDetail conflict(RuntimeException e) {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage());
     }

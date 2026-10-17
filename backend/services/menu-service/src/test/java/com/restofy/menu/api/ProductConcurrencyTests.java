@@ -1,11 +1,14 @@
 package com.restofy.menu.api;
 
 import com.restofy.menu.application.security.AuthenticatedActor;
+import com.restofy.menu.application.service.ChangeAvailabilityCommand;
 import com.restofy.menu.application.service.CreateProductCommand;
 import com.restofy.menu.application.service.ProductService;
 import com.restofy.menu.application.service.UpdateProductCommand;
 import com.restofy.menu.domain.entity.Category;
 import com.restofy.menu.domain.enums.ActorRole;
+import com.restofy.menu.domain.enums.AvailabilityStatus;
+import com.restofy.menu.domain.exception.ProductAvailabilityVersionConflictException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -47,6 +50,8 @@ class ProductConcurrencyTests {
 
     @AfterEach
     void clean() {
+        jdbc.update("DELETE FROM product_availability_history");
+        jdbc.update("DELETE FROM product_availability");
         jdbc.update("DELETE FROM products");
         jdbc.update("DELETE FROM categories");
     }
@@ -71,7 +76,7 @@ class ProductConcurrencyTests {
                     try {
                         attempt.accept(index);
                         return true;
-                    } catch (ProductVersionConflictException _) {
+                    } catch (ProductVersionConflictException | ProductAvailabilityVersionConflictException _) {
                         return false;
                     }
                 }));
@@ -140,6 +145,52 @@ class ProductConcurrencyTests {
         int[] outcome = race(2, i -> {
             if (i == 0) {
                 service.update(admin, id, new UpdateProductCommand(other, null, null, null, null, null, null, 0L));
+            } else {
+                service.changeActive(admin, id, false, 0L);
+            }
+        });
+        assertEquals(1, outcome[0]);
+        assertEquals(1, outcome[1]);
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
+    }
+
+    @Test
+    void twoAvailabilityChangesWithTheSameVersionLetExactlyOneWinAndWriteOneHistoryEntry() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(4, i -> service.changeAvailability(admin, id, new ChangeAvailabilityCommand(
+                i % 2 == 0 ? AvailabilityStatus.OUT_OF_STOCK : AvailabilityStatus.TEMPORARILY_CLOSED,
+                "REASON_" + i, null, 0L)));
+        assertEquals(1, outcome[0]);
+        assertEquals(3, outcome[1]);
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM product_availability WHERE product_id = ?", Long.class, id));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE product_id = ?", Integer.class, id),
+                "the initial entry plus exactly the winner's");
+        String stored = jdbc.queryForObject("SELECT reason_code FROM product_availability WHERE product_id = ?", String.class, id);
+        assertEquals(stored, jdbc.queryForObject("SELECT reason_code FROM product_availability_history WHERE product_id = ? "
+                + "AND from_status IS NOT NULL", String.class, id), "current row and history agree on the winner");
+    }
+
+    @Test
+    void availabilityChangeAndProductUpdateRaceWithoutConflictingBecauseTheirVersionsAreIndependent() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(2, i -> {
+            if (i == 0) {
+                service.changeAvailability(admin, id, new ChangeAvailabilityCommand(AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", null, 0L));
+            } else {
+                service.update(admin, id, new UpdateProductCommand(null, "Renamed", null, null, null, null, null, 0L));
+            }
+        });
+        assertEquals(2, outcome[0], "both succeed: they guard different records");
+        assertEquals("OUT_OF_STOCK", jdbc.queryForObject("SELECT status FROM product_availability WHERE product_id = ?", String.class, id));
+        assertEquals("Renamed", jdbc.queryForObject("SELECT name FROM products WHERE id = ?", String.class, id));
+    }
+
+    @Test
+    void publicationRacingAnArchiveOnTheSameProductVersionLetsExactlyOneWin() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(2, i -> {
+            if (i == 0) {
+                service.changePublication(admin, id, true, 0L);
             } else {
                 service.changeActive(admin, id, false, 0L);
             }

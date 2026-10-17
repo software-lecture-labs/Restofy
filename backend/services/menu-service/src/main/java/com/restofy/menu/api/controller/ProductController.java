@@ -1,6 +1,8 @@
 package com.restofy.menu.api.controller;
 
 import com.restofy.menu.api.dto.request.ChangeProductActiveRequest;
+import com.restofy.menu.api.dto.request.ChangeProductAvailabilityRequest;
+import com.restofy.menu.api.dto.request.ChangeProductPublicationRequest;
 import com.restofy.menu.api.dto.request.CreateProductRequest;
 import com.restofy.menu.api.dto.request.UpdateProductRequest;
 import com.restofy.menu.api.dto.response.PageResponse;
@@ -8,6 +10,7 @@ import com.restofy.menu.api.dto.response.ProductResponse;
 import com.restofy.menu.application.mapper.ProductMapper;
 import com.restofy.menu.application.security.AuthenticatedActor;
 import com.restofy.menu.application.security.CurrentActorProvider;
+import com.restofy.menu.application.service.ChangeAvailabilityCommand;
 import com.restofy.menu.application.service.CreateProductCommand;
 import com.restofy.menu.application.service.ProductFilter;
 import com.restofy.menu.application.service.ProductQueryService;
@@ -89,6 +92,21 @@ public class ProductController {
     @PatchMapping("/{id}/active")
     public ProductResponse changeActive(@PathVariable UUID id, @Valid @RequestBody ChangeProductActiveRequest request) {
         return ProductMapper.toResponse(products.changeActive(actor(), id, request.isActive(), request.version()));
+    }
+
+    /** Publish or hide; independent of archiving and availability. Uses the product version. */
+    @PatchMapping("/{id}/publication")
+    public ProductResponse changePublication(@PathVariable UUID id,
+            @Valid @RequestBody ChangeProductPublicationRequest request) {
+        return ProductMapper.toResponse(products.changePublication(actor(), id, request.isPublished(), request.version()));
+    }
+
+    /** Open or close for ordering; independent of archiving and publication. Uses the availability version. */
+    @PatchMapping("/{id}/availability")
+    public ProductResponse changeAvailability(@PathVariable UUID id,
+            @Valid @RequestBody ChangeProductAvailabilityRequest request) {
+        return ProductMapper.toResponse(products.changeAvailability(actor(), id, new ChangeAvailabilityCommand(
+                request.status(), request.reasonCode(), request.reasonText(), request.version())));
     }
 
     private AuthenticatedActor actor() {

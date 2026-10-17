@@ -74,6 +74,12 @@ class FailClosedProductionWiringTests {
                 .contentType(MediaType.APPLICATION_JSON).content(update)).andExpect(status().isUnauthorized());
         mvc.perform(patch("/api/v1/menu/products/" + id + "/active").with(user("staff")).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(active)).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/products/" + id + "/publication").with(user("staff")).with(csrf()).header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"isPublished\":true,\"version\":0}")).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/products/" + id + "/availability").with(user("staff")).with(csrf())
+                .header("X-Restaurant-Id", UUID.randomUUID()).header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"AVAILABLE\",\"version\":0}")).andExpect(status().isUnauthorized());
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.restofy.menu.domain.exception.ProductNotFoundException;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.infrastructure.persistence.repository.ProductRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -15,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -30,19 +30,21 @@ public class ProductQueryService {
     private final ProductRepository products;
     private final CategoryRepository categories;
     private final CategoryPlacementResolver placements;
+    private final ProductViewAssembler views;
 
     public ProductQueryService(ProductRepository products, CategoryRepository categories,
-            CategoryPlacementResolver placements) {
+            CategoryPlacementResolver placements, ProductViewAssembler views) {
         this.products = products;
         this.categories = categories;
         this.placements = placements;
+        this.views = views;
     }
 
     public ProductView get(AuthenticatedActor actor, UUID id) {
         AuthenticatedActor admin = AdminAccess.requireAdmin(actor);
         Product product = products.findByIdAndRestaurantId(id, admin.restaurantId())
                 .orElseThrow(ProductNotFoundException::new);
-        return new ProductView(product, placements.resolve(admin.restaurantId(), product.getCategoryId()));
+        return views.assemble(product);
     }
 
     /**
@@ -67,9 +69,8 @@ public class ProductQueryService {
         }
 
         Page<Product> page = products.findAll(spec, pageable);
-        Map<UUID, CategoryPlacement> byCategory = placements.resolveAll(restaurantId,
-                page.getContent().stream().map(Product::getCategoryId).distinct().toList());
-        return page.map(product -> new ProductView(product, requirePlacement(byCategory, product)));
+        List<ProductView> content = views.assembleAll(restaurantId, page.getContent());
+        return new PageImpl<>(content, pageable, page.getTotalElements());
     }
 
     /** The category ids a filter covers. A foreign or missing category is "not found", never an empty page. */
@@ -80,14 +81,5 @@ public class ProductQueryService {
             scope.addAll(categories.findIdsByRestaurantIdAndParentId(restaurantId, selected.category().getId()));
         }
         return scope;
-    }
-
-    private static CategoryPlacement requirePlacement(Map<UUID, CategoryPlacement> byCategory, Product product) {
-        CategoryPlacement placement = byCategory.get(product.getCategoryId());
-        if (placement == null) {
-            // Unreachable while the composite foreign key holds; never answer with a half-built row.
-            throw new IllegalStateException("A product references a category that does not exist in its restaurant.");
-        }
-        return placement;
     }
 }

@@ -90,6 +90,8 @@ class ProductListApiTests {
 
     @AfterEach
     void clean() {
+        jdbc.update("DELETE FROM product_availability_history");
+        jdbc.update("DELETE FROM product_availability");
         jdbc.update("DELETE FROM products");
         jdbc.update("DELETE FROM categories WHERE parent_id IS NOT NULL");
         jdbc.update("DELETE FROM categories");

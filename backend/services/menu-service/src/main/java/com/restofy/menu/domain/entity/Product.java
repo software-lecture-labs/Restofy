@@ -253,6 +253,17 @@ public class Product {
         return changed;
     }
 
+    /**
+     * Publication is its own axis: it can change whatever the archive state, the category chain or
+     * the availability are. Customer visibility is derived elsewhere and stays false for an
+     * archived product or an inactive category chain even when this is {@code true}.
+     */
+    public boolean changePublished(boolean newPublished) {
+        boolean changed = newPublished != this.published;
+        this.published = newPublished;
+        return changed;
+    }
+
     /** Called by the service only when a mutator reported a real change. */
     public void recordUpdatedBy(UUID actorUserId) {
         this.updatedByUserId = Objects.requireNonNull(actorUserId, "actorUserId");
