@@ -37,6 +37,7 @@ public class StaffUser {
     private Instant createdAt;
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+    private Instant passwordChangedAt;
     @Version
     private long version;
 
@@ -56,6 +57,14 @@ public class StaffUser {
 
     public void deactivate() {
         active = false;
+    }
+
+    public void changePassword(String hash, Instant now) {
+        if (hash == null || !hash.matches("\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}")) {
+            throw new IllegalArgumentException("Invalid staff password hash");
+        }
+        passwordHash = hash;
+        passwordChangedAt = Objects.requireNonNull(now);
     }
 
     @PrePersist

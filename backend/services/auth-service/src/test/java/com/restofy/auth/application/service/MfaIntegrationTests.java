@@ -216,14 +216,15 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         var prior = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").target("2").cleanDisabled(true).load();
         prior.migrate();
-        jdbc.update("INSERT INTO " + schema + ".staff_users SELECT * FROM public.staff_users");
+        jdbc.update("INSERT INTO " + schema + ".staff_users (id,email_normalized,password_hash,role,is_active,created_at,updated_at,version) "
+                + "SELECT id,email_normalized,password_hash,role,is_active,created_at,updated_at,version FROM public.staff_users");
         jdbc.update("INSERT INTO " + schema + ".user_sessions SELECT * FROM public.user_sessions");
         assertThatThrownBy(() -> jdbc.update("UPDATE " + schema + ".user_sessions SET auth_state = 'AUTHENTICATED'"))
                 .isInstanceOf(DataAccessException.class);
         var latest = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
-        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(3);
+        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(4);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions migrated JOIN public.user_sessions original "

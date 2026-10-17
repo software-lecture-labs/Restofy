@@ -137,6 +137,11 @@ public class StaffSessionService {
         revokeAll(user.getId());
     }
 
+    public void revokeAllSessions(UUID staffUserId) {
+        lockUser(staffUserId);
+        revokeAll(staffUserId);
+    }
+
     public Grant completeMfa(Identity identity) {
         UserSession session = authenticate(identity);
         session.completeMfa(clock.instant(), settings.refreshTtl());

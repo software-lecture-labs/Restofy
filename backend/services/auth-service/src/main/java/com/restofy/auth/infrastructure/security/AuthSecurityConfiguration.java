@@ -55,6 +55,8 @@ public class AuthSecurityConfiguration {
                                 "/actuator/health/readiness").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/password-reset/request", "/api/v1/auth/password-reset/verify",
+                                "/api/v1/auth/password-reset/confirm").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/session").hasAnyAuthority(STAFF_SESSION, "MFA_PENDING")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/activity").hasAuthority(STAFF_SESSION)
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/enroll", "/api/v1/auth/mfa/enroll/confirm",
