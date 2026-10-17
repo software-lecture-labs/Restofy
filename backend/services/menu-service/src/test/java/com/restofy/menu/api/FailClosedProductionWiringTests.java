@@ -56,6 +56,23 @@ class FailClosedProductionWiringTests {
     }
 
     @Test
+    void everyProductEndpointAnswers401() throws Exception {
+        UUID id = UUID.randomUUID();
+        String create = "{\"categoryId\":\"" + UUID.randomUUID() + "\",\"name\":\"Burger\",\"basePrice\":1,"
+                + "\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}";
+        String update = "{\"name\":\"Burger\",\"version\":0}";
+        String active = "{\"isActive\":false,\"version\":0}";
+        mvc.perform(get("/api/v1/menu/products/" + id).with(user("staff")).header("X-Restaurant-Id", UUID.randomUUID())
+                .header("X-Role", "ADMIN")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/products").with(user("staff")).with(csrf()).header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content(create)).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/products/" + id).with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(update)).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/products/" + id + "/active").with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(active)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void requestsWithoutAnyFrameworkAuthenticationAreRefusedToo() throws Exception {
         mvc.perform(get("/api/v1/menu/categories")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/menu/categories").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\"}"))

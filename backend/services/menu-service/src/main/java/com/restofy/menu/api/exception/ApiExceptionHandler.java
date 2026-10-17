@@ -5,6 +5,9 @@ import com.restofy.menu.domain.exception.CategoryVersionConflictException;
 import com.restofy.menu.domain.exception.DuplicateCategoryNameException;
 import com.restofy.menu.domain.exception.ForbiddenOperationException;
 import com.restofy.menu.domain.exception.InvalidCategoryException;
+import com.restofy.menu.domain.exception.InvalidProductException;
+import com.restofy.menu.domain.exception.ProductNotFoundException;
+import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -38,18 +41,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage());
     }
 
-    @ExceptionHandler(CategoryNotFoundException.class)
-    ProblemDetail notFound(CategoryNotFoundException e) {
+    @ExceptionHandler({CategoryNotFoundException.class, ProductNotFoundException.class})
+    ProblemDetail notFound(RuntimeException e) {
         return problem(HttpStatus.NOT_FOUND, "Not found", e.getMessage());
     }
 
-    @ExceptionHandler({DuplicateCategoryNameException.class, CategoryVersionConflictException.class})
+    @ExceptionHandler({DuplicateCategoryNameException.class, CategoryVersionConflictException.class,
+            ProductVersionConflictException.class})
     ProblemDetail conflict(RuntimeException e) {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage());
     }
 
-    @ExceptionHandler(InvalidCategoryException.class)
-    ProblemDetail invalid(InvalidCategoryException e) {
+    @ExceptionHandler({InvalidCategoryException.class, InvalidProductException.class})
+    ProblemDetail invalid(RuntimeException e) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", e.getMessage());
     }
 

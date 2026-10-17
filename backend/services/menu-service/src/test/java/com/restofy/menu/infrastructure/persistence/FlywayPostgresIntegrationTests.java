@@ -188,10 +188,11 @@ class FlywayPostgresIntegrationTests {
         boot(false, true).run(context -> {
             assertNull(context.getStartupFailure());
             assertEquals("classpath:db/migration", context.getEnvironment().getProperty("spring.flyway.locations"));
-            // V61 (categories) is the only shipped migration; update this list when a new one is added.
-            assertEquals(List.of("61"), versions(database));
-            assertEquals("2", scalar(database, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"));
+            // V61 (categories) and V62 (products) are the shipped migrations; update this list when a new one is added.
+            assertEquals(List.of("61", "62"), versions(database));
+            assertEquals("3", scalar(database, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"));
             assertNotNull(scalar(database, "SELECT to_regclass('public.categories')"));
+            assertNotNull(scalar(database, "SELECT to_regclass('public.products')"));
         });
     }
 
