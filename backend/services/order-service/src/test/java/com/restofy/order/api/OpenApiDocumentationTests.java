@@ -99,4 +99,21 @@ class OpenApiDocumentationTests {
         assertTrue(!request.has("restaurantId") && !request.has("amountMinor") && !request.has("refundedMinor"),
                 "prices, tenant and refunds are never accepted from the client");
     }
+
+    @Test
+    void theCancellationDecisionReasonAndListEndpointsAreDocumentedWithTheirCallers() throws Exception {
+        JsonNode paths = document().path("paths");
+        assertTrue(paths.path("/api/v1/internal/order-events/kitchen-cancellation").path("post").path("security")
+                .toString().contains("service"));
+        JsonNode reason = paths.path("/api/v1/orders/{orderId}/cancellations/{cancellationId}/reason").path("patch");
+        assertTrue(reason.path("security").toString().contains("staff")
+                && !reason.path("security").toString().contains("guestSession"), reason.toString());
+        JsonNode list = paths.path("/api/v1/orders/{orderId}/cancellations").path("get");
+        assertTrue(list.path("security").toString().contains("guestSession")
+                && list.path("security").toString().contains("staff"));
+        JsonNode decision = document().path("components").path("schemas").path("KitchenCancellationDecisionRequest")
+                .path("properties");
+        assertTrue(decision.has("cancellationId") && decision.has("decision") && decision.has("rejectionCode"));
+        assertTrue(!decision.has("amountMinor") && !decision.has("refundedMinor"));
+    }
 }

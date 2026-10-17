@@ -40,6 +40,9 @@ public class CancellationStore {
                             String addedByRole, Instant addedAt) {
     }
 
+    public record DecisionActor(String source, String type, String id, String role, Instant decidedAt) {
+    }
+
     private static final String ROW_COLUMNS = """
             id, restaurant_id, order_id, scope, status, requested_by_type, requested_by_id, requested_by_role,
             requested_at, kitchen_confirmation_required, fulfillment_status_at_request, payment_status_at_request,
@@ -137,6 +140,53 @@ public class CancellationStore {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, UUID.randomUUID(), restaurantId, cancellationId, reason.source(), reason.code(), reason.text(),
                     reason.addedByType(), reason.addedById(), reason.addedByRole(), ts(reason.addedAt()));
+        }
+    }
+
+    /**
+     * The Kitchen confirmed (or the amounts were recalculated at the decision): REQUESTED becomes APPLIED, once. The
+     * lines, the scope and who asked never change; the amounts are those of the order as it is now.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void approve(UUID id, DecisionActor actor, long previousDueMinor, long newDueMinor, long collectedMinor,
+                        long refundRequiredMinor) {
+        requireOne(jdbc.update("""
+                UPDATE order_cancellations SET status = 'APPLIED', decision_source = ?, decided_by_type = ?,
+                    decided_by_id = ?, decided_by_role = ?, decided_at = ?, previous_due_minor = ?, new_due_minor = ?,
+                    collected_minor = ?, refund_required_minor = ?, version = version + 1, updated_at = ?
+                WHERE id = ? AND status = 'REQUESTED'
+                """, actor.source(), actor.type(), actor.id(), actor.role(), ts(actor.decidedAt()), previousDueMinor,
+                newDueMinor, collectedMinor, refundRequiredMinor, ts(actor.decidedAt()), id), id);
+    }
+
+    /** REQUESTED becomes REJECTED, once. Nothing was cancelled, so the cancelled amounts are zero and the due is as it was. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void reject(UUID id, DecisionActor actor, String rejectionCode, String rejectionNote, long currentDueMinor,
+                       long collectedMinor) {
+        requireOne(jdbc.update("""
+                UPDATE order_cancellations SET status = 'REJECTED', decision_source = ?, decided_by_type = ?,
+                    decided_by_id = ?, decided_by_role = ?, decided_at = ?, rejection_code = ?, rejection_note = ?,
+                    previous_due_minor = ?, new_due_minor = ?, cancelled_gross_minor = 0, cancelled_net_minor = 0,
+                    cancelled_vat_minor = 0, collected_minor = ?, refund_required_minor = 0, version = version + 1,
+                    updated_at = ?
+                WHERE id = ? AND status = 'REQUESTED'
+                """, actor.source(), actor.type(), actor.id(), actor.role(), ts(actor.decidedAt()), rejectionCode,
+                rejectionNote, currentDueMinor, currentDueMinor, collectedMinor, ts(actor.decidedAt()), id), id);
+    }
+
+    /** A waiter completes the reason of a cancellation, once. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void markStaffReason(UUID id, String staffUserId, Instant at) {
+        requireOne(jdbc.update("""
+                UPDATE order_cancellations SET staff_reason_added_at = ?, staff_reason_added_by = ?,
+                    version = version + 1, updated_at = ?
+                WHERE id = ? AND staff_reason_added_at IS NULL
+                """, ts(at), staffUserId, ts(at), id), id);
+    }
+
+    private static void requireOne(int updated, UUID id) {
+        if (updated != 1) {
+            throw new IllegalStateException("cancellation " + id + " was not in the expected state");
         }
     }
 

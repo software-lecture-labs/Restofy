@@ -1,7 +1,9 @@
 package com.restofy.order.api.controller;
 
 import com.restofy.order.api.dto.request.CancelOrderRequest;
+import com.restofy.order.api.dto.request.CancellationReasonRequest;
 import com.restofy.order.api.dto.request.CheckoutRequest;
+import com.restofy.order.api.dto.response.CancellationListResponse;
 import com.restofy.order.api.dto.response.CancellationResponse;
 import com.restofy.order.api.dto.request.FulfillmentStatusRequest;
 import com.restofy.order.api.dto.response.FulfillmentStatusResponse;
@@ -207,5 +209,35 @@ public class OrderController {
             response.header(REPLAYED, "true");
         }
         return response.body(outcome.cancellation());
+    }
+
+    @GetMapping("/{orderId}/cancellations")
+    @Operation(summary = "Every cancellation (request) of an order, oldest first",
+            description = "A guest sees the cancellations of their own order; WAITER and ADMIN those of any order of "
+                    + "their restaurant (staff identifiers for ADMIN only); KITCHEN is 403. reasonPending is true while "
+                    + "neither the customer nor a waiter has given a reason. An order of another restaurant or guest is 404.")
+    @SecurityRequirement(name = "guestSession")
+    @SecurityRequirement(name = "staff")
+    public CancellationListResponse cancellations(Authentication authentication, @PathVariable UUID orderId) {
+        return cancellation.list(RequestActor.from(authentication), orderId);
+    }
+
+    @PatchMapping("/{orderId}/cancellations/{cancellationId}/reason")
+    @Operation(summary = "A waiter gives the reason of a cancellation the customer gave none for (append-only)",
+            description = "WAITER only (403 otherwise, also for a guest). Allowed once, and only while the cancellation "
+                    + "has no reason: reasons are never changed or added to (409 CANCELLATION_REASON_ALREADY_SET); "
+                    + "repeating the very same completion by the same waiter returns the stored result. Needs reasonCodes "
+                    + "and/or reasonText (same rules as the customer's). Works for a cancellation in any status. Who "
+                    + "added it and when is recorded.")
+    @SecurityRequirement(name = "staff")
+    @ApiResponse(responseCode = "200", description = "Reason recorded (or the same completion repeated)")
+    @ApiResponse(responseCode = "403", description = "Not a waiter")
+    @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND or CANCELLATION_NOT_FOUND")
+    @ApiResponse(responseCode = "409", description = "CANCELLATION_REASON_ALREADY_SET")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR")
+    public CancellationResponse completeReason(@AuthenticationPrincipal StaffActor staff, @PathVariable UUID orderId,
+                                               @PathVariable UUID cancellationId,
+                                               @Valid @RequestBody CancellationReasonRequest request) {
+        return cancellation.completeReason(staff, orderId, cancellationId, request);
     }
 }

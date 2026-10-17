@@ -54,8 +54,16 @@ public class SecurityConfiguration {
                         // checks are made in OrderCancellationService. Never open to a service credential.
                         .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/cancellations")
                         .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
+                        // Reading the cancellations of an order: its own guest or staff (role checked in the service).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders/*/cancellations")
+                        .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
+                        // A waiter completes a missing reason: staff only (WAITER is checked in the service).
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/orders/*/cancellations/*/reason")
+                        .hasAuthority(StaffAuthentication.ROLE)
                         // Internal events: only the named calling service, never a guest or staff credential.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen-cancellation")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/payment")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.PAYMENT))

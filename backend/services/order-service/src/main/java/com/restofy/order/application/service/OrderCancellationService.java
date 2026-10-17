@@ -1,6 +1,9 @@
 package com.restofy.order.application.service;
 
 import com.restofy.order.api.dto.request.CancelOrderRequest;
+import com.restofy.order.api.dto.request.CancellationReasonRequest;
+import com.restofy.order.api.dto.response.CancellationListResponse;
+import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.api.dto.response.CancellationResponse;
 import com.restofy.order.application.mapper.CancellationMapper;
 import com.restofy.order.application.service.CancellationApplier.Money;
@@ -41,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -157,6 +161,76 @@ public class OrderCancellationService {
                 immediate ? "applied" : "requested", cancellationId, order.getId(), restaurantId, row.scope(),
                 row.status());
         return new Outcome(mapper.toResponse(order, row, itemRows, reasonRows, revealStaffIds(actor)), false);
+    }
+
+    /**
+     * A waiter gives the reason afterwards for a cancellation the customer gave none for. Only WAITER, only when the
+     * cancellation has no reason yet, and only once: reasons are append-only, nothing is ever overwritten. Repeating the
+     * very same completion by the same waiter returns the stored result (a retry), anything else is 409. The database
+     * enforces the same: a staff reason cannot be added next to a customer's, and not twice.
+     */
+    @Transactional
+    public CancellationResponse completeReason(StaffActor staff, UUID orderId, UUID cancellationId,
+                                               CancellationReasonRequest request) {
+        if (staff.role() != StaffRole.WAITER) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "Only a waiter completes the reason of a cancellation");
+        }
+        var reasons = CancellationReasons.parse(request.reasonCodes(), request.reasonText());
+        if (reasons.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Give at least one reason code or a reason text",
+                    Map.of(PARAMETER, "reasonCodes", "rule", "reasonCodes or reasonText is required"));
+        }
+        Order order = orders.findForUpdate(orderId, staff.restaurantId()).orElseThrow(OrderCancellationService::notFound);
+        Row row = cancellations.find(order.getRestaurantId(), order.getId(), cancellationId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CANCELLATION_NOT_FOUND,
+                        "The cancellation does not exist"));
+        List<ReasonRow> existing = cancellations.findReasons(row.id());
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        List<ReasonRow> added = reasonRows(reasons, new RequestActor.Staff(staff), now);
+        if (!existing.isEmpty()) {
+            if (sameCompletion(existing, added, staff)) {
+                return mapper.toResponse(order, row, cancellations.findItems(row.id()), existing, false);
+            }
+            throw new BusinessException(ErrorCode.CANCELLATION_REASON_ALREADY_SET,
+                    "This cancellation already has a reason; reasons are never changed or added to");
+        }
+        cancellations.insertReasons(order.getRestaurantId(), row.id(), added);
+        cancellations.markStaffReason(row.id(), staff.userId().toString(), now);
+        log.info("Cancellation reason completed: cancellationId={} orderId={} restaurantId={}", row.id(), order.getId(),
+                order.getRestaurantId());
+        Row updated = cancellations.find(order.getRestaurantId(), order.getId(), row.id()).orElseThrow();
+        return mapper.toResponse(order, updated, cancellations.findItems(row.id()), cancellations.findReasons(row.id()),
+                false);
+    }
+
+    /** Every cancellation of an order, for the order's own guest or for waiter / admin staff. */
+    @Transactional(readOnly = true)
+    public CancellationListResponse list(RequestActor actor, UUID orderId) {
+        requester(actor);   // KITCHEN and any other role are refused here
+        Order order = orders.findByIdAndRestaurantId(orderId, restaurantOf(actor))
+                .orElseThrow(OrderCancellationService::notFound);
+        authorise(actor, order);
+        boolean reveal = revealStaffIds(actor);
+        List<CancellationResponse> all = cancellations.findByOrder(order.getRestaurantId(), order.getId()).stream()
+                .map(row -> mapper.toResponse(order, row, cancellations.findItems(row.id()),
+                        cancellations.findReasons(row.id()), reveal))
+                .toList();
+        return new CancellationListResponse(order.getId(), all);
+    }
+
+    private static boolean sameCompletion(List<ReasonRow> existing, List<ReasonRow> added, StaffActor staff) {
+        if (existing.size() != added.size()) {
+            return false;
+        }
+        Set<String> stored = existing.stream().filter(row -> "STAFF".equals(row.source())
+                && staff.userId().toString().equals(row.addedById())).map(OrderCancellationService::signature)
+                .collect(Collectors.toSet());
+        return stored.size() == existing.size()
+                && stored.equals(added.stream().map(OrderCancellationService::signature).collect(Collectors.toSet()));
+    }
+
+    private static String signature(ReasonRow row) {
+        return (row.code() == null ? "-" : row.code()) + "|" + (row.text() == null ? "-" : row.text());
     }
 
     private Outcome replay(RequestActor actor, Order order, IdempotencyStore.Record previous, String digest) {

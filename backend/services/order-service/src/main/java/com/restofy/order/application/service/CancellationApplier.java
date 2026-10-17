@@ -61,6 +61,11 @@ public class CancellationApplier {
         this.cancellations = cancellations;
     }
 
+    /** What was verifiably collected for the order so far. */
+    public long collected(Order order) {
+        return captures.appliedAmount(order.getId());
+    }
+
     /** What this cancellation would mean for the money of the order right now. */
     public Money money(Order order, Result result) {
         long previousDue = order.getCurrentDueMinor();

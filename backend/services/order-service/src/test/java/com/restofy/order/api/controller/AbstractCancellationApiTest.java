@@ -108,6 +108,56 @@ abstract class AbstractCancellationApiTest extends AbstractOrderStatusApiTest {
                 String.class, orderId, eventType);
     }
 
+    protected static final String KITCHEN_CANCELLATION_EVENTS = "/api/v1/internal/order-events/kitchen-cancellation";
+
+    protected ResultActions kitchenDecision(String authorization, Object body) throws Exception {
+        var request = post(KITCHEN_CANCELLATION_EVENTS).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
+        if (authorization != null) {
+            request.header(HttpHeaders.AUTHORIZATION, authorization);
+        }
+        return mvc.perform(request);
+    }
+
+    protected static Map<String, Object> decisionBody(UUID eventId, UUID orderId, UUID cancellationId, String decision,
+                                                      String rejectionCode) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("eventId", eventId);
+        body.put("restaurantId", DevFixtures.RESTAURANT_A);
+        body.put("orderId", orderId);
+        body.put("cancellationId", cancellationId);
+        body.put("decision", decision);
+        if (rejectionCode != null) {
+            body.put("rejectionCode", rejectionCode);
+        }
+        return body;
+    }
+
+    /** The Kitchen service answers a waiting request. */
+    protected ResultActions kitchenDecides(UUID orderId, UUID cancellationId, String decision, String rejectionCode)
+            throws Exception {
+        return kitchenDecision(service(KITCHEN_CREDENTIAL),
+                decisionBody(UUID.randomUUID(), orderId, cancellationId, decision, rejectionCode));
+    }
+
+    /** Orders a salad, moves it into preparation and has the guest ask to cancel it; returns the waiting request. */
+    protected record Waiting(UUID orderId, UUID cancellationId) {
+    }
+
+    protected Waiting waitingRequest(Object body) throws Exception {
+        UUID orderId = placeMixedOrder(A1);
+        advanceTo(orderId, "PREPARING");
+        UUID cancellationId = requestIdOf(cancel(guest(A1), orderId, newKey(), body).andExpect(status().isCreated()));
+        return new Waiting(orderId, cancellationId);
+    }
+
+    protected UUID requestIdOf(ResultActions created) throws Exception {
+        return UUID.fromString(body(created).path("cancellationId").asString());
+    }
+
+    protected String cancellationStatus(UUID cancellationId) {
+        return jdbc.queryForObject("SELECT status FROM order_cancellations WHERE id = ?", String.class, cancellationId);
+    }
+
     protected int cancellationCount(UUID orderId) {
         return jdbc.queryForObject("SELECT count(*) FROM order_cancellations WHERE order_id = ?", Integer.class,
                 orderId);

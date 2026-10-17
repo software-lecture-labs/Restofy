@@ -1,9 +1,12 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.api.dto.request.KitchenCancellationDecisionRequest;
 import com.restofy.order.api.dto.request.KitchenOrderEventRequest;
 import com.restofy.order.api.dto.request.PaymentOrderEventRequest;
+import com.restofy.order.api.dto.response.CancellationDecisionResponse;
 import com.restofy.order.api.dto.response.OrderEventResponse;
 import com.restofy.order.application.port.ServiceActor;
+import com.restofy.order.application.service.CancellationDecisionService;
 import com.restofy.order.application.service.OrderFulfillmentService;
 import com.restofy.order.application.service.OrderPaymentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,10 +32,34 @@ public class InternalOrderEventController {
 
     private final OrderFulfillmentService fulfillment;
     private final OrderPaymentService payments;
+    private final CancellationDecisionService cancellationDecisions;
 
-    public InternalOrderEventController(OrderFulfillmentService fulfillment, OrderPaymentService payments) {
+    public InternalOrderEventController(OrderFulfillmentService fulfillment, OrderPaymentService payments,
+                                        CancellationDecisionService cancellationDecisions) {
         this.fulfillment = fulfillment;
         this.payments = payments;
+        this.cancellationDecisions = cancellationDecisions;
+    }
+
+    @PostMapping("/kitchen-cancellation")
+    @Operation(summary = "Kitchen answers a cancellation request that waited for it (APPROVED or REJECTED)",
+            description = "Only the Kitchen service finalises a cancellation of an order in preparation. APPROVED is "
+                    + "checked again against the order as it is now: if the order was paid in the meantime (customer "
+                    + "request), is READY or beyond, or changed, the Order Service rejects the request itself "
+                    + "(cancellationStatus REJECTED, decision source SYSTEM) instead of cancelling. REJECTED needs a "
+                    + "rejectionCode. The event id makes redelivery safe (duplicate=true returns the original outcome); "
+                    + "a cancellation that was already decided is IGNORED_STALE. An order of another restaurant than the "
+                    + "one named, or a cancellation of another order, is 404.")
+    @ApiResponse(responseCode = "200", description = "Acknowledged (APPLIED or IGNORED_STALE)")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
+    @ApiResponse(responseCode = "403", description = "Not the Kitchen service")
+    @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND or CANCELLATION_NOT_FOUND")
+    @ApiResponse(responseCode = "409", description = "IDEMPOTENCY_CONFLICT")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR")
+    @ApiResponse(responseCode = "503", description = "Service identity verification unavailable (fail closed)")
+    public CancellationDecisionResponse kitchenCancellation(@AuthenticationPrincipal ServiceActor service,
+                                                            @Valid @RequestBody KitchenCancellationDecisionRequest event) {
+        return cancellationDecisions.decide(service, event);
     }
 
     @PostMapping("/kitchen")

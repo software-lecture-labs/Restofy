@@ -34,6 +34,7 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
             new String[]{"PATCH", "/api/v1/orders/" + SOME_ID + "/cancellations/" + SOME_ID + "/reason"},
             new String[]{"POST", "/api/v1/internal/order-events/kitchen"},
             new String[]{"POST", "/api/v1/internal/order-events/payment"},
+            new String[]{"POST", "/api/v1/internal/order-events/kitchen-cancellation"},
             new String[]{"GET", "/api/v1/admin/order-cancellations"});
 
     private MockHttpServletRequestBuilder call(String[] route) {
@@ -62,7 +63,8 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
      */
     private static boolean guestMayCall(String[] route) {
         return (route[0].equals("GET") && route[1].matches("/api/v1/orders(/[0-9a-f-]{36}(/history)?)?"))
-                || (route[0].equals("POST") && route[1].matches("/api/v1/orders/[0-9a-f-]{36}/cancellations"));
+                || (route[0].equals("POST") && route[1].matches("/api/v1/orders/[0-9a-f-]{36}/cancellations"))
+                || (route[0].equals("GET") && route[1].matches("/api/v1/orders/[0-9a-f-]{36}/cancellations"));
     }
 
     @Test
