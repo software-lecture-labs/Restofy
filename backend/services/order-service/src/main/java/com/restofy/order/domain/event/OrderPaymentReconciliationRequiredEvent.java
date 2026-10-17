@@ -10,9 +10,9 @@ import java.util.UUID;
  * own statuses are unchanged. {@code reportedPaymentEventId} is the Payment Service's own event id; consumers must
  * deduplicate on {@code eventId}. No dispatcher delivers it yet (see the outbox).
  *
- * @param reason ORDER_CANCELLED, PAYMENT_CANCELLED, SECOND_CAPTURE (the order is already PAID by a different collection:
- *               a possible double charge) or CAPTURE_USED_ON_OTHER_ORDER (the same collection id was already used for
- *               another order)
+ * @param reason ORDER_CANCELLED, PAYMENT_CANCELLED, ATTEMPT_ENDED (the attempt had already failed), AMOUNT_MISMATCH,
+ *               SECOND_CAPTURE (the order is already PAID by a different collection: a possible double charge) or
+ *               CAPTURE_USED_ON_OTHER_ORDER (the same collection id already belongs to another order)
  */
 public record OrderPaymentReconciliationRequiredEvent(UUID eventId, String eventType, int schemaVersion,
                                                       Instant occurredAt, String correlationId, UUID restaurantId,

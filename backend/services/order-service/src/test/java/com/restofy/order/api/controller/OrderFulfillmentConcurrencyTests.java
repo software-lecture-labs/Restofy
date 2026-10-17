@@ -220,4 +220,29 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE aggregate_id = ? AND event_type ="
                 + " 'OrderPaymentReconciliationRequired'", Integer.class, loser));
     }
+    @Test
+    void aPaidAndItsPendingRacingEndWithTheOrderPaidExactlyOnce() throws Exception {
+        for (int round = 0; round < 3; round++) {
+            UUID orderId = placeSaladOrder(round == 0 ? A1 : round == 1 ? DevFixtures.TOKEN_A2 : A1);
+            UUID attempt = UUID.randomUUID();
+            UUID capture = UUID.randomUUID();
+            var pending = paymentBodyWith(UUID.randomUUID(), orderId, "PENDING", SALAD_DUE, "TRY",
+                    java.time.Instant.now().minusSeconds(60), attempt, null);
+            var paid = paymentBodyWith(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY",
+                    java.time.Instant.now().minusSeconds(50), attempt, capture);
+            List<int[]> results = race(List.of(
+                    () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), pending)),
+                    () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), paid))));
+
+            // whichever got the order lock first: PAID waits and the PENDING then applies it, or the PENDING comes first
+            assertEquals(2, results.stream().filter(r -> r[0] == 200).count());
+            assertEquals("PAID", paymentOf(orderId));
+            assertEquals("APPLIED", jdbc.queryForObject("SELECT status FROM payment_captures WHERE capture_id = ?",
+                    String.class, capture));
+            assertEquals(3, paymentHistory(orderId).size(), "NOT_REQUESTED>PENDING and PENDING>PAID, once each");
+            assertEquals(0L, jdbc.queryForObject("SELECT current_due_minor FROM orders WHERE id = ?", Long.class, orderId));
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM payment_reconciliation_cases WHERE order_id = ?",
+                    Integer.class, orderId));
+        }
+    }
 }

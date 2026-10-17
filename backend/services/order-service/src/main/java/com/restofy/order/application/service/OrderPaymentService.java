@@ -19,6 +19,8 @@ import com.restofy.order.infrastructure.config.PaymentProperties;
 import com.restofy.order.infrastructure.messaging.OutboxEventWriter;
 import com.restofy.order.infrastructure.persistence.InboxStore;
 import com.restofy.order.infrastructure.persistence.OrderStatusHistoryStore;
+import com.restofy.order.infrastructure.persistence.PaymentCaptureStore;
+import com.restofy.order.infrastructure.persistence.PaymentCaptureStore.Capture;
 import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -44,18 +46,22 @@ import java.util.UUID;
  * payment lifecycle ({@link PaymentTransitions}) is independent of the fulfillment lifecycle: a PAID order may still be
  * in preparation and a COMPLETED order may be unpaid. Fulfillment is never changed here.
  *
- * <p><b>Identity of a payment.</b> The message id ({@code eventId}) only makes a message idempotent, and it is only
+ * <p><b>Identity of a payment.</b> The message id ({@code eventId}) only makes a MESSAGE idempotent and is only
  * remembered for the inbox retention window. What identifies the money is the {@code captureId} of a PAID, and what
- * identifies a try is the {@code paymentAttemptId}. Applied references are written into the append-only history, and
- * every handled collection leaves a permanent inbox marker keyed by its capture id, so the same collection can never
- * have a second financial effect, not even after the ordinary inbox cleanup, and a DIFFERENT collection arriving for an
- * order that is already paid is treated as a possible double charge (reconciliation), never as a harmless duplicate.
+ * identifies a try is the {@code paymentAttemptId}. Every collection is recorded in {@code payment_captures} (V49), where
+ * the DATABASE guarantees that one capture id exists once and that an order is settled by at most one collection, so
+ * the same collection can never have a second financial effect, whatever message id it comes under and however long
+ * ago the inbox was cleaned. A DIFFERENT collection arriving for an order that is already paid is a possible double
+ * charge and becomes a reconciliation case, never a harmless duplicate.
  *
- * <p>Money is never silently lost. A PAID that can never be applied (the order is cancelled, the payment was already
- * cancelled, the order is already paid by another collection, or the capture id belongs to another order) is recorded
- * durably in the same transaction and acknowledged with {@code reconciliationRequired=true}; the statuses stay as they
- * are and a refund is a decision for people and the Payment Service, never an automatic action here. A PAID that merely
- * arrived too early (no PENDING yet) is refused with 409 so the sender retries it.
+ * <p><b>Money is never lost and never trusted blindly.</b> A PAID is applied only when its attempt is one this order has
+ * seen (a PENDING with that attempt id), the order and payment can still take it, and amount and currency equal what
+ * the order owes. A PAID that cannot be applied (the order or payment is cancelled, the order is already paid, the
+ * attempt had ended, the amount differs, the capture belongs to another order) is recorded as NOT_APPLIED with a
+ * reconciliation case and an outbox event, and acknowledged with {@code reconciliationRequired=true}; the statuses stay
+ * as they are, and a refund is a decision for people and the Payment Service, never an automatic action here. A PAID
+ * that arrives BEFORE the PENDING of its attempt is not guessed at: it waits durably as PENDING_VERIFICATION and is
+ * verified and applied (or turned into a case) when that PENDING arrives.
  */
 @Slf4j
 @Service
@@ -63,29 +69,34 @@ public class OrderPaymentService {
 
     static final String SOURCE_PAYMENT_EVENT = "PAYMENT_EVENT";
     static final String PAYMENT_EVENT_TYPE = "PaymentOrderStatus";
+    static final String PENDING_VERIFICATION_EVENT_TYPE = "PaymentPendingVerification";
     private static final String PARAMETER = "parameter";
     private static final String APPLIED = "APPLIED";
     private static final String IGNORED_STALE = "IGNORED_STALE";
     private static final String IGNORED_ORDER_CLOSED = "IGNORED_ORDER_CLOSED";
+    private static final String PENDING_VERIFICATION = "PENDING_VERIFICATION";
 
     private final OrderRepository orders;
     private final OrderStatusHistoryStore history;
     private final OutboxEventWriter outbox;
     private final InboxStore inbox;
+    private final PaymentCaptureStore captures;
     private final Clock clock;
     private final PaymentProperties properties;
 
     public OrderPaymentService(OrderRepository orders, OrderStatusHistoryStore history, OutboxEventWriter outbox,
-                               InboxStore inbox, Clock clock, PaymentProperties properties) {
+                               InboxStore inbox, PaymentCaptureStore captures, Clock clock,
+                               PaymentProperties properties) {
         this.orders = orders;
         this.history = history;
         this.outbox = outbox;
         this.inbox = inbox;
+        this.captures = captures;
         this.clock = clock;
         this.properties = properties;
     }
 
-    /** What happened to one event; {@code eventType} is what the inbox row of the MESSAGE is labelled with. */
+    /** What happened to one event; {@code eventType} labels the inbox row of the MESSAGE. */
     private record Decision(String outcome, String eventType) {
 
         static Decision of(String outcome) {
@@ -95,18 +106,36 @@ public class OrderPaymentService {
         static Decision reconciled() {
             return new Decision(IGNORED_ORDER_CLOSED, InboxStore.RECONCILIATION_EVENT_TYPE);
         }
+
+        static Decision waiting() {
+            return new Decision(PENDING_VERIFICATION, PENDING_VERIFICATION_EVENT_TYPE);
+        }
     }
 
     /** The payment attempts this order has seen, from its own (permanent) history. */
     private record Attempts(Set<UUID> known, UUID latest) {
     }
 
+    /** The payment facts used both when applying a status and when recording a discrepancy. */
+    private record PaymentReport(UUID attemptId, UUID captureId, Long amountMinor, String currency,
+                                 UUID sourceEventId, Instant occurredAt) {
+
+        static PaymentReport from(PaymentOrderEventRequest event, Instant occurredAt) {
+            return new PaymentReport(event.paymentAttemptId(), event.captureId(), event.amountMinor(),
+                    event.currency(), event.eventId(), occurredAt);
+        }
+
+        static PaymentReport from(Capture capture) {
+            return new PaymentReport(capture.paymentAttemptId(), capture.captureId(), capture.amountMinor(),
+                    capture.currency(), capture.sourceEventId(), capture.occurredAt());
+        }
+    }
+
     /**
      * Order of checks: the caller is the Payment service, the event is well formed (status, references, time within the
      * clock tolerance, amount presence), the order exists in exactly the named restaurant (404), the message id was not
      * processed before (redelivery returns the original outcome), then the decision for the status (see the private
-     * methods). For PENDING and PAID the amount and currency must equal what the order currently owes (409
-     * PAYMENT_MISMATCH).
+     * methods). For PENDING the amount and currency must equal what the order currently owes (409 PAYMENT_MISMATCH).
      */
     @Transactional
     public OrderEventResponse applyPaymentEvent(ServiceActor service, PaymentOrderEventRequest event) {
@@ -126,83 +155,158 @@ public class OrderPaymentService {
                 throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
                         "This event id was already used for a different order");
             }
-            return response(processed.get().outcome(), true, order,
-                    InboxStore.RECONCILIATION_EVENT_TYPE.equals(processed.get().eventType()));
+            return redelivery(order, event, processed.get());
         }
 
         Decision decision = target == PaymentStatus.PAID ? decidePaid(order, event, eventAt, now)
                 : decideOther(order, target, event, eventAt, now);
         inbox.append(InboxStore.PAYMENT, event.eventId(), order.getRestaurantId(), order.getId(), decision.eventType(),
                 decision.outcome(), now);
-        return response(decision.outcome(), false, order,
-                InboxStore.RECONCILIATION_EVENT_TYPE.equals(decision.eventType()));
+        return response(decision.outcome(), false, order, InboxStore.RECONCILIATION_EVENT_TYPE.equals(decision.eventType()));
     }
+
+    /** A message seen before answers as it did, except a waiting PAID, whose capture may have been resolved since. */
+    private OrderEventResponse redelivery(Order order, PaymentOrderEventRequest event, InboxStore.Processed processed) {
+        if (PENDING_VERIFICATION_EVENT_TYPE.equals(processed.eventType()) && event.captureId() != null) {
+            var capture = captures.find(event.captureId());
+            if (capture.isPresent()) {
+                return switch (capture.get().status()) {
+                    case PaymentCaptureStore.APPLIED -> response(APPLIED, true, order, false);
+                    case PaymentCaptureStore.NOT_APPLIED -> response(IGNORED_ORDER_CLOSED, true, order, true);
+                    default -> response(PENDING_VERIFICATION, true, order, false);
+                };
+            }
+        }
+        return response(processed.outcome(), true, order,
+                InboxStore.RECONCILIATION_EVENT_TYPE.equals(processed.eventType()));
+    }
+
+    // ---- PAID -----------------------------------------------------------------------------------------------------
 
     /**
      * PAID. The capture id decides first (it is the identity of the money), then the state of the order and payment.
      * A PAID is never ignored because of its timestamp.
      */
     private Decision decidePaid(Order order, PaymentOrderEventRequest event, Instant eventAt, Instant now) {
-        UUID captureKey = PaymentReferences.captureKey(event.captureId());
-        var marker = inbox.find(InboxStore.PAYMENT, captureKey);
-        if (marker.isPresent()) {
-            if (marker.get().orderId().equals(order.getId())) {
-                // the same collection again (under another message id, or after the message was cleaned): no new effect
-                return InboxStore.CAPTURE_RECONCILED_TYPE.equals(marker.get().eventType())
-                        ? Decision.reconciled() : Decision.of(IGNORED_STALE);
-            }
-            // somebody else's money: recorded once per (capture, order), whatever message id it comes under
-            UUID onThisOrder = PaymentReferences.captureOnOrderKey(event.captureId(), order.getId());
-            if (inbox.find(InboxStore.PAYMENT, onThisOrder).isPresent()) {
-                return Decision.reconciled();
-            }
-            return reconcile(order, event, "CAPTURE_USED_ON_OTHER_ORDER", onThisOrder, now);
+        var known = captures.find(event.captureId());
+        if (known.isPresent()) {
+            return onKnownCapture(order, event, known.get(), now);
         }
         PaymentStatus current = order.getPaymentStatus();
-        if (current == PaymentStatus.PAID) {
-            return reconcile(order, event, "SECOND_CAPTURE", captureKey, now);
-        }
         if (order.getFulfillmentStatus() == FulfillmentStatus.CANCELLED) {
-            return reconcile(order, event, "ORDER_CANCELLED", captureKey, now);
+            return notApplied(order, event, "ORDER_CANCELLED", eventAt, now);
+        }
+        if (current == PaymentStatus.PAID) {
+            return notApplied(order, event, "SECOND_CAPTURE", eventAt, now);
         }
         if (current == PaymentStatus.CANCELLED) {
-            return reconcile(order, event, "PAYMENT_CANCELLED", captureKey, now);
-        }
-        if (current != PaymentStatus.PENDING) {
-            throw invalidTransition(current, PaymentStatus.PAID);
+            return notApplied(order, event, "PAYMENT_CANCELLED", eventAt, now);
         }
         if (!attempts(order).known().contains(event.paymentAttemptId())) {
-            throw unknownAttempt();
+            // The PENDING of this attempt has not arrived: the PAID is neither trusted nor dropped, it waits durably.
+            return claimed(order, event, PaymentCaptureStore.PENDING_VERIFICATION, null, eventAt, now)
+                    .orElseGet(Decision::waiting);
         }
-        requireSameAmount(order, event);
-        // The marker is claimed first: if another order is racing for the same capture, exactly one of us wins.
-        if (!inbox.appendIfAbsent(InboxStore.PAYMENT, captureKey, order.getRestaurantId(), order.getId(),
-                InboxStore.CAPTURE_APPLIED_TYPE, APPLIED, now)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "The request conflicts with the current state, please retry");
+        if (current != PaymentStatus.PENDING) {
+            return notApplied(order, event, "ATTEMPT_ENDED", eventAt, now);   // the attempt had already failed
         }
-        apply(order, PaymentStatus.PAID, event, eventAt, now);
-        return Decision.of(APPLIED);
+        if (!amountMatches(order, event.amountMinor(), event.currency())) {
+            return notApplied(order, event, "AMOUNT_MISMATCH", eventAt, now);
+        }
+        return claimed(order, event, PaymentCaptureStore.APPLIED, null, eventAt, now).orElseGet(() -> {
+            applyStatus(order, PaymentStatus.PAID, PaymentReport.from(event, eventAt), now);
+            return Decision.of(APPLIED);
+        });
     }
+
+    /**
+     * Records the capture in the given status. Empty when this transaction claimed the id; otherwise another claimed it
+     * first (concurrently) and the answer is what that capture means for this order.
+     */
+    private java.util.Optional<Decision> claimed(Order order, PaymentOrderEventRequest event, String status,
+                                                 String reason, Instant eventAt, Instant now) {
+        Capture row = new Capture(event.captureId(), order.getRestaurantId(), order.getId(), event.paymentAttemptId(),
+                event.amountMinor(), event.currency().toUpperCase(Locale.ROOT), status, reason, event.eventId(),
+                eventAt);
+        if (captures.claim(row, now)) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(onKnownCapture(order, event, captures.find(event.captureId()).orElseThrow(), now));
+    }
+
+    private Decision notApplied(Order order, PaymentOrderEventRequest event, String reason, Instant eventAt, Instant now) {
+        return claimed(order, event, PaymentCaptureStore.NOT_APPLIED, reason, eventAt, now).orElseGet(() -> {
+            recordCase(order, PaymentReport.from(event, event.occurredAt()), reason, now);
+            return Decision.reconciled();
+        });
+    }
+
+    /** The capture id is already known: this PAID is a repeat, an answer about a waiting one, or somebody else's money. */
+    private Decision onKnownCapture(Order order, PaymentOrderEventRequest event, Capture capture, Instant now) {
+        if (!capture.orderId().equals(order.getId())) {
+            recordCase(order, PaymentReport.from(event, event.occurredAt()), "CAPTURE_USED_ON_OTHER_ORDER", now);
+            return Decision.reconciled();
+        }
+        return switch (capture.status()) {
+            case PaymentCaptureStore.APPLIED -> Decision.of(IGNORED_STALE);
+            case PaymentCaptureStore.NOT_APPLIED -> Decision.reconciled();
+            default -> Decision.waiting();
+        };
+    }
+
+    /** Raises a reconciliation case once per (order, capture, reason): a new one is also announced by an outbox event. */
+    private void recordCase(Order order, PaymentReport report, String reason, Instant now) {
+        var reconciliationCase = new PaymentCaptureStore.Case(order.getRestaurantId(), order.getId(), report.captureId(),
+                report.attemptId(), reason, report.amountMinor(), report.currency().toUpperCase(Locale.ROOT),
+                report.sourceEventId(),
+                report.occurredAt().truncatedTo(ChronoUnit.MICROS), order.getFulfillmentStatus().name(),
+                order.getPaymentStatus().name());
+        if (!captures.addCase(reconciliationCase, now)) {
+            return;
+        }
+        String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
+        UUID eventId = UUID.randomUUID();
+        var required = new OrderPaymentReconciliationRequiredEvent(eventId,
+                OrderPaymentReconciliationRequiredEvent.TYPE, OrderPaymentReconciliationRequiredEvent.SCHEMA_VERSION,
+                now, correlationId, order.getRestaurantId(), order.getTableId(), order.getTableSessionId(),
+                order.getId(), order.getOrderNo(), reason, report.sourceEventId(), report.attemptId(), report.captureId(),
+                report.amountMinor(),
+                report.currency().toUpperCase(Locale.ROOT), report.occurredAt(), order.getFulfillmentStatus().name(),
+                order.getPaymentStatus().name(), order.getCurrentDueMinor());
+        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), required.eventType(),
+                required.schemaVersion(), correlationId, required, now,
+                List.of(EventDestination.ADMIN, EventDestination.PAYMENT, EventDestination.NOTIFICATION));
+        log.warn("Payment reported PAID that cannot be applied, reconciliation required: orderId={} reason={}"
+                + " paymentEventId={} captureId={}", order.getId(), reason, report.sourceEventId(), report.captureId());
+    }
+
+    // ---- PENDING, FAILED, CANCELLED ---------------------------------------------------------------------------------
 
     /** PENDING, FAILED and CANCELLED: attempt based, then state machine, then (not for PAID) the event time. */
     private Decision decideOther(Order order, PaymentStatus target, PaymentOrderEventRequest event, Instant eventAt,
                                  Instant now) {
         PaymentStatus current = order.getPaymentStatus();
         boolean orderCancelled = order.getFulfillmentStatus() == FulfillmentStatus.CANCELLED;
+        UUID attempt = event.paymentAttemptId();
         if (target == PaymentStatus.PENDING && orderCancelled) {
             return Decision.of(IGNORED_ORDER_CLOSED);
         }
-        if (isRepeatedOrLateAttempt(order, target, event.paymentAttemptId())) {
+        if (isRepeatedOrLateAttempt(order, target, attempt)) {
             return Decision.of(IGNORED_STALE);
         }
         if (PaymentTransitions.isStale(current, target, eventAt, order.getPaymentEventAt())) {
             return Decision.of(IGNORED_STALE);
         }
         if (PaymentTransitions.isAllowed(current, target, orderCancelled)) {
-            if (PaymentTransitions.AMOUNT_CHECKED.contains(target)) {
-                requireSameAmount(order, event);
+            if (PaymentTransitions.AMOUNT_CHECKED.contains(target)
+                    && !amountMatches(order, event.amountMinor(), event.currency())) {
+                throw new BusinessException(ErrorCode.PAYMENT_MISMATCH,
+                        "The reported amount or currency does not match what the order owes");
             }
-            apply(order, target, event, eventAt, now);
+            applyStatus(order, target, PaymentReport.from(event, eventAt), now);
+            if (target == PaymentStatus.PENDING) {
+                resolveWaitingCaptures(order, attempt, now);
+            }
             return Decision.of(APPLIED);
         }
         if (orderCancelled) {
@@ -211,7 +315,7 @@ public class OrderPaymentService {
         throw invalidTransition(current, target);
     }
 
-    /** Validates attempt identity before the state/time checks; old attempts cannot end a newer one. */
+    /** Validates attempt identity before state/time checks; old attempts cannot end a newer one. */
     private boolean isRepeatedOrLateAttempt(Order order, PaymentStatus target, UUID attempt) {
         PaymentStatus current = order.getPaymentStatus();
         Attempts attempts = attempts(order);
@@ -219,7 +323,7 @@ public class OrderPaymentService {
             if (attempts.known().contains(attempt)) {
                 return true;
             }
-            // Payment must end the current attempt before starting a different one.
+            // A different attempt starts only after Payment has ended the current one.
             if (current == PaymentStatus.PENDING) {
                 throw invalidTransition(current, target);
             }
@@ -231,6 +335,28 @@ public class OrderPaymentService {
         }
         return false;
     }
+
+    /**
+     * The PENDING of an attempt has arrived: the PAIDs that were waiting for it are verified now. The first whose amount
+     * and currency match settles the order; a waiting PAID that does not match, and any further one, becomes a case.
+     */
+    private void resolveWaitingCaptures(Order order, UUID attempt, Instant now) {
+        boolean settled = false;
+        for (Capture waiting : captures.pendingVerification(order.getId(), attempt)) {
+            if (!settled && order.getPaymentStatus() == PaymentStatus.PENDING
+                    && amountMatches(order, waiting.amountMinor(), waiting.currency())) {
+                captures.resolve(waiting.captureId(), PaymentCaptureStore.APPLIED, null, now);
+                applyStatus(order, PaymentStatus.PAID, PaymentReport.from(waiting), now);
+                settled = true;
+            } else {
+                String reason = settled ? "SECOND_CAPTURE" : "AMOUNT_MISMATCH";
+                captures.resolve(waiting.captureId(), PaymentCaptureStore.NOT_APPLIED, reason, now);
+                recordCase(order, PaymentReport.from(waiting), reason, now);
+            }
+        }
+    }
+
+    // ---- shared ---------------------------------------------------------------------------------------------------
 
     private Attempts attempts(Order order) {
         Set<UUID> known = new LinkedHashSet<>();
@@ -247,58 +373,26 @@ public class OrderPaymentService {
         return new Attempts(known, latest);
     }
 
-    private void apply(Order order, PaymentStatus target, PaymentOrderEventRequest event, Instant eventAt,
-                       Instant now) {
+    private void applyStatus(Order order, PaymentStatus target, PaymentReport report, Instant now) {
         String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
         PaymentStatus from = order.getPaymentStatus();
-        order.changePaymentStatus(target, eventAt, now);
+        Long amountMinor = PaymentTransitions.AMOUNT_CHECKED.contains(target) ? report.amountMinor() : null;
+        order.changePaymentStatus(target, report.occurredAt(), now);
         orders.saveAndFlush(order);
         ChangeActor actor = ChangeActor.service(ServiceName.PAYMENT.name());
-        boolean amountReported = PaymentTransitions.AMOUNT_CHECKED.contains(target);
         // the references and the verified amount are part of the permanent audit trail of this change
-        String reason = PaymentReferences.reason(event.paymentAttemptId(), event.captureId(),
-                amountReported ? event.amountMinor() : null, order.getCurrency());
+        String reason = PaymentReferences.reason(report.attemptId(), report.captureId(), amountMinor, order.getCurrency());
         history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(),
                 OrderStatusHistoryStore.Axis.PAYMENT, from.name(), target.name(), actor, SOURCE_PAYMENT_EVENT,
-                event.eventId(), reason, now, correlationId));
+                report.sourceEventId(), reason, now, correlationId));
         UUID eventId = UUID.randomUUID();
         var changed = new OrderPaymentStatusChangedEvent(eventId, OrderPaymentStatusChangedEvent.TYPE,
                 OrderPaymentStatusChangedEvent.SCHEMA_VERSION, now, correlationId, order.getRestaurantId(),
                 order.getTableId(), order.getTableSessionId(), order.getId(), order.getOrderNo(), from.name(),
-                target.name(), order.getFulfillmentStatus().name(), order.getCurrency(),
-                amountReported ? event.amountMinor() : null, order.getCurrentDueMinor(), event.paymentAttemptId(),
-                event.captureId(), SOURCE_PAYMENT_EVENT);
+                target.name(), order.getFulfillmentStatus().name(), order.getCurrency(), amountMinor,
+                order.getCurrentDueMinor(), report.attemptId(), report.captureId(), SOURCE_PAYMENT_EVENT);
         outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), changed.eventType(),
                 changed.schemaVersion(), correlationId, changed, now, destinations(target));
-    }
-
-    /**
-     * Keeps a PAID that cannot be applied. The inbox row of the message (written by the caller, permanent) makes a
-     * redelivery of the message idempotent, the capture marker (permanent, keyed by capture id) makes the same money
-     * idempotent under any message id, and the outbox event tells Admin, Payment and Notification that a refund review is
-     * needed. The order is not changed.
-     */
-    private Decision reconcile(Order order, PaymentOrderEventRequest event, String reason, UUID markerKey,
-                               Instant now) {
-        if (!inbox.appendIfAbsent(InboxStore.PAYMENT, markerKey, order.getRestaurantId(), order.getId(),
-                InboxStore.CAPTURE_RECONCILED_TYPE, IGNORED_ORDER_CLOSED, now)) {
-            // the same capture was just recorded by a concurrent request: the retry will see the marker
-            throw new BusinessException(ErrorCode.CONFLICT, "The request conflicts with the current state, please retry");
-        }
-        String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
-        UUID eventId = UUID.randomUUID();
-        var required = new OrderPaymentReconciliationRequiredEvent(eventId,
-                OrderPaymentReconciliationRequiredEvent.TYPE, OrderPaymentReconciliationRequiredEvent.SCHEMA_VERSION,
-                now, correlationId, order.getRestaurantId(), order.getTableId(), order.getTableSessionId(),
-                order.getId(), order.getOrderNo(), reason, event.eventId(), event.paymentAttemptId(),
-                event.captureId(), event.amountMinor(), event.currency(), event.occurredAt(),
-                order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), order.getCurrentDueMinor());
-        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), required.eventType(),
-                required.schemaVersion(), correlationId, required, now,
-                List.of(EventDestination.ADMIN, EventDestination.PAYMENT, EventDestination.NOTIFICATION));
-        log.warn("Payment reported PAID that cannot be applied, reconciliation required: orderId={} reason={}"
-                + " paymentEventId={} captureId={}", order.getId(), reason, event.eventId(), event.captureId());
-        return Decision.reconciled();
     }
 
     /** Payment itself caused the change, so it is not echoed; QR also learns about PAID (a table-closing signal). */
@@ -327,12 +421,8 @@ public class OrderPaymentService {
         }
     }
 
-    private static void requireSameAmount(Order order, PaymentOrderEventRequest event) {
-        if (event.amountMinor() != order.getCurrentDueMinor()
-                || !order.getCurrency().equals(event.currency().toUpperCase(Locale.ROOT))) {
-            throw new BusinessException(ErrorCode.PAYMENT_MISMATCH,
-                    "The reported amount or currency does not match what the order owes");
-        }
+    private static boolean amountMatches(Order order, long amountMinor, String currency) {
+        return amountMinor == order.getCurrentDueMinor() && order.getCurrency().equals(currency.toUpperCase(Locale.ROOT));
     }
 
     private static BusinessException unknownAttempt() {

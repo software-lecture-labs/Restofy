@@ -41,9 +41,17 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
                 + " ('PaymentCaptureApplied', 'PaymentCaptureReconciled')", Integer.class);
     }
 
-    private int captureMarkers() {
-        return jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE event_type IN"
-                + " ('PaymentCaptureApplied', 'PaymentCaptureReconciled')", Integer.class);
+    private int captureRows() {
+        return count("payment_captures");
+    }
+
+    private int caseRows(UUID orderId) {
+        return jdbc.queryForObject("SELECT count(*) FROM payment_reconciliation_cases WHERE order_id = ?",
+                Integer.class, orderId);
+    }
+
+    private String captureStatus(UUID captureId) {
+        return jdbc.queryForObject("SELECT status FROM payment_captures WHERE capture_id = ?", String.class, captureId);
     }
 
     // ---- who may call -----------------------------------------------------------------------------------------------
@@ -174,7 +182,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
     // ---- amount and currency are checked ---------------------------------------------------------------------------
 
     @Test
-    void aWrongAmountOrCurrencyIsRefusedAndNotRemembered() throws Exception {
+    void aWrongAmountIsRefusedForPendingAndRecordedForCollectedMoney() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         Instant at = Instant.now().minusSeconds(60);
         send(orderId, UUID.randomUUID(), "PENDING", SALAD_DUE - 1, "TRY", at).andExpect(status().isConflict())
@@ -190,10 +198,16 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
 
         // the same amount in lower case currency is the same money
         send(orderId, UUID.randomUUID(), "PENDING", SALAD_DUE, "try", at).andExpect(status().isOk());
-        // a PAID with the wrong amount after a correct PENDING is still refused
-        send(orderId, UUID.randomUUID(), "PAID", SALAD_DUE - 100, "TRY", at.plusSeconds(10))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PAYMENT_MISMATCH"));
-        assertEquals("PENDING", paymentOf(orderId));
+        // a PAID is money that really moved: when its amount does not match it is not applied, but it is NOT lost
+        UUID capture = captureOf(orderId);
+        send(orderId, UUID.randomUUID(), "PAID", SALAD_DUE - 100, "TRY", at.plusSeconds(10)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.reconciliationRequired").value(true));
+        assertEquals("PENDING", paymentOf(orderId), "an unverified amount does not settle the order");
+        assertEquals("NOT_APPLIED", captureStatus(capture));
+        assertEquals("AMOUNT_MISMATCH", jdbc.queryForObject("SELECT not_applied_reason FROM payment_captures"
+                + " WHERE capture_id = ?", String.class, capture));
+        assertEquals(1, caseRows(orderId));
+        assertEquals(1, reconciliationEvents(orderId));
     }
 
     @Test
@@ -273,24 +287,39 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void aStatusThatWouldSkipAStepIsRefusedAndCanBeRetriedAfterTheMissingStep() throws Exception {
+    void aPaidBeforeItsPendingWaitsDurablyAndIsAppliedWhenThePendingArrives() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         UUID paidEvent = UUID.randomUUID();
         Instant paidAt = Instant.now().minusSeconds(30);
-        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"))
-                .andExpect(jsonPath("$.details.currentStatus").value("NOT_REQUESTED"))
-                .andExpect(jsonPath("$.details.allowedNext[0]").value("PENDING"));
+        UUID capture = captureOf(orderId);
+        // the PAID is trusted (the Payment service sent it) but its attempt is unknown: it waits, it is not guessed at
+        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("PENDING_VERIFICATION"))
+                .andExpect(jsonPath("$.reconciliationRequired").value(false))
+                .andExpect(jsonPath("$.paymentStatus").value("NOT_REQUESTED"));
+        assertEquals("PENDING_VERIFICATION", captureStatus(capture));
+        assertEquals("NOT_REQUESTED", paymentOf(orderId), "a waiting PAID settles nothing");
+        assertEquals(0, paymentChangeEvents(orderId));
+        // the other statuses still cannot skip a step
         send(orderId, UUID.randomUUID(), "FAILED", null, null, paidAt).andExpect(status().isConflict());
         send(orderId, UUID.randomUUID(), "CANCELLED", null, null, paidAt).andExpect(status().isConflict());
-        assertEquals("NOT_REQUESTED", paymentOf(orderId));
-        assertEquals(0, inboxRows());
+        // a redelivery of the waiting message is answered as waiting and records nothing more
+        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(jsonPath("$.duplicate").value(true))
+                .andExpect(jsonPath("$.outcome").value("PENDING_VERIFICATION"));
+        assertEquals(1, captureRows());
 
-        // PENDING (which happened earlier) arrives late, then the very same PAID event is retried
-        pay(orderId, "PENDING", 60).andExpect(status().isOk());
-        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(status().isOk())
-                .andExpect(jsonPath("$.outcome").value("APPLIED")).andExpect(jsonPath("$.duplicate").value(false));
+        // the PENDING of its attempt arrives and verifies it: amount and currency match, so it is applied
+        pay(orderId, "PENDING", 60).andExpect(status().isOk()).andExpect(jsonPath("$.outcome").value("APPLIED"));
         assertEquals("PAID", paymentOf(orderId));
+        assertEquals("APPLIED", captureStatus(capture));
+        assertEquals(0L, jdbc.queryForObject("SELECT current_due_minor FROM orders WHERE id = ?", Long.class, orderId));
+        assertEquals(List.of("-" + ">NOT_REQUESTED|SYSTEM|CHECKOUT", "NOT_REQUESTED>PENDING|SERVICE|PAYMENT_EVENT",
+                "PENDING>PAID|SERVICE|PAYMENT_EVENT"), paymentHistory(orderId));
+        assertEquals(2, paymentChangeEvents(orderId));
+        // and the original message now answers as applied
+        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(jsonPath("$.duplicate").value(true))
+                .andExpect(jsonPath("$.outcome").value("APPLIED"));
+        assertEquals(0, caseRows(orderId));
     }
 
     @Test
@@ -442,9 +471,13 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
                 .andExpect(jsonPath("$.reconciliationRequired").value(true)).andExpect(jsonPath("$.duplicate").value(false));
 
         assertEquals(1, inboxRows());
-        assertEquals(java.util.Set.of("PaymentPaidNotApplicable", "PaymentCaptureReconciled"),
-                new java.util.HashSet<>(jdbc.queryForList("SELECT event_type FROM inbox_events", String.class)),
-                "the message row and the capture marker, both permanent");
+        assertEquals("PaymentPaidNotApplicable", jdbc.queryForObject("SELECT event_type FROM inbox_events", String.class));
+        assertEquals(1, captureRows(), "the collection is recorded for good");
+        assertEquals("NOT_APPLIED", jdbc.queryForObject("SELECT status FROM payment_captures", String.class));
+        assertEquals("ORDER_CANCELLED", jdbc.queryForObject("SELECT not_applied_reason FROM payment_captures",
+                String.class));
+        assertEquals(12_345L, jdbc.queryForObject("SELECT amount_minor FROM payment_captures", Long.class));
+        assertEquals(1, caseRows(orderId));
         assertEquals(1, reconciliationEvents(orderId));
         JsonNode event = json.readTree(jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE aggregate_id = ?"
                 + " AND event_type = 'OrderPaymentReconciliationRequired'", String.class, orderId));
@@ -482,20 +515,48 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void aPaidThatOnlyArrivedTooEarlyIsNotRecordedAsADiscrepancyButRetried() throws Exception {
+    void aPaidOfANewAttemptThatArrivedBeforeItsPendingWaitsAndIsThenApplied() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         pay(orderId, "PENDING", 200).andExpect(status().isOk());
         pay(orderId, "FAILED", 100).andExpect(status().isOk());
-        UUID paidEvent = UUID.randomUUID();
-        Instant paidAt = Instant.now().minusSeconds(50);
-        // the new attempt's PENDING is still on its way: the PAID is refused (409), not recorded, and can be retried
-        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"));
+        UUID secondAttempt = UUID.randomUUID();
+        UUID capture = UUID.randomUUID();
+        // the new attempt's PENDING is still on its way: the PAID waits (it is not a discrepancy and it is not lost)
+        payWith(orderId, "PAID", 50, secondAttempt, capture).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("PENDING_VERIFICATION"));
         assertEquals(0, reconciliationEvents(orderId));
-        payWith(orderId, "PENDING", 60, UUID.randomUUID(), null).andExpect(status().isOk());
-        send(orderId, paidEvent, "PAID", SALAD_DUE, "TRY", paidAt).andExpect(status().isOk())
-                .andExpect(jsonPath("$.outcome").value("APPLIED"));
+        assertEquals("FAILED", paymentOf(orderId));
+        payWith(orderId, "PENDING", 60, secondAttempt, null).andExpect(status().isOk());
         assertEquals("PAID", paymentOf(orderId));
+        assertEquals("APPLIED", captureStatus(capture));
+    }
+
+    @Test
+    void aWaitingPaidWhoseAmountDoesNotMatchBecomesACaseWhenItsPendingArrives() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        UUID attempt = UUID.randomUUID();
+        UUID capture = UUID.randomUUID();
+        paymentEvent(service(PAYMENT_CREDENTIAL), paymentBodyWith(UUID.randomUUID(), orderId, "PAID", SALAD_DUE - 500,
+                "TRY", Instant.now().minusSeconds(30), attempt, capture)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("PENDING_VERIFICATION"));
+        payWith(orderId, "PENDING", 20, attempt, null).andExpect(status().isOk());
+        assertEquals("PENDING", paymentOf(orderId), "money of another amount does not settle the order");
+        assertEquals("NOT_APPLIED", captureStatus(capture));
+        assertEquals(1, caseRows(orderId));
+        assertEquals(1, reconciliationEvents(orderId));
+    }
+
+    @Test
+    void aWaitingPaidStaysVisibleWhenTheOrderIsCancelledBeforeItsPending() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        UUID capture = captureOf(orderId);
+        pay(orderId, "PAID", 30).andExpect(jsonPath("$.outcome").value("PENDING_VERIFICATION"));
+        jdbc.update("UPDATE orders SET fulfillment_status = 'CANCELLED' WHERE id = ?", orderId);
+        // the PENDING of a cancelled order is ignored, so the waiting PAID stays visible until a person resolves it
+        pay(orderId, "PENDING", 20).andExpect(jsonPath("$.outcome").value("IGNORED_ORDER_CLOSED"));
+        assertEquals("PENDING_VERIFICATION", captureStatus(capture));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM payment_captures WHERE status = 'APPLIED'",
+                Integer.class));
     }
 
     // ---- K-08: debt, failed payments of cancelled orders ---------------------------------------------------------------
@@ -619,7 +680,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         assertEquals(historyRows, paymentHistory(orderId).size());
         assertEquals(events, paymentChangeEvents(orderId));
         assertEquals(0, reconciliationEvents(orderId), "the same money is not a discrepancy");
-        assertEquals(1, captureMarkers());
+        assertEquals(1, captureRows());
     }
 
     @Test
@@ -670,9 +731,10 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
 
         // 200 days pass and the ordinary cleanup runs
         jdbc.update("UPDATE inbox_events SET received_at = now() - interval '200 days'");
-        assertEquals(2, retention.purgeProcessedInboxEvents(), "only the two ordinary message rows go");
-        assertEquals(1, inboxRows(), "the reconciliation message row is permanent");
-        assertEquals(2, captureMarkers(), "both collections stay known for ever");
+        assertEquals(3, retention.purgeProcessedInboxEvents(), "every message row goes");
+        assertEquals(0, inboxRows());
+        assertEquals(2, captureRows(), "but both collections stay known for ever");
+        assertEquals(1, caseRows(orderId));
 
         int historyRows = paymentHistory(orderId).size();
         int events = paymentChangeEvents(orderId);
@@ -712,17 +774,19 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void aPaidMustNameAnAttemptTheOrderHasSeenAndIsNotRememberedOtherwise() throws Exception {
+    void aPaidMustNameAnAttemptTheOrderHasSeenOtherwiseItWaitsForThatAttempt() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         pay(orderId, "PENDING", 100).andExpect(status().isOk());
-        payWith(orderId, "PAID", 60, UUID.randomUUID(), UUID.randomUUID()).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("PAYMENT_MISMATCH"))
-                .andExpect(jsonPath("$.details.reason").value("UNKNOWN_PAYMENT_ATTEMPT"));
-        assertEquals("PENDING", paymentOf(orderId));
-        assertEquals(0, captureMarkers());
-        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE event_type = 'PaymentOrderStatus'"
-                + " AND outcome <> 'APPLIED'", Long.class));
+        UUID unknownAttempt = UUID.randomUUID();
+        UUID capture = UUID.randomUUID();
+        payWith(orderId, "PAID", 60, unknownAttempt, capture).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("PENDING_VERIFICATION"));
+        assertEquals("PENDING", paymentOf(orderId), "a PAID of an attempt this order never saw settles nothing");
+        assertEquals("PENDING_VERIFICATION", captureStatus(capture));
+
+        // a known attempt applies at once, and the second collection is then a possible double charge
         payWith(orderId, "PAID", 50, attemptOf(orderId), UUID.randomUUID()).andExpect(jsonPath("$.outcome").value("APPLIED"));
+        assertEquals("PAID", paymentOf(orderId));
     }
 
     @Test

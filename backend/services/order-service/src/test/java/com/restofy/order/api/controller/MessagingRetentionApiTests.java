@@ -167,8 +167,10 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
                 .status().isOk());
         pay(orderId, "PAID", 60).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
                 .status().isOk());
-        // a second collection: a reconciliation case (inbox message row + capture marker + outbox event)
-        payWith(orderId, "PAID", 30, attemptOf(orderId), UUID.randomUUID())
+        UUID firstCapture = captureOf(orderId);
+        // a second collection: a reconciliation case (capture row + case row + outbox event)
+        UUID secondCapture = UUID.randomUUID();
+        payWith(orderId, "PAID", 30, attemptOf(orderId), secondCapture)
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
         // make everything ancient and mark every outbox delivery as delivered long ago
         jdbc.update("UPDATE inbox_events SET received_at = now() - interval '500 days'");
@@ -177,15 +179,23 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
 
         retention.runAll();
 
-        assertEquals(3, jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE event_type IN"
-                + " ('PaymentPaidNotApplicable', 'PaymentCaptureApplied', 'PaymentCaptureReconciled')", Integer.class),
-                "reconciliation message row and both capture markers are kept");
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE event_type = 'PaymentOrderStatus'",
-                Integer.class), "ordinary message rows are cleaned");
+        assertEquals(0, count("inbox_events"), "message bookkeeping is cleaned");
+        assertEquals(2, count("payment_captures"), "the collections are financial records: never cleaned");
+        assertEquals(1, count("payment_reconciliation_cases"), "and so is the reconciliation case");
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE event_type ="
-                + " 'OrderPaymentReconciliationRequired'", Integer.class), "the reconciliation case is kept");
+                + " 'OrderPaymentReconciliationRequired'", Integer.class), "the reconciliation event is kept");
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE event_type <>"
                 + " 'OrderPaymentReconciliationRequired'", Integer.class), "delivered ordinary announcements are cleaned");
         assertEquals(3, paymentHistory(orderId).size(), "the history is never touched");
+
+        // every old message arrives again: no second financial effect and no second alert
+        payWith(orderId, "PAID", 20, attemptOf(orderId), firstCapture)
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.outcome")
+                        .value("IGNORED_STALE"));
+        payWith(orderId, "PAID", 10, attemptOf(orderId), secondCapture)
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.reconciliationRequired").value(true));
+        assertEquals(1, count("payment_reconciliation_cases"));
+        assertEquals(3, paymentHistory(orderId).size());
     }
 }
