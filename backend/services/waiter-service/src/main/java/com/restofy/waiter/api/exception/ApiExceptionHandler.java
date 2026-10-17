@@ -4,6 +4,8 @@ import com.restofy.waiter.domain.exception.CallConflictException;
 import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.InvalidRequestException;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
+import com.restofy.waiter.domain.exception.ServeRejectedException;
+import com.restofy.waiter.domain.exception.ServeResultUnknownException;
 import com.restofy.waiter.domain.exception.SnapshotLimitExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +74,30 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(CallConflictException.class)
     ResponseEntity<Object> conflict(CallConflictException error, WebRequest request) {
         return problem(HttpStatus.CONFLICT, error.code(), error.getMessage(), request);
+    }
+
+    @ExceptionHandler(ServeRejectedException.class)
+    ResponseEntity<Object> serveRejected(ServeRejectedException error, WebRequest request) {
+        HttpStatus status = HttpStatus.valueOf(error.status());
+        ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
+        body.setProperty("code", error.code());
+        body.setProperty("commandId", error.commandId());
+        return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
+    }
+
+    /** The command may have been applied: the status says what failed, the code says that the result is unknown. */
+    @ExceptionHandler(ServeResultUnknownException.class)
+    ResponseEntity<Object> serveUnknown(ServeResultUnknownException error, WebRequest request) {
+        HttpStatus status = switch (error.failure()) {
+            case TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
+            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case REJECTED, BAD_RESPONSE -> HttpStatus.BAD_GATEWAY;
+        };
+        ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
+        body.setProperty("code", "SERVE_RESULT_UNKNOWN");
+        body.setProperty("commandId", error.commandId());
+        body.setProperty("dependency", "order");
+        return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
     }
 
     @ExceptionHandler(SnapshotLimitExceededException.class)

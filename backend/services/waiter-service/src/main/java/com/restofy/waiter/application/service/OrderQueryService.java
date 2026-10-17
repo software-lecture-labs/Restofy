@@ -33,10 +33,12 @@ public class OrderQueryService {
 
     private final QrClient qr;
     private final OrderClient orders;
+    private final ServeCommandHints serveCommands;
 
-    public OrderQueryService(QrClient qr, OrderClient orders) {
+    public OrderQueryService(QrClient qr, OrderClient orders, ServeCommandHints serveCommands) {
         this.qr = qr;
         this.orders = orders;
+        this.serveCommands = serveCommands;
     }
 
     public PageResponse<OrderResponse> listOrders(AuthenticatedStaff staff, OrderFilter filter, PageParams page) {
@@ -54,8 +56,9 @@ public class OrderQueryService {
             if (liveSessions.isEmpty()) return PageResponse.of(List.of(), page.page(), page.size(), 0);
         }
         OrderPageDto result = orders.search(restaurantId, tableId, liveSessions, filter.view(), page.page(), page.size());
+        var hints = serveCommands.forOrders(restaurantId, result.items().stream().map(OrderDto::id).toList());
         return PageResponse.of(result.items().stream()
-                .map(order -> WaiterMapper.toOrder(order, knownTable(tablesById, order))).toList(),
+                .map(order -> WaiterMapper.toOrder(order, knownTable(tablesById, order), hints.get(order.id()))).toList(),
                 page.page(), page.size(), result.totalElements());
     }
 
@@ -65,7 +68,7 @@ public class OrderQueryService {
                 .orElseThrow(() -> new ResourceNotFoundException("ORDER_NOT_FOUND", "Order not found"));
         QrTableDto table = qr.findTable(restaurantId, order.tableId())
                 .orElseThrow(() -> unknownTable());
-        return WaiterMapper.toOrder(order, table);
+        return WaiterMapper.toOrder(order, table, serveCommands.forOrders(restaurantId, List.of(orderId)).get(orderId));
     }
 
     private static QrTableDto knownTable(Map<UUID, QrTableDto> tablesById, OrderDto order) {
