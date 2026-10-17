@@ -35,8 +35,19 @@ public final class FakeBackends {
                         String delivery, String preparation, Instant acceptedAt, Instant readyAt, Instant servedAt) {
     }
 
+    /** A guest credential as QR would know it; the statuses are the DRAFT contract values. */
+    public record Guest(String token, UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
+                        String tableSessionStatus, String guestStatus) {
+
+        public Guest withStatuses(String tableSession, String guestSession) {
+            return new Guest(token, restaurantId, tableId, tableSessionId, guestSessionId, tableSession, guestSession);
+        }
+    }
+
     public final List<Table> tables = new ArrayList<>();
     public final List<Order> orders = new ArrayList<>();
+    /** Known guest credentials by token; an unknown token is answered with 404. */
+    public final Map<String, Guest> guests = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static final Pattern TABLE_ID = Pattern.compile("/internal/v1/tables/([0-9a-f-]{36})");
     private static final Pattern ORDER_ID = Pattern.compile("/internal/v1/orders/([0-9a-f-]{36})");
@@ -47,6 +58,7 @@ public final class FakeBackends {
         stub.route("POST", "/internal/v1/orders/session-summaries", this::sessionSummaries);
         stub.route("POST", "/internal/v1/orders/search", this::searchOrders);
         stub.route("GET", ORDER_ID.pattern(), this::getOrder);
+        stub.route("POST", "/internal/v1/guest-sessions/verify", this::verifyGuest);
         return this;
     }
 
@@ -100,6 +112,17 @@ public final class FakeBackends {
             json.put("currentSession", session);
         }
         return json;
+    }
+
+    private Response verifyGuest(Request request) {
+        Guest guest = guests.get(read(request.body()).get("guestToken").asString());
+        if (guest == null) return Response.json(404, "{\"status\":404}");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("restaurantId", guest.restaurantId());
+        body.put("tableId", guest.tableId());
+        body.put("tableSession", Map.of("id", guest.tableSessionId(), "status", guest.tableSessionStatus()));
+        body.put("guestSession", Map.of("id", guest.guestSessionId(), "status", guest.guestStatus()));
+        return Response.json(200, write(body));
     }
 
     // ----- Order -----

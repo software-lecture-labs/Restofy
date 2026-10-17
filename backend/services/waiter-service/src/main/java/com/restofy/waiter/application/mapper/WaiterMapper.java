@@ -1,6 +1,9 @@
 package com.restofy.waiter.application.mapper;
 
+import com.restofy.waiter.api.dto.response.GuestCallResponse;
+import com.restofy.waiter.api.dto.response.NotificationSyncResponse;
 import com.restofy.waiter.api.dto.response.OrderResponse;
+import com.restofy.waiter.api.dto.response.ServiceCallResponse;
 import com.restofy.waiter.api.dto.response.ServiceRequestResponse;
 import com.restofy.waiter.api.dto.response.TableSessionResponse;
 import com.restofy.waiter.api.dto.response.TableSummaryResponse;
@@ -12,6 +15,7 @@ import com.restofy.waiter.infrastructure.client.order.OrderItemDto;
 import com.restofy.waiter.infrastructure.client.order.OrderItemOptionDto;
 import com.restofy.waiter.infrastructure.client.qr.QrSessionDto;
 import com.restofy.waiter.infrastructure.client.qr.QrTableDto;
+import com.restofy.waiter.infrastructure.persistence.repository.NotificationDeliveries;
 
 import java.util.List;
 
@@ -40,7 +44,18 @@ public final class WaiterMapper {
 
     public static ServiceRequestResponse toServiceRequest(ServiceRequest request) {
         return new ServiceRequestResponse(request.getId(), request.getRequestType(), request.getStatus(),
-                request.getMessage(), request.getCreatedAt(), request.getClaimedAt());
+                request.getMessage(), request.getCreatedAt(), request.getClaimedAt(), request.getVersion());
+    }
+
+    public static ServiceCallResponse toCall(ServiceRequest call, NotificationDeliveries.Sync sync) {
+        return new ServiceCallResponse(call.getId(), call.getTableId(), call.getTableSessionId(), call.getRequestType(),
+                call.getStatus(), call.getMessage(), call.getCreatedAt(), call.getClaimedByUserId(), call.getClaimedAt(),
+                call.getResolvedByUserId(), call.getResolvedAt(), call.getVersion(), NotificationSyncResponse.from(sync));
+    }
+
+    public static GuestCallResponse toGuestCall(ServiceRequest call) {
+        return new GuestCallResponse(call.getId(), call.getRequestType(), call.getStatus(), call.getMessage(),
+                call.getCreatedAt());
     }
 
     public static OrderResponse toOrder(OrderDto order, QrTableDto table) {

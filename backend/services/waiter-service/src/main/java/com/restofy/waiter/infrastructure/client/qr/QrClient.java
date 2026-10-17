@@ -82,6 +82,19 @@ public class QrClient {
         return table;
     }
 
+    /**
+     * Asks QR which restaurant, table, table session and guest session a guest credential belongs to. An empty
+     * result means QR does not know the credential (unknown, expired or revoked). The token is sent in the
+     * body only and is never logged; a 401/403 from QR is a rejection of Waiter itself, not of the guest.
+     */
+    public Optional<QrGuestContextDto> verifyGuest(String guestToken) {
+        return DownstreamCalls.executeOptional(DEPENDENCY, () -> client.post()
+                .uri("/internal/v1/guest-sessions/verify")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(new QrGuestVerifyRequest(guestToken))
+                .retrieve().body(QrGuestContextDto.class));
+    }
+
     private static void requireTenant(UUID restaurantId, QrTableDto table) {
         if (!restaurantId.equals(table.restaurantId())) throw badResponse("table belongs to another restaurant");
     }

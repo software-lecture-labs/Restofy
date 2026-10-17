@@ -2,6 +2,7 @@ package com.restofy.waiter.infrastructure.config;
 
 import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
+import com.restofy.waiter.infrastructure.client.notification.NotificationClient;
 import com.restofy.waiter.infrastructure.client.order.OrderClient;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
 import com.restofy.waiter.support.DownstreamStub;
@@ -57,6 +58,7 @@ class RestClientConfigurationTests {
         Map<String, Object> env = new HashMap<>();
         env.put("QR_SERVICE_URL", peer.baseUrl().toString());
         env.put("ORDER_SERVICE_URL", peer.baseUrl().toString());
+        env.put("NOTIFICATION_SERVICE_URL", peer.baseUrl().toString());
         env.put("REST_CLIENT_CONNECT_TIMEOUT_MS", "2000");
         env.put("REST_CLIENT_READ_TIMEOUT_MS", "3000");
         return env;
@@ -65,7 +67,8 @@ class RestClientConfigurationTests {
     private ApplicationContextRunner runner(Map<String, Object> env) {
         return new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(RestClientAutoConfiguration.class))
-                .withUserConfiguration(RestClientConfiguration.class, QrClient.class, OrderClient.class)
+                .withUserConfiguration(RestClientConfiguration.class, QrClient.class, OrderClient.class,
+                        NotificationClient.class)
                 .withInitializer(context -> {
                     var sources = context.getEnvironment().getPropertySources();
                     sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
@@ -86,6 +89,7 @@ class RestClientConfigurationTests {
             var urls = context.getBean(ServiceUrlProperties.class);
             assertEquals(peer.baseUrl(), urls.qrUrl());
             assertEquals(peer.baseUrl(), urls.orderUrl());
+            assertEquals(peer.baseUrl(), urls.notificationUrl());
             assertEquals(new RestClientProperties(2000, 3000), context.getBean(RestClientProperties.class));
             assertEquals(Duration.ofMillis(2000), context.getBean("serviceHttpClient", HttpClient.class).connectTimeout().orElseThrow());
         });
@@ -105,7 +109,7 @@ class RestClientConfigurationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"QR_SERVICE_URL", "ORDER_SERVICE_URL"})
+    @ValueSource(strings = {"QR_SERVICE_URL", "ORDER_SERVICE_URL", "NOTIFICATION_SERVICE_URL"})
     void missingServiceUrlStopsStartup(String variable) {
         Map<String, Object> env = environment();
         env.remove(variable);
@@ -117,7 +121,8 @@ class RestClientConfigurationTests {
             "QR_SERVICE_URL|qr-service:8080", "QR_SERVICE_URL|ftp://qr-service:8080", "QR_SERVICE_URL|/relative",
             "QR_SERVICE_URL|http://user:secret@qr-service:8080", "QR_SERVICE_URL|''", "QR_SERVICE_URL|http://",
             "ORDER_SERVICE_URL|file:///etc/passwd", "ORDER_SERVICE_URL|http://user@order-service:8080",
-            "ORDER_SERVICE_URL|order-service"})
+            "ORDER_SERVICE_URL|order-service", "NOTIFICATION_SERVICE_URL|notification-service:8080",
+            "NOTIFICATION_SERVICE_URL|http://user:secret@notification-service:8080", "NOTIFICATION_SERVICE_URL|ftp://notification-service"})
     void invalidServiceUrlsStopStartup(String variable, String value) {
         Map<String, Object> env = environment();
         env.put(variable, value);
@@ -159,6 +164,7 @@ class RestClientConfigurationTests {
         Map<String, Object> env = environment();
         env.put("QR_SERVICE_URL", unusable.toString());
         env.put("ORDER_SERVICE_URL", unusable.toString());
+        env.put("NOTIFICATION_SERVICE_URL", unusable.toString());
         runner(env).run(context -> {
             DependencyException qr = assertThrows(DependencyException.class,
                     () -> context.getBean(QrClient.class).listAllTables(UUID.randomUUID()));
@@ -168,6 +174,10 @@ class RestClientConfigurationTests {
                     () -> context.getBean(OrderClient.class).findOrder(UUID.randomUUID(), UUID.randomUUID()));
             assertEquals(DependencyFailure.UNAVAILABLE, order.failure());
             assertTrue(!order.getMessage().contains("127.0.0.1"), "Internal addresses must not appear in messages");
+            DependencyException notification = assertThrows(DependencyException.class,
+                    () -> context.getBean(NotificationClient.class).publish(UUID.randomUUID(), "{}"));
+            assertEquals(DependencyFailure.UNAVAILABLE, notification.failure());
+            assertEquals("notification", notification.dependency());
         });
     }
 

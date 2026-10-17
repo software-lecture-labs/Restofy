@@ -1,5 +1,6 @@
 package com.restofy.waiter.api.exception;
 
+import com.restofy.waiter.domain.exception.CallConflictException;
 import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.InvalidRequestException;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
@@ -66,6 +67,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         body.setProperty("code", "DEPENDENCY_" + error.failure());
         body.setProperty("dependency", error.dependency());
         return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
+    }
+
+    @ExceptionHandler(CallConflictException.class)
+    ResponseEntity<Object> conflict(CallConflictException error, WebRequest request) {
+        return problem(HttpStatus.CONFLICT, error.code(), error.getMessage(), request);
     }
 
     @ExceptionHandler(SnapshotLimitExceededException.class)

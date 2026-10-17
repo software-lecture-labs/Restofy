@@ -7,12 +7,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.sql.Timestamp;
@@ -21,14 +23,19 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
  * Full-context API test base: the real security filter chain, controllers, services, REST clients and a
- * real PostgreSQL (Testcontainers). Only the QR and Order services are replaced, by a local HTTP stub of
- * the DRAFT contract. The authentication helpers fill the SecurityContext with the verified-staff
- * principal that the future Auth integration will provide; nothing in the production chain is relaxed.
+ * real PostgreSQL (Testcontainers). Only the QR, Order and Notification services are replaced, by a local HTTP
+ * stub of the DRAFT contracts. The authentication helpers fill the SecurityContext with the verified-staff
+ * principal that the future Auth integration will provide; nothing in the production chain is relaxed. Guests
+ * authenticate the way production does: with a credential that the QR stub verifies.
+ *
+ * <p>The background delivery trigger is switched off here so tests drive delivery rounds deterministically.
  */
-@SpringBootTest
+@SpringBootTest(properties = "restofy.notification.dispatcher.enabled=false")
 @AutoConfigureMockMvc
 public abstract class ApiTestBase {
 
@@ -45,6 +52,7 @@ public abstract class ApiTestBase {
     static void downstreams(DynamicPropertyRegistry registry) {
         registry.add("restofy.services.qr-url", () -> STUB.baseUrl().toString());
         registry.add("restofy.services.order-url", () -> STUB.baseUrl().toString());
+        registry.add("restofy.services.notification-url", () -> STUB.baseUrl().toString());
         registry.add("restofy.rest-client.read-timeout-ms", () -> "700");
     }
 
@@ -56,15 +64,25 @@ public abstract class ApiTestBase {
 
     protected FakeBackends backends;
 
+    protected FakeNotification notification;
+
     @BeforeEach
     void resetDownstreams() {
         STUB.reset();
         backends = new FakeBackends().installOn(STUB);
-        jdbc.update("DELETE FROM service_requests");
+        notification = new FakeNotification().installOn(STUB);
+        cleanTables();
     }
 
     @AfterEach
     void cleanDatabase() {
+        cleanTables();
+    }
+
+    private void cleanTables() {
+        jdbc.update("DELETE FROM idempotency_records");
+        jdbc.update("DELETE FROM notification_deliveries");
+        jdbc.update("DELETE FROM service_call_events");
         jdbc.update("DELETE FROM service_requests");
     }
 
@@ -74,6 +92,15 @@ public abstract class ApiTestBase {
 
     protected static RequestPostProcessor asWaiter() {
         return asStaff(StaffRole.WAITER, RESTAURANT);
+    }
+
+    /** A specific, verified waiter: tests that care about who claimed or resolved a call. */
+    protected static RequestPostProcessor asWaiter(UUID staffUserId) {
+        return as(new AuthenticatedStaff(staffUserId, RESTAURANT, StaffRole.WAITER), StaffRole.WAITER.name());
+    }
+
+    protected static RequestPostProcessor asWaiterOf(UUID restaurantId) {
+        return asStaff(StaffRole.WAITER, restaurantId);
     }
 
     /** The authority is passed separately so tests can build mismatches between authority and principal. */
@@ -105,12 +132,59 @@ public abstract class ApiTestBase {
         return order;
     }
 
-    protected void insertServiceRequest(UUID restaurantId, UUID sessionId, String type, String status) {
+    /** Registers a guest credential at QR for the table's live session: an open session and an active guest. */
+    protected FakeBackends.Guest addGuest(FakeBackends.Table table) {
+        FakeBackends.Guest guest = new FakeBackends.Guest("guest-token-" + UUID.randomUUID(), table.restaurantId(),
+                table.id(), table.sessionId(), UUID.randomUUID(), "OPEN", "ACTIVE");
+        backends.guests.put(guest.token(), guest);
+        return guest;
+    }
+
+    /** Inserts a call row that satisfies the DB invariants of its status; returns the call id. */
+    protected UUID insertServiceRequest(UUID restaurantId, UUID sessionId, String type, String status) {
+        return insertServiceRequest(restaurantId, UUID.randomUUID(), sessionId, UUID.randomUUID(), type, status,
+                Instant.now());
+    }
+
+    protected UUID insertServiceRequest(UUID restaurantId, UUID tableId, UUID sessionId, UUID guestSessionId,
+                                        String type, String status, Instant createdAt) {
+        UUID id = UUID.randomUUID();
+        Timestamp now = Timestamp.from(createdAt);
+        boolean claimed = "CLAIMED".equals(status);
+        boolean resolved = "RESOLVED".equals(status);
         jdbc.update("""
-                INSERT INTO service_requests (id, restaurant_id, table_session_id, guest_session_id, request_type,
-                                              message, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, UUID.randomUUID(), restaurantId, sessionId, UUID.randomUUID(), type, "Yardım lütfen", status,
-                Timestamp.from(Instant.now()));
+                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type,
+                                              message, status, claimed_by_user_id, claimed_at, resolved_by_user_id, resolved_at,
+                                              created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, restaurantId, tableId, sessionId, guestSessionId, type, "Yardım lütfen", status,
+                claimed ? UUID.randomUUID() : null, claimed ? now : null,
+                resolved ? UUID.randomUUID() : null, resolved ? now : null, now, now);
+        return id;
+    }
+
+    // ----- request helpers -----
+
+    protected ResultActions raiseCall(FakeBackends.Guest guest, String key, String json) throws Exception {
+        return mockMvc.perform(post("/api/v1/waiters/calls")
+                .header("X-Guest-Token", guest.token())
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON).content(json));
+    }
+
+    protected ResultActions raiseCall(FakeBackends.Guest guest, String type) throws Exception {
+        return raiseCall(guest, "key-" + UUID.randomUUID(), "{\"type\":\"" + type + "\"}");
+    }
+
+    protected ResultActions staffCommand(RequestPostProcessor staff, UUID callId, String action, String key,
+                                         long expectedVersion) throws Exception {
+        return mockMvc.perform(post("/api/v1/waiters/calls/" + callId + "/" + action)
+                .with(staff).with(csrf().asHeader())
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":" + expectedVersion + "}"));
+    }
+
+    protected static String newKey() {
+        return "key-" + UUID.randomUUID();
     }
 }
