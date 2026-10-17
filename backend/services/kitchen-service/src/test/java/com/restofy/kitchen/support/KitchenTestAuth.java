@@ -25,6 +25,12 @@ public final class KitchenTestAuth {
 		return as(restaurantId, StaffRole.ADMIN);
 	}
 
+	/** Same as {@link #kitchen(UUID)} with a known user id, to assert who is recorded as the actor. */
+	public static RequestPostProcessor kitchen(UUID restaurantId, UUID userId) {
+		return SecurityMockMvcRequestPostProcessors
+				.authentication(new KitchenAuthentication(new KitchenPrincipal(userId, restaurantId), StaffRole.KITCHEN));
+	}
+
 	private static RequestPostProcessor as(UUID restaurantId, StaffRole role) {
 		return SecurityMockMvcRequestPostProcessors
 				.authentication(new KitchenAuthentication(new KitchenPrincipal(UUID.randomUUID(), restaurantId), role));

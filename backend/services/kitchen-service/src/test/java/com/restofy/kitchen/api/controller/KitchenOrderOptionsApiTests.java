@@ -200,13 +200,15 @@ class KitchenOrderOptionsApiTests {
 		String[] paths = { URL + orderId, URL + orderId + "/items/" + line.orderItemId(),
 				URL + orderId + "/items/" + line.orderItemId() + "/options" };
 		String body = "{\"options\":[],\"note\":\"x\"}";
-		for (var auth : List.of(kitchen(restaurant), admin(restaurant))) {
-			for (String path : paths) {
-				for (var request : List.of(post(path), put(path), patch(path), delete(path))) {
-					int code = mvc.perform(request.with(auth).with(csrf()).contentType("application/json").content(body))
-							.andReturn().getResponse().getStatus();
-					assertEquals(true, code == 404 || code == 405, "mutation must not exist, got " + code + " on " + path);
-				}
+		for (String path : paths) {
+			for (var request : List.of(post(path), put(path), patch(path), delete(path))) {
+				// KITCHEN reaches the MVC layer, where no such mutation exists; ADMIN is denied every write outright.
+				int kitchenCode = mvc.perform(request.with(kitchen(restaurant)).with(csrf()).contentType("application/json").content(body))
+						.andReturn().getResponse().getStatus();
+				assertEquals(true, kitchenCode == 404 || kitchenCode == 405, "mutation must not exist, got " + kitchenCode + " on " + path);
+				int adminCode = mvc.perform(request.with(admin(restaurant)).with(csrf()).contentType("application/json").content(body))
+						.andReturn().getResponse().getStatus();
+				assertEquals(403, adminCode, "ADMIN must not write on " + path);
 			}
 		}
 		assertEquals(before, jdbc.queryForObject("SELECT options_snapshot::text FROM kitchen_order_items WHERE restaurant_id = ?",

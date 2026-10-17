@@ -52,7 +52,8 @@ public class KitchenOrderQueryService {
 				.orElseThrow(KitchenOrderNotFoundException::new);
 	}
 
-	private KitchenOrderDetailResponse toDetail(KitchenOrder o) {
+	/** Maps a loaded order to its read-only detail view; call inside the transaction that loaded it (lazy items). */
+	public KitchenOrderDetailResponse toDetail(KitchenOrder o) {
 		List<KitchenOrderDetailResponse.Item> items = o.getItems().stream()
 				.map(i -> new KitchenOrderDetailResponse.Item(i.getOrderItemId(), i.getProductId(),
 						i.getProductNameSnapshot(), i.getQuantity(), i.getNoteSnapshot(), options(i)))

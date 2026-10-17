@@ -4,6 +4,7 @@ import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -22,6 +23,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
+	private static final String KITCHEN_PATH = "/api/v1/kitchen/**";
 
 	@Bean
 	SecurityFilterChain kitchenSecurityFilterChain(HttpSecurity http) {
@@ -35,8 +37,12 @@ public class SecurityConfiguration {
 						// Only the health endpoint (and its liveness/readiness groups) is anonymous, as in the other
 						// services' default chain; details stay hidden (management.endpoint.health.show-details=never).
 						.requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
-						.requestMatchers("/api/v1/kitchen/**")
+						// Reads: KITCHEN and ADMIN. Every other method (state changes) is KITCHEN only; ADMIN never writes.
+						.requestMatchers(HttpMethod.GET, KITCHEN_PATH)
 						.hasAnyRole(StaffRole.KITCHEN.name(), StaffRole.ADMIN.name())
+						.requestMatchers(HttpMethod.HEAD, KITCHEN_PATH)
+						.hasAnyRole(StaffRole.KITCHEN.name(), StaffRole.ADMIN.name())
+						.requestMatchers(KITCHEN_PATH).hasRole(StaffRole.KITCHEN.name())
 						.anyRequest().denyAll())
 				.headers(Customizer.withDefaults());
 		return http.build();

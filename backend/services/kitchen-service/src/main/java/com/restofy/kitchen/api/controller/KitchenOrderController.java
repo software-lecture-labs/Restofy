@@ -4,12 +4,15 @@ import com.restofy.kitchen.api.dto.response.KitchenOrderDetailResponse;
 import com.restofy.kitchen.api.dto.response.KitchenOrderSummaryResponse;
 import com.restofy.kitchen.api.dto.response.PageResponse;
 import com.restofy.kitchen.application.service.KitchenOrderQueryService;
+import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.domain.enums.KitchenStatusFilter;
 import com.restofy.kitchen.infrastructure.security.KitchenPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,9 +27,11 @@ import java.util.UUID;
 public class KitchenOrderController {
 
 	private final KitchenOrderQueryService queries;
+	private final KitchenPreparationService preparation;
 
-	public KitchenOrderController(KitchenOrderQueryService queries) {
+	public KitchenOrderController(KitchenOrderQueryService queries, KitchenPreparationService preparation) {
 		this.queries = queries;
+		this.preparation = preparation;
 	}
 
 	/**
@@ -97,6 +102,19 @@ public class KitchenOrderController {
 
 	private static ResponseStatusException badRequest(String message) {
 		return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+	}
+
+	/**
+	 * Starts preparation (WAITING -> PREPARING). KITCHEN role only. There is deliberately no request body: the
+	 * tenant and the actor come from the verified principal and the time from the server, so nothing the client
+	 * sends can influence them. The required {@code Idempotency-Key} (UUID) identifies the command: a verified
+	 * repeat of the same command returns 200 without any change; any other command on an order that is already
+	 * PREPARING is 409.
+	 */
+	@PatchMapping("/{orderId}/start-preparation")
+	public KitchenOrderDetailResponse startPreparation(@AuthenticationPrincipal KitchenPrincipal principal,
+			@PathVariable UUID orderId, @RequestHeader("Idempotency-Key") UUID commandId) {
+		return preparation.startPreparation(principal.restaurantId(), principal.userId(), commandId, orderId);
 	}
 
 	/** Read-only detail by Order service id. 404 for unknown ids and for other restaurants' orders alike. */

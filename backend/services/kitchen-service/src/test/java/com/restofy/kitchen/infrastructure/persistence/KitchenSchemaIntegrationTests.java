@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,14 +50,52 @@ class KitchenSchemaIntegrationTests {
 	}
 
 	@Test
-	void flywayAppliedV81AndHibernateValidatedTheSchema() {
-		String version = jdbc.queryForObject(
-				"SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1", String.class);
-		assertEquals("81", version);
+	void flywayAppliedTheKitchenMigrationsInOrderAndHibernateValidatedTheSchema() {
+		List<String> versions = jdbc.queryForList(
+				"SELECT version FROM flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank", String.class);
+		assertEquals(List.of("81", "82"), versions);
 		assertEquals(3, jdbc.queryForObject("""
 				SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'
 				  AND table_name IN ('kitchen_orders', 'kitchen_order_items', 'kitchen_status_history')
 				""", Integer.class));
+	}
+
+	private void insertHistory(UUID restaurantId, UUID kitchenOrderId, String toStatus, UUID commandId) {
+		jdbc.update("""
+				INSERT INTO kitchen_status_history (id, restaurant_id, kitchen_order_id, to_status, command_id, occurred_at)
+				VALUES (?, ?, ?, ?, ?, now())
+				""", UUID.randomUUID(), restaurantId, kitchenOrderId, toStatus, commandId);
+	}
+
+	@Test
+	void eachStatusCanBeEnteredOnlyOncePerOrder() {
+		UUID restaurant = UUID.randomUUID();
+		UUID kitchenOrder = insertOrder(restaurant, UUID.randomUUID(), "WAITING", null, null);
+		insertHistory(restaurant, kitchenOrder, "WAITING", null);
+		insertHistory(restaurant, kitchenOrder, "PREPARING", UUID.randomUUID());
+
+		UUID duplicateCommand = UUID.randomUUID();
+		assertThrows(DataIntegrityViolationException.class, () -> insertHistory(restaurant, kitchenOrder, "PREPARING", duplicateCommand));
+		assertThrows(DataIntegrityViolationException.class, () -> insertHistory(restaurant, kitchenOrder, "WAITING", null));
+		// Another order of the same restaurant may enter the same statuses.
+		UUID other = insertOrder(restaurant, UUID.randomUUID(), "WAITING", null, null);
+		insertHistory(restaurant, other, "WAITING", null);
+	}
+
+	@Test
+	void aCommandIdIsUniquePerRestaurantButNullsAndOtherRestaurantsAreFine() {
+		UUID restaurant = UUID.randomUUID();
+		UUID first = insertOrder(restaurant, UUID.randomUUID(), "WAITING", null, null);
+		UUID second = insertOrder(restaurant, UUID.randomUUID(), "WAITING", null, null);
+		UUID command = UUID.randomUUID();
+		insertHistory(restaurant, first, "PREPARING", command);
+
+		assertThrows(DataIntegrityViolationException.class, () -> insertHistory(restaurant, second, "PREPARING", command));
+		insertHistory(restaurant, first, "WAITING", null);
+		insertHistory(restaurant, second, "WAITING", null);
+		UUID otherRestaurant = UUID.randomUUID();
+		UUID foreign = insertOrder(otherRestaurant, UUID.randomUUID(), "WAITING", null, null);
+		insertHistory(otherRestaurant, foreign, "PREPARING", command);
 	}
 
 	@Test

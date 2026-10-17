@@ -1,6 +1,7 @@
 package com.restofy.kitchen.domain.entity;
 
 import com.restofy.kitchen.domain.enums.KitchenOrderStatus;
+import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -111,6 +112,24 @@ public class KitchenOrder {
 				optionsSnapshot, note);
 		items.add(item);
 		return item;
+	}
+
+	/**
+	 * WAITING -> PREPARING, the only valid start. Any other status (including PREPARING) is rejected: whether a
+	 * repeat is the same command is decided by the caller from the command id, never from the status alone.
+	 * {@code startedAt} is written once and never earlier than {@code receivedAt}.
+	 */
+	public void startPreparation(Instant now) {
+		if (status != KitchenOrderStatus.WAITING) {
+			throw new InvalidKitchenTransitionException(status, KitchenOrderStatus.PREPARING);
+		}
+		status = KitchenOrderStatus.PREPARING;
+		startedAt = notBefore(now, receivedAt);
+	}
+
+	/** The instant is never earlier than the lower bound, which keeps received <= started <= ready under clock skew. */
+	private static Instant notBefore(Instant instant, Instant lowerBound) {
+		return instant.isBefore(lowerBound) ? lowerBound : instant;
 	}
 
 	@PreUpdate

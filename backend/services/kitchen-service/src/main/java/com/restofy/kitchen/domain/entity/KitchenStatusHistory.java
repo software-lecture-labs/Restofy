@@ -47,6 +47,10 @@ public class KitchenStatusHistory implements Persistable<UUID> {
 	@Column(name = "source_event_id", updatable = false)
 	private UUID sourceEventId;
 
+	/** Client command identity (Idempotency-Key) of the command that caused this change; null for system entries. */
+	@Column(name = "command_id", updatable = false)
+	private UUID commandId;
+
 	@Column(name = "occurred_at", nullable = false, updatable = false)
 	private Instant occurredAt;
 
@@ -66,6 +70,27 @@ public class KitchenStatusHistory implements Persistable<UUID> {
 		history.sourceEventId = sourceEventId;
 		history.occurredAt = occurredAt;
 		return history;
+	}
+
+	/** One applied status change, written in the same transaction as the change itself. */
+	public static KitchenStatusHistory transition(KitchenOrder order, KitchenOrderStatus from, KitchenOrderStatus to,
+			UUID actorUserId, UUID commandId, Instant occurredAt) {
+		KitchenStatusHistory history = new KitchenStatusHistory();
+		history.id = UUID.randomUUID();
+		history.restaurantId = order.getRestaurantId();
+		history.kitchenOrderId = order.getId();
+		history.fromStatus = from;
+		history.toStatus = to;
+		history.actorUserId = actorUserId;
+		history.commandId = commandId;
+		history.occurredAt = occurredAt;
+		return history;
+	}
+
+	/** Is this entry the result of the given command, issued by the same actor, for this order and target status? */
+	public boolean isResultOf(UUID commandId, UUID actorUserId, UUID kitchenOrderId, KitchenOrderStatus target) {
+		return commandId != null && commandId.equals(this.commandId) && actorUserId != null
+				&& actorUserId.equals(this.actorUserId) && kitchenOrderId.equals(this.kitchenOrderId) && target == toStatus;
 	}
 
 	@Override

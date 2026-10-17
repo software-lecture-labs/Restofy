@@ -20,8 +20,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.support.ResourcePropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -146,7 +148,10 @@ class FlywayPostgresIntegrationTests {
                 .withPropertyValues("spring.datasource.url=" + url(database),
                         "spring.datasource.username=" + POSTGRES.getUsername(),
                         "spring.datasource.password=" + POSTGRES.getPassword(),
-                        "spring.datasource.driver-class-name=org.postgresql.Driver");
+                        "spring.datasource.driver-class-name=org.postgresql.Driver",
+                        // Each context needs only one query at a time; avoid a burst of ten idle connections.
+                        "spring.datasource.hikari.maximum-pool-size=2",
+                        "spring.datasource.hikari.minimum-idle=1");
         if (!productionLocation) runner = runner.withPropertyValues("spring.flyway.locations=" + location());
         if (includeTestEntity) runner = runner.withUserConfiguration(ProbeEntityConfiguration.class);
         return runner;
@@ -175,11 +180,13 @@ class FlywayPostgresIntegrationTests {
             assertTrue(config.isValidateOnMigrate());
             assertTrue(config.isExecuteInTransaction());
             assertEquals("validate", context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto"));
-            assertEquals("1", scalar(database, "SELECT count(*) FROM public.migration_probe"));
-            assertEquals(List.of("1"), versions(database));
-            assertEquals("1", scalar(database, "SELECT count(*) FROM public.flyway_schema_history WHERE success AND checksum IS NOT NULL AND type='SQL'"));
-            assertEquals("public", scalar(database, "SELECT current_schema()"));
-            assertEquals("0", scalar(database, "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'"));
+            // Reuse the context's migrated datasource instead of opening a new TCP/SSL handshake per assertion.
+            var jdbc = new JdbcTemplate(context.getBean(DataSource.class));
+            assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM public.migration_probe", Long.class));
+            assertEquals(List.of("1"), jdbc.queryForList("SELECT version FROM public.flyway_schema_history ORDER BY installed_rank", String.class));
+            assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM public.flyway_schema_history WHERE success AND checksum IS NOT NULL AND type='SQL'", Long.class));
+            assertEquals("public", jdbc.queryForObject("SELECT current_schema()", String.class));
+            assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'", Long.class));
         });
     }
 
