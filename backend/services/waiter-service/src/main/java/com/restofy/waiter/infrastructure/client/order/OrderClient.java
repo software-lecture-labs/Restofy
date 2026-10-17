@@ -9,6 +9,8 @@ import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -20,9 +22,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Adapter for the Order service, the owner of orders, snapshots and cancellations. Calls are read-only; the
- * POST endpoints are searches that only carry large filters in a body. The contract is a DRAFT
- * (docs/waiter/integration-contracts.md); Order has not implemented it yet.
+ * Adapter for the Order service, the owner of orders, snapshots, cancellations and the served fact. Queries are
+ * read-only (the search POSTs only carry large filters in a body); the single command is
+ * {@link #serve}. The contract is a DRAFT (docs/waiter/integration-contracts.md); Order has not implemented it
+ * yet.
  */
 @Component
 public class OrderClient {
@@ -103,6 +106,79 @@ public class OrderClient {
             if (!found.id().equals(orderId)) throw badResponse("order id does not match the request");
         });
         return order;
+    }
+
+    /**
+     * Sends the serve command. Order alone decides, atomically, whether the order may be served (tenant,
+     * ownership, session, version, ready, not cancelled, not yet served). Three kinds of outcome:
+     * <ul>
+     *   <li>a returned answer: Order applied the command (or had applied the same command id before);</li>
+     *   <li>{@link OrderRejectedException}: Order definitively did not apply it;</li>
+     *   <li>{@link DependencyException}: no usable answer. The command may or may not have been applied, and
+     *       nothing here sends it again: resending is a decision of the caller, with the same command id.</li>
+     * </ul>
+     * A 401/403 is reported as a dependency rejection ({@code REJECTED}): Order did not process the request.
+     */
+    public ServeResponseDto serve(UUID orderId, ServeCommandRequestDto command) {
+        try {
+            ServeResponseDto answer = client.post()
+                    .uri("/internal/v1/orders/{orderId}/serve", orderId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("Idempotency-Key", command.commandId().toString())
+                    .body(command)
+                    .retrieve().body(ServeResponseDto.class);
+            if (answer == null) throw badResponse("empty answer to the serve command");
+            if (!answer.commandId().equals(command.commandId())) throw badResponse("answer for another command");
+            requireTenant(command.restaurantId(), answer.order());
+            if (!answer.order().id().equals(orderId)) throw badResponse("answer for another order");
+            return answer;
+        } catch (RestClientResponseException refusal) {
+            int status = refusal.getStatusCode().value();
+            if (status == 404 || status == 400 || status == 409 || status == 422) {
+                throw new OrderRejectedException(rejectionCode(status, refusal));
+            }
+            throw DownstreamCalls.translate(DEPENDENCY, refusal);
+        } catch (RestClientException failure) {
+            throw DownstreamCalls.translate(DEPENDENCY, failure);
+        }
+    }
+
+    /** What Order recorded for a command id; empty if Order has no record of it (not received, or still in flight). */
+    public Optional<ServeStatusDto> serveStatus(UUID restaurantId, UUID orderId, UUID commandId) {
+        Optional<ServeStatusDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
+                .uri(uri -> uri.path("/internal/v1/orders/{orderId}/serve-commands/{commandId}")
+                        .queryParam("restaurantId", restaurantId).build(orderId, commandId))
+                .retrieve().body(ServeStatusDto.class));
+        status.ifPresent(found -> {
+            if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
+            if (found.order() != null) {
+                requireTenant(restaurantId, found.order());
+                if (!found.order().id().equals(orderId)) throw badResponse("status of another order");
+            }
+        });
+        return status;
+    }
+
+    /** Reasons Order may give; anything else becomes the generic code so foreign text is never reflected. */
+    private static final java.util.Set<String> KNOWN_REJECTIONS = java.util.Set.of("ORDER_VERSION_CONFLICT",
+            "ORDER_SESSION_MISMATCH", "ORDER_NOT_READY", "ORDER_CANCELLED", "ORDER_ALREADY_SERVED",
+            "ORDER_NOT_DELIVERABLE", "ORDER_COMMAND_CONFLICT");
+    private static final tools.jackson.databind.json.JsonMapper REJECTION_JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
+
+    private static String rejectionCode(int status, RestClientResponseException refusal) {
+        if (status == 404) return OrderRejectedException.NOT_FOUND;
+        try {
+            return knownRejection(REJECTION_JSON.readTree(refusal.getResponseBodyAsString()).path("code").asString(""));
+        } catch (RuntimeException _) {
+            return OrderRejectedException.GENERIC;
+        }
+    }
+
+    /** A reason Order may give is passed on; any other text becomes the generic code. */
+    public static String knownRejection(String code) {
+        if (OrderRejectedException.NOT_FOUND.equals(code)) return code;
+        return code != null && KNOWN_REJECTIONS.contains(code) ? code : OrderRejectedException.GENERIC;
     }
 
     private static PreparationStatus preparationOf(OrderDto order) {

@@ -55,7 +55,8 @@ public final class DownstreamCalls {
         return body;
     }
 
-    private static DependencyException translate(String dependency, RestClientException error) {
+    /** Translates a failed call into the dependency error that names why no usable answer arrived. */
+    public static DependencyException translate(String dependency, RestClientException error) {
         DependencyFailure failure = classify(error);
         log.warn("Downstream '{}' call failed: {} ({})", dependency, failure, error.getClass().getSimpleName());
         String message = switch (failure) {
