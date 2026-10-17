@@ -82,6 +82,24 @@ class FailClosedProductionWiringTests {
                 .content("{\"status\":\"AVAILABLE\",\"version\":0}")).andExpect(status().isUnauthorized());
     }
 
+    /** With the real (fail-closed) provider, even a request that would fail validation is 401 and says nothing about the rules. */
+    @Test
+    void invalidBodiesAndPathsAreStill401NotValidationErrorsInProduction() throws Exception {
+        String id = UUID.randomUUID().toString();
+        for (String path : new String[] {"/api/v1/menu/products", "/api/v1/menu/categories"}) {
+            String body = mvc.perform(post(path).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isUnauthorized()).andReturn().getResponse().getContentAsString();
+            assertTrue(!body.contains("errors") && !body.contains("must not be"), body);
+            mvc.perform(post(path).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{not json"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mvc.perform(patch("/api/v1/menu/products/not-a-uuid").with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":-1}")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/products?size=0&sort=password").with(user("staff"))).andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/products/" + id + "/availability").with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SOLD\"}")).andExpect(status().isUnauthorized());
+    }
+
     @Test
     void requestsWithoutAnyFrameworkAuthenticationAreRefusedToo() throws Exception {
         mvc.perform(get("/api/v1/menu/categories")).andExpect(status().isUnauthorized());

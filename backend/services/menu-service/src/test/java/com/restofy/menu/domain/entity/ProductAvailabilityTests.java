@@ -141,4 +141,15 @@ class ProductAvailabilityTests {
         var availability = initial();
         assertThrows(NullPointerException.class, () -> ProductAvailabilityHistory.changed(null, availability));
     }
+
+    @Test
+    void reasonTextRefusesControlCharactersAndAllowsLineBreaks() {
+        var availability = initial();
+        for (String bad : new String[] {"a\u0000b", "a\u0007b", "ab\ud800"}) {
+            assertThrows(InvalidProductException.class,
+                    () -> availability.change(AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", bad, ADMIN), "text");
+        }
+        assertTrue(availability.change(AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", "line1\nline2", ADMIN));
+        assertEquals("line1\nline2", availability.getReasonText());
+    }
 }

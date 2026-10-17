@@ -74,6 +74,11 @@ public class Category {
         if (normalized.length() > NAME_MAX_LENGTH) {
             throw new InvalidCategoryException("Category name must be at most " + NAME_MAX_LENGTH + " characters.");
         }
+        // NUL cannot be stored by PostgreSQL (a server error, i.e. HTTP 500); other control characters and lone
+        // surrogates are never a meaningful name. All of them are a plain validation error.
+        if (!SafeText.isSafe(normalized, false)) {
+            throw new InvalidCategoryException("Category name contains characters that are not allowed.");
+        }
         return normalized;
     }
 

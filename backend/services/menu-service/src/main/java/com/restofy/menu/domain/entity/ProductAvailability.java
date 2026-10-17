@@ -128,6 +128,9 @@ public class ProductAvailability {
         if (text.length() > REASON_TEXT_MAX_LENGTH) {
             throw new InvalidProductException("Reason text must be at most " + REASON_TEXT_MAX_LENGTH + " characters.");
         }
+        if (!SafeText.isSafe(text, true)) {
+            throw new InvalidProductException("Reason text contains characters that are not allowed.");
+        }
         return text;
     }
 

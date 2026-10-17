@@ -5,13 +5,12 @@ import com.restofy.menu.api.dto.request.UpdateCategoryRequest;
 import com.restofy.menu.api.dto.response.CategoryResponse;
 import com.restofy.menu.api.dto.response.PageResponse;
 import com.restofy.menu.application.mapper.CategoryMapper;
+import com.restofy.menu.application.security.AdminActor;
 import com.restofy.menu.application.security.AuthenticatedActor;
-import com.restofy.menu.application.security.CurrentActorProvider;
 import com.restofy.menu.application.service.CategoryQueryService;
 import com.restofy.menu.application.service.CategoryService;
 import com.restofy.menu.application.service.UpdateCategoryCommand;
 import com.restofy.menu.domain.entity.Category;
-import com.restofy.menu.domain.exception.UnauthenticatedException;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,74 +35,72 @@ public class CategoryController {
 
     private final CategoryService categories;
     private final CategoryQueryService queries;
-    private final CurrentActorProvider actors;
 
-    public CategoryController(CategoryService categories, CategoryQueryService queries, CurrentActorProvider actors) {
+    public CategoryController(CategoryService categories, CategoryQueryService queries) {
         this.categories = categories;
         this.queries = queries;
-        this.actors = actors;
     }
 
     @GetMapping("/categories")
     public PageResponse<CategoryResponse> list(
+            @AdminActor AuthenticatedActor actor,
             @RequestParam(name = "isActive", required = false) Boolean isActive,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "" + PageParameters.DEFAULT_SIZE) int size,
             @RequestParam(required = false) String sort) {
-        var result = queries.listRoots(actor(), isActive, PageParameters.of(page, size, sort));
+        var result = queries.listRoots(actor, isActive, PageParameters.of(page, size, sort));
         return PageResponse.of(result, CategoryMapper::toResponse);
     }
 
     @GetMapping("/categories/{id}")
-    public CategoryResponse get(@PathVariable UUID id) {
-        return CategoryMapper.toResponse(queries.getRoot(actor(), id));
+    public CategoryResponse get(@AdminActor AuthenticatedActor actor, @PathVariable UUID id) {
+        return CategoryMapper.toResponse(queries.getRoot(actor, id));
     }
 
     @GetMapping("/categories/{parentId}/subcategories")
-    public PageResponse<CategoryResponse> listSubcategories(@PathVariable UUID parentId,
+    public PageResponse<CategoryResponse> listSubcategories(@AdminActor AuthenticatedActor actor, @PathVariable UUID parentId,
             @RequestParam(name = "isActive", required = false) Boolean isActive,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "" + PageParameters.DEFAULT_SIZE) int size,
             @RequestParam(required = false) String sort) {
-        var result = queries.listSubcategories(actor(), parentId, isActive, PageParameters.of(page, size, sort));
+        var result = queries.listSubcategories(actor, parentId, isActive, PageParameters.of(page, size, sort));
         return PageResponse.of(result, CategoryMapper::toResponse);
     }
 
     @GetMapping("/subcategories/{id}")
-    public CategoryResponse getSubcategory(@PathVariable UUID id) {
-        return CategoryMapper.toResponse(queries.getSubcategory(actor(), id));
+    public CategoryResponse getSubcategory(@AdminActor AuthenticatedActor actor, @PathVariable UUID id) {
+        return CategoryMapper.toResponse(queries.getSubcategory(actor, id));
     }
 
     @PostMapping("/categories")
-    public ResponseEntity<CategoryResponse> create(@Valid @RequestBody CreateCategoryRequest request) {
-        Category created = categories.createRoot(actor(), request.name(), request.sortOrder());
+    public ResponseEntity<CategoryResponse> create(@AdminActor AuthenticatedActor actor, @Valid @RequestBody CreateCategoryRequest request) {
+        Category created = categories.createRoot(actor, request.name(), request.sortOrder());
         return ResponseEntity.created(URI.create("/api/v1/menu/categories/" + created.getId()))
                 .body(CategoryMapper.toResponse(created));
     }
 
     @PatchMapping("/categories/{id}")
-    public CategoryResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateCategoryRequest request) {
-        return CategoryMapper.toResponse(categories.updateRoot(actor(), id, command(request)));
+    public CategoryResponse update(@AdminActor AuthenticatedActor actor, @PathVariable UUID id,
+            @Valid @RequestBody UpdateCategoryRequest request) {
+        return CategoryMapper.toResponse(categories.updateRoot(actor, id, command(request)));
     }
 
     @PostMapping("/categories/{parentId}/subcategories")
-    public ResponseEntity<CategoryResponse> createSubcategory(@PathVariable UUID parentId,
+    public ResponseEntity<CategoryResponse> createSubcategory(@AdminActor AuthenticatedActor actor, @PathVariable UUID parentId,
             @Valid @RequestBody CreateCategoryRequest request) {
-        Category created = categories.createSubcategory(actor(), parentId, request.name(), request.sortOrder());
+        Category created = categories.createSubcategory(actor, parentId, request.name(), request.sortOrder());
         return ResponseEntity.created(URI.create("/api/v1/menu/subcategories/" + created.getId()))
                 .body(CategoryMapper.toResponse(created));
     }
 
     @PatchMapping("/subcategories/{id}")
-    public CategoryResponse updateSubcategory(@PathVariable UUID id, @Valid @RequestBody UpdateCategoryRequest request) {
-        return CategoryMapper.toResponse(categories.updateSubcategory(actor(), id, command(request)));
+    public CategoryResponse updateSubcategory(@AdminActor AuthenticatedActor actor, @PathVariable UUID id,
+            @Valid @RequestBody UpdateCategoryRequest request) {
+        return CategoryMapper.toResponse(categories.updateSubcategory(actor, id, command(request)));
     }
 
     private static UpdateCategoryCommand command(UpdateCategoryRequest request) {
         return new UpdateCategoryCommand(request.name(), request.sortOrder(), request.isActive(), request.version());
     }
 
-    private AuthenticatedActor actor() {
-        return actors.current().orElseThrow(UnauthenticatedException::new);
-    }
 }

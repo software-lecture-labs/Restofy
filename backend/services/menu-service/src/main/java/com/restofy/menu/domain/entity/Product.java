@@ -14,8 +14,11 @@ import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
 /**
@@ -40,8 +43,27 @@ public class Product {
     /** Matches numeric(19,4): 15 integer digits and 4 fraction digits. */
     private static final int PRICE_SCALE = 4;
     private static final int PRICE_INTEGER_DIGITS = 15;
+    private static final int VAT_INTEGER_DIGITS = 3;
     private static final BigDecimal MAX_VAT_RATE = BigDecimal.valueOf(100);
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("[A-Z]{3}");
+    /**
+     * ISO 4217 entries that exist but are not a currency a menu item can be sold in: precious metals, the IMF
+     * SDR, "no currency"/"testing" codes, supranational accounting units and the "funds" codes (indexed or
+     * settlement units that are not legal tender). Genuine currencies whose code happens to start with X
+     * (XAF, XOF, XCD, XPF, XCG) are NOT in this list.
+     */
+    private static final Set<String> NON_SALE_CODES = Set.of(
+            "XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XBB", "XBC", "XBD", "XSU", "XUA", "XFU", "XFO", "XAD",
+            "BOV", "CHE", "CHW", "CLF", "COU", "MXV", "USN", "USS", "UYI", "UYW");
+    /**
+     * Real, monetary ISO 4217 codes the JDK knows. A JDK pseudo-currency (no fraction digits, e.g. a new
+     * accounting unit in a later JDK) is excluded as well, so the list cannot silently grow a non-monetary code.
+     */
+    private static final Set<String> SALE_CURRENCY_CODES = Currency.getAvailableCurrencies().stream()
+            .filter(candidate -> candidate.getDefaultFractionDigits() >= 0)
+            .map(Currency::getCurrencyCode)
+            .filter(code -> !NON_SALE_CODES.contains(code))
+            .collect(Collectors.toUnmodifiableSet());
 
     @Id
     private UUID id;
@@ -133,6 +155,9 @@ public class Product {
         if (normalized.length() > NAME_MAX_LENGTH) {
             throw new InvalidProductException("Product name must be at most " + NAME_MAX_LENGTH + " characters.");
         }
+        if (!SafeText.isSafe(normalized, false)) {
+            throw new InvalidProductException("Product name contains characters that are not allowed.");
+        }
         return normalized;
     }
 
@@ -149,10 +174,17 @@ public class Product {
             throw new InvalidProductException(
                     "Product description must be at most " + DESCRIPTION_MAX_LENGTH + " characters.");
         }
+        if (!SafeText.isSafe(normalized, true)) {
+            throw new InvalidProductException("Product description contains characters that are not allowed.");
+        }
         return normalized;
     }
 
-    /** Exact decimal only: more than four fraction digits is rejected instead of silently rounded. */
+    /**
+     * Exact decimal only: more than four fraction digits is rejected instead of silently rounded. The size
+     * is checked on the stripped value first, so an absurd exponent (1E+999999999) is refused without ever
+     * being expanded into a huge number.
+     */
     public static BigDecimal normalizePrice(BigDecimal raw) {
         if (raw == null) {
             throw new InvalidProductException("Base price is required.");
@@ -160,11 +192,8 @@ public class Product {
         if (raw.signum() < 0) {
             throw new InvalidProductException("Base price must not be negative.");
         }
-        BigDecimal exact = withinScale(raw, "Base price");
-        if (exact.precision() - exact.scale() > PRICE_INTEGER_DIGITS) {
-            throw new InvalidProductException("Base price is too large.");
-        }
-        return exact;
+        requireWithinPrecision(raw, PRICE_INTEGER_DIGITS, "Base price is too large.", "Base price");
+        return raw.setScale(PRICE_SCALE, RoundingMode.UNNECESSARY);
     }
 
     public static BigDecimal normalizeVatRate(BigDecimal raw) {
@@ -174,22 +203,36 @@ public class Product {
         if (raw.signum() < 0 || raw.compareTo(MAX_VAT_RATE) > 0) {
             throw new InvalidProductException("VAT rate must be between 0 and 100.");
         }
-        return withinScale(raw, "VAT rate");
+        requireWithinPrecision(raw, VAT_INTEGER_DIGITS, "VAT rate must be between 0 and 100.", "VAT rate");
+        return raw.setScale(PRICE_SCALE, RoundingMode.UNNECESSARY);
     }
 
+    /**
+     * A three-letter upper-case code that is a real, monetary ISO 4217 currency. Lower-case input is rejected,
+     * not silently upper-cased, so what is stored is exactly what the client sent. Special-purpose codes
+     * (metals, SDR, XXX, XTS, accounting units, funds codes) exist in ISO 4217 but cannot be a sale price.
+     */
     public static String normalizeCurrency(String raw) {
         if (raw == null || !CURRENCY_PATTERN.matcher(raw).matches()) {
             throw new InvalidProductException("Currency must be a three-letter uppercase code.");
         }
+        if (!SALE_CURRENCY_CODES.contains(raw)) {
+            throw new InvalidProductException(NON_SALE_CODES.contains(raw)
+                    ? "Currency cannot be used for prices."
+                    : "Currency must be a valid ISO 4217 currency code.");
+        }
         return raw;
     }
 
-    private static BigDecimal withinScale(BigDecimal raw, String label) {
+    /** Rejects too many integer digits or fraction digits using only the stripped (small) representation. */
+    private static void requireWithinPrecision(BigDecimal raw, int maxIntegerDigits, String tooLargeMessage, String label) {
         BigDecimal stripped = raw.stripTrailingZeros();
+        if (stripped.signum() != 0 && stripped.precision() - stripped.scale() > maxIntegerDigits) {
+            throw new InvalidProductException(tooLargeMessage);
+        }
         if (stripped.scale() > PRICE_SCALE) {
             throw new InvalidProductException(label + " must have at most " + PRICE_SCALE + " decimal places.");
         }
-        return raw.setScale(PRICE_SCALE, RoundingMode.UNNECESSARY);
     }
 
     // ---- mutators ----

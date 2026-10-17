@@ -11,6 +11,7 @@ import com.restofy.menu.domain.exception.ProductAvailabilityVersionConflictExcep
 import com.restofy.menu.domain.exception.ProductNotFoundException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -32,6 +33,8 @@ import java.util.Map;
  */
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+
+    private static final String INVALID_REQUEST_TITLE = "Invalid request";
 
     @ExceptionHandler(UnauthenticatedException.class)
     ProblemDetail unauthenticated(UnauthenticatedException e) {
@@ -57,18 +60,26 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler({InvalidCategoryException.class, InvalidProductException.class})
     ProblemDetail invalid(RuntimeException e) {
-        return problem(HttpStatus.BAD_REQUEST, "Invalid request", e.getMessage());
+        return problem(HttpStatus.BAD_REQUEST, INVALID_REQUEST_TITLE, e.getMessage());
     }
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException e,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        ProblemDetail body = problem(HttpStatus.BAD_REQUEST, "Invalid request", "Request validation failed.");
+        ProblemDetail body = problem(HttpStatus.BAD_REQUEST, INVALID_REQUEST_TITLE, "Request validation failed.");
         List<Map<String, String>> errors = e.getBindingResult().getFieldErrors().stream()
                 .map(this::fieldError)
                 .toList();
         body.setProperty("errors", errors);
         return ResponseEntity.badRequest().body(body);
+    }
+
+    /** A path or query value of the wrong type (for example a malformed UUID): fixed text, the value is never echoed. */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException e, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        return ResponseEntity.badRequest()
+                .body(problem(HttpStatus.BAD_REQUEST, INVALID_REQUEST_TITLE, "A request parameter has an invalid value."));
     }
 
     private Map<String, String> fieldError(FieldError error) {

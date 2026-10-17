@@ -5,6 +5,7 @@ import com.restofy.menu.domain.enums.AvailabilityStatus;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * Open or close a product; guarded by the AVAILABILITY version (the {@code availability.version} of the
@@ -16,5 +17,5 @@ public record ChangeProductAvailabilityRequest(
         @NotNull AvailabilityStatus status,
         @Size(max = ProductAvailability.REASON_CODE_MAX_LENGTH) String reasonCode,
         @Size(max = ProductAvailability.REASON_TEXT_MAX_LENGTH) String reasonText,
-        @NotNull @Min(0) Long version) {
+        @NotNull @Min(0) @JsonDeserialize(using = StrictNumberDeserializers.WholeNumber.class) Long version) {
 }

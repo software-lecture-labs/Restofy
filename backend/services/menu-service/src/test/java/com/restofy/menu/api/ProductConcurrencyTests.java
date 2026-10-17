@@ -199,4 +199,20 @@ class ProductConcurrencyTests {
         assertEquals(1, outcome[1]);
         assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
     }
+
+    @Test
+    void parallelPriceEditsWithTheSameVersionLetExactlyOneWinAndNeverMixFields() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(4, i -> service.update(admin, id, new UpdateProductCommand(null, null, null,
+                new BigDecimal("100").add(BigDecimal.valueOf(i)), i % 2 == 0 ? "EUR" : "USD",
+                BigDecimal.valueOf(i), i % 2 == 0, 0L)));
+        assertEquals(1, outcome[0]);
+        assertEquals(3, outcome[1]);
+        var row = jdbc.queryForMap("SELECT base_price, currency, vat_rate, price_includes_vat, version FROM products WHERE id = ?", id);
+        int winner = ((BigDecimal) row.get("base_price")).intValue() - 100;
+        assertEquals(winner % 2 == 0 ? "EUR" : "USD", row.get("currency"), "price, currency, VAT and inclusion all come from the SAME request");
+        assertEquals(winner, ((BigDecimal) row.get("vat_rate")).intValue());
+        assertEquals(winner % 2 == 0, row.get("price_includes_vat"));
+        assertEquals(1L, row.get("version"));
+    }
 }

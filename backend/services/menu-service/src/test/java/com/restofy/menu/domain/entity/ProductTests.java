@@ -150,4 +150,96 @@ class ProductTests {
         assertEquals(ACTOR, p.getCreatedByUserId());
         assertThrows(NullPointerException.class, () -> p.recordUpdatedBy(null));
     }
+
+    @Test
+    void currencyMustBeARealIsoCode() {
+        for (String ok : new String[] {"TRY", "USD", "EUR", "GBP", "JPY"}) {
+            assertEquals(ok, Product.normalizeCurrency(ok));
+        }
+        for (String bad : new String[] {"ZZZ", "ABC", "QQQ", "AAA"}) {
+            var failure = assertThrows(InvalidProductException.class, () -> Product.normalizeCurrency(bad), bad);
+            assertEquals("Currency must be a valid ISO 4217 currency code.", failure.getMessage());
+        }
+    }
+
+    @Test
+    void absurdExponentsAreRefusedQuicklyWithoutBeingExpanded() {
+        for (String huge : new String[] {"1E+999999999", "9.9E+2147483646", "1E+400"}) {
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () -> {
+                BigDecimal value = new BigDecimal(huge);
+                assertThrows(InvalidProductException.class, () -> Product.normalizePrice(value), huge);
+                assertThrows(InvalidProductException.class, () -> Product.normalizeVatRate(value), huge);
+            });
+        }
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () -> {
+            BigDecimal value = new BigDecimal("1E-999999999");
+            assertThrows(InvalidProductException.class, () -> Product.normalizePrice(value),
+                    "a nonzero value far below 0.0001 needs more than four decimals");
+        });
+        assertEquals(new BigDecimal("0.0000"), Product.normalizePrice(new BigDecimal("0E+999999999")));
+        assertEquals(new BigDecimal("1000.0000"), Product.normalizePrice(new BigDecimal("1E+3")));
+    }
+
+    @Test
+    void priceBoundaryIsExactlyFifteenIntegerAndFourFractionDigits() {
+        assertEquals(new BigDecimal("999999999999999.9999"), Product.normalizePrice(new BigDecimal("999999999999999.9999")));
+        BigDecimal aboveMaximum = new BigDecimal("1000000000000000");
+        assertThrows(InvalidProductException.class, () -> Product.normalizePrice(aboveMaximum));
+        BigDecimal aboveMaximumWithScale = new BigDecimal("1000000000000000.0000");
+        assertThrows(InvalidProductException.class, () -> Product.normalizePrice(aboveMaximumWithScale));
+        assertEquals(new BigDecimal("100.0000"), Product.normalizeVatRate(new BigDecimal("100.0000")));
+        BigDecimal aboveMaximumVat = new BigDecimal("100.0001");
+        assertThrows(InvalidProductException.class, () -> Product.normalizeVatRate(aboveMaximumVat));
+        assertEquals(new BigDecimal("0.0001"), Product.normalizeVatRate(new BigDecimal("0.0001")));
+    }
+
+    @Test
+    void controlCharactersAndLoneSurrogatesAreRefusedInTextFields() {
+        for (String bad : new String[] {"a\u0000b", "a\u0001b", "a\u007fb", "a\u0085b", "a\u009fb", "a\ud800b", "\udc00", "ab\ud83d"}) {
+            assertThrows(InvalidProductException.class, () -> Product.normalizeName(bad), "name " + bad.length());
+            assertThrows(InvalidProductException.class, () -> Product.normalizeDescription(bad), "description");
+        }
+        assertEquals("Crème brûlée 🍰 寿司", Product.normalizeName("Crème brûlée 🍰 寿司"), "valid surrogate pairs are fine");
+        assertEquals("a b", Product.normalizeName("a\t\n b"), "tabs and line breaks in a name collapse to one space");
+        assertEquals("line1\nline2\tx", Product.normalizeDescription("line1\nline2\tx"), "a description may be multi-line");
+    }
+
+    @Test
+    void genuineMonetaryCurrenciesAreAcceptedIncludingTheOnesThatStartWithX() {
+        for (String ok : new String[] {"TRY", "USD", "EUR", "GBP", "JPY", "CHF", "SAR", "AED", "CAD", "AUD", "XAF", "XOF", "XCD", "XPF", "XCG"}) {
+            assertEquals(ok, Product.normalizeCurrency(ok), ok);
+        }
+    }
+
+    @Test
+    void specialPurposeAndFundsCodesCannotBeASalePrice() {
+        for (String special : new String[] {"XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XBB", "XBC", "XBD", "XSU",
+                "XUA", "XFU", "XFO", "XAD", "BOV", "CHE", "CHW", "CLF", "COU", "MXV", "USN", "USS", "UYI", "UYW"}) {
+            var failure = assertThrows(InvalidProductException.class, () -> Product.normalizeCurrency(special), special);
+            assertTrue(failure.getMessage().equals("Currency cannot be used for prices.")
+                    || failure.getMessage().equals("Currency must be a valid ISO 4217 currency code."), failure.getMessage());
+        }
+        assertEquals("Currency cannot be used for prices.",
+                assertThrows(InvalidProductException.class, () -> Product.normalizeCurrency("XXX")).getMessage());
+        assertEquals("Currency cannot be used for prices.",
+                assertThrows(InvalidProductException.class, () -> Product.normalizeCurrency("XAU")).getMessage());
+    }
+
+    /** Guards against a newer JDK adding a pseudo-currency: anything without fraction digits must stay rejected. */
+    @Test
+    void everyJdkPseudoCurrencyIsRejectedAndEveryOtherJdkCurrencyOutsideTheDeniedSetIsAccepted() {
+        java.util.Set<String> denied = java.util.Set.of("XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XBB", "XBC", "XBD",
+                "XSU", "XUA", "XFU", "XFO", "XAD", "BOV", "CHE", "CHW", "CLF", "COU", "MXV", "USN", "USS", "UYI", "UYW");
+        int accepted = 0;
+        for (java.util.Currency currency : java.util.Currency.getAvailableCurrencies()) {
+            String code = currency.getCurrencyCode();
+            if (currency.getDefaultFractionDigits() < 0 || denied.contains(code)) {
+                assertThrows(InvalidProductException.class, () -> Product.normalizeCurrency(code), code);
+            } else {
+                assertEquals(code, Product.normalizeCurrency(code), code);
+                accepted++;
+            }
+        }
+        assertTrue(accepted > 150, "a realistic set of real currencies is accepted, got " + accepted);
+    }
 }
