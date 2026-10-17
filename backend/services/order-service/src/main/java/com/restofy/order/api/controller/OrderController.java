@@ -223,10 +223,11 @@ public class OrderController {
     }
 
     @PatchMapping("/{orderId}/cancellations/{cancellationId}/reason")
-    @Operation(summary = "A waiter gives the reason of a cancellation the customer gave none for (append-only)",
-            description = "WAITER only (403 otherwise, also for a guest). Allowed once, and only while the cancellation "
-                    + "has no reason: reasons are never changed or added to (409 CANCELLATION_REASON_ALREADY_SET); "
-                    + "repeating the very same completion by the same waiter returns the stored result. Needs reasonCodes "
+    @Operation(summary = "A waiter or admin gives the reason of a cancellation that has none (append-only)",
+            description = "WAITER or ADMIN of the restaurant (403 for KITCHEN, a guest and a service). Allowed once, and "
+                    + "only while the cancellation has no reason - the customer's, a Kitchen's or a colleague's reason "
+                    + "is never changed or added to (409 CANCELLATION_REASON_ALREADY_SET); "
+                    + "repeating the very same completion by the same person returns the stored result. Needs reasonCodes "
                     + "and/or reasonText (same rules as the customer's). Works for a cancellation in any status. Who "
                     + "added it and when is recorded.")
     @SecurityRequirement(name = "staff")

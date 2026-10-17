@@ -57,6 +57,7 @@ public class CancellationDecisionService {
     private static final String SYSTEM_REJECTION = "NOT_ALLOWED_STATE";
     private static final String ORDER_CHANGED = "ORDER_CHANGED";
     private static final String SYSTEM = "SYSTEM";
+    private static final String SERVICE = "SERVICE";
 
     private record RejectionReason(String code, String note) {
     }
@@ -153,7 +154,7 @@ public class CancellationDecisionService {
         Money money = applier.money(order, result);
         ChangeActor kitchen = ChangeActor.service(ServiceName.KITCHEN.name());
         String previousFulfillment = order.getFulfillmentStatus().name();
-        cancellations.approve(row.id(), new CancellationStore.DecisionActor("KITCHEN", "SERVICE", kitchen.id(),
+        cancellations.approve(row.id(), new CancellationStore.DecisionActor("KITCHEN", SERVICE, kitchen.id(),
                         kitchen.role(), now), money.previousDueMinor(),
                 money.newDueMinor(), money.collectedMinor(), money.refundRequiredMinor());
         applier.apply(order, result, money, row.id(), kitchen, now, MDC.get(CorrelationIdFilter.MDC_KEY));
@@ -169,7 +170,7 @@ public class CancellationDecisionService {
     private void reject(Order order, Row row, List<ItemRow> items, String source, ChangeActor decider,
                         RejectionReason reason, Instant now) {
         boolean byService = decider.type() == ChangeActor.Type.SERVICE;
-        cancellations.reject(row.id(), new CancellationStore.DecisionActor(source, byService ? "SERVICE" : SYSTEM,
+        cancellations.reject(row.id(), new CancellationStore.DecisionActor(source, byService ? SERVICE : SYSTEM,
                         decider.id(), decider.role(), now), reason.code(), reason.note(), order.getCurrentDueMinor(),
                 applier.collected(order));
         Row decided = cancellations.find(order.getRestaurantId(), order.getId(), row.id()).orElseThrow();
@@ -198,6 +199,9 @@ public class CancellationDecisionService {
     private static Requester requesterOf(Row row) {
         if ("GUEST".equals(row.requestedByType())) {
             return Requester.GUEST;
+        }
+        if (SERVICE.equals(row.requestedByType())) {
+            return Requester.KITCHEN;
         }
         return "ADMIN".equals(row.requestedByRole()) ? Requester.ADMIN : Requester.WAITER;
     }

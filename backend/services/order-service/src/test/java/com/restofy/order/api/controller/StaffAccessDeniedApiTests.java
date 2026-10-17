@@ -35,6 +35,7 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
             new String[]{"POST", "/api/v1/internal/order-events/kitchen"},
             new String[]{"POST", "/api/v1/internal/order-events/payment"},
             new String[]{"POST", "/api/v1/internal/order-events/kitchen-cancellation"},
+            new String[]{"POST", "/api/v1/internal/order-events/kitchen-cancellation-request"},
             new String[]{"GET", "/api/v1/admin/order-cancellations"});
 
     private MockHttpServletRequestBuilder call(String[] route) {

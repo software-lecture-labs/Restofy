@@ -95,7 +95,7 @@ Kabul: Bu ifadeler tek zorunlu doğrusal enum olarak uygulanmaz; sipariş, mutfa
 
 **F-OR-03:** Tam ve ürün bazlı iptal, neden/metin ve geçmiş. Müşteri neden girmediyse garson gerekçe kaydeder.
 
-Kabul: Mutfak talebinde neden zorunludur; Order kesinleştirmeden iptal gerçekleşmez. Ödenmiş siparişin iptali otomatik iade sayılmaz. Hazır sipariş iptal yetkisi ve kısmi iptalin Kitchen V1'e yansıması açık karardır.
+Kabul: Mutfak talebinde neden zorunludur; Order kesinleştirmeden iptal gerçekleşmez. Ödenmiş siparişin iptali otomatik iade sayılmaz. Hazır sipariş iptal yetkisi ve kısmi iptalin Kitchen V1'e yansıması açık karardır. *Uygulama durumu (Order Service, ORDER-04 kapanışı, yalnız mock servis kimliğiyle test edildi):* Kitchen kaynaklı iptal talebi uygulandı (zorunlu neden; Order Service kurallarıyla kesinleştirir veya gerekçesiyle reddeder; ödenmiş sipariş Kitchen sözüyle iptal edilmez; kalem bazlı talepte satır bazlı hazırlık varsayılmaz); müşteri neden vermediyse WAITER veya ADMIN sonradan bir kez neden ekler; `PREPARING` siparişte müşteri/personel talebi (kısmi dahil) Kitchen cevabı olmadan kesinleşmez; `READY`/`SERVED`/`COMPLETED` iptali kapalıdır (D-02 kısmi kararı). Gerçek Kitchen entegrasyonu doğrulanmamıştır.
 
 ### 4.4 Mutfak — V1 zorunlu kapsam
 
@@ -173,7 +173,7 @@ Kaynak Word'deki teknik maddeler öneridir; repository'deki `docs/SECURITY.md` u
 ## 6. Açık karar kaydı
 
 - **D-01 / Ürün + ödeme:** Demo/gerçek ödeme sürüm sınırı, sağlayıcı, ön/son ödeme ve iptal/iade/başarılı geç callback davranışı.
-- **D-02 / Ürün + Kitchen + Order:** Ürün bazlı iptalin sipariş bazlı hazırlığa etkisi; kalan ürünler ve tam iptal ilişkisi; READY sipariş iptal sınırı.
+- **D-02 / Ürün + Kitchen + Order:** Ürün bazlı iptalin sipariş bazlı hazırlığa etkisi; kalan ürünler ve tam iptal ilişkisi; READY sipariş iptal sınırı. *Kısmi karar (Order Service, ORDER-04 kapanışı):* `READY`/`SERVED`/`COMPLETED` siparişin normal iptal iş akışı bilerek kapalıdır (hiçbir rol, hiçbir ödeme durumunda); bu durumlar için yönetici müdahalesi/iade/düzeltme akışı ayrı bir iş olarak açık kalır. `PREPARING` siparişte kısmi iptal Kitchen değerlendirmesi olmadan kesinleşmez.
 - **D-03 / Ürün + Rating:** Nakit ödeyen guest puanlayabilir mi? Oy tekilliği ve değerlendirme süresi nasıl uygulanır?
 - **D-04 / QR:** 15 dakika ana/guest işlemsizliği, anlamlı aktivite, tüm siparişler iptal olunca süre ve siparişin oturumu hangi anda uzattığı.
 - **D-05 / Ürün + Admin + Auth:** Garson login/mesai ile sipariş açılması; son garson logout davranışı ve admin OFF önceliği.
@@ -184,7 +184,7 @@ Kaynak Word'deki teknik maddeler öneridir; repository'deki `docs/SECURITY.md` u
 - **D-10 / Mimari:** Olay aktarımı için ilk etap outbox + iç HTTP mi, broker mı? Broker repository'de bulunmuyor.
 - **D-11 / Veri + operasyon:** Saklama, anonimleştirme, yedek, RPO/RTO ve hacim hedefleri.
 - **D-12 / Raporlama:** Gün sonu mutfak sayılarında gün içinde READY olan mı, gün sonunda READY kalan mı? Öneri: günün kabul kohortunda anlık durum + ayrı durum olayı sayacı.
-- **D-13 / Veri + ekip:** Auth migration aralığı kaynak listede yok; mevcut aralıkların dolması halinde genişletme politikası belirlenmeli.
+- **D-13 / Veri + ekip:** Auth migration aralığı kaynak listede yok; mevcut aralıkların dolması halinde genişletme politikası belirlenmeli. *Kısmi karar (Order Service, ORDER-04 kapanışı):* Order `V41–V50` aralığı korunur ve V49/V50 ile kullanılmıştır; ek aralık tahsis edilmemiştir (`V51–V60` Notification'a ayrılmıştır). Yeni şema ihtiyacı çıkarsa gereksinim gösterilip ek aralık için onay alınır; genel genişletme politikası açık kalır. *Not:* Kitchen servisinin denetim temsili için düşünülen yeni migration ihtiyacı (`SERVICE` aktör türü, `reported_staff_id`) **yeni numara kullanılmadan V50'nin kendisinde çözülmüştür**; bu, yukarıdaki genel aralık genişletme politikasını kapatmaz.
 - **D-14 / QR + güvenlik:** QR revoke/yenileme mevcut guest'leri de bitirir mi; QR görüntüleme/yeniden indirmede ham token güvenli saklama/yeniden üretme yaklaşımı.
 - **D-15 / Ürün:** Başka guest siparişlerini görme, ortak masa hesabı ve guest ayrıldığında ödeme hakkı. Varsayılan öneri kendi siparişine erişimdir.
 

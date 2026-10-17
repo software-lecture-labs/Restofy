@@ -58,4 +58,45 @@ class MoneyConverterTests {
     void rejectsVatPercentagesThatCannotBeRepresentedOrAreOutOfRange(String percent) {
         assertThrows(IllegalArgumentException.class, () -> MoneyConverter.percentToBps(new BigDecimal(percent)));
     }
+
+    // ---- the reverse direction, for the Waiter compatibility projection (exact, never rounded) -------------------------
+
+    @ParameterizedTest(name = "{0} minor {1} -> {2}")
+    @CsvSource({
+            "12550,   TRY, 125.50",
+            "199,     TRY, 1.99",
+            "1,       TRY, 0.01",
+            "0,       TRY, 0.00",
+            "100,     TRY, 1.00",
+            "500,     JPY, 500",       // no minor unit: nothing to divide
+            "1005,    KWD, 1.005",     // three decimals
+            "9999999, TRY, 99999.99"
+    })
+    void convertsMinorUnitsToTheCurrencysOwnScaleWithoutAnyRounding(long minor, String currency, String expected) {
+        BigDecimal major = MoneyConverter.toMajor(minor, currency);
+        assertEquals(expected, major.toPlainString());
+        assertEquals(java.util.Currency.getInstance(currency).getDefaultFractionDigits(), major.scale());
+    }
+
+    @Test
+    void theLargestPossibleAmountKeepsEveryDigit() {
+        assertEquals("92233720368547758.07", MoneyConverter.toMajor(Long.MAX_VALUE, "TRY").toPlainString());
+        assertEquals(Long.MAX_VALUE, MoneyConverter.toMajor(Long.MAX_VALUE, "TRY").movePointRight(2).longValueExact());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, TRY", "1, TRY", "7, TRY", "99, TRY", "12550, TRY", "100000000000, TRY", "7, KWD", "1234, JPY"})
+    void backAndForthNeverChangesTheStoredAmount(long minor, String currency) {
+        assertEquals(minor, MoneyConverter.toMinor(MoneyConverter.toMajor(minor, currency), currency, Long.MAX_VALUE));
+    }
+
+    @Test
+    void anAmountIsNeverGuessedForAnUnknownCurrencyOrAnAmountThatCannotExist() {
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMajor(100, "ZZZ"));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMajor(100, "XXX"));   // no minor unit
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMajor(100, "try"));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMajor(100, null));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMajor(-1, "TRY"));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMajor(Long.MIN_VALUE, "TRY"));
+    }
 }

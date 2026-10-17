@@ -60,8 +60,14 @@ public class SecurityConfiguration {
                         // A waiter completes a missing reason: staff only (WAITER is checked in the service).
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/orders/*/cancellations/*/reason")
                         .hasAuthority(StaffAuthentication.ROLE)
+                        // Cancellation report: authenticated staff only; ADMIN is required (and the tenant taken from the
+                        // verified identity) in CancellationReportService.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/order-cancellations")
+                        .hasAuthority(StaffAuthentication.ROLE)
                         // Internal events: only the named calling service, never a guest or staff credential.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen-cancellation-request")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen-cancellation")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))

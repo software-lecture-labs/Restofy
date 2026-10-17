@@ -59,6 +59,20 @@ class ServiceAuthFailClosedApiTests {
     }
 
     @Test
+    void everyInternalEndpointIsFailClosedWhenTheVerifierIsDown() throws Exception {
+        when(services.resolveService(anyString())).thenThrow(
+                new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Service authentication is currently unavailable"));
+        for (String path : new String[]{"/api/v1/internal/order-events/kitchen", "/api/v1/internal/order-events/payment",
+                "/api/v1/internal/order-events/kitchen-cancellation",
+                "/api/v1/internal/order-events/kitchen-cancellation-request"}) {
+            var request = post(path).contentType("application/json").content("{}").header("Authorization",
+                    "Service any-credential");
+            mvc.perform(request).andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("DEPENDENCY_UNAVAILABLE"));
+        }
+    }
+
+    @Test
     void anUnexpectedFailureIsAlsoFailClosedWithoutLeakingDetails() throws Exception {
         when(services.resolveService(anyString())).thenThrow(new IllegalStateException("jdbc:postgresql://svc-secret"));
         call("Service any-credential").andExpect(status().isServiceUnavailable())

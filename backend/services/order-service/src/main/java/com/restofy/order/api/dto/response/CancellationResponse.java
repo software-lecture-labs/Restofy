@@ -13,6 +13,10 @@ import java.util.UUID;
  * collected, what is still owed, and the refund that is REQUIRED versus the refund that actually HAPPENED (which only the
  * Payment Service can confirm and which the Order Service never records itself).
  *
+ * <p>An author that is a SERVICE (the Kitchen) is shown as {@code type=SERVICE}, {@code role=KITCHEN}; ADMIN also sees its
+ * verified identity in {@code id} and, apart from it, the staff member the service CLAIMED to act for in {@code
+ * reportedStaffId} (a claim of the service, never a verified staff action).
+ *
  * <p>{@code reasonPending} is true while neither the customer nor a waiter has given a reason. Staff identifiers are
  * visible to ADMIN only.
  */
@@ -35,7 +39,7 @@ public record CancellationResponse(UUID cancellationId, UUID orderId, String ord
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Actor(String type, String role, String id) {
+    public record Actor(String type, String role, String id, String reportedStaffId) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

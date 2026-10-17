@@ -205,6 +205,131 @@ class CancellationDatabaseTests extends AbstractCancellationApiTest {
                 DevFixtures.RESTAURANT_B, orderId), "fk_order_cancellations_order");
     }
 
+    // ---- who acts: GUEST, STAFF, SERVICE (D-13) ----------------------------------------------------------------------
+
+    private void insertRequest(UUID orderId, String type, String requestedById, String role, UUID reportedStaff) {
+        jdbc.update("INSERT INTO order_cancellations (id, restaurant_id, order_id, scope, status, requested_by_type,"
+                + " requested_by_id, requested_by_role, reported_staff_id, requested_at, kitchen_confirmation_required,"
+                + " fulfillment_status_at_request, payment_status_at_request, currency, previous_due_minor,"
+                + " cancelled_gross_minor, cancelled_net_minor, cancelled_vat_minor, new_due_minor, collected_minor,"
+                + " created_at, updated_at) VALUES (?, ?, ?, 'FULL', 'REQUESTED', ?, ?, ?, ?, now(), true, 'PREPARING',"
+                + " 'NOT_REQUESTED', 'TRY', 9000, 9000, 7500, 1500, 0, 0, now(), now())", UUID.randomUUID(),
+                DevFixtures.RESTAURANT_A, orderId, type, requestedById, role, reportedStaff);
+    }
+
+    @Test
+    void aServiceRequesterIsExactlyTheKitchenService() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+
+        insertRequest(orderId, "SERVICE", "KITCHEN", "KITCHEN", null);
+        assertEquals(1, count("order_cancellations"));
+    }
+
+    @Test
+    void noOtherServiceAndNoLooseServiceRecordIsAccepted() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+
+        for (String[] bad : new String[][]{{"PAYMENT", "PAYMENT"}, {"KITCHEN", "WAITER"}, {"KITCHEN", null},
+                {"KITCHEN_SERVICE", "KITCHEN_SERVICE"}, {"service:KITCHEN", "KITCHEN"}, {"kitchen", "kitchen"}}) {
+            refuses(() -> insertRequest(orderId, "SERVICE", bad[0], bad[1], null),
+                    "ck_order_cancellations_service_requester");
+        }
+        // the old kinds still exist and the set is closed
+        refuses(() -> insertRequest(orderId, "SYSTEM", "x", null, null), "ck_order_cancellations_requester");
+        refuses(() -> insertRequest(orderId, "ROBOT", "x", null, null), "ck_order_cancellations_requester");
+        assertEquals(0, count("order_cancellations"));
+        insertRequest(orderId, "STAFF", UUID.randomUUID().toString(), "WAITER", null);
+        assertEquals(1, count("order_cancellations"));
+    }
+
+    @Test
+    void theStaffMemberAServiceClaimsExistsOnlyNextToAServiceRequest() throws Exception {
+        UUID claimed = UUID.randomUUID();
+        UUID guestOrder = placeSaladOrder(A1);
+        UUID staffOrder = placeSaladOrder(DevFixtures.TOKEN_A2);
+        UUID serviceOrder = placeMixedOrder(A1);
+
+        refuses(() -> insertRequest(guestOrder, "GUEST", "guest-session", null, claimed),
+                "ck_order_cancellations_reported_staff");
+        refuses(() -> insertRequest(staffOrder, "STAFF", UUID.randomUUID().toString(), "WAITER", claimed),
+                "ck_order_cancellations_reported_staff");
+        insertRequest(serviceOrder, "SERVICE", "KITCHEN", "KITCHEN", claimed);
+
+        assertEquals(claimed, jdbc.queryForObject("SELECT reported_staff_id FROM order_cancellations", UUID.class));
+        assertEquals("KITCHEN", jdbc.queryForObject("SELECT requested_by_id FROM order_cancellations", String.class),
+                "the claim never becomes the author");
+    }
+
+    @Test
+    void theClaimIsAsUnchangeableAsTheAuthorAndCannotBeAddedLater() throws Exception {
+        UUID withClaim = placeSaladOrder(A1);
+        UUID withoutClaim = placeSaladOrder(DevFixtures.TOKEN_A2);
+        UUID claimed = UUID.randomUUID();
+        insertRequest(withClaim, "SERVICE", "KITCHEN", "KITCHEN", claimed);
+        insertRequest(withoutClaim, "SERVICE", "KITCHEN", "KITCHEN", null);
+
+        refuses(() -> jdbc.update("UPDATE order_cancellations SET reported_staff_id = ? WHERE order_id = ?",
+                UUID.randomUUID(), withClaim), "immutable");
+        refuses(() -> jdbc.update("UPDATE order_cancellations SET reported_staff_id = NULL WHERE order_id = ?", withClaim),
+                "immutable");
+        refuses(() -> jdbc.update("UPDATE order_cancellations SET reported_staff_id = ? WHERE order_id = ?", claimed,
+                withoutClaim), "immutable");
+        // nor can the service be turned into a staff member or the other way round
+        refuses(() -> jdbc.update("UPDATE order_cancellations SET requested_by_type = 'STAFF' WHERE order_id = ?",
+                withClaim), "immutable");
+        refuses(() -> jdbc.update("UPDATE order_cancellations SET requested_by_id = ? WHERE order_id = ?",
+                claimed.toString(), withClaim), "immutable");
+        refuses(() -> jdbc.update("UPDATE order_cancellations SET requested_by_role = 'ADMIN' WHERE order_id = ?",
+                withClaim), "immutable");
+        assertEquals(claimed, jdbc.queryForObject("SELECT reported_staff_id FROM order_cancellations WHERE order_id = ?",
+                UUID.class, withClaim));
+    }
+
+    private UUID appliedAs(String authorization, UUID orderId) throws Exception {
+        return UUID.fromString(body(cancelAll(authorization, orderId).andExpect(status().isCreated()))
+                .path("cancellationId").asString());
+    }
+
+    private void insertReasonAs(UUID cancellation, String source, String code, String addedById, String role) {
+        jdbc.update("INSERT INTO order_cancellation_reasons (id, restaurant_id, cancellation_id, source, reason_code,"
+                        + " reason_text, added_by_type, added_by_id, added_by_role, added_at)"
+                        + " VALUES (?, ?, ?, ?, ?, null, ?, ?, ?, now())", UUID.randomUUID(), DevFixtures.RESTAURANT_A,
+                cancellation, source, code, source, addedById, role);
+    }
+
+    @Test
+    void aServiceReasonIsTheKitchenServicesOwnAndNeverMixesWithAStaffMembers() throws Exception {
+        UUID byService = applied(placeSaladOrder(A1));
+        UUID byStaff = appliedAs(guest(DevFixtures.TOKEN_A2), placeSaladOrder(DevFixtures.TOKEN_A2));
+
+        refuses(() -> insertReasonAs(byService, "SERVICE", "OTHER", "someone", null), "ck_order_cancellation_reasons_service");
+        refuses(() -> insertReasonAs(byService, "SERVICE", "OTHER", "KITCHEN", "WAITER"),
+                "ck_order_cancellation_reasons_service");
+        refuses(() -> insertReasonAs(byService, "SERVICE", "OTHER", "KITCHEN", null),
+                "ck_order_cancellation_reasons_service");
+        refuses(() -> insertReasonAs(byService, "ROBOT", "OTHER", "KITCHEN", "KITCHEN"),
+                "ck_order_cancellation_reasons_source");
+        insertReasonAs(byService, "SERVICE", "ITEM_UNAVAILABLE", "KITCHEN", "KITCHEN");
+        refuses(() -> insertReasonAs(byService, "STAFF", "OTHER", UUID.randomUUID().toString(), "WAITER"),
+                "never mixed");
+
+        insertReasonAs(byStaff, "STAFF", "OTHER", UUID.randomUUID().toString(), "WAITER");
+        refuses(() -> insertReasonAs(byStaff, "SERVICE", "KITCHEN_ERROR", "KITCHEN", "KITCHEN"), "never mixed");
+        assertEquals(2, count("order_cancellation_reasons"));
+    }
+
+    @Test
+    void aServiceCannotAddToTheCustomersReasonAndTheCustomerCannotFollowAService() throws Exception {
+        UUID byGuest = applied(placeSaladOrder(A1));
+        insertReason(byGuest, "GUEST", "CHANGED_MIND", null);
+        refuses(() -> insertReasonAs(byGuest, "SERVICE", "OTHER", "KITCHEN", "KITCHEN"),
+                "the customer already gave a reason");
+
+        UUID byService = appliedAs(guest(DevFixtures.TOKEN_A2), placeSaladOrder(DevFixtures.TOKEN_A2));
+        insertReasonAs(byService, "SERVICE", "OTHER", "KITCHEN", "KITCHEN");
+        refuses(() -> insertReason(byService, "GUEST", "CHANGED_MIND", null), "already completed");
+    }
+
     // ---- the lines --------------------------------------------------------------------------------------------------
 
     @Test

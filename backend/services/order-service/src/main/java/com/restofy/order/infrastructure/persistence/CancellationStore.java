@@ -21,8 +21,13 @@ import java.util.UUID;
 @Repository
 public class CancellationStore {
 
+    /**
+     * One cancellation. {@code requestedByType} is the true kind of the requester: GUEST, STAFF (a verified staff member)
+     * or SERVICE (a verified calling service; only the Kitchen service). {@code reportedStaffId} is the staff member a
+     * SERVICE says it acted for: a claim recorded once with the request, never an author, never used to authorise.
+     */
     public record Row(UUID id, UUID restaurantId, UUID orderId, String scope, String status, String requestedByType,
-                      String requestedById, String requestedByRole, Instant requestedAt,
+                      String requestedById, String requestedByRole, UUID reportedStaffId, Instant requestedAt,
                       boolean kitchenConfirmationRequired, String fulfillmentStatusAtRequest,
                       String paymentStatusAtRequest, String decisionSource, String decidedByType, String decidedById,
                       String decidedByRole, Instant decidedAt, String rejectionCode, String rejectionNote,
@@ -36,6 +41,7 @@ public class CancellationStore {
                           int taxRateBps, long grossMinor, long netMinor, long vatMinor) {
     }
 
+    /** One reason. {@code source} and {@code addedByType} are the true kind of the author: GUEST, STAFF or SERVICE. */
     public record ReasonRow(String source, String code, String text, String addedByType, String addedById,
                             String addedByRole, Instant addedAt) {
     }
@@ -45,7 +51,7 @@ public class CancellationStore {
 
     private static final String ROW_COLUMNS = """
             id, restaurant_id, order_id, scope, status, requested_by_type, requested_by_id, requested_by_role,
-            requested_at, kitchen_confirmation_required, fulfillment_status_at_request, payment_status_at_request,
+            reported_staff_id, requested_at, kitchen_confirmation_required, fulfillment_status_at_request, payment_status_at_request,
             decision_source, decided_by_type, decided_by_id, decided_by_role, decided_at, rejection_code,
             rejection_note, currency, previous_due_minor, cancelled_gross_minor, cancelled_net_minor,
             cancelled_vat_minor, new_due_minor, collected_minor, refund_required_minor, refunded_minor,
@@ -101,15 +107,15 @@ public class CancellationStore {
         jdbc.update("""
                 INSERT INTO order_cancellations (
                     id, restaurant_id, order_id, scope, status, requested_by_type, requested_by_id, requested_by_role,
-                    requested_at, kitchen_confirmation_required, fulfillment_status_at_request, payment_status_at_request,
+                    reported_staff_id, requested_at, kitchen_confirmation_required, fulfillment_status_at_request, payment_status_at_request,
                     decision_source, decided_by_type, decided_by_id, decided_by_role, decided_at, rejection_code,
                     rejection_note, currency, previous_due_minor, cancelled_gross_minor, cancelled_net_minor,
                     cancelled_vat_minor, new_due_minor, collected_minor, refund_required_minor, refunded_minor,
                     staff_reason_added_at, staff_reason_added_by, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 r.id(), r.restaurantId(), r.orderId(), r.scope(), r.status(), r.requestedByType(), r.requestedById(),
-                r.requestedByRole(), ts(r.requestedAt()), r.kitchenConfirmationRequired(), r.fulfillmentStatusAtRequest(),
+                r.requestedByRole(), r.reportedStaffId(), ts(r.requestedAt()), r.kitchenConfirmationRequired(), r.fulfillmentStatusAtRequest(),
                 r.paymentStatusAtRequest(), r.decisionSource(), r.decidedByType(), r.decidedById(), r.decidedByRole(),
                 ts(r.decidedAt()), r.rejectionCode(), r.rejectionNote(), r.currency(), r.previousDueMinor(),
                 r.cancelledGrossMinor(), r.cancelledNetMinor(), r.cancelledVatMinor(), r.newDueMinor(),
@@ -203,7 +209,7 @@ public class CancellationStore {
         return new Row(rs.getObject("id", UUID.class), rs.getObject("restaurant_id", UUID.class),
                 rs.getObject("order_id", UUID.class), rs.getString("scope"), rs.getString("status"),
                 rs.getString("requested_by_type"), rs.getString("requested_by_id"), rs.getString("requested_by_role"),
-                instant(rs, "requested_at"), rs.getBoolean("kitchen_confirmation_required"),
+                rs.getObject("reported_staff_id", UUID.class), instant(rs, "requested_at"), rs.getBoolean("kitchen_confirmation_required"),
                 rs.getString("fulfillment_status_at_request"), rs.getString("payment_status_at_request"),
                 rs.getString("decision_source"), rs.getString("decided_by_type"), rs.getString("decided_by_id"),
                 rs.getString("decided_by_role"), instant(rs, "decided_at"), rs.getString("rejection_code"),

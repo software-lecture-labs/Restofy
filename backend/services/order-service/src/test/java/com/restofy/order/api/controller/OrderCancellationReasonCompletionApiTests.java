@@ -146,18 +146,17 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
     }
 
     @Test
-    void onlyAWaiterOfTheRestaurantMayCompleteTheReason() throws Exception {
+    void onlyAWaiterOrAdminOfTheRestaurantMayCompleteTheReason() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         UUID cancellationId = cancelledWithoutReason(orderId);
         var body = Map.of("reasonText", "late reason");
 
         completeReason(null, orderId, cancellationId, body).andExpect(status().isUnauthorized());
         completeReason(guest(A1), orderId, cancellationId, body).andExpect(status().isForbidden());
-        completeReason(ADMIN, orderId, cancellationId, body).andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
         completeReason(KITCHEN, orderId, cancellationId, body).andExpect(status().isForbidden());
         completeReason(service(KITCHEN_CREDENTIAL), orderId, cancellationId, body).andExpect(status().isForbidden());
         completeReason(staff(DevFixtures.STAFF_WAITER_B), orderId, cancellationId, body).andExpect(status().isNotFound());
+        completeReason(staff(DevFixtures.STAFF_ADMIN_B), orderId, cancellationId, body).andExpect(status().isNotFound());
         completeReason(WAITER, UUID.randomUUID(), cancellationId, body).andExpect(status().isNotFound());
         completeReason(WAITER, orderId, UUID.randomUUID(), body).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CANCELLATION_NOT_FOUND"));
@@ -166,6 +165,161 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
         completeReason(WAITER, otherOrder, cancellationId, body).andExpect(status().isNotFound());
 
         assertEquals(0, count("order_cancellation_reasons"));
+    }
+
+    @Test
+    void anAdminGivesTheMissingReasonAndItIsAuditedAsTheAdmins() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        UUID cancellationId = cancelledWithoutReason(orderId);
+
+        completeReason(ADMIN, orderId, cancellationId, Map.of("reasonCodes", List.of("ORDERED_BY_MISTAKE"),
+                "reasonText", "called the guest")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.reasonPending").value(false))
+                .andExpect(jsonPath("$.reasons[*].source", contains("STAFF", "STAFF")))
+                .andExpect(jsonPath("$.reasons[0].addedBy.role").value("ADMIN"))
+                .andExpect(jsonPath("$.reasons[0].addedBy.id").value(DevFixtures.USER_ADMIN_A.toString()));
+
+        assertEquals(DevFixtures.USER_ADMIN_A.toString(), jdbc.queryForObject(
+                "SELECT staff_reason_added_by FROM order_cancellations WHERE id = ?", String.class, cancellationId));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM order_cancellation_reasons WHERE added_by_type = 'STAFF'"
+                + " AND added_by_role = 'ADMIN' AND added_by_id = ? AND added_at IS NOT NULL", Integer.class,
+                DevFixtures.USER_ADMIN_A.toString()));
+        // the waiter does not get to add to or replace what the admin gave; the admin's retry is harmless
+        completeReason(WAITER, orderId, cancellationId, Map.of("reasonText", "my version")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CANCELLATION_REASON_ALREADY_SET"));
+        completeReason(ADMIN, orderId, cancellationId, Map.of("reasonCodes", List.of("ORDERED_BY_MISTAKE"),
+                "reasonText", "called the guest")).andExpect(status().isOk());
+        completeReason(ADMIN, orderId, cancellationId, Map.of("reasonText", "changed my mind about it"))
+                .andExpect(status().isConflict());
+        assertEquals(2, count("order_cancellation_reasons"));
+    }
+
+    @Test
+    void anAdminCannotRewriteTheCustomersTheWaitersOrTheKitchensReason() throws Exception {
+        // the customer's reason
+        UUID byGuest = placeSaladOrder(A1);
+        UUID guestCancellation = requestIdOf(cancel(guest(A1), byGuest, newKey(), cancelAllWith(List.of("CHANGED_MIND"), null))
+                .andExpect(status().isCreated()));
+        completeReason(ADMIN, byGuest, guestCancellation, Map.of("reasonText", "no, it was something else"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CANCELLATION_REASON_ALREADY_SET"));
+        // a waiter's reason given at cancellation time
+        UUID byWaiter = placeSaladOrder(DevFixtures.TOKEN_A2);
+        UUID waiterCancellation = requestIdOf(cancel(WAITER, byWaiter, newKey(), cancelAllWith(List.of("OTHER"), "mine"))
+                .andExpect(status().isCreated()));
+        completeReason(ADMIN, byWaiter, waiterCancellation, Map.of("reasonText", "no, mine now"))
+                .andExpect(status().isConflict());
+        // a Kitchen's own request, whose reason is mandatory
+        UUID byKitchen = placeMixedOrder(A1);
+        var ask = new java.util.HashMap<String, Object>();
+        ask.put("eventId", UUID.randomUUID());
+        ask.put("restaurantId", DevFixtures.RESTAURANT_A);
+        ask.put("orderId", byKitchen);
+        ask.put("cancelAll", true);
+        ask.put("reasonCodes", List.of("ITEM_UNAVAILABLE"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/internal/order-events/kitchen-cancellation-request")
+                        .contentType("application/json").content(toJson(ask))
+                        .header("Authorization", service(KITCHEN_CREDENTIAL))).andExpect(status().isOk());
+        UUID kitchenCancellation = jdbc.queryForObject("SELECT id FROM order_cancellations WHERE order_id = ?", UUID.class,
+                byKitchen);
+        completeReason(ADMIN, byKitchen, kitchenCancellation, Map.of("reasonText", "no, the admin says so"))
+                .andExpect(status().isConflict());
+
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM order_cancellation_reasons WHERE cancellation_id = ?",
+                Integer.class, guestCancellation));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM order_cancellation_reasons WHERE cancellation_id = ?",
+                Integer.class, waiterCancellation));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM order_cancellation_reasons WHERE cancellation_id = ?",
+                Integer.class, kitchenCancellation));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM order_cancellations WHERE staff_reason_added_at IS NOT NULL",
+                Integer.class), "nobody completed anything");
+    }
+
+    @Test
+    void aStaffMemberNamedByTheKitchenIsNotTheAuthorOfWhatTheKitchenSent() throws Exception {
+        // the Kitchen claims it acts for the administrator and for the waiter; that is information, not identity
+        for (UUID claimed : List.of(DevFixtures.USER_ADMIN_A, DevFixtures.USER_WAITER_A)) {
+            UUID orderId = placeSaladOrder(A1);
+            var ask = new java.util.HashMap<String, Object>();
+            ask.put("eventId", UUID.randomUUID());
+            ask.put("restaurantId", DevFixtures.RESTAURANT_A);
+            ask.put("orderId", orderId);
+            ask.put("cancelAll", true);
+            ask.put("reasonCodes", List.of("ITEM_UNAVAILABLE"));
+            ask.put("requestedByStaffId", claimed);
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .post("/api/v1/internal/order-events/kitchen-cancellation-request")
+                            .contentType("application/json").content(toJson(ask))
+                            .header("Authorization", service(KITCHEN_CREDENTIAL))).andExpect(status().isOk());
+            UUID cancellationId = jdbc.queryForObject("SELECT id FROM order_cancellations WHERE order_id = ?", UUID.class,
+                    orderId);
+
+            // nobody is treated as the author of a reason that merely names them: not even a "retry" of the same words
+            completeReason(ADMIN, orderId, cancellationId, Map.of("reasonCodes", List.of("ITEM_UNAVAILABLE")))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("CANCELLATION_REASON_ALREADY_SET"));
+            completeReason(WAITER, orderId, cancellationId, Map.of("reasonCodes", List.of("ITEM_UNAVAILABLE")))
+                    .andExpect(status().isConflict());
+
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM order_cancellations WHERE order_id = ?"
+                    + " AND (requested_by_id = ? OR staff_reason_added_by IS NOT NULL)", Integer.class, orderId,
+                    claimed.toString()), "the claimed person is neither requester nor completer");
+            // the claim sits in its own column; the author of the request and of the reason is the Kitchen service
+            assertEquals(claimed, jdbc.queryForObject("SELECT reported_staff_id FROM order_cancellations WHERE id = ?",
+                    UUID.class, cancellationId));
+            assertEquals("SERVICE", jdbc.queryForObject("SELECT requested_by_type FROM order_cancellations WHERE id = ?",
+                    String.class, cancellationId));
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM order_cancellation_reasons WHERE cancellation_id = ?"
+                    + " AND source = 'SERVICE' AND added_by_type = 'SERVICE' AND added_by_id = 'KITCHEN'"
+                    + " AND added_by_role = 'KITCHEN'", Integer.class, cancellationId));
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM order_cancellation_reasons WHERE cancellation_id = ?"
+                    + " AND added_by_id = ?", Integer.class, cancellationId, claimed.toString()),
+                    "the claimed person authored no reason");
+            getWith(WAITER, "/api/v1/orders/" + orderId + "/cancellations")
+                    .andExpect(jsonPath("$.cancellations[0].requestedBy.type").value("SERVICE"))
+                    .andExpect(jsonPath("$.cancellations[0].reasons[0].addedBy.type").value("SERVICE"));
+        }
+    }
+
+    @Test
+    void theAdminsAuthorityIsNotSharedWithOtherRoles() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        UUID cancellationId = cancelledWithoutReason(orderId);
+        var body = Map.of("reasonText", "late reason");
+
+        completeReason(KITCHEN, orderId, cancellationId, body).andExpect(status().isForbidden());
+        completeReason(guest(A1), orderId, cancellationId, body).andExpect(status().isForbidden());
+        completeReason(service(KITCHEN_CREDENTIAL), orderId, cancellationId, body).andExpect(status().isForbidden());
+        completeReason(service(PAYMENT_CREDENTIAL), orderId, cancellationId, body).andExpect(status().isForbidden());
+        assertEquals(0, count("order_cancellation_reasons"));
+    }
+
+    @Test
+    void anAdminAndAWaiterCompletingAtOnceLeaveExactlyOne() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        UUID cancellationId = cancelledWithoutReason(orderId);
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var start = new java.util.concurrent.CountDownLatch(1);
+            var admin = pool.submit(() -> {
+                start.await();
+                return completeReason(ADMIN, orderId, cancellationId, Map.of("reasonText", "from the admin"))
+                        .andReturn().getResponse().getStatus();
+            });
+            var waiter = pool.submit(() -> {
+                start.await();
+                return completeReason(WAITER, orderId, cancellationId, Map.of("reasonText", "from the waiter"))
+                        .andReturn().getResponse().getStatus();
+            });
+            start.countDown();
+            List<Integer> statuses = new java.util.ArrayList<>(List.of(admin.get(30, java.util.concurrent.TimeUnit.SECONDS),
+                    waiter.get(30, java.util.concurrent.TimeUnit.SECONDS)));
+            statuses.sort(Integer::compare);
+            assertEquals(List.of(200, 409), statuses);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(1, count("order_cancellation_reasons"));
     }
 
     @Test

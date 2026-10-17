@@ -24,10 +24,26 @@ class CancellationPolicyTests {
     }
 
     @Test
-    void anOrderInPreparationNeedsTheKitchenToConfirm() {
-        for (Requester requester : Requester.values()) {
+    void anOrderInPreparationNeedsTheKitchenToConfirmUnlessTheKitchenAskedItself() {
+        for (Requester requester : new Requester[]{Requester.GUEST, Requester.WAITER, Requester.ADMIN}) {
             assertEquals(Mode.NEEDS_KITCHEN_CONFIRMATION,
                     CancellationPolicy.evaluate(requester, FulfillmentStatus.PREPARING, PaymentStatus.NOT_REQUESTED));
+        }
+        assertEquals(Mode.IMMEDIATE, CancellationPolicy.evaluate(Requester.KITCHEN, FulfillmentStatus.PREPARING,
+                PaymentStatus.NOT_REQUESTED), "the Kitchen's own request is its confirmation");
+    }
+
+    @Test
+    void theKitchenNeverCancelsAPaidOrderOnItsOwnWord() {
+        for (FulfillmentStatus status : new FulfillmentStatus[]{FulfillmentStatus.RECEIVED, FulfillmentStatus.PREPARING}) {
+            BusinessException refused = assertThrows(BusinessException.class,
+                    () -> CancellationPolicy.evaluate(Requester.KITCHEN, status, PaymentStatus.PAID));
+            assertEquals(ErrorCode.CANCELLATION_NOT_ALLOWED, refused.code());
+            assertEquals("ORDER_ALREADY_PAID", refused.details().get("reason"));
+            for (PaymentStatus unpaid : new PaymentStatus[]{PaymentStatus.NOT_REQUESTED, PaymentStatus.PENDING,
+                    PaymentStatus.FAILED}) {
+                assertEquals(Mode.IMMEDIATE, CancellationPolicy.evaluate(Requester.KITCHEN, status, unpaid));
+            }
         }
     }
 
@@ -40,6 +56,22 @@ class CancellationPolicyTests {
                         () -> CancellationPolicy.evaluate(requester, status, PaymentStatus.NOT_REQUESTED));
                 assertEquals(ErrorCode.CANCELLATION_NOT_ALLOWED, refused.code());
                 assertEquals("ORDER_ALREADY_PREPARED", refused.details().get("reason"));
+            }
+        }
+    }
+
+    @Test
+    void d02IsExactlyTheThreeStatesAndNoPaymentStateOpensThem() {
+        assertEquals(CancellationPolicy.CLOSED_FOR_CANCELLATION,
+                java.util.Set.of(FulfillmentStatus.READY, FulfillmentStatus.SERVED, FulfillmentStatus.COMPLETED));
+        for (Requester requester : Requester.values()) {
+            for (FulfillmentStatus status : CancellationPolicy.CLOSED_FOR_CANCELLATION) {
+                for (PaymentStatus payment : PaymentStatus.values()) {
+                    BusinessException refused = assertThrows(BusinessException.class,
+                            () -> CancellationPolicy.evaluate(requester, status, payment));
+                    assertEquals(ErrorCode.CANCELLATION_NOT_ALLOWED, refused.code());
+                    assertEquals("ORDER_ALREADY_PREPARED", refused.details().get("reason"));
+                }
             }
         }
     }

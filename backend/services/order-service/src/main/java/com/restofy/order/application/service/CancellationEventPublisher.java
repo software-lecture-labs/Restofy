@@ -43,7 +43,10 @@ public class CancellationEventPublisher {
     private static final String AGGREGATE = "ORDER";
 
     public record ApplicationSnapshot(String previousFulfillmentStatus, long originalGrossMinor,
-                                      long cancelledTotalMinor) {
+                                      long cancelledTotalMinor, boolean originatedByKitchen) {
+        public ApplicationSnapshot(String previousFulfillmentStatus, long originalGrossMinor, long cancelledTotalMinor) {
+            this(previousFulfillmentStatus, originalGrossMinor, cancelledTotalMinor, false);
+        }
     }
 
     private final OutboxEventWriter outbox;
@@ -89,7 +92,7 @@ public class CancellationEventPublisher {
                     row.cancelledGrossMinor(), row.currency(), row.refundRequiredMinor(),
                     row.refundRequiredMinor() > 0);
             write(order, id, event.eventType(), event.schemaVersion(), event, now,
-                    List.of(EventDestination.KITCHEN, EventDestination.PAYMENT, EventDestination.WAITER,
+                    without(snapshot.originatedByKitchen(), EventDestination.PAYMENT, EventDestination.WAITER,
                             EventDestination.ADMIN, EventDestination.NOTIFICATION, EventDestination.QR));
         } else {
             var event = new OrderItemsCancelledEvent(id, OrderItemsCancelledEvent.TYPE,
@@ -100,7 +103,7 @@ public class CancellationEventPublisher {
                     row.previousDueMinor(), row.newDueMinor(), row.cancelledGrossMinor(), row.currency(),
                     row.refundRequiredMinor());
             write(order, id, event.eventType(), event.schemaVersion(), event, now,
-                    List.of(EventDestination.KITCHEN, EventDestination.WAITER, EventDestination.ADMIN,
+                    without(snapshot.originatedByKitchen(), EventDestination.WAITER, EventDestination.ADMIN,
                             EventDestination.NOTIFICATION));
         }
         if (row.newDueMinor() != row.previousDueMinor() || row.refundRequiredMinor() > 0) {
@@ -134,6 +137,16 @@ public class CancellationEventPublisher {
             destinations.add(EventDestination.KITCHEN);
         }
         write(order, id, event.eventType(), event.schemaVersion(), event, now, destinations);
+    }
+
+    /** The usual destinations, with the Kitchen first unless it is the one that asked. */
+    private static List<EventDestination> without(boolean originatedByKitchen, EventDestination... others) {
+        List<EventDestination> all = new ArrayList<>();
+        if (!originatedByKitchen) {
+            all.add(EventDestination.KITCHEN);
+        }
+        all.addAll(List.of(others));
+        return all;
     }
 
     private void write(Order order, UUID eventId, String type, int schemaVersion, Object payload, Instant now,

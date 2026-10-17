@@ -10,6 +10,15 @@
 -- minor units and keep apart: the original total (orders.initial_*), what is cancelled, the net after cancellation, the
 -- verified amount collected, the remaining debt, the refund the cancellation REQUIRES and the refund that really happened
 -- (only the Payment Service may ever confirm that; the Order Service never writes refunded_minor).
+--
+-- WHO acts is stored with its true kind: GUEST (a customer's guest session), STAFF (a verified staff member: waiter or
+-- admin) or SERVICE (a verified calling service; today only the Kitchen service may ask for a cancellation). A service is
+-- never stored as a staff member. The staff member a service CLAIMS to act for is only information: it lives apart in
+-- order_cancellations.reported_staff_id, is written once with the request, is never an author, and is never used to
+-- authorise anything or to decide that somebody "already did" something.
+--
+-- D-13 (decision of the Order Service owner): this file was amended in place, with explicit permission, BEFORE it was ever
+-- pushed or applied to a persistent database (no new migration number was used). It must not be edited again once shared.
 
 CREATE TABLE order_cancellations (
     id                            uuid          NOT NULL,
@@ -20,6 +29,7 @@ CREATE TABLE order_cancellations (
     requested_by_type             varchar(10)   NOT NULL,
     requested_by_id               varchar(100)  NOT NULL,
     requested_by_role             varchar(30),
+    reported_staff_id             uuid,
     requested_at                  timestamptz   NOT NULL,
     kitchen_confirmation_required boolean       NOT NULL,
     fulfillment_status_at_request varchar(20)   NOT NULL,
@@ -50,7 +60,13 @@ CREATE TABLE order_cancellations (
     CONSTRAINT fk_order_cancellations_order FOREIGN KEY (restaurant_id, order_id) REFERENCES orders (restaurant_id, id),
     CONSTRAINT ck_order_cancellations_scope CHECK (scope IN ('FULL', 'PARTIAL')),
     CONSTRAINT ck_order_cancellations_status CHECK (status IN ('REQUESTED', 'APPLIED', 'REJECTED')),
-    CONSTRAINT ck_order_cancellations_requester CHECK (requested_by_type IN ('GUEST', 'STAFF')),
+    CONSTRAINT ck_order_cancellations_requester CHECK (requested_by_type IN ('GUEST', 'STAFF', 'SERVICE')),
+    -- a service requester is the verified Kitchen service: its id and role are its service name, nothing else
+    -- (IS TRUE: a missing role must fail the check, not pass it as "unknown")
+    CONSTRAINT ck_order_cancellations_service_requester CHECK (requested_by_type <> 'SERVICE'
+        OR (requested_by_id = 'KITCHEN' AND requested_by_role = 'KITCHEN') IS TRUE),
+    -- the staff member a service says it acted for is a claim that exists only next to a service request
+    CONSTRAINT ck_order_cancellations_reported_staff CHECK (reported_staff_id IS NULL OR requested_by_type = 'SERVICE'),
     CONSTRAINT ck_order_cancellations_decision_source CHECK (decision_source IS NULL
         OR decision_source IN ('AUTO', 'KITCHEN', 'SYSTEM')),
     CONSTRAINT ck_order_cancellations_decider CHECK (decided_by_type IS NULL OR decided_by_type IN ('SYSTEM', 'SERVICE')),
@@ -123,8 +139,11 @@ CREATE TABLE order_cancellation_reasons (
     CONSTRAINT uq_order_cancellation_reasons_seq UNIQUE (seq),
     CONSTRAINT fk_order_cancellation_reasons_cancellation FOREIGN KEY (restaurant_id, cancellation_id)
         REFERENCES order_cancellations (restaurant_id, id),
-    CONSTRAINT ck_order_cancellation_reasons_source CHECK (source IN ('GUEST', 'STAFF')),
+    CONSTRAINT ck_order_cancellation_reasons_source CHECK (source IN ('GUEST', 'STAFF', 'SERVICE')),
     CONSTRAINT ck_order_cancellation_reasons_actor CHECK (added_by_type = source),
+    -- a reason of a service is the verified Kitchen service's own
+    CONSTRAINT ck_order_cancellation_reasons_service CHECK (source <> 'SERVICE'
+        OR (added_by_id = 'KITCHEN' AND added_by_role = 'KITCHEN') IS TRUE),
     CONSTRAINT ck_order_cancellation_reasons_code CHECK (reason_code IS NULL OR reason_code IN
         ('CHANGED_MIND', 'ORDERED_BY_MISTAKE', 'WAIT_TOO_LONG', 'ITEM_UNAVAILABLE', 'KITCHEN_ERROR', 'OTHER')),
     CONSTRAINT ck_order_cancellation_reasons_content CHECK (reason_code IS NOT NULL OR reason_text IS NOT NULL),
@@ -154,6 +173,7 @@ BEGIN
         OR NEW.requested_by_type IS DISTINCT FROM OLD.requested_by_type
         OR NEW.requested_by_id IS DISTINCT FROM OLD.requested_by_id
         OR NEW.requested_by_role IS DISTINCT FROM OLD.requested_by_role
+        OR NEW.reported_staff_id IS DISTINCT FROM OLD.reported_staff_id
         OR NEW.requested_at IS DISTINCT FROM OLD.requested_at
         OR NEW.kitchen_confirmation_required IS DISTINCT FROM OLD.kitchen_confirmation_required
         OR NEW.fulfillment_status_at_request IS DISTINCT FROM OLD.fulfillment_status_at_request
@@ -227,21 +247,29 @@ CREATE TRIGGER trg_order_cancellation_items_guard
     BEFORE INSERT OR UPDATE OR DELETE ON order_cancellation_items
     FOR EACH ROW EXECUTE FUNCTION order_cancellation_items_guard();
 
--- Reasons are append-only. The waiter's completion is only for a cancellation the customer gave no reason for, and the
--- customer's reasons can never be added after a waiter's.
+-- Reasons are append-only. A waiter's (or admin's) completion is only for a cancellation the customer gave no reason for,
+-- the customer's reasons can never be added after a staff member's or a service's, and the reasons of one cancellation
+-- never mix a staff member's with a service's.
 CREATE FUNCTION order_cancellation_reasons_guard() RETURNS trigger AS $$
 BEGIN
     IF TG_OP <> 'INSERT' THEN
         RAISE EXCEPTION 'order cancellation reasons are append-only' USING ERRCODE = 'check_violation';
     END IF;
-    IF NEW.source = 'STAFF' AND EXISTS (SELECT 1 FROM order_cancellation_reasons r
+    IF NEW.source IN ('STAFF', 'SERVICE') AND EXISTS (SELECT 1 FROM order_cancellation_reasons r
             WHERE r.cancellation_id = NEW.cancellation_id AND r.source = 'GUEST') THEN
         RAISE EXCEPTION 'cancellation %: the customer already gave a reason, a waiter cannot add one', NEW.cancellation_id
             USING ERRCODE = 'check_violation';
     END IF;
     IF NEW.source = 'GUEST' AND EXISTS (SELECT 1 FROM order_cancellation_reasons r
-            WHERE r.cancellation_id = NEW.cancellation_id AND r.source = 'STAFF') THEN
-        RAISE EXCEPTION 'cancellation %: a waiter already completed the reason', NEW.cancellation_id
+            WHERE r.cancellation_id = NEW.cancellation_id AND r.source IN ('STAFF', 'SERVICE')) THEN
+        RAISE EXCEPTION 'cancellation %: a waiter or the kitchen already completed the reason', NEW.cancellation_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- a staff member's reason and a service's reason are never mixed in one cancellation
+    IF NEW.source IN ('STAFF', 'SERVICE') AND EXISTS (SELECT 1 FROM order_cancellation_reasons r
+            WHERE r.cancellation_id = NEW.cancellation_id AND r.source IN ('STAFF', 'SERVICE')
+              AND r.source <> NEW.source) THEN
+        RAISE EXCEPTION 'cancellation %: reasons of a staff member and of a service are never mixed', NEW.cancellation_id
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;

@@ -1,12 +1,15 @@
 package com.restofy.order.api.controller;
 
 import com.restofy.order.api.dto.request.KitchenCancellationDecisionRequest;
+import com.restofy.order.api.dto.request.KitchenCancellationRequest;
 import com.restofy.order.api.dto.request.KitchenOrderEventRequest;
 import com.restofy.order.api.dto.request.PaymentOrderEventRequest;
 import com.restofy.order.api.dto.response.CancellationDecisionResponse;
+import com.restofy.order.api.dto.response.KitchenCancellationRequestResponse;
 import com.restofy.order.api.dto.response.OrderEventResponse;
 import com.restofy.order.application.port.ServiceActor;
 import com.restofy.order.application.service.CancellationDecisionService;
+import com.restofy.order.application.service.KitchenCancellationRequestService;
 import com.restofy.order.application.service.OrderFulfillmentService;
 import com.restofy.order.application.service.OrderPaymentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,12 +36,40 @@ public class InternalOrderEventController {
     private final OrderFulfillmentService fulfillment;
     private final OrderPaymentService payments;
     private final CancellationDecisionService cancellationDecisions;
+    private final KitchenCancellationRequestService kitchenRequests;
 
     public InternalOrderEventController(OrderFulfillmentService fulfillment, OrderPaymentService payments,
-                                        CancellationDecisionService cancellationDecisions) {
+                                        CancellationDecisionService cancellationDecisions,
+                                        KitchenCancellationRequestService kitchenRequests) {
         this.fulfillment = fulfillment;
         this.payments = payments;
         this.cancellationDecisions = cancellationDecisions;
+        this.kitchenRequests = kitchenRequests;
+    }
+
+    @PostMapping("/kitchen-cancellation-request")
+    @Operation(summary = "Kitchen asks to cancel an order (or lines of it) it cannot make",
+            description = "The Kitchen's OWN request - not an answer to a request of the Order Service (that is "
+                    + "/kitchen-cancellation). Receiving it never cancels by itself: the Order Service applies its rules "
+                    + "and either cancels (outcome APPLIED) or refuses and records the refusal (outcome REJECTED with "
+                    + "rejectionCode ORDER_ALREADY_PREPARED for READY and later, ORDER_ALREADY_PAID for a paid order, "
+                    + "which a waiter or admin decides). A reason is required: reasonCodes (at least one; reasonText too "
+                    + "when OTHER is used). Either cancelAll=true or items; requestedByStaffId optionally names the "
+                    + "kitchen staff member for the audit trail. The event id makes redelivery safe (duplicate=true, "
+                    + "nothing is done twice; the same id with another body is 409). 409 CANCELLATION_ALREADY_PENDING "
+                    + "while another request awaits the Kitchen's answer (answer that one), 409 ORDER_ALREADY_CANCELLED "
+                    + "when nothing is left to cancel, 422 for an invalid selection or missing reason. An order of "
+                    + "another restaurant than the one named is 404.")
+    @ApiResponse(responseCode = "200", description = "Handled: APPLIED or REJECTED (recorded)")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
+    @ApiResponse(responseCode = "403", description = "Not the Kitchen service")
+    @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND")
+    @ApiResponse(responseCode = "409", description = "CANCELLATION_ALREADY_PENDING, ORDER_ALREADY_CANCELLED or IDEMPOTENCY_CONFLICT")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR, UNKNOWN_ORDER_ITEM or CANCEL_QUANTITY_EXCEEDED")
+    @ApiResponse(responseCode = "503", description = "Service identity verification unavailable (fail closed)")
+    public KitchenCancellationRequestResponse kitchenCancellationRequest(@AuthenticationPrincipal ServiceActor service,
+                                                                         @Valid @RequestBody KitchenCancellationRequest event) {
+        return kitchenRequests.request(service, event);
     }
 
     @PostMapping("/kitchen-cancellation")

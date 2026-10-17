@@ -100,7 +100,7 @@ public class OrderCancellationService {
     public Outcome request(RequestActor actor, UUID orderId, String idempotencyKey, CancelOrderRequest request) {
         String key = IdempotencyKeys.require(idempotencyKey);
         boolean cancelAll = Boolean.TRUE.equals(request.cancelAll());
-        List<Selection> selections = selections(request, cancelAll);
+        List<Selection> selections = selections(request.cancelAll(), request.items());
         var reasons = CancellationReasons.parse(request.reasonCodes(), request.reasonText());
         String digest = digest(orderId, cancelAll, selections, reasons);
 
@@ -164,16 +164,19 @@ public class OrderCancellationService {
     }
 
     /**
-     * A waiter gives the reason afterwards for a cancellation the customer gave none for. Only WAITER, only when the
-     * cancellation has no reason yet, and only once: reasons are append-only, nothing is ever overwritten. Repeating the
-     * very same completion by the same waiter returns the stored result (a retry), anything else is 409. The database
-     * enforces the same: a staff reason cannot be added next to a customer's, and not twice.
+     * A waiter or the restaurant's administrator gives the reason afterwards for a cancellation that has none. Only
+     * WAITER and ADMIN (KITCHEN and every other role are refused; the ADMIN's authority is not shared with anybody),
+     * only when the cancellation has no reason yet, and only once: reasons are append-only, nothing is ever overwritten,
+     * so neither the customer's reason nor a Kitchen's or a colleague's can be replaced or added to. Repeating the very
+     * same completion by the same person returns the stored result (a retry), anything else is 409. Who did it and when
+     * is recorded. The database enforces the same: a staff reason cannot be added next to a customer's, and not twice.
      */
     @Transactional
     public CancellationResponse completeReason(StaffActor staff, UUID orderId, UUID cancellationId,
                                                CancellationReasonRequest request) {
-        if (staff.role() != StaffRole.WAITER) {
-            throw new BusinessException(ErrorCode.ACCESS_DENIED, "Only a waiter completes the reason of a cancellation");
+        if (staff.role() != StaffRole.WAITER && staff.role() != StaffRole.ADMIN) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED,
+                    "Only a waiter or an administrator completes the reason of a cancellation");
         }
         var reasons = CancellationReasons.parse(request.reasonCodes(), request.reasonText());
         if (reasons.isEmpty()) {
@@ -189,7 +192,8 @@ public class OrderCancellationService {
         List<ReasonRow> added = reasonRows(reasons, new RequestActor.Staff(staff), now);
         if (!existing.isEmpty()) {
             if (sameCompletion(existing, added, staff)) {
-                return mapper.toResponse(order, row, cancellations.findItems(row.id()), existing, false);
+                return mapper.toResponse(order, row, cancellations.findItems(row.id()), existing,
+                        staff.role() == StaffRole.ADMIN);
             }
             throw new BusinessException(ErrorCode.CANCELLATION_REASON_ALREADY_SET,
                     "This cancellation already has a reason; reasons are never changed or added to");
@@ -200,7 +204,7 @@ public class OrderCancellationService {
                 order.getRestaurantId());
         Row updated = cancellations.find(order.getRestaurantId(), order.getId(), row.id()).orElseThrow();
         return mapper.toResponse(order, updated, cancellations.findItems(row.id()), cancellations.findReasons(row.id()),
-                false);
+                staff.role() == StaffRole.ADMIN);
     }
 
     /** Every cancellation of an order, for the order's own guest or for waiter / admin staff. */
@@ -222,7 +226,10 @@ public class OrderCancellationService {
         if (existing.size() != added.size()) {
             return false;
         }
+        // only a reason that THIS staff member really wrote counts; a service's reason (even one that names this user as the
+        // staff member it claims to act for) has another id and another role and is never a repeat of their own
         Set<String> stored = existing.stream().filter(row -> "STAFF".equals(row.source())
+                && staff.role().name().equals(row.addedByRole())
                 && staff.userId().toString().equals(row.addedById())).map(OrderCancellationService::signature)
                 .collect(Collectors.toSet());
         return stored.size() == existing.size()
@@ -245,8 +252,10 @@ public class OrderCancellationService {
                 cancellations.findReasons(row.id()), revealStaffIds(actor)), true);
     }
 
-    private static List<Selection> selections(CancelOrderRequest request, boolean cancelAll) {
-        boolean hasItems = request.items() != null && !request.items().isEmpty();
+    /** Exactly one of cancelAll and items; shared with the Kitchen's own request. */
+    static List<Selection> selections(Boolean cancelAllFlag, List<CancelOrderRequest.Item> items) {
+        boolean cancelAll = Boolean.TRUE.equals(cancelAllFlag);
+        boolean hasItems = items != null && !items.isEmpty();
         if (cancelAll == hasItems) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Send either cancelAll: true or the items to cancel, not both and not neither",
@@ -255,10 +264,10 @@ public class OrderCancellationService {
         if (!hasItems) {
             return List.of();
         }
-        return request.items().stream().map(item -> new Selection(item.orderItemId(), item.quantity())).toList();
+        return items.stream().map(item -> new Selection(item.orderItemId(), item.quantity())).toList();
     }
 
-    private static List<Line> linesOf(Order order) {
+    static List<Line> linesOf(Order order) {
         return order.getItems().stream()
                 .sorted(Comparator.comparingInt(item -> item.getLineNo()))
                 .map(item -> new Line(item.getId(), item.getProductId(), item.getProductNameSnapshot(),
@@ -273,14 +282,14 @@ public class OrderCancellationService {
         ChangeActor who = changeActor(actor);
         return new Row(id, order.getRestaurantId(), order.getId(), result.scope().name(),
                 (immediate ? CancellationStatus.APPLIED : CancellationStatus.REQUESTED).name(), who.type().name(),
-                who.id(), who.role(), now, !immediate, order.getFulfillmentStatus().name(),
+                who.id(), who.role(), null, now, !immediate, order.getFulfillmentStatus().name(),
                 order.getPaymentStatus().name(), immediate ? "AUTO" : null, immediate ? "SYSTEM" : null, null, null,
                 immediate ? now : null, null, null, order.getCurrency(), money.previousDueMinor(),
                 result.grossMinor(), result.netMinor(), result.vatMinor(), money.newDueMinor(),
                 money.collectedMinor(), money.refundRequiredMinor(), 0L, null, null, 0L, now);
     }
 
-    private static ItemRow itemRow(ItemCancellation item) {
+    static ItemRow itemRow(ItemCancellation item) {
         return new ItemRow(item.orderItemId(), item.productId(), item.productName(), item.quantity(),
                 item.unitGrossMinor(), item.taxRateBps(), item.grossMinor(), item.netMinor(), item.vatMinor());
     }

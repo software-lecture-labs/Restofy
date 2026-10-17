@@ -244,6 +244,33 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
     }
 
     @Test
+    void d02ReadyServedAndCompletedAreRefusedTheSameWayForEveryoneAndLeaveNothingBehind() throws Exception {
+        for (String status : List.of("READY", "SERVED", "COMPLETED")) {
+            UUID orderId = placeSaladOrder(A1);
+            pay(orderId, "PENDING", 10).andExpect(status().isOk());
+            pay(orderId, "PAID", 5).andExpect(status().isOk());
+            advanceTo(orderId, status);
+            int events = count("outbox_events");
+            int history = fulfillmentHistory(orderId).size();
+            for (String caller : List.of(guest(A1), WAITER, ADMIN)) {
+                cancelAll(caller, orderId).andExpect(status().isConflict())
+                        .andExpect(jsonPath("$.code").value("CANCELLATION_NOT_ALLOWED"))
+                        .andExpect(jsonPath("$.details.reason").value("ORDER_ALREADY_PREPARED"))
+                        .andExpect(jsonPath("$.details.fulfillmentStatus").value(status))
+                        .andExpect(jsonPath("$.details.paymentStatus").value("PAID"));
+                cancel(caller, orderId, newKey(), cancelItems(lineOf(orderId, DevFixtures.SALAD), 1))
+                        .andExpect(status().isConflict())
+                        .andExpect(jsonPath("$.code").value("CANCELLATION_NOT_ALLOWED"));
+            }
+            assertEquals(status, fulfillmentOf(orderId));
+            assertEquals("PAID", paymentOf(orderId));
+            assertEquals(events, count("outbox_events"), "a refused cancellation announces nothing");
+            assertEquals(history, fulfillmentHistory(orderId).size(), "the history is untouched");
+            assertEquals(0, cancellationCount(orderId), "no cancellation record, no refund need");
+        }
+    }
+
+    @Test
     void anAlreadyCancelledOrderIsRefused() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         cancelAll(guest(A1), orderId).andExpect(status().isCreated());

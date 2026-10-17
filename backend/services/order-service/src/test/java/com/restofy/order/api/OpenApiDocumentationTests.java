@@ -101,6 +101,45 @@ class OpenApiDocumentationTests {
     }
 
     @Test
+    void theKitchensOwnRequestAndItsAnswerAreSeparateServiceOnlyEndpoints() throws Exception {
+        JsonNode paths = document().path("paths");
+        JsonNode request = paths.path("/api/v1/internal/order-events/kitchen-cancellation-request").path("post");
+        JsonNode answer = paths.path("/api/v1/internal/order-events/kitchen-cancellation").path("post");
+        assertTrue(request.has("operationId") && answer.has("operationId"));
+        org.junit.jupiter.api.Assertions.assertNotEquals(request.path("operationId").asString(),
+                answer.path("operationId").asString());
+        for (JsonNode operation : new JsonNode[]{request, answer}) {
+            String security = operation.path("security").toString();
+            assertTrue(security.contains("service") && !security.contains("staff") && !security.contains("guestSession"),
+                    security);
+        }
+        JsonNode schemas = document().path("components").path("schemas");
+        JsonNode properties = schemas.path("KitchenCancellationRequest").path("properties");
+        for (String field : new String[]{"eventId", "restaurantId", "orderId", "cancelAll", "items", "reasonCodes",
+                "reasonText", "requestedByStaffId"}) {
+            assertTrue(properties.has(field), field);
+        }
+        assertTrue(!properties.has("amountMinor") && !properties.has("role") && !properties.has("cancellationId"),
+                "the request cannot name a role, an amount or a cancellation");
+        assertTrue(schemas.path("KitchenCancellationRequest").path("required").toString().contains("reasonCodes"),
+                "the reason is required");
+    }
+
+    @Test
+    void theCancellationReportIsDocumentedAsStaffOnlyWithItsFilters() throws Exception {
+        JsonNode get = document().path("paths").path("/api/v1/admin/order-cancellations").path("get");
+        assertTrue(get.has("operationId"), "the report must be documented");
+        String security = get.path("security").toString();
+        assertTrue(security.contains("staff") && !security.contains("guestSession") && !security.contains("service"),
+                security);
+        String parameters = get.path("parameters").toString();
+        for (String name : new String[]{"from", "to", "reasonCode", "scope", "status", "overdue", "sort", "page", "limit"}) {
+            assertTrue(parameters.contains("\"" + name + "\""), name);
+        }
+        assertTrue(!parameters.contains("restaurantId"), "the tenant is never a request parameter");
+    }
+
+    @Test
     void theCancellationDecisionReasonAndListEndpointsAreDocumentedWithTheirCallers() throws Exception {
         JsonNode paths = document().path("paths");
         assertTrue(paths.path("/api/v1/internal/order-events/kitchen-cancellation").path("post").path("security")

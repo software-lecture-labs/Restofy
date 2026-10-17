@@ -48,6 +48,22 @@ public final class MoneyConverter {
     }
 
     /**
+     * Converts minor units (12550) into the major-unit decimal of the currency (125.50) for a consumer that expects
+     * decimals (the Waiter compatibility projection). Always exact: the scale is the currency's own number of fraction
+     * digits (TRY 2, JPY 0, KWD 3), nothing is rounded, nothing is lost, {@code double} is never involved. The stored minor
+     * amount is not touched. An unknown currency or a currency without a minor unit is refused instead of guessed, and so
+     * is a negative amount (the Order Service stores none).
+     *
+     * @throws IllegalArgumentException if the currency is unknown or has no minor unit, or the amount is negative
+     */
+    public static BigDecimal toMajor(long minorAmount, String currencyCode) {
+        if (minorAmount < 0) {
+            throw new IllegalArgumentException("amount must not be negative");
+        }
+        return BigDecimal.valueOf(minorAmount, fractionDigits(currencyCode));
+    }
+
+    /**
      * Converts a VAT percentage (10, 10.00, 8.5) into basis points (1000, 1000, 850). More than two decimals of a
      * percent (for example 8.555) cannot be represented and is rejected.
      */
