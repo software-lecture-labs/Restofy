@@ -183,8 +183,12 @@ class OrderPersistenceIntegrationTests {
                     () -> jdbc.update("UPDATE order_items SET " + column + " WHERE order_id = ?", order.getId()), column);
             assertEquals(true, error.getMessage().contains("immutable"), column + ": " + error.getMessage());
         }
-        assertEquals(1, jdbc.update("UPDATE order_items SET cancelled_quantity = 1 WHERE order_id = ?", order.getId()));
-        assertEquals(1, jdbc.queryForObject("SELECT cancelled_quantity FROM order_items WHERE order_id = ?", Integer.class, order.getId()));
+        // the counter moves only together with an applied cancellation (V50); a hand-made change is refused at commit
+        UUID orderId = order.getId();
+        DataAccessException manual = assertThrows(DataAccessException.class,
+                () -> jdbc.update("UPDATE order_items SET cancelled_quantity = 1 WHERE order_id = ?", orderId));
+        assertEquals(true, manual.getMessage().contains("does not match"), manual.getMessage());
+        assertEquals(0, jdbc.queryForObject("SELECT cancelled_quantity FROM order_items WHERE order_id = ?", Integer.class, order.getId()));
     }
 
     @Test

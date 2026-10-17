@@ -50,6 +50,10 @@ public class SecurityConfiguration {
                         // (with tenant checks) in OrderFulfillmentService. Never open to a guest or a service.
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/orders/*/fulfillment-status")
                         .hasAuthority(StaffAuthentication.ROLE)
+                        // Cancelling an order: its own guest, or staff; the role (WAITER, ADMIN), tenant and ownership
+                        // checks are made in OrderCancellationService. Never open to a service credential.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/cancellations")
+                        .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
                         // Internal events: only the named calling service, never a guest or staff credential.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))

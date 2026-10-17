@@ -30,6 +30,7 @@ public class OrderMapper {
     public OrderResponse toResponse(Order order) {
         List<OrderItemResponse> items = order.getItems().stream().sorted(ITEM_ORDER).map(item -> new OrderItemResponse(
                 item.getId(), item.getProductId(), item.getProductNameSnapshot(), item.getOrderedQuantity(),
+                item.getCancelledQuantity(), item.getRemainingQuantity(),
                 removed(item).stream().map(o -> new RemovedIngredient(o.getOptionId(), o.getNameSnapshot())).toList(),
                 extras(item).stream().map(o -> new ExtraIngredient(o.getOptionId(), o.getNameSnapshot(),
                         o.getQuantity(), o.getUnitPriceDeltaMinor())).toList(),
@@ -45,8 +46,8 @@ public class OrderMapper {
         OrderResponse base = toResponse(order);
         return new OrderDetailResponse(order.getId(), order.getOrderNo(), order.getTableId(), order.getTableSessionId(),
                 order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), order.getCurrency(),
-                base.amounts(), order.getCurrentDueMinor(), base.items(), order.getNote(), order.getPlacedAt(),
-                order.getUpdatedAt(), order.getVersion());
+                base.amounts(), order.getCurrentDueMinor(), cancelledGross(order), activeGross(order), base.items(),
+                order.getNote(), order.getPlacedAt(), order.getUpdatedAt(), order.getVersion());
     }
 
     /**
@@ -56,11 +57,12 @@ public class OrderMapper {
     public OrderDetailResponse toKitchenDetail(Order order) {
         OrderResponse base = toResponse(order);
         List<OrderItemResponse> items = base.items().stream().map(item -> new OrderItemResponse(item.orderItemId(),
-                item.productId(), item.name(), item.quantity(), item.removedIngredients(),
+                item.productId(), item.name(), item.quantity(), item.cancelledQuantity(), item.remainingQuantity(),
+                item.removedIngredients(),
                 item.extras().stream().map(e -> new ExtraIngredient(e.ingredientId(), e.name(), e.quantity(), null))
                         .toList(), item.note(), null, null, null, null, null)).toList();
         return new OrderDetailResponse(order.getId(), order.getOrderNo(), order.getTableId(), order.getTableSessionId(),
-                order.getFulfillmentStatus().name(), null, null, null, null, items, order.getNote(),
+                order.getFulfillmentStatus().name(), null, null, null, null, null, null, items, order.getNote(),
                 order.getPlacedAt(), order.getUpdatedAt(), order.getVersion());
     }
 
@@ -79,6 +81,14 @@ public class OrderMapper {
                 order.getGuestSessionId(), order.getId(), order.getOrderNo(), order.getFulfillmentStatus().name(),
                 order.getCurrency(), new OrderPlacedEvent.Amounts(order.getInitialNetMinor(),
                 order.getInitialVatMinor(), order.getInitialGrossMinor()), order.getNote(), order.getPlacedAt(), items);
+    }
+
+    private static long activeGross(Order order) {
+        return order.getItems().stream().mapToLong(item -> item.getUnitGrossMinor() * item.getRemainingQuantity()).sum();
+    }
+
+    private static long cancelledGross(Order order) {
+        return order.getInitialGrossMinor() - activeGross(order);
     }
 
     private static List<OrderItemOption> removed(OrderItem item) {

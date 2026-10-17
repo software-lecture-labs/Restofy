@@ -108,6 +108,19 @@ public class OrderItem {
         this.createdAt = now;
     }
 
+    /** More units of this line are cancelled. The ordered quantity and every amount of the line stay as they were. */
+    public void applyCancellation(int quantity) {
+        if (quantity < 1 || cancelledQuantity + quantity > orderedQuantity) {
+            throw new IllegalArgumentException("cannot cancel " + quantity + " more unit(s) of a line with "
+                    + (orderedQuantity - cancelledQuantity) + " active");
+        }
+        this.cancelledQuantity += quantity;
+    }
+
+    public int getRemainingQuantity() {
+        return orderedQuantity - cancelledQuantity;
+    }
+
     public void addOption(OrderItemOption option) {
         options.add(option);
     }

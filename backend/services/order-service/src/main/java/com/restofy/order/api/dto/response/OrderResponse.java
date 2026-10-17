@@ -15,10 +15,13 @@ public record OrderResponse(UUID orderId, String orderNo, UUID tableSessionId, S
     }
 
     /**
-     * One ordered line. The price fields are omitted only in the KITCHEN view of an order (the kitchen needs what to
-     * prepare, not what it costs); every other reader always gets them.
+     * One ordered line. {@code quantity} is what was ordered and never changes; {@code cancelledQuantity} units were
+     * cancelled and {@code remainingQuantity} are still to be prepared and paid. The price fields are omitted only in
+     * the KITCHEN view of an order (the kitchen needs what to prepare, not what it costs); every other reader always
+     * gets them.
      */
     public record OrderItemResponse(UUID orderItemId, UUID productId, String name, int quantity,
+                                    int cancelledQuantity, int remainingQuantity,
                                     List<CartResponse.RemovedIngredient> removedIngredients,
                                     List<CartResponse.ExtraIngredient> extras, String note,
                                     @JsonInclude(JsonInclude.Include.NON_NULL) Long unitGrossMinor,

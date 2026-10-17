@@ -16,14 +16,14 @@ import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecificationExecutor<Order> {
 
-    /** Ordered units per order for a page of orders (one query instead of loading every line). */
+    /** Still-active units (ordered minus cancelled) per order for a page of orders, in one query. */
     interface UnitCount {
         UUID getOrderId();
 
         Long getUnits();
     }
 
-    @Query("select i.order.id as orderId, sum(i.orderedQuantity) as units from OrderItem i"
+    @Query("select i.order.id as orderId, sum(i.orderedQuantity - i.cancelledQuantity) as units from OrderItem i"
             + " where i.order.id in :orderIds group by i.order.id")
     List<UnitCount> unitCounts(@Param("orderIds") Collection<UUID> orderIds);
 

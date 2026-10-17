@@ -1,6 +1,8 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.api.dto.request.CancelOrderRequest;
 import com.restofy.order.api.dto.request.CheckoutRequest;
+import com.restofy.order.api.dto.response.CancellationResponse;
 import com.restofy.order.api.dto.request.FulfillmentStatusRequest;
 import com.restofy.order.api.dto.response.FulfillmentStatusResponse;
 import com.restofy.order.application.port.StaffActor;
@@ -10,6 +12,7 @@ import com.restofy.order.api.dto.response.OrderHistoryResponse;
 import com.restofy.order.api.dto.response.OrderListResponse;
 import com.restofy.order.api.dto.response.OrderResponse;
 import com.restofy.order.application.port.GuestSessionContext;
+import com.restofy.order.application.service.OrderCancellationService;
 import com.restofy.order.application.service.OrderCheckoutService;
 import com.restofy.order.application.service.OrderListQuery;
 import com.restofy.order.application.service.OrderQueryService;
@@ -50,12 +53,14 @@ public class OrderController {
     private final OrderCheckoutService checkout;
     private final OrderQueryService queries;
     private final OrderFulfillmentService fulfillment;
+    private final OrderCancellationService cancellation;
 
     public OrderController(OrderCheckoutService checkout, OrderQueryService queries,
-                           OrderFulfillmentService fulfillment) {
+                           OrderFulfillmentService fulfillment, OrderCancellationService cancellation) {
         this.checkout = checkout;
         this.queries = queries;
         this.fulfillment = fulfillment;
+        this.cancellation = cancellation;
     }
 
     @GetMapping
@@ -161,5 +166,46 @@ public class OrderController {
             response.header(REPLAYED, "true");
         }
         return response.body(result.order());
+    }
+
+    @PostMapping("/{orderId}/cancellations")
+    @Operation(summary = "Cancel a whole order or chosen lines and unit counts (idempotent per Idempotency-Key)",
+            description = "Send either cancelAll=true or items (orderItemId + quantity), never both. The reason is always "
+                    + "optional: reasonCodes (CHANGED_MIND, ORDERED_BY_MISTAKE, WAIT_TOO_LONG, ITEM_UNAVAILABLE, "
+                    + "KITCHEN_ERROR, OTHER; several allowed, none repeated) and/or a plain reasonText of at most 300 "
+                    + "characters; without one a waiter can complete it later. A guest cancels only their own order while "
+                    + "their table session is active; WAITER and ADMIN cancel any order of their restaurant; KITCHEN is 403. "
+                    + "RECEIVED: decided at once (status APPLIED, decisionSource AUTO). PREPARING: stored as REQUESTED and "
+                    + "finalised only by the Kitchen service (kitchenConfirmationRequired=true; the order does not change "
+                    + "meanwhile). READY, SERVED, COMPLETED: 409 CANCELLATION_NOT_ALLOWED. A guest cannot cancel a paid "
+                    + "order (409 CANCELLATION_NOT_ALLOWED, reason ORDER_ALREADY_PAID); staff can, and the refund it requires "
+                    + "is recorded as refundRequiredMinor (a request, never a refund that happened). Cancelling every "
+                    + "remaining unit makes the order CANCELLED. Repeating a finished request with the same key and body "
+                    + "returns the same cancellation (header Idempotent-Replayed: true). An order of another restaurant or "
+                    + "another guest is a 404.")
+    @SecurityRequirement(name = "guestSession")
+    @SecurityRequirement(name = "staff")
+    @ApiResponse(responseCode = "201", description = "Cancellation applied (APPLIED), waiting for the kitchen "
+            + "(REQUESTED) or replayed for the same Idempotency-Key")
+    @ApiResponse(responseCode = "400", description = "Missing/invalid Idempotency-Key or malformed body")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid guest session / staff credential")
+    @ApiResponse(responseCode = "403", description = "KITCHEN or another role that may not cancel")
+    @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND (also for another restaurant's or guest's order)")
+    @ApiResponse(responseCode = "409", description = "CANCELLATION_NOT_ALLOWED, CANCELLATION_ALREADY_PENDING, "
+            + "ORDER_ALREADY_CANCELLED, IDEMPOTENCY_CONFLICT or TABLE_SESSION_NOT_ACTIVE")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR, UNKNOWN_ORDER_ITEM or CANCEL_QUANTITY_EXCEEDED")
+    public ResponseEntity<CancellationResponse> cancel(
+            Authentication authentication,
+            @PathVariable UUID orderId,
+            @Parameter(name = IDEMPOTENCY_KEY, in = ParameterIn.HEADER, required = true,
+                    description = "8-120 characters of letters, digits, '.', '_', ':' or '-'. Scoped to the caller.")
+            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+            @Valid @RequestBody CancelOrderRequest request) {
+        var outcome = cancellation.request(RequestActor.from(authentication), orderId, idempotencyKey, request);
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.CREATED);
+        if (outcome.replayed()) {
+            response.header(REPLAYED, "true");
+        }
+        return response.body(outcome.cancellation());
     }
 }

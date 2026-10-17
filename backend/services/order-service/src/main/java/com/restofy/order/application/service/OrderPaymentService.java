@@ -81,17 +81,20 @@ public class OrderPaymentService {
     private final OutboxEventWriter outbox;
     private final InboxStore inbox;
     private final PaymentCaptureStore captures;
+    private final PaymentReconciliationRecorder reconciliation;
     private final Clock clock;
     private final PaymentProperties properties;
 
     public OrderPaymentService(OrderRepository orders, OrderStatusHistoryStore history, OutboxEventWriter outbox,
-                               InboxStore inbox, PaymentCaptureStore captures, Clock clock,
+                               InboxStore inbox, PaymentCaptureStore captures,
+                               PaymentReconciliationRecorder reconciliation, Clock clock,
                                PaymentProperties properties) {
         this.orders = orders;
         this.history = history;
         this.outbox = outbox;
         this.inbox = inbox;
         this.captures = captures;
+        this.reconciliation = reconciliation;
         this.clock = clock;
         this.properties = properties;
     }
@@ -254,30 +257,11 @@ public class OrderPaymentService {
         };
     }
 
-    /** Raises a reconciliation case once per (order, capture, reason): a new one is also announced by an outbox event. */
+    /** Raises a reconciliation case once per (order, capture, reason); see {@link PaymentReconciliationRecorder}. */
     private void recordCase(Order order, PaymentReport report, String reason, Instant now) {
-        var reconciliationCase = new PaymentCaptureStore.Case(order.getRestaurantId(), order.getId(), report.captureId(),
-                report.attemptId(), reason, report.amountMinor(), report.currency().toUpperCase(Locale.ROOT),
-                report.sourceEventId(),
-                report.occurredAt().truncatedTo(ChronoUnit.MICROS), order.getFulfillmentStatus().name(),
-                order.getPaymentStatus().name());
-        if (!captures.addCase(reconciliationCase, now)) {
-            return;
-        }
-        String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
-        UUID eventId = UUID.randomUUID();
-        var required = new OrderPaymentReconciliationRequiredEvent(eventId,
-                OrderPaymentReconciliationRequiredEvent.TYPE, OrderPaymentReconciliationRequiredEvent.SCHEMA_VERSION,
-                now, correlationId, order.getRestaurantId(), order.getTableId(), order.getTableSessionId(),
-                order.getId(), order.getOrderNo(), reason, report.sourceEventId(), report.attemptId(), report.captureId(),
-                report.amountMinor(),
-                report.currency().toUpperCase(Locale.ROOT), report.occurredAt(), order.getFulfillmentStatus().name(),
-                order.getPaymentStatus().name(), order.getCurrentDueMinor());
-        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), required.eventType(),
-                required.schemaVersion(), correlationId, required, now,
-                List.of(EventDestination.ADMIN, EventDestination.PAYMENT, EventDestination.NOTIFICATION));
-        log.warn("Payment reported PAID that cannot be applied, reconciliation required: orderId={} reason={}"
-                + " paymentEventId={} captureId={}", order.getId(), reason, report.sourceEventId(), report.captureId());
+        reconciliation.append(order, new PaymentReconciliationRecorder.ReportedCapture(report.captureId(),
+                report.attemptId(), report.amountMinor(), report.currency(), report.sourceEventId(), report.occurredAt()),
+                reason, now);
     }
 
     // ---- PENDING, FAILED, CANCELLED ---------------------------------------------------------------------------------

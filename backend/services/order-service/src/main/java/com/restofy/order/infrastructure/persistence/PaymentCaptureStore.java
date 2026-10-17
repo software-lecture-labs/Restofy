@@ -48,6 +48,13 @@ public class PaymentCaptureStore {
                 (rs, row) -> map(rs), captureId).stream().findFirst();
     }
 
+    /** What was verifiably collected for the order: the sum of its APPLIED captures (0 when none). */
+    public long appliedAmount(UUID orderId) {
+        Long sum = jdbc.queryForObject("SELECT coalesce(sum(amount_minor), 0) FROM payment_captures"
+                + " WHERE order_id = ? AND status = 'APPLIED'", Long.class, orderId);
+        return sum == null ? 0L : sum;
+    }
+
     /** The collections of an order that are waiting for the PENDING of the given attempt, oldest first. */
     public List<Capture> pendingVerification(UUID orderId, UUID paymentAttemptId) {
         return jdbc.query(SELECT_CAPTURE + " WHERE order_id = ? AND payment_attempt_id = ?"

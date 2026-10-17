@@ -147,6 +147,28 @@ public class Order {
         this.updatedAt = now;
     }
 
+    /**
+     * Records a finalised cancellation: what the order still owes, and (when nothing is left) the CANCELLED status. The
+     * initial amounts and every line snapshot stay as they were. Whether the cancellation is allowed is decided by
+     * {@code CancellationPolicy}; the database repeats the status rules as guard triggers.
+     */
+    public void applyCancellation(long newDueMinor, boolean fullyCancelled, Instant now) {
+        this.currentDueMinor = newDueMinor;
+        if (fullyCancelled) {
+            this.fulfillmentStatus = FulfillmentStatus.CANCELLED;
+        }
+        this.updatedAt = now;
+    }
+
+    /**
+     * Closes the payment axis of an order that was cancelled before any payment attempt (NOT_REQUESTED to CANCELLED, the
+     * move V48 reserves for this). It is not a payment event and claims nothing about money.
+     */
+    public void closePaymentAxis(Instant now) {
+        this.paymentStatus = PaymentStatus.CANCELLED;
+        this.updatedAt = now;
+    }
+
     public void addItem(OrderItem item) {
         items.add(item);
     }

@@ -81,4 +81,22 @@ class OpenApiDocumentationTests {
                 .contains("service"));
         assertTrue(!paths.has("/api/v1/orders/{orderId}/payment-status"), "no client can set a payment status");
     }
+
+    @Test
+    void theCancellationEndpointIsDocumentedWithItsSecurityAndIdempotencyKey() throws Exception {
+        JsonNode post = document().path("paths").path("/api/v1/orders/{orderId}/cancellations").path("post");
+        assertTrue(post.has("operationId"), "cancelling an order must be documented");
+        String security = post.path("security").toString();
+        assertTrue(security.contains("guestSession") && security.contains("staff"), security);
+        assertTrue(!security.contains("service"), "no service credential cancels an order here");
+        assertTrue(post.path("parameters").toString().contains("Idempotency-Key"));
+        assertTrue(post.path("responses").has("201") && post.path("responses").has("409")
+                && post.path("responses").has("422"));
+        JsonNode request = document().path("components").path("schemas").path("CancelOrderRequest").path("properties");
+        for (String field : new String[]{"cancelAll", "items", "reasonCodes", "reasonText"}) {
+            assertTrue(request.has(field), field);
+        }
+        assertTrue(!request.has("restaurantId") && !request.has("amountMinor") && !request.has("refundedMinor"),
+                "prices, tenant and refunds are never accepted from the client");
+    }
 }
