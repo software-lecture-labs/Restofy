@@ -236,6 +236,50 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         assertThatThrownBy(()->limits.request(email,"peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
     }
 
+    @Test void wrongFactorsAccumulateAcrossRequestsForKnownAndUnknownAccounts() {
+        for (String email : List.of(admin.getEmailNormalized(), "ghost@example.com")) {
+            for (int i = 0; i < 4; i++) { resets.request(email, "------", "en"); }
+            assertThatThrownBy(() -> resets.request(email, "------", "en"))
+                    .isInstanceOfSatisfying(LoginRateLimiter.LoginLimitException.class, ex -> assertThat(ex.retryAfter()).isEqualTo(300));
+        }
+        verifyNoInteractions(mail);
+    }
+
+    @Test void limiterReportsExactRetryAfterAndEnforcesPerPeerWindow() {
+        limits.request("exact@example.com", "other-peer");
+        clock.advance(60);
+        assertThatThrownBy(() -> limits.request("exact@example.com", "other-peer"))
+                .isInstanceOfSatisfying(LoginRateLimiter.LoginLimitException.class, ex -> assertThat(ex.retryAfter()).isEqualTo(120));
+        for (int i = 0; i < 30; i++) { limits.request("peer-user-" + i + "@example.com", "busy-peer"); }
+        assertThatThrownBy(() -> limits.request("peer-user-x@example.com", "busy-peer"))
+                .isInstanceOfSatisfying(LoginRateLimiter.LoginLimitException.class, ex -> assertThat(ex.retryAfter()).isEqualTo(60));
+        for (int i = 0; i < 30; i++) { limits.verification("verify-peer"); }
+        assertThatThrownBy(() -> limits.verification("verify-peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
+    }
+
+    @Test void concurrentAdmissionNeverExceedsGlobalBucketCapacity() throws Exception {
+        jdbc.update("INSERT INTO password_reset_limits SELECT md5(i::text)||md5(i::text),1,? FROM generate_series(1,9999) i",
+                java.sql.Timestamp.from(clock.instant().plusSeconds(60)));
+        var pool = Executors.newFixedThreadPool(2);
+        var ready = new CountDownLatch(2);
+        var go = new CountDownLatch(1);
+        try {
+            List<Future<Boolean>> results = new ArrayList<>();
+            for (String peer : List.of("admission-a", "admission-b")) {
+                results.add(pool.submit(() -> {
+                    ready.countDown(); go.await();
+                    try { limits.verification(peer); return true; }
+                    catch (LoginRateLimiter.LoginLimitException _) { return false; }
+                }));
+            }
+            ready.await(); go.countDown();
+            List<Boolean> outcomes = new ArrayList<>();
+            for (var result : results) { outcomes.add(result.get(30, TimeUnit.SECONDS)); }
+            assertThat(outcomes).containsExactlyInAnyOrder(true, false);
+        } finally { pool.shutdownNow(); }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_limits", Integer.class)).isEqualTo(10000);
+    }
+
     @Test void upgradingV3ToV4PreservesExistingPasswordsAndDoesNotInventChangeTime() {
         String schema="reset_upgrade_"+UUID.randomUUID().toString().replace("-","");
         var old=org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)

@@ -68,6 +68,24 @@ class MailIntegrationTests extends MailTestSupport {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM mail_delivery_attempts",Integer.class)).isEqualTo(1);
     }
 
+    private String paddedToken(UUID id,int length) {
+        Instant now=Instant.now();
+        for (int pad=1;pad<4000;pad++) for (int extra=0;extra<4;extra++) {
+            String candidate=Jwts.builder().issuer("restofy-auth").subject("auth-service").id(id.toString()).audience().add("restofy-mail").and()
+                    .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(60)))
+                    .claim("token_type","service").claim("scope","password-reset:send").claim("pad","x".repeat(pad)+"y".repeat(extra))
+                    .signWith(KEYS.getPrivate(),Jwts.SIG.RS256).compact();
+            if (candidate.length()==length) { return candidate; }
+        }
+        throw new IllegalStateException("No token of length "+length);
+    }
+
+    @Test void serviceTokenLengthLimitIsExactly4096() {
+        UUID id=UUID.randomUUID();
+        assertThat(tokens.verify(paddedToken(id,4096))).isEqualTo(id);
+        assertThatThrownBy(() -> tokens.verify(paddedToken(id,4098))).isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
+    }
+
     @Test void missingForgedAndUserIdentitiesAreRejected() throws Exception {
         UUID id=UUID.randomUUID();
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body(id)).header("X-Role","ADMIN").header("X-User-Id","auth-service"))

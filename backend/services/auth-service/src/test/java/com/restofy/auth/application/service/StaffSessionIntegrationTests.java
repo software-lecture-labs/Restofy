@@ -97,6 +97,39 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         assertThat(sessions.findById(grant.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
     }
 
+    @Test
+    void inactiveAccountRevokesEverySessionWhenRefreshedOrAuthenticated() {
+        var first = login();
+        var second = login();
+        var third = login();
+        var identity = jwt.verify(third.access(), false);
+        String firstRefresh = first.refresh();
+        String secondRefresh = second.refresh();
+        jdbc.update("UPDATE staff_users SET is_active = false");
+        assertThatThrownBy(() -> service.refresh(firstRefresh)).isInstanceOf(BadCredentialsException.class);
+        assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
+        assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
+        jdbc.update("UPDATE user_sessions SET revoked_at = NULL");
+        jdbc.update("UPDATE refresh_tokens SET revoked_at = NULL");
+        assertThatThrownBy(() -> service.authenticate(identity)).isInstanceOf(BadCredentialsException.class);
+        assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
+        assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
+        assertThatThrownBy(() -> service.refresh(secondRefresh)).isInstanceOf(BadCredentialsException.class);
+    }
+
+    @Test
+    void logoutOnlyAcceptsTheTokenKindThatMatchesTheSessionState() {
+        StaffUser admin = users.saveAndFlush(new StaffUser("admin-logout@example.com", passwords.hash(PASSWORD), StaffRole.ADMIN));
+        var pending = service.login(admin.getEmailNormalized(), PASSWORD, null);
+        service.logout(null, pending.access(), null);
+        assertThat(sessions.findById(pending.session().getId()).orElseThrow().getRevokedAt()).isNull();
+        service.logout(null, null, pending.access());
+        assertThat(sessions.findById(pending.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
+        var other = login();
+        service.logout(null, null, other.access());
+        assertThat(sessions.findById(other.session().getId()).orElseThrow().getRevokedAt()).isNull();
+    }
+
     @ParameterizedTest
     @EnumSource(StaffRole.class)
     void enforcesRoleSpecificIdleBoundaryWithoutRefreshActivity(StaffRole role) {
