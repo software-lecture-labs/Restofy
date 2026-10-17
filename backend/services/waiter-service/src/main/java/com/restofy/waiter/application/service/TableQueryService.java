@@ -35,11 +35,14 @@ public class TableQueryService {
     private final QrClient qr;
     private final OrderClient orders;
     private final ServiceRequestRepository serviceRequests;
+    private final ServeCommandHints serveCommands;
 
-    public TableQueryService(QrClient qr, OrderClient orders, ServiceRequestRepository serviceRequests) {
+    public TableQueryService(QrClient qr, OrderClient orders, ServiceRequestRepository serviceRequests,
+                             ServeCommandHints serveCommands) {
         this.qr = qr;
         this.orders = orders;
         this.serviceRequests = serviceRequests;
+        this.serveCommands = serveCommands;
     }
 
     public PageResponse<TableSummaryResponse> listTables(AuthenticatedStaff staff, TableFilter filter, PageParams page) {
@@ -72,7 +75,9 @@ public class TableQueryService {
         QrSessionDto session = table.currentSession();
         if (session == null) return PageResponse.of(List.of(), page.page(), page.size(), 0);
         OrderPageDto result = orders.search(restaurantId, tableId, List.of(session.id()), view, page.page(), page.size());
-        return PageResponse.of(result.items().stream().map(order -> WaiterMapper.toOrder(order, table)).toList(),
+        var hints = serveCommands.forOrders(restaurantId, result.items().stream().map(order -> order.id()).toList());
+        return PageResponse.of(result.items().stream()
+                .map(order -> WaiterMapper.toOrder(order, table, hints.get(order.id()))).toList(),
                 page.page(), page.size(), result.totalElements());
     }
 

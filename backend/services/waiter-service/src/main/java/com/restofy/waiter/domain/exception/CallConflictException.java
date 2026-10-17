@@ -1,7 +1,7 @@
 package com.restofy.waiter.domain.exception;
 
 /**
- * The command conflicts with the call's current state or with another command (HTTP 409). The stable
+ * The command conflicts with the current state of its target or with another command (HTTP 409). The stable
  * {@code code} tells clients which conflict it is; they must re-read the call before deciding what to do.
  */
 public class CallConflictException extends RuntimeException {

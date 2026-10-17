@@ -3,7 +3,10 @@ package com.restofy.waiter.application.mapper;
 import com.restofy.waiter.api.dto.response.GuestCallResponse;
 import com.restofy.waiter.api.dto.response.NotificationSyncResponse;
 import com.restofy.waiter.api.dto.response.OrderResponse;
+import com.restofy.waiter.api.dto.response.ServeCommandResponse;
 import com.restofy.waiter.api.dto.response.ServiceCallResponse;
+import com.restofy.waiter.application.service.OrderServeService;
+import com.restofy.waiter.domain.entity.OrderServeCommand;
 import com.restofy.waiter.api.dto.response.ServiceRequestResponse;
 import com.restofy.waiter.api.dto.response.TableSessionResponse;
 import com.restofy.waiter.api.dto.response.TableSummaryResponse;
@@ -47,6 +50,17 @@ public final class WaiterMapper {
                 request.getMessage(), request.getCreatedAt(), request.getClaimedAt(), request.getVersion());
     }
 
+    public static ServeCommandResponse toServeCommand(OrderServeService.Result result) {
+        OrderServeCommand command = result.command();
+        OrderDto order = result.order();
+        return new ServeCommandResponse(command.getId(), command.getOrderId(), command.getTableSessionId(),
+                command.getExpectedVersion(), command.getStatus(), command.getRejectionCode(), command.getCreatedAt(),
+                command.getCompletedAt(), result.reconciliation(),
+                order == null ? null : new ServeCommandResponse.ServedOrder(order.id(), order.orderNumber(),
+                        order.tableSessionId(), order.businessStatus(), order.deliveryStatus(), order.servedAt(),
+                        order.preparation() == null ? null : order.preparation().status(), order.version()));
+    }
+
     public static ServiceCallResponse toCall(ServiceRequest call, NotificationDeliveries.Sync sync) {
         return new ServiceCallResponse(call.getId(), call.getTableId(), call.getTableSessionId(), call.getRequestType(),
                 call.getStatus(), call.getMessage(), call.getCreatedAt(), call.getClaimedByUserId(), call.getClaimedAt(),
@@ -59,6 +73,10 @@ public final class WaiterMapper {
     }
 
     public static OrderResponse toOrder(OrderDto order, QrTableDto table) {
+        return toOrder(order, table, null);
+    }
+
+    public static OrderResponse toOrder(OrderDto order, QrTableDto table, OrderResponse.ServeCommandHint serveCommand) {
         QrSessionDto live = table.currentSession();
         boolean current = live != null && live.id().equals(order.tableSessionId());
         return new OrderResponse(order.id(), order.orderNumber(),
@@ -72,7 +90,7 @@ public final class WaiterMapper {
                 order.cancelledGrossTotal(), order.payableTotal(),
                 order.items().stream().map(WaiterMapper::toItem).toList(),
                 order.cancellations().stream().map(WaiterMapper::toCancellation).toList(),
-                order.version());
+                serveCommand, order.version());
     }
 
     private static TableSessionResponse toSession(QrSessionDto session) {
@@ -82,7 +100,7 @@ public final class WaiterMapper {
 
     private static OrderResponse.Item toItem(OrderItemDto item) {
         return new OrderResponse.Item(item.id(), item.productId(), item.productName(), item.quantity(),
-                item.cancelledQuantity(), item.unitGrossPrice(), item.lineGrossTotal(), item.note(),
+                item.cancelledQuantity(), item.quantity() - item.cancelledQuantity(), item.unitGrossPrice(), item.lineGrossTotal(), item.note(),
                 item.options().stream().map(WaiterMapper::toOption).toList());
     }
 

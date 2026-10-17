@@ -7,6 +7,7 @@ import com.restofy.waiter.domain.enums.OptionAction;
 import com.restofy.waiter.domain.enums.OrderBusinessStatus;
 import com.restofy.waiter.domain.enums.PaymentSummaryStatus;
 import com.restofy.waiter.domain.enums.PreparationStatus;
+import com.restofy.waiter.domain.enums.ServeCommandStatus;
 import com.restofy.waiter.domain.enums.TableOperationalStatus;
 
 import java.math.BigDecimal;
@@ -26,7 +27,7 @@ public record OrderResponse(UUID id, String orderNumber, TableRef table, Session
                             Instant acceptedAt, Instant servedAt,
                             String currency, BigDecimal originalGrossTotal, BigDecimal cancelledGrossTotal,
                             BigDecimal payableTotal, List<Item> items, List<Cancellation> cancellations,
-                            long version) {
+                            ServeCommandHint serveCommand, long version) {
 
     public record TableRef(UUID id, String tableNumber, String displayName, TableOperationalStatus operationalStatus) {
     }
@@ -41,8 +42,20 @@ public record OrderResponse(UUID id, String orderNumber, TableRef table, Session
     public record Payment(PaymentSummaryStatus status, Instant asOf) {
     }
 
+    /**
+     * {@code remainingQuantity} is {@code quantity - cancelledQuantity}, derived from Order's own numbers. It is
+     * what is still to be served. Order offers no "missing at delivery" figure; none is invented here.
+     */
     public record Item(UUID id, UUID productId, String productName, int quantity, int cancelledQuantity,
-                       BigDecimal unitGrossPrice, BigDecimal lineGrossTotal, String note, List<Option> options) {
+                       int remainingQuantity, BigDecimal unitGrossPrice, BigDecimal lineGrossTotal, String note, List<Option> options) {
+    }
+
+    /**
+     * A serve command of this order whose outcome is not known (sent without a usable answer). While it exists,
+     * {@code deliveryStatus} is still Order's truth, but the panel should offer to check the command
+     * (GET .../served-commands/{commandId}) before serving again.
+     */
+    public record ServeCommandHint(UUID commandId, ServeCommandStatus status, Instant requestedAt) {
     }
 
     public record Option(String name, OptionAction action, int quantity, BigDecimal unitPriceDelta) {
