@@ -53,7 +53,7 @@ class ProductConcurrencyTests {
 
     private UUID newProduct() {
         return service.create(admin, new CreateProductCommand(category, "Burger", null, new BigDecimal("10"),
-                "TRY", new BigDecimal("10"), true)).getId();
+                "TRY", new BigDecimal("10"), true)).product().getId();
     }
 
     /** Runs all attempts at the same instant and returns how many succeeded / conflicted. */
@@ -117,5 +117,35 @@ class ProductConcurrencyTests {
         assertEquals(1, outcome[1]);
         assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM products", Integer.class));
+    }
+
+    @Test
+    void twoCategoryMovesWithTheSameVersionLetExactlyOneWin() throws Exception {
+        UUID id = newProduct();
+        UUID first = categories.saveAndFlush(Category.child(RESTAURANT, category, "Hot", 0)).getId();
+        UUID second = categories.saveAndFlush(Category.child(RESTAURANT, category, "Cold", 1)).getId();
+        int[] outcome = race(4, i -> service.update(admin, id,
+                new UpdateProductCommand(i % 2 == 0 ? first : second, null, null, null, null, null, null, 0L)));
+        assertEquals(1, outcome[0]);
+        assertEquals(3, outcome[1]);
+        UUID stored = jdbc.queryForObject("SELECT category_id FROM products WHERE id = ?", UUID.class, id);
+        assertTrue(stored.equals(first) || stored.equals(second), "the winner's category is stored, never a mix");
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
+    }
+
+    @Test
+    void aCategoryMoveRacingAnArchiveOnTheSameVersionLetsExactlyOneWin() throws Exception {
+        UUID id = newProduct();
+        UUID other = categories.saveAndFlush(Category.root(RESTAURANT, "Drinks", 1)).getId();
+        int[] outcome = race(2, i -> {
+            if (i == 0) {
+                service.update(admin, id, new UpdateProductCommand(other, null, null, null, null, null, null, 0L));
+            } else {
+                service.changeActive(admin, id, false, 0L);
+            }
+        });
+        assertEquals(1, outcome[0]);
+        assertEquals(1, outcome[1]);
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
     }
 }

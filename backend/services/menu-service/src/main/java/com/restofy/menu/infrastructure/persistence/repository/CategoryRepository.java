@@ -4,7 +4,10 @@ import com.restofy.menu.domain.entity.Category;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,4 +31,11 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
     /** Customer-menu read model input: only active rows, already in display order. */
     List<Category> findByRestaurantIdAndActiveTrueOrderBySortOrderAscNameAscIdAsc(UUID restaurantId);
+
+    /** Tenant-scoped batch lookup for resolving the categories of a whole product page at once. */
+    List<Category> findByRestaurantIdAndIdIn(UUID restaurantId, Collection<UUID> ids);
+
+    /** Ids of the subcategories of one root, within one restaurant. */
+    @Query("select c.id from Category c where c.restaurantId = :restaurantId and c.parentId = :parentId")
+    List<UUID> findIdsByRestaurantIdAndParentId(@Param("restaurantId") UUID restaurantId, @Param("parentId") UUID parentId);
 }

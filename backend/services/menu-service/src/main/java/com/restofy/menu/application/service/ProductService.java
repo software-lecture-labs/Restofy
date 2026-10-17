@@ -3,11 +3,9 @@ package com.restofy.menu.application.service;
 import com.restofy.menu.application.security.AdminAccess;
 import com.restofy.menu.application.security.AuthenticatedActor;
 import com.restofy.menu.domain.entity.Product;
-import com.restofy.menu.domain.exception.CategoryNotFoundException;
 import com.restofy.menu.domain.exception.InvalidProductException;
 import com.restofy.menu.domain.exception.ProductNotFoundException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
-import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.infrastructure.persistence.repository.ProductRepository;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -25,25 +23,26 @@ import java.util.UUID;
 public class ProductService {
 
     private final ProductRepository products;
-    private final CategoryRepository categories;
+    private final CategoryPlacementResolver placements;
 
-    public ProductService(ProductRepository products, CategoryRepository categories) {
+    public ProductService(ProductRepository products, CategoryPlacementResolver placements) {
         this.products = products;
-        this.categories = categories;
+        this.placements = placements;
     }
 
     /** A new product is an active, unpublished draft in a category of the caller's restaurant. */
     @Transactional
-    public Product create(AuthenticatedActor actor, CreateProductCommand command) {
+    public ProductView create(AuthenticatedActor actor, CreateProductCommand command) {
         AuthenticatedActor admin = AdminAccess.requireAdmin(actor);
-        requireCategory(admin.restaurantId(), command.categoryId());
         var details = new Product.Details(command.name(), command.description(), command.basePrice(),
                 command.currency(), command.vatRate(), command.priceIncludesVat());
-        return save(Product.create(admin.restaurantId(), admin.userId(), command.categoryId(), details));
+        CategoryPlacement placement = requireCategory(admin.restaurantId(), command.categoryId());
+        Product created = save(Product.create(admin.restaurantId(), admin.userId(), command.categoryId(), details));
+        return new ProductView(created, placement);
     }
 
     @Transactional
-    public Product update(AuthenticatedActor actor, UUID id, UpdateProductCommand command) {
+    public ProductView update(AuthenticatedActor actor, UUID id, UpdateProductCommand command) {
         AuthenticatedActor admin = AdminAccess.requireAdmin(actor);
         if (command.changesNothing()) {
             throw new InvalidProductException("At least one product field must be provided.");
@@ -78,7 +77,7 @@ public class ProductService {
 
     /** Archive ({@code false}) or restore ({@code true}). Repeating the current state is a no-op. */
     @Transactional
-    public Product changeActive(AuthenticatedActor actor, UUID id, boolean active, long expectedVersion) {
+    public ProductView changeActive(AuthenticatedActor actor, UUID id, boolean active, long expectedVersion) {
         AuthenticatedActor admin = AdminAccess.requireAdmin(actor);
         Product product = load(admin, id, expectedVersion);
         return finish(product, product.changeActive(active), admin);
@@ -94,17 +93,21 @@ public class ProductService {
         return product;
     }
 
-    /** The category must exist in the caller's restaurant; a foreign id is a plain 404. */
-    private void requireCategory(UUID restaurantId, UUID categoryId) {
-        categories.findByIdAndRestaurantId(categoryId, restaurantId).orElseThrow(CategoryNotFoundException::new);
+    /**
+     * The category (root or subcategory) must exist in the caller's restaurant; a foreign id is a plain
+     * 404. An inactive category is accepted: the product stays a draft and is simply not customer-reachable.
+     */
+    private CategoryPlacement requireCategory(UUID restaurantId, UUID categoryId) {
+        return placements.resolve(restaurantId, categoryId);
     }
 
     /** Audit columns change only when something really changed, so a no-op keeps the version. */
-    private Product finish(Product product, boolean changed, AuthenticatedActor admin) {
+    private ProductView finish(Product product, boolean changed, AuthenticatedActor admin) {
         if (changed) {
             product.recordUpdatedBy(admin.userId());
         }
-        return save(product);
+        Product saved = save(product);
+        return new ProductView(saved, placements.resolve(saved.getRestaurantId(), saved.getCategoryId()));
     }
 
     /** Flushes inside the method so a concurrent update is translated here. */

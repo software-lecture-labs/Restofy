@@ -3,15 +3,17 @@ package com.restofy.menu.api.controller;
 import com.restofy.menu.api.dto.request.ChangeProductActiveRequest;
 import com.restofy.menu.api.dto.request.CreateProductRequest;
 import com.restofy.menu.api.dto.request.UpdateProductRequest;
+import com.restofy.menu.api.dto.response.PageResponse;
 import com.restofy.menu.api.dto.response.ProductResponse;
 import com.restofy.menu.application.mapper.ProductMapper;
 import com.restofy.menu.application.security.AuthenticatedActor;
 import com.restofy.menu.application.security.CurrentActorProvider;
 import com.restofy.menu.application.service.CreateProductCommand;
+import com.restofy.menu.application.service.ProductFilter;
 import com.restofy.menu.application.service.ProductQueryService;
 import com.restofy.menu.application.service.ProductService;
+import com.restofy.menu.application.service.ProductView;
 import com.restofy.menu.application.service.UpdateProductCommand;
-import com.restofy.menu.domain.entity.Product;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
@@ -47,11 +50,28 @@ public class ProductController {
 
     @PostMapping
     public ResponseEntity<ProductResponse> create(@Valid @RequestBody CreateProductRequest request) {
-        Product created = products.create(actor(), new CreateProductCommand(request.categoryId(), request.name(),
+        ProductView created = products.create(actor(), new CreateProductCommand(request.categoryId(), request.name(),
                 request.description(), request.basePrice(), request.currency(), request.vatRate(),
                 request.priceIncludesVat()));
-        return ResponseEntity.created(URI.create("/api/v1/menu/products/" + created.getId()))
+        return ResponseEntity.created(URI.create("/api/v1/menu/products/" + created.product().getId()))
                 .body(ProductMapper.toResponse(created));
+    }
+
+    /**
+     * Management list of the caller's restaurant. {@code categoryId} may be a main category (its own
+     * products and, unless {@code directOnly=true}, those of its subcategories) or a subcategory.
+     */
+    @GetMapping
+    public PageResponse<ProductResponse> list(
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(defaultValue = "false") boolean directOnly,
+            @RequestParam(name = "isActive", required = false) Boolean isActive,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "" + ProductPageParameters.DEFAULT_SIZE) int size,
+            @RequestParam(required = false) String sort) {
+        var result = queries.list(actor(), new ProductFilter(categoryId, directOnly, isActive),
+                ProductPageParameters.of(page, size, sort));
+        return PageResponse.of(result, ProductMapper::toResponse);
     }
 
     @GetMapping("/{id}")

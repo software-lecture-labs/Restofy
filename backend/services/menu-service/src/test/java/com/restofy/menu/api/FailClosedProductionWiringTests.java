@@ -64,6 +64,10 @@ class FailClosedProductionWiringTests {
         String active = "{\"isActive\":false,\"version\":0}";
         mvc.perform(get("/api/v1/menu/products/" + id).with(user("staff")).header("X-Restaurant-Id", UUID.randomUUID())
                 .header("X-Role", "ADMIN")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/products").with(user("staff")).header("X-Restaurant-Id", UUID.randomUUID())
+                .header("X-Role", "ADMIN")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/products?categoryId=" + id + "&directOnly=true&sort=name").with(user("staff")))
+                .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/menu/products").with(user("staff")).with(csrf()).header("X-Role", "ADMIN")
                 .contentType(MediaType.APPLICATION_JSON).content(create)).andExpect(status().isUnauthorized());
         mvc.perform(patch("/api/v1/menu/products/" + id).with(user("staff")).with(csrf())
