@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,10 +31,61 @@ public final class FakeBackends {
     public record Table(UUID id, UUID restaurantId, String number, String status, UUID sessionId) {
     }
 
-    /** Test order; {@code preparation} is null, WAITING, PREPARING or READY. */
+    /**
+     * Test order; {@code preparation} is null, WAITING, PREPARING or READY, {@code payment} NOT_PAID, PENDING, PAID
+     * or UNKNOWN. The version is Order's optimistic-locking version.
+     */
     public record Order(UUID id, UUID restaurantId, UUID tableId, UUID sessionId, String number, String business,
-                        String delivery, String preparation, Instant acceptedAt, Instant readyAt, Instant servedAt) {
+                        String delivery, String preparation, Instant acceptedAt, Instant readyAt, Instant servedAt,
+                        long version, String payment) {
+
+        public Order(UUID id, UUID restaurantId, UUID tableId, UUID sessionId, String number, String business,
+                     String delivery, String preparation, Instant acceptedAt, Instant readyAt, Instant servedAt) {
+            this(id, restaurantId, tableId, sessionId, number, business, delivery, preparation, acceptedAt, readyAt,
+                    servedAt, 4, "NOT_PAID");
+        }
+
+        Order served(Instant at) {
+            return new Order(id, restaurantId, tableId, sessionId, number, business, "SERVED", preparation, acceptedAt,
+                    readyAt, at, version + 1, payment);
+        }
+
+        Order cancelled() {
+            return new Order(id, restaurantId, tableId, sessionId, number, "CANCELLED", delivery, preparation, acceptedAt,
+                    readyAt, servedAt, version + 1, payment);
+        }
+
+        public Order withPayment(String newPayment) {
+            return new Order(id, restaurantId, tableId, sessionId, number, business, delivery, preparation, acceptedAt,
+                    readyAt, servedAt, version, newPayment);
+        }
+
+        public Order withBusiness(String newBusiness) {
+            return new Order(id, restaurantId, tableId, sessionId, number, newBusiness, delivery, preparation, acceptedAt,
+                    readyAt, servedAt, version, payment);
+        }
     }
+
+    /** What the Order stub recorded for a serve command id: the request digest and Order's answer. */
+    record ServeRecord(String digest, boolean applied, int rejectionStatus, String rejectionCode) {
+    }
+
+    /** What the Order stub does wrong on the next serve command, to simulate an unreliable network or service. */
+    public enum ServeFault {
+        /** Order applies the command but the answer arrives after Waiter's read timeout. */
+        LOST_ANSWER,
+        /** Order is slow and never applies the command within Waiter's read timeout. */
+        HANG_BEFORE_APPLY,
+        /** Order answers 503 without applying the command. */
+        SERVER_ERROR,
+        /** Order rejects Waiter itself (no service identity). */
+        UNAUTHORIZED,
+        /** Order applies the command and answers 200 with an unreadable body. */
+        GARBAGE_ANSWER
+    }
+
+    /** D-02 is open: whether a partially cancelled order may be served is Order's decision, not Waiter's. */
+    public enum PartialCancellation { ALLOW, REJECT }
 
     /** A guest credential as QR would know it; the statuses are the DRAFT contract values. */
     public record Guest(String token, UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
@@ -45,7 +97,10 @@ public final class FakeBackends {
     }
 
     public final List<Table> tables = new ArrayList<>();
-    public final List<Order> orders = new ArrayList<>();
+    public final List<Order> orders = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final Map<UUID, ServeRecord> serveRecords = new HashMap<>();
+    private final java.util.Deque<ServeFault> serveFaults = new java.util.ArrayDeque<>();
+    public volatile PartialCancellation partialCancellation = PartialCancellation.ALLOW;
     /** Known guest credentials by token; an unknown token is answered with 404. */
     public final Map<String, Guest> guests = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -59,6 +114,8 @@ public final class FakeBackends {
         stub.route("POST", "/internal/v1/orders/search", this::searchOrders);
         stub.route("GET", ORDER_ID.pattern(), this::getOrder);
         stub.route("POST", "/internal/v1/guest-sessions/verify", this::verifyGuest);
+        stub.route("POST", "/internal/v1/orders/[0-9a-f-]{36}/serve", this::serveOrder);
+        stub.route("GET", "/internal/v1/orders/[0-9a-f-]{36}/serve-commands/[0-9a-f-]{36}", this::serveStatus);
         return this;
     }
 
@@ -112,6 +169,122 @@ public final class FakeBackends {
             json.put("currentSession", session);
         }
         return json;
+    }
+
+    // ----- Order: the serve command (DRAFT contract) -----
+
+    public synchronized void failNextServe(ServeFault fault) {
+        serveFaults.add(fault);
+    }
+
+    /** Order-side cancellation racing with a serve command; returns false if the order was already served. */
+    public synchronized boolean cancel(UUID orderId) {
+        for (int index = 0; index < orders.size(); index++) {
+            Order order = orders.get(index);
+            if (order.id().equals(orderId)) {
+                if (order.delivery().equals("SERVED") || order.business().equals("CANCELLED")) return false;
+                orders.set(index, order.cancelled());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public synchronized Order order(UUID orderId) {
+        return orders.stream().filter(o -> o.id().equals(orderId)).findFirst().orElseThrow();
+    }
+
+    private static final Pattern SERVE_PATH = Pattern.compile("/internal/v1/orders/([0-9a-f-]{36})/serve");
+    private static final Pattern SERVE_STATUS_PATH =
+            Pattern.compile("/internal/v1/orders/([0-9a-f-]{36})/serve-commands/([0-9a-f-]{36})");
+
+    /**
+     * Decides atomically (the whole method is one critical section, as Order's database transaction must be):
+     * ownership, session, version, state, and idempotency by command id. This models the behaviour the DRAFT
+     * contract demands from Order; it does not prove that the real Order will provide it.
+     */
+    private synchronized Response serveOrder(Request request) {
+        ServeFault fault = serveFaults.poll();
+        if (fault == ServeFault.SERVER_ERROR) return Response.json(503, "{}");
+        if (fault == ServeFault.UNAUTHORIZED) return Response.json(401, "{}");
+        if (fault == ServeFault.HANG_BEFORE_APPLY) return Response.json(504, "{}").delayed(1500);
+        Matcher match = SERVE_PATH.matcher(request.path());
+        match.matches();
+        UUID orderId = UUID.fromString(match.group(1));
+        JsonNode body = read(request.body());
+        UUID commandId = UUID.fromString(body.get("commandId").asString());
+        if (!commandId.toString().equals(request.header("Idempotency-Key"))) return rejection(400, "ORDER_REJECTED");
+        UUID restaurantId = UUID.fromString(body.get("restaurantId").asString());
+        UUID sessionId = UUID.fromString(body.get("tableSessionId").asString());
+        long expectedVersion = body.get("expectedVersion").asLong();
+        String digest = orderId + "|" + sessionId + "|" + expectedVersion + "|" + body.get("requestedByUserId").asString();
+
+        ServeRecord known = serveRecords.get(commandId);
+        if (known != null) {
+            if (!known.digest().equals(digest)) return rejection(409, "ORDER_COMMAND_CONFLICT");
+            if (!known.applied()) return rejection(known.rejectionStatus(), known.rejectionCode());
+            return Response.json(200, write(serveAnswer(commandId, "DUPLICATE", order(orderId))));
+        }
+        int index = indexOf(orderId, restaurantId);
+        if (index < 0) return rejection(404, "ORDER_NOT_FOUND");   // not recorded: nothing to replay
+        Order order = orders.get(index);
+        String refusal = refusalFor(order, sessionId, expectedVersion);
+        if (refusal != null) {
+            serveRecords.put(commandId, new ServeRecord(digest, false, 409, refusal));
+            return rejection(409, refusal);
+        }
+        orders.set(index, order.served(Instant.parse("2026-10-16T10:30:00Z")));
+        serveRecords.put(commandId, new ServeRecord(digest, true, 0, null));
+        Response answer = fault == ServeFault.GARBAGE_ANSWER ? Response.json(200, "not json")
+                : Response.json(200, write(serveAnswer(commandId, "APPLIED", orders.get(index))));
+        return fault == ServeFault.LOST_ANSWER ? answer.delayed(1500) : answer;
+    }
+
+    private String refusalFor(Order order, UUID sessionId, long expectedVersion) {
+        if (!order.sessionId().equals(sessionId)) return "ORDER_SESSION_MISMATCH";
+        if (order.version() != expectedVersion) return "ORDER_VERSION_CONFLICT";
+        if (order.delivery().equals("SERVED")) return "ORDER_ALREADY_SERVED";
+        if (order.business().equals("CANCELLED")) return "ORDER_CANCELLED";
+        if (!"READY".equals(order.preparation())) return "ORDER_NOT_READY";
+        if (order.business().equals("PARTIALLY_CANCELLED") && partialCancellation == PartialCancellation.REJECT) {
+            return "ORDER_NOT_DELIVERABLE";
+        }
+        return null;   // A PAID order is not refused: prepayment neither blocks nor requires serving.
+    }
+
+    private int indexOf(UUID orderId, UUID restaurantId) {
+        for (int index = 0; index < orders.size(); index++) {
+            Order order = orders.get(index);
+            if (order.id().equals(orderId) && order.restaurantId().equals(restaurantId)) return index;
+        }
+        return -1;
+    }
+
+    private static Map<String, Object> serveAnswer(UUID commandId, String outcome, Order order) {
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("commandId", commandId);
+        answer.put("outcome", outcome);
+        answer.put("order", orderJson(order));
+        return answer;
+    }
+
+    private static Response rejection(int status, String code) {
+        return Response.json(status, write(Map.of("status", status, "code", code)));
+    }
+
+    private synchronized Response serveStatus(Request request) {
+        Matcher match = SERVE_STATUS_PATH.matcher(request.path());
+        match.matches();
+        UUID orderId = UUID.fromString(match.group(1));
+        UUID commandId = UUID.fromString(match.group(2));
+        ServeRecord known = serveRecords.get(commandId);
+        if (known == null) return Response.json(404, "{\"status\":404}");
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("commandId", commandId);
+        answer.put("status", known.applied() ? "APPLIED" : "REJECTED");
+        answer.put("rejectionCode", known.rejectionCode());
+        answer.put("order", known.applied() ? orderJson(order(orderId)) : null);
+        return Response.json(200, write(answer));
     }
 
     private Response verifyGuest(Request request) {
@@ -222,15 +395,28 @@ public final class FakeBackends {
             prep.put("asOf", Instant.parse("2026-10-16T10:00:00Z"));
             json.put("preparation", prep);
         }
-        json.put("payment", Map.of("status", "NOT_PAID", "sourceVersion", 1, "asOf", Instant.parse("2026-10-16T10:00:00Z")));
+        json.put("payment", Map.of("status", o.payment(), "sourceVersion", 1, "asOf", Instant.parse("2026-10-16T10:00:00Z")));
         json.put("currency", "TRY");
         json.put("originalGrossTotal", new BigDecimal("150.00"));
-        json.put("cancelledGrossTotal", o.business().equals("CANCELLED") ? new BigDecimal("150.00") : BigDecimal.ZERO);
-        json.put("payableTotal", o.business().equals("CANCELLED") ? BigDecimal.ZERO : new BigDecimal("150.00"));
+        json.put("cancelledGrossTotal", cancelledGross(o));
+        json.put("payableTotal", new BigDecimal("150.00").subtract(cancelledGross(o)));
         json.put("items", List.of(item(o)));
-        json.put("cancellations", o.business().equals("CANCELLED") ? List.of(cancellation(o)) : List.of());
-        json.put("version", 4);
+        json.put("cancellations", cancelledQuantity(o) > 0 ? List.of(cancellation(o)) : List.of());
+        json.put("version", o.version());
         return json;
+    }
+
+    /** Of the two portions on the line: all for a cancelled order, one for a partially cancelled order. */
+    private static int cancelledQuantity(Order o) {
+        return switch (o.business()) {
+            case "CANCELLED" -> 2;
+            case "PARTIALLY_CANCELLED" -> 1;
+            default -> 0;
+        };
+    }
+
+    private static BigDecimal cancelledGross(Order o) {
+        return new BigDecimal("75.00").multiply(BigDecimal.valueOf(cancelledQuantity(o)));
     }
 
     private static Map<String, Object> item(Order o) {
@@ -239,7 +425,7 @@ public final class FakeBackends {
         item.put("productId", UUID.nameUUIDFromBytes("product".getBytes()));
         item.put("productName", "Izgara Köfte");
         item.put("quantity", 2);
-        item.put("cancelledQuantity", o.business().equals("CANCELLED") ? 2 : 0);
+        item.put("cancelledQuantity", cancelledQuantity(o));
         item.put("unitGrossPrice", new BigDecimal("75.00"));
         item.put("lineGrossTotal", new BigDecimal("150.00"));
         item.put("note", "Az pişmiş, soğansız");
@@ -258,7 +444,8 @@ public final class FakeBackends {
         cancellation.put("reasonText", "Köfte bitti");
         cancellation.put("requestedAt", Instant.parse("2026-10-16T09:50:00Z"));
         cancellation.put("decidedAt", Instant.parse("2026-10-16T09:51:00Z"));
-        cancellation.put("items", List.of(Map.of("orderItemId", UUID.nameUUIDFromBytes(("item-" + o.id()).getBytes()), "quantity", 2)));
+        cancellation.put("items", List.of(Map.of("orderItemId", UUID.nameUUIDFromBytes(("item-" + o.id()).getBytes()),
+                "quantity", cancelledQuantity(o))));
         return cancellation;
     }
 
