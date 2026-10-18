@@ -214,6 +214,26 @@ class ProductSchemaPostgresIntegrationTests {
     }
 
     @Test
+    void imageUrlIsOptionalDefaultsToNullAndRoundTripsThroughTheEntity() {
+        UUID category = insertCategory(RESTAURANT_A, "Drinks");
+        UUID id = insertProduct(RESTAURANT_A, category, "Tea");
+        assertNull(jdbc.queryForObject("SELECT image_url FROM products WHERE id = ?", String.class, id));
+        Product product = repository.findByIdAndRestaurantId(id, RESTAURANT_A).orElseThrow();
+        assertNull(product.getImageUrl());
+        assertTrue(product.changeImageUrl("https://images.example/tea.png"));
+        repository.saveAndFlush(product);
+        entityManager.clear();
+        assertEquals("https://images.example/tea.png", repository.findByIdAndRestaurantId(id, RESTAURANT_A).orElseThrow().getImageUrl());
+        Product loaded = repository.findByIdAndRestaurantId(id, RESTAURANT_A).orElseThrow();
+        assertTrue(loaded.clearImage());
+        assertFalse(loaded.clearImage(), "clearing twice is a no-op");
+        repository.saveAndFlush(loaded);
+        entityManager.clear();
+        assertNull(repository.findByIdAndRestaurantId(id, RESTAURANT_A).orElseThrow().getImageUrl());
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM products WHERE id = ?", Integer.class, id), "the row survives");
+    }
+
+    @Test
     void ingredientsTextIsOptionalAndDefaultsToNull() {
         UUID id = insertProduct(RESTAURANT_A, insertCategory(RESTAURANT_A, "Drinks"), "Tea");
         assertNull(jdbc.queryForObject("SELECT ingredients_text FROM products WHERE id = ?", String.class, id));

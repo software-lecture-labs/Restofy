@@ -286,4 +286,30 @@ class ProductTests {
         assertThrows(InvalidProductException.class, () -> p.changeIngredientsText("x\u0000"));
         assertNull(p.getIngredientsText(), "a refused change leaves the value as it was");
     }
+
+    @Test
+    void imageReferenceCanBeSetReplacedAndClearedWithoutTouchingAnythingElse() {
+        Product p = product();
+        assertNull(p.getImageUrl());
+        assertFalse(p.clearImage(), "nothing to clear");
+        assertTrue(p.changeImageUrl("https://images.example/a.png"));
+        assertFalse(p.changeImageUrl("https://images.example/a.png"));
+        assertTrue(p.changeImageUrl("https://images.example/b.png"));
+        assertEquals(new BigDecimal("12.5000"), p.getBasePrice());
+        assertEquals("Grilled", p.getDescription());
+        assertTrue(p.isActive());
+        assertFalse(p.isPublished());
+        assertTrue(p.clearImage());
+        assertNull(p.getImageUrl());
+    }
+
+    @Test
+    void theEntityStillGuardsTheShapeOfAnImageReference() {
+        Product p = product();
+        String tooLong = "https://images.example/" + "a".repeat(2030) + ".png";
+        for (String bad : new String[] {null, "", "   ", tooLong, "https://images.example/a\u0000.png"}) {
+            assertThrows(InvalidProductException.class, () -> p.changeImageUrl(bad));
+        }
+        assertNull(p.getImageUrl(), "a refused value leaves the field as it was");
+    }
 }

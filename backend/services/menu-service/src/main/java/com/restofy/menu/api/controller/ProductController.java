@@ -85,8 +85,8 @@ public class ProductController {
     public ProductResponse update(@AdminActor AuthenticatedActor actor, @PathVariable UUID id,
             @Valid @RequestBody UpdateProductRequest request) {
         return ProductMapper.toResponse(products.update(actor, id, new UpdateProductCommand(request.categoryId(),
-                request.name(), request.description(), request.ingredientsText(), request.basePrice(), request.currency(),
-                request.vatRate(), request.priceIncludesVat(), request.version())));
+                request.name(), request.description(), request.ingredientsText(), request.imageUrl(), request.basePrice(),
+                request.currency(), request.vatRate(), request.priceIncludesVat(), request.version())));
     }
 
     @PatchMapping("/{id}/active")

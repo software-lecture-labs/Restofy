@@ -85,6 +85,19 @@ class ProductFieldContractPostgresTests {
     }
 
     @Test
+    void imageUrlIsAnOptionalTextColumnWithoutADefaultAndTheDtoBoundsIt() {
+        var db = column("image_url");
+        assertEquals("text", db.get("data_type"));
+        assertEquals("YES", db.get("is_nullable"));
+        assertNull(db.get("column_default"), "no invented default image");
+        assertEquals(2048, Product.IMAGE_URL_MAX_LENGTH);
+        assertEquals(Product.IMAGE_URL_MAX_LENGTH, component(UpdateProductRequest.class, "imageUrl").getAnnotation(Size.class).max());
+        assertNull(component(UpdateProductRequest.class, "imageUrl").getAnnotation(NotNull.class), "a partial update may omit it");
+        assertNotNull(component(CreateProductRequest.class, "imageUrl").getAnnotation(jakarta.validation.constraints.Null.class),
+                "the image is not set on create");
+    }
+
+    @Test
     void basePriceIsNumeric19_4NotNullAndTheDtoBoundsMatchIt() throws Exception {
         var db = column("base_price");
         assertEquals("numeric", db.get("data_type"));

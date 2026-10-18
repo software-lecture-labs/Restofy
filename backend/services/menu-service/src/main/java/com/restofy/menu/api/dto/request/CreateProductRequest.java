@@ -27,6 +27,7 @@ public record CreateProductRequest(
         @NotBlank @Size(max = Product.NAME_MAX_LENGTH) String name,
         @Size(max = Product.DESCRIPTION_MAX_LENGTH) String description,
         @Size(max = Product.INGREDIENTS_TEXT_MAX_LENGTH) @JsonDeserialize(using = StrictStringDeserializer.class) String ingredientsText,
+        @Null(message = "Set the image with a product update.") String imageUrl,
         @NotNull @DecimalMin("0") @Digits(integer = 15, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal basePrice,
         @NotNull @Pattern(regexp = "[A-Z]{3}", message = "must be a three-letter uppercase currency code") String currency,
         @NotNull @DecimalMin("0") @DecimalMax("100") @Digits(integer = 3, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal vatRate,

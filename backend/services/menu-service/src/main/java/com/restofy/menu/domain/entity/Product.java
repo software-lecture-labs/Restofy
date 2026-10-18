@@ -40,6 +40,7 @@ public class Product {
     public static final int NAME_MAX_LENGTH = 200;
     public static final int DESCRIPTION_MAX_LENGTH = 2000;
     public static final int INGREDIENTS_TEXT_MAX_LENGTH = 1000;
+    public static final int IMAGE_URL_MAX_LENGTH = 2048;
 
     /** Matches numeric(19,4): 15 integer digits and 4 fraction digits. */
     private static final int PRICE_SCALE = 4;
@@ -87,6 +88,13 @@ public class Product {
      */
     @Column(name = "ingredients_text", length = INGREDIENTS_TEXT_MAX_LENGTH)
     private String ingredientsText;
+
+    /**
+     * The single main image, kept only as a validated reference (an https URL of an allowed origin, checked by
+     * the application's image policy). {@code null} means no image. The service never fetches or stores the file.
+     */
+    @Column(name = "image_url", columnDefinition = "text")
+    private String imageUrl;
 
     @Column(name = "base_price", nullable = false, precision = 19, scale = PRICE_SCALE)
     private BigDecimal basePrice;
@@ -294,6 +302,27 @@ public class Product {
         return changed;
     }
 
+    /**
+     * Sets or replaces the image reference. The caller must pass a URL that already passed the image policy; this
+     * only guards the shape the database and the response rely on.
+     */
+    public boolean changeImageUrl(String validatedUrl) {
+        if (validatedUrl == null || validatedUrl.isBlank() || validatedUrl.length() > IMAGE_URL_MAX_LENGTH
+                || !SafeText.isSafe(validatedUrl, false)) {
+            throw new InvalidProductException("Image URL is not valid.");
+        }
+        boolean changed = !validatedUrl.equals(this.imageUrl);
+        this.imageUrl = validatedUrl;
+        return changed;
+    }
+
+    /** Removes the image reference only. The product itself and every other field stay as they are. */
+    public boolean clearImage() {
+        boolean changed = this.imageUrl != null;
+        this.imageUrl = null;
+        return changed;
+    }
+
     public boolean moveToCategory(UUID newCategoryId) {
         Objects.requireNonNull(newCategoryId, "categoryId");
         boolean changed = !newCategoryId.equals(this.categoryId);
@@ -377,6 +406,8 @@ public class Product {
     public String getDescription() { return description; }
 
     public String getIngredientsText() { return ingredientsText; }
+
+    public String getImageUrl() { return imageUrl; }
 
     public BigDecimal getBasePrice() { return basePrice; }
 

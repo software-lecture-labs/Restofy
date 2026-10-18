@@ -34,15 +34,17 @@ public class ProductService {
     private final ProductAvailabilityRepository availabilities;
     private final ProductAvailabilityHistoryRepository histories;
     private final ProductViewAssembler views;
+    private final ProductImagePolicy images;
 
     public ProductService(ProductRepository products, CategoryPlacementResolver placements,
             ProductAvailabilityRepository availabilities, ProductAvailabilityHistoryRepository histories,
-            ProductViewAssembler views) {
+            ProductViewAssembler views, ProductImagePolicy images) {
         this.products = products;
         this.placements = placements;
         this.availabilities = availabilities;
         this.histories = histories;
         this.views = views;
+        this.images = images;
     }
 
     /**
@@ -85,6 +87,9 @@ public class ProductService {
         if (command.ingredientsText() != null) {
             changed |= product.changeIngredientsText(command.ingredientsText());
         }
+        if (command.imageUrl() != null) {
+            changed |= changeImage(product, command.imageUrl());
+        }
         if (command.basePrice() != null) {
             changed |= product.changeBasePrice(command.basePrice());
         }
@@ -98,6 +103,15 @@ public class ProductService {
             changed |= product.changePriceIncludesVat(command.priceIncludesVat());
         }
         return finish(product, changed, admin);
+    }
+
+    /**
+     * Image reference: a blank value removes it (a no-op when there is none), anything else must pass the image
+     * policy and is stored in its canonical form. Nothing is fetched and no other field is touched.
+     */
+    private boolean changeImage(Product product, String raw) {
+        String candidate = raw.strip();
+        return candidate.isEmpty() ? product.clearImage() : product.changeImageUrl(images.normalize(candidate));
     }
 
     /** Archive ({@code false}) or restore ({@code true}). Repeating the current state is a no-op. */

@@ -29,6 +29,7 @@ public final class ProductMapper {
                 product.getName(),
                 product.getDescription(),
                 product.getIngredientsText(),
+                product.getImageUrl(),
                 product.getBasePrice(),
                 product.getCurrency(),
                 product.getVatRate(),
