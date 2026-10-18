@@ -68,7 +68,7 @@ public class QrPayloadCodec {
         }
     }
 
-    // Internal storage primitive; no public redisplay endpoint is added in QR-02.1.
+    // Internal storage primitive used only after the management tenant scope is verified.
     public String decrypt(String payload, UUID restaurantId, UUID tableId, UUID qrId) {
         if (payload == null || !payload.matches("v1:[A-Za-z0-9_-]{95}")) {
             throw new IllegalStateException("QR payload could not be recovered.");

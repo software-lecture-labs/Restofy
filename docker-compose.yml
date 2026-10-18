@@ -207,6 +207,7 @@ services:
       <<: *database-env
       DB_QR_NAME: ${DB_QR_NAME:?}
       QR_PAYLOAD_ENCRYPTION_KEY: ${QR_PAYLOAD_ENCRYPTION_KEY:?}
+      QR_PUBLIC_ENTRY_URL: ${QR_PUBLIC_ENTRY_URL:-}
     ports:
       - "127.0.0.1:${QR_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 

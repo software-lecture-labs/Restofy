@@ -29,7 +29,7 @@ public class QrCodeController {
 
     @PostMapping
     @Operation(summary = "Create one QR credential for an active table in the verified restaurant",
-            description = "No request body. The server generates the QR token. Image rendering/download is a later phase.")
+            description = "No request body. The server generates the QR token. Protected image and download endpoints can redisplay it.")
     public ResponseEntity<CreatedQrCodeResponse> create(@PathVariable UUID tableId) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(service.create(tableId));
     }

@@ -89,6 +89,19 @@ class QrServiceApplicationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/image", "/download", "/list"})
+    void qrMetadataCannotBeReadWithForgedHeadersOrAnUnverifiedAdminRole(String suffix) throws Exception {
+        String path = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/qr-codes/00000000-0000-0000-0000-000000000002" + suffix;
+        if (suffix.equals("/list")) {
+            path = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/qr-codes";
+        }
+        mvc.perform(get(path).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get(path).with(user("test-staff").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
 	@Test
 	void contextLoadsThroughMain() {
 	    assertThat(mvc).isNotNull();
