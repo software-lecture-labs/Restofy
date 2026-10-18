@@ -75,4 +75,25 @@ class DiningTableTests {
         assertThatThrownBy(() -> table.requireVersion(1)).isInstanceOf(TableConflictException.class);
         assertThatNullPointerException().isThrownBy(() -> new DiningTable(null, "1", null, null));
     }
+
+    @Test
+    void openingASessionOccupiesAnActiveAvailableTableAndPreventsDisablingIt() {
+        var table = new DiningTable(UUID.randomUUID(), "1", null, null);
+        table.occupy();
+        assertThat(table.isActive()).isTrue();
+        assertThat(table.getOperationalStatus()).isEqualTo(TableOperationalStatus.OCCUPIED);
+        assertThatThrownBy(table::occupy).isInstanceOf(TableConflictException.class);
+        assertThatThrownBy(() -> table.changeActive(false)).isInstanceOf(TableConflictException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DISABLED", "OCCUPIED", "CLEANING"})
+    void unavailableOperationalStatesCannotBeOccupiedAgain(String state) {
+        var table = new DiningTable(UUID.randomUUID(), "1", null, null);
+        var status = TableOperationalStatus.valueOf(state);
+        ReflectionTestUtils.setField(table, "operationalStatus", status);
+        ReflectionTestUtils.setField(table, "active", status != TableOperationalStatus.DISABLED);
+        assertThatThrownBy(table::occupy).isInstanceOf(TableConflictException.class);
+        assertThat(table.getOperationalStatus()).isEqualTo(status);
+    }
 }

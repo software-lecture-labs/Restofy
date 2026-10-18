@@ -82,6 +82,13 @@ public class DiningTable {
         this.operationalStatus = enabled ? TableOperationalStatus.AVAILABLE : TableOperationalStatus.DISABLED;
     }
 
+    public void occupy() {
+        if (!active || operationalStatus != TableOperationalStatus.AVAILABLE) {
+            throw new TableConflictException("Only an active available table can open a main session.");
+        }
+        operationalStatus = TableOperationalStatus.OCCUPIED;
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

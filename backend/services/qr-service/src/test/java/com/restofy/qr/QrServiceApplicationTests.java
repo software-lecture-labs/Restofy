@@ -119,4 +119,16 @@ class QrServiceApplicationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void mainSessionOpeningStaysClosedForAnonymousForgedAndUnverifiedStaffRequests() throws Exception {
+        String body = "{\"qrToken\":\"" + "A".repeat(43) + "\"}";
+        mvc.perform(post("/api/v1/qr/table-sessions/open").with(csrf()).header("X-Restaurant-Id", "forged")
+                .header("X-Role", "ADMIN").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/qr/table-sessions/open").with(csrf()).with(user("test-staff").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/qr/table-sessions/open").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+    }
+
 }
