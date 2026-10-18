@@ -3,10 +3,17 @@ package com.restofy.waiter.application.mapper;
 import com.restofy.waiter.api.dto.response.GuestCallResponse;
 import com.restofy.waiter.api.dto.response.NotificationSyncResponse;
 import com.restofy.waiter.api.dto.response.OrderResponse;
+import com.restofy.waiter.api.dto.response.PendingCommandResponse;
+import com.restofy.waiter.api.dto.response.TableCommandResponse;
 import com.restofy.waiter.api.dto.response.ServeCommandResponse;
 import com.restofy.waiter.api.dto.response.ServiceCallResponse;
 import com.restofy.waiter.application.service.OrderServeService;
+import com.restofy.waiter.application.service.TableCommandService;
 import com.restofy.waiter.domain.entity.OrderServeCommand;
+import com.restofy.waiter.domain.entity.TableCommand;
+import com.restofy.waiter.domain.enums.TableCommandStatus;
+import com.restofy.waiter.domain.enums.TableCommandType;
+import com.restofy.waiter.domain.enums.TableOperationalStatus;
 import com.restofy.waiter.api.dto.response.ServiceRequestResponse;
 import com.restofy.waiter.api.dto.response.TableSessionResponse;
 import com.restofy.waiter.api.dto.response.TableSummaryResponse;
@@ -39,10 +46,30 @@ public final class WaiterMapper {
         return unresolved.stream().anyMatch(request -> request.getRequestType() == ServiceRequestType.BILL);
     }
 
-    public static TableSummaryResponse toSummary(QrTableDto table, int activeOrderCount, List<ServiceRequest> unresolved) {
+    public static TableSummaryResponse toSummary(QrTableDto table, int activeOrderCount, List<ServiceRequest> unresolved,
+                                                 PendingCommandResponse pendingCommand) {
+        boolean ready = table.active() && table.operationalStatus() == TableOperationalStatus.AVAILABLE
+                && table.currentSession() == null;
         return new TableSummaryResponse(table.id(), table.tableNumber(), table.displayName(), table.capacity(),
                 table.active(), table.operationalStatus(), toSession(table.currentSession()), activeOrderCount,
-                openCallCount(unresolved), billRequested(unresolved));
+                openCallCount(unresolved), billRequested(unresolved), table.version(), ready, pendingCommand);
+    }
+
+    public static TableCommandResponse toTableCommand(TableCommandService.Result result) {
+        TableCommand command = result.command();
+        boolean completed = command.getStatus() == TableCommandStatus.COMPLETED;
+        TableCommandResponse.Closure closure = completed && command.getType() == TableCommandType.CLOSE
+                ? new TableCommandResponse.Closure(command.getQrClosedAt(), command.getEndedGuestSessions(),
+                command.getCancelledCallCount()) : null;
+        TableCommandResponse.Cleaning cleaning = completed && command.getType() == TableCommandType.CLEAN
+                ? new TableCommandResponse.Cleaning(command.getTableVersionAfter(), Boolean.TRUE.equals(command.getReadyForNewCustomer()))
+                : null;
+        List<String> blockers = command.getRejectionDetail() == null ? List.of()
+                : List.of(command.getRejectionDetail().split(","));
+        return new TableCommandResponse(command.getId(), command.getType(), command.getTableId(),
+                command.getTableSessionId(), command.getExpectedVersion(), command.getStatus(),
+                command.getRejectionCode(), blockers, command.getCreatedAt(), command.getCompletedAt(),
+                result.reconciliation(), closure, cleaning);
     }
 
     public static ServiceRequestResponse toServiceRequest(ServiceRequest request) {
@@ -64,7 +91,9 @@ public final class WaiterMapper {
     public static ServiceCallResponse toCall(ServiceRequest call, NotificationDeliveries.Sync sync) {
         return new ServiceCallResponse(call.getId(), call.getTableId(), call.getTableSessionId(), call.getRequestType(),
                 call.getStatus(), call.getMessage(), call.getCreatedAt(), call.getClaimedByUserId(), call.getClaimedAt(),
-                call.getResolvedByUserId(), call.getResolvedAt(), call.getVersion(), NotificationSyncResponse.from(sync));
+                call.getResolvedByUserId(), call.getResolvedAt(), call.getVersion(),
+                call.getClosureReason() == null ? null : call.getClosureReason().name(), call.getCancelledAt(),
+                NotificationSyncResponse.from(sync));
     }
 
     public static GuestCallResponse toGuestCall(ServiceRequest call) {
@@ -95,7 +124,7 @@ public final class WaiterMapper {
 
     private static TableSessionResponse toSession(QrSessionDto session) {
         return session == null ? null : new TableSessionResponse(session.id(), session.status(), session.openedAt(),
-                session.lastActivityAt(), session.scanCount());
+                session.lastActivityAt(), session.scanCount(), session.version());
     }
 
     private static OrderResponse.Item toItem(OrderItemDto item) {

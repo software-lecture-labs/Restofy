@@ -2,10 +2,13 @@ package com.restofy.waiter.application.service;
 
 import com.restofy.waiter.api.dto.response.OrderResponse;
 import com.restofy.waiter.api.dto.response.PageResponse;
+import com.restofy.waiter.api.dto.response.PendingCommandResponse;
 import com.restofy.waiter.api.dto.response.TableDetailResponse;
 import com.restofy.waiter.api.dto.response.TableSummaryResponse;
 import com.restofy.waiter.application.mapper.WaiterMapper;
 import com.restofy.waiter.domain.entity.ServiceRequest;
+import com.restofy.waiter.domain.entity.TableCommand;
+import com.restofy.waiter.domain.enums.TableCommandStatus;
 import com.restofy.waiter.domain.enums.OrderView;
 import com.restofy.waiter.domain.enums.ServiceRequestStatus;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
@@ -15,9 +18,11 @@ import com.restofy.waiter.infrastructure.client.qr.QrClient;
 import com.restofy.waiter.infrastructure.client.qr.QrSessionDto;
 import com.restofy.waiter.infrastructure.client.qr.QrTableDto;
 import com.restofy.waiter.infrastructure.persistence.repository.ServiceRequestRepository;
+import com.restofy.waiter.infrastructure.persistence.repository.TableCommandRepository;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -36,13 +41,15 @@ public class TableQueryService {
     private final OrderClient orders;
     private final ServiceRequestRepository serviceRequests;
     private final ServeCommandHints serveCommands;
+    private final TableCommandRepository tableCommands;
 
     public TableQueryService(QrClient qr, OrderClient orders, ServiceRequestRepository serviceRequests,
-                             ServeCommandHints serveCommands) {
+                             ServeCommandHints serveCommands, TableCommandRepository tableCommands) {
         this.qr = qr;
         this.orders = orders;
         this.serviceRequests = serviceRequests;
         this.serveCommands = serveCommands;
+        this.tableCommands = tableCommands;
     }
 
     public PageResponse<TableSummaryResponse> listTables(AuthenticatedStaff staff, TableFilter filter, PageParams page) {
@@ -101,11 +108,18 @@ public class TableQueryService {
                 : serviceRequests.findByRestaurantIdAndTableSessionIdInAndStatusInOrderByCreatedAtAscIdAsc(
                         restaurantId, sessionIds, ServiceRequestStatus.UNRESOLVED).stream()
                 .collect(Collectors.groupingBy(ServiceRequest::getTableSessionId));
-        return new Facts(activeOrders, calls);
+        // The newest command without a final answer of QR per table: one small query for the whole restaurant.
+        Map<UUID, PendingCommandResponse> pending = new HashMap<>();
+        for (TableCommand command : tableCommands.findByRestaurantIdAndStatusInOrderByCreatedAtDesc(restaurantId,
+                TableCommandStatus.OPEN)) {
+            pending.putIfAbsent(command.getTableId(), ClosureEligibilityService.pending(command));
+        }
+        return new Facts(activeOrders, calls, pending);
     }
 
     /** Per-session facts, looked up by the table's live session so earlier sessions never contribute. */
-    private record Facts(Map<UUID, Integer> activeOrders, Map<UUID, List<ServiceRequest>> calls) {
+    private record Facts(Map<UUID, Integer> activeOrders, Map<UUID, List<ServiceRequest>> calls,
+                         Map<UUID, PendingCommandResponse> pendingCommands) {
 
         List<ServiceRequest> unresolved(QrTableDto table) {
             QrSessionDto session = table.currentSession();
@@ -115,7 +129,7 @@ public class TableQueryService {
         TableSummaryResponse summary(QrTableDto table) {
             QrSessionDto session = table.currentSession();
             int active = session == null ? 0 : activeOrders.getOrDefault(session.id(), 0);
-            return WaiterMapper.toSummary(table, active, unresolved(table));
+            return WaiterMapper.toSummary(table, active, unresolved(table), pendingCommands.get(table.id()));
         }
     }
 }

@@ -5,19 +5,20 @@ import com.restofy.waiter.domain.enums.ActorType;
 import com.restofy.waiter.domain.enums.CallEventType;
 import com.restofy.waiter.domain.enums.ServiceRequestStatus;
 import com.restofy.waiter.domain.enums.ServiceRequestType;
+import com.restofy.waiter.domain.enums.TableCommandStatus;
+import com.restofy.waiter.domain.enums.TableCommandType;
 import com.restofy.waiter.domain.exception.CallConflictException;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
-import com.restofy.waiter.infrastructure.client.notification.ServiceCallEventDto;
 import com.restofy.waiter.infrastructure.persistence.repository.CallLedger;
 import com.restofy.waiter.infrastructure.persistence.repository.CallLedger.IdempotencyRecord;
 import com.restofy.waiter.infrastructure.persistence.repository.ServiceRequestRepository;
+import com.restofy.waiter.infrastructure.persistence.repository.TableCommandRepository;
 import com.restofy.waiter.infrastructure.security.AuthenticatedGuest;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -50,16 +51,18 @@ public class CallCommandService {
 
     private final ServiceRequestRepository calls;
     private final CallLedger ledger;
+    private final CallEvents events;
+    private final TableCommandRepository tableCommands;
     private final TransactionTemplate transaction;
-    private final JsonMapper json;
     private final Clock clock;
 
-    public CallCommandService(ServiceRequestRepository calls, CallLedger ledger, TransactionTemplate transaction,
-                              JsonMapper json, Clock clock) {
+    public CallCommandService(ServiceRequestRepository calls, CallLedger ledger, CallEvents events,
+                              TableCommandRepository tableCommands, TransactionTemplate transaction, Clock clock) {
         this.calls = calls;
         this.ledger = ledger;
+        this.events = events;
+        this.tableCommands = tableCommands;
         this.transaction = transaction;
-        this.json = json;
         this.clock = clock;
     }
 
@@ -76,6 +79,12 @@ public class CallCommandService {
         return atomically(() -> {
             Optional<IdempotencyRecord> prior = ledger.findIdempotency(verified.restaurantId(), scope, "CREATE", key);
             if (prior.isPresent()) return replay(verified.restaurantId(), prior.get(), digest);
+            // QR already refused guests of a closed session; this is the second line for a session whose closure
+            // QR confirmed to Waiter, so no new call can attach itself to it.
+            if (tableCommands.existsByRestaurantIdAndTableSessionIdAndTypeAndStatus(verified.restaurantId(),
+                    verified.tableSessionId(), TableCommandType.CLOSE, TableCommandStatus.COMPLETED)) {
+                throw new CallConflictException("SESSION_NOT_ACTIVE", "The table session is closed");
+            }
             Instant now = now();
             Optional<ServiceRequest> active = calls.findFirstByRestaurantIdAndGuestSessionIdAndRequestTypeAndStatusIn(
                     verified.restaurantId(), verified.guestSessionId(), type, ServiceRequestStatus.UNRESOLVED);
@@ -143,10 +152,7 @@ public class CallCommandService {
 
     private void record(ServiceRequest call, CallEventType type, ServiceRequestStatus from, ActorType actorType,
                         UUID actorId, Instant now) {
-        UUID eventId = UUID.randomUUID();
-        String payload = json.writeValueAsString(ServiceCallEventDto.of(eventId, type, now, call));
-        ledger.appendEvent(eventId, call.getRestaurantId(), call.getId(), call.getVersion(), type, from,
-                call.getStatus(), actorType, actorId, now, payload);
+        events.record(call, type, from, actorType, actorId, now);
     }
 
     private <T> T atomically(Supplier<T> work) {

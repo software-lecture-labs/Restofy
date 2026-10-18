@@ -15,16 +15,21 @@ public final class CallMessage {
     }
 
     public static String normalize(String raw) {
+        return normalize(raw, "message");
+    }
+
+    /** The same rules for another free-text field (for example the reason of a manual table closure). */
+    public static String normalize(String raw, String field) {
         if (raw == null) return null;
         String text = raw.strip();
         if (text.codePoints().allMatch(CallMessage::invisible)) {
-            throw new InvalidRequestException("message must not be blank");
+            throw new InvalidRequestException(field + " must not be blank");
         }
         if (text.codePointCount(0, text.length()) > MAX_LENGTH) {
-            throw new InvalidRequestException("message must be at most " + MAX_LENGTH + " characters");
+            throw new InvalidRequestException(field + " must be at most " + MAX_LENGTH + " characters");
         }
         if (text.codePoints().anyMatch(Character::isISOControl)) {
-            throw new InvalidRequestException("message must not contain control characters");
+            throw new InvalidRequestException(field + " must not contain control characters");
         }
         return text;
     }

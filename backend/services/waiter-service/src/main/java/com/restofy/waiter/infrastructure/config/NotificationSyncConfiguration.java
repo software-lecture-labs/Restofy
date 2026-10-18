@@ -7,9 +7,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.time.Clock;
 
-/** Clock for audit timestamps and retry scheduling, the dispatcher policy and the background trigger. */
+/** Clock for audit timestamps and retry scheduling, the background policies and the background triggers. */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(NotificationDispatcherProperties.class)
+@EnableConfigurationProperties({NotificationDispatcherProperties.class, TableCommandReconcilerProperties.class})
 @EnableScheduling
 public class NotificationSyncConfiguration {
 
