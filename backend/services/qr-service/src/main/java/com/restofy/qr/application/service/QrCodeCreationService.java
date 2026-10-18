@@ -1,7 +1,7 @@
 package com.restofy.qr.application.service;
 
 import com.restofy.qr.api.dto.response.CreatedQrCodeResponse;
-import com.restofy.qr.api.dto.request.RotateQrCodeRequest;
+import com.restofy.qr.api.dto.request.QrCodeVersionRequest;
 import com.restofy.qr.domain.entity.QrCode;
 import com.restofy.qr.domain.enums.QrCodeStatus;
 import com.restofy.qr.domain.exception.QrCodeConflictException;
@@ -33,7 +33,7 @@ public class QrCodeCreationService {
     @Transactional
     public CreatedQrCodeResponse create(UUID tableId) {
         UUID restaurantId = access.requireRestaurantId();
-        var table = tables.findForQrCreation(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
+        var table = tables.findForQrManagement(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
         if (!table.isActive() || codes.existsByRestaurantIdAndTableIdAndStatus(restaurantId, tableId, QrCodeStatus.ACTIVE)) {
             throw new QrCodeConflictException();
         }
@@ -41,9 +41,9 @@ public class QrCodeCreationService {
     }
 
     @Transactional
-    public CreatedQrCodeResponse rotate(UUID tableId, UUID qrId, RotateQrCodeRequest request) {
+    public CreatedQrCodeResponse rotate(UUID tableId, UUID qrId, QrCodeVersionRequest request) {
         UUID restaurantId = access.requireRestaurantId();
-        var table = tables.findForQrCreation(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
+        var table = tables.findForQrManagement(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
         if (!table.isActive()) {
             throw new QrCodeConflictException();
         }

@@ -25,7 +25,9 @@ class TableValidationTests {
                 new UpdateTableRequest("1", null, 1, null), new UpdateTableRequest("1", null, 1, -1L),
                 new ChangeTableActiveRequest(null, 0L), new ChangeTableActiveRequest(true, null),
                 new ChangeTableActiveRequest(false, -1L),
-                new RotateQrCodeRequest(null), new RotateQrCodeRequest(-1L));
+                new QrCodeVersionRequest(null), new QrCodeVersionRequest(-1L),
+                new ChangeQrCodeActiveRequest(null, 0L), new ChangeQrCodeActiveRequest(true, null),
+                new ChangeQrCodeActiveRequest(false, -1L));
     }
 
     @ParameterizedTest
@@ -39,6 +41,7 @@ class TableValidationTests {
         assertThat(VALIDATOR.validate(new CreateTableRequest("x".repeat(40), "x".repeat(120), 1))).isEmpty();
         assertThat(VALIDATOR.validate(new UpdateTableRequest("1", null, null, 0L))).isEmpty();
         assertThat(VALIDATOR.validate(new ChangeTableActiveRequest(false, 0L))).isEmpty();
-        assertThat(VALIDATOR.validate(new RotateQrCodeRequest(0L))).isEmpty();
+        assertThat(VALIDATOR.validate(new QrCodeVersionRequest(0L))).isEmpty();
+        assertThat(VALIDATOR.validate(new ChangeQrCodeActiveRequest(false, 0L))).isEmpty();
     }
 }

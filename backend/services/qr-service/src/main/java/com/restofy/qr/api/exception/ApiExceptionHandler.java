@@ -20,7 +20,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler({TableConflictException.class, OptimisticLockingFailureException.class, DataIntegrityViolationException.class})
     ProblemDetail conflict(Exception exception) {
-        return problem(HttpStatus.CONFLICT, "Table update conflicts with the current data. Reload and retry.");
+        return problem(HttpStatus.CONFLICT, "The operation conflicts with the current data. Reload and retry.");
     }
 
     @ExceptionHandler(QrCodeConflictException.class)

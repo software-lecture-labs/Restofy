@@ -1,11 +1,14 @@
 package com.restofy.qr;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
@@ -66,6 +69,23 @@ class QrServiceApplicationTests {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
                 .andExpect(status().isForbidden());
         mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PATCH", "DELETE"})
+    void qrLifecycleStaysClosedWithForgedContextDefaultRolesAndMissingCsrf(String method) throws Exception {
+        String base = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/qr-codes/00000000-0000-0000-0000-000000000002";
+        String path = method.equals("PATCH") ? base + "/active" : base;
+        mvc.perform(request(HttpMethod.valueOf(method), path).queryParam("version", "0").with(csrf())
+                .header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"isActive\":false,\"version\":0}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(request(HttpMethod.valueOf(method), path).queryParam("version", "0").with(csrf())
+                .with(user("test-staff").roles("ADMIN")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"isActive\":false,\"version\":0}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(request(HttpMethod.valueOf(method), path).queryParam("version", "0"))
                 .andExpect(status().isForbidden());
     }
 

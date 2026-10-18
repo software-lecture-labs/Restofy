@@ -40,6 +40,24 @@ class QrCodeTests {
         assertThat(code.getTokenDigest()).isEqualTo(digest);
         assertThat(code.getEncryptedPayload()).isEqualTo(payload);
         assertThatThrownBy(() -> code.revoke(0)).isInstanceOf(QrCodeConflictException.class);
+        assertThatThrownBy(() -> code.changeActive(true, 0)).isInstanceOf(QrCodeConflictException.class);
+        assertThatThrownBy(() -> code.changeActive(false, 0)).isInstanceOf(QrCodeConflictException.class);
+    }
+
+    @Test
+    void reversibleDeactivationPreservesCredentialAndCannotBeRotatedWhileInactive() {
+        var code = new QrCode(id, restaurant, table, digest, payload);
+        code.changeActive(false, 0);
+        code.changeActive(false, 0);
+        assertThat(code.getStatus()).isEqualTo(QrCodeStatus.INACTIVE);
+        assertThat(code.getRevokedAt()).isNull();
+        assertThatThrownBy(() -> code.revoke(0)).isInstanceOf(QrCodeConflictException.class);
+        code.changeActive(true, 0);
+        code.changeActive(true, 0);
+        assertThat(code.getStatus()).isEqualTo(QrCodeStatus.ACTIVE);
+        assertThat(code.getTokenDigest()).isEqualTo(digest);
+        assertThat(code.getEncryptedPayload()).isEqualTo(payload);
+        assertThatThrownBy(() -> code.changeActive(false, 1)).isInstanceOf(QrCodeConflictException.class);
     }
 
     @ParameterizedTest

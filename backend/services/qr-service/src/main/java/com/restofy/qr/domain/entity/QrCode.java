@@ -48,8 +48,23 @@ public class QrCode {
         this.issuedAt = Instant.now();
     }
 
+    public void requireVersion(long expectedVersion) {
+        if (expectedVersion < 0 || version != expectedVersion) {
+            throw new QrCodeConflictException();
+        }
+    }
+
+    public void changeActive(boolean enabled, long expectedVersion) {
+        requireVersion(expectedVersion);
+        if (status == QrCodeStatus.REVOKED) {
+            throw new QrCodeConflictException();
+        }
+        status = enabled ? QrCodeStatus.ACTIVE : QrCodeStatus.INACTIVE;
+    }
+
     public void revoke(long expectedVersion) {
-        if (expectedVersion < 0 || version != expectedVersion || status != QrCodeStatus.ACTIVE) {
+        requireVersion(expectedVersion);
+        if (status != QrCodeStatus.ACTIVE) {
             throw new QrCodeConflictException();
         }
         status = QrCodeStatus.REVOKED;

@@ -17,7 +17,7 @@ public interface DiningTableRepository extends JpaRepository<DiningTable, UUID> 
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from DiningTable t where t.restaurantId = :restaurantId and t.id = :id")
-    Optional<DiningTable> findForQrCreation(@Param("restaurantId") UUID restaurantId, @Param("id") UUID id);
+    Optional<DiningTable> findForQrManagement(@Param("restaurantId") UUID restaurantId, @Param("id") UUID id);
 
     @Query("""
             select t from DiningTable t where t.restaurantId = :restaurantId

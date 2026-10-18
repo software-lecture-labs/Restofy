@@ -6,6 +6,7 @@ import com.restofy.qr.api.dto.request.ChangeTableActiveRequest;
 import com.restofy.qr.api.dto.response.CreatedQrCodeResponse;
 import com.restofy.qr.api.exception.ApiExceptionHandler;
 import com.restofy.qr.application.service.QrCodeCreationService;
+import com.restofy.qr.application.service.QrCodeLifecycleService;
 import com.restofy.qr.application.service.TableManagementService;
 import com.restofy.qr.domain.entity.QrCode;
 import com.restofy.qr.domain.exception.QrCodeConflictException;
@@ -42,6 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class QrCodePostgresIntegrationTests {
     @Autowired QrCodeCreationService service;
+    @Autowired QrCodeLifecycleService lifecycle;
     @Autowired TableManagementService tables;
     @Autowired QrCodeRepository codes;
     @Autowired DiningTableRepository tableRepository;
@@ -59,7 +61,7 @@ class QrCodePostgresIntegrationTests {
     void setup() {
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
-        api = MockMvcBuilders.standaloneSetup(new QrCodeController(service))
+        api = MockMvcBuilders.standaloneSetup(new QrCodeController(service, lifecycle))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }
@@ -75,9 +77,9 @@ class QrCodePostgresIntegrationTests {
     @Test
     void appliesForwardMigrationWithCompositeFkAndPartialUniqueIndex() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("23");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
         assertThat(jdbc.queryForList("select version from flyway_schema_history where success order by installed_rank", String.class))
-                .containsExactly("21", "22", "23");
+                .containsExactly("21", "22", "23", "24");
         assertThat(jdbc.queryForList("select indexname from pg_indexes where tablename='qr_codes'", String.class))
                 .contains("qr_codes_pkey", "uq_qr_codes_token_digest", "uq_qr_codes_active_table");
     }
@@ -195,7 +197,7 @@ class QrCodePostgresIntegrationTests {
         var started = new CountDownLatch(1);
         try (var executor = Executors.newSingleThreadExecutor()) {
             Future<Object> creation = new TransactionTemplate(transactions).execute(transaction -> {
-                var locked = tableRepository.findForQrCreation(restaurant.get(), table).orElseThrow();
+                var locked = tableRepository.findForQrManagement(restaurant.get(), table).orElseThrow();
                 locked.changeActive(false);
                 tableRepository.flush();
                 var future = executor.submit(() -> {

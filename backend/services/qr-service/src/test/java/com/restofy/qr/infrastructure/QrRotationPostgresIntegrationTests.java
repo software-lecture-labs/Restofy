@@ -5,6 +5,7 @@ import com.restofy.qr.api.dto.request.*;
 import com.restofy.qr.api.dto.response.CreatedQrCodeResponse;
 import com.restofy.qr.api.exception.ApiExceptionHandler;
 import com.restofy.qr.application.service.QrCodeCreationService;
+import com.restofy.qr.application.service.QrCodeLifecycleService;
 import com.restofy.qr.application.service.TableManagementService;
 import com.restofy.qr.domain.enums.QrCodeStatus;
 import com.restofy.qr.domain.exception.*;
@@ -43,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class QrRotationPostgresIntegrationTests {
     @Autowired QrCodeCreationService service;
+    @Autowired QrCodeLifecycleService lifecycle;
     @Autowired TableManagementService tables;
     @Autowired QrCodeRepository codes;
     @Autowired DiningTableRepository tableRepository;
@@ -61,7 +63,7 @@ class QrRotationPostgresIntegrationTests {
     void setup() {
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
-        api = MockMvcBuilders.standaloneSetup(new QrCodeController(service))
+        api = MockMvcBuilders.standaloneSetup(new QrCodeController(service, lifecycle))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }
@@ -71,7 +73,7 @@ class QrRotationPostgresIntegrationTests {
     }
 
     private CreatedQrCodeResponse rotate(CreatedQrCodeResponse previous) {
-        return service.rotate(previous.tableId(), previous.id(), new RotateQrCodeRequest(previous.version()));
+        return service.rotate(previous.tableId(), previous.id(), new QrCodeVersionRequest(previous.version()));
     }
 
     private String path(UUID table, UUID qr) {
@@ -87,7 +89,7 @@ class QrRotationPostgresIntegrationTests {
     @Test
     void migrationPreservesUniqueIndexAndAddsRevocationConsistency() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("23");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='23' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select indexdef from pg_indexes where indexname='uq_qr_codes_active_table'", String.class))
                 .contains("UNIQUE", "restaurant_id, table_id", "ACTIVE");
@@ -123,12 +125,12 @@ class QrRotationPostgresIntegrationTests {
         var first = service.create(createTable("1"));
         UUID table = first.tableId();
         UUID qr = first.id();
-        var stale = new RotateQrCodeRequest(99L);
+        var stale = new QrCodeVersionRequest(99L);
         assertThatThrownBy(() -> service.rotate(table, qr, stale)).isInstanceOf(QrCodeConflictException.class);
         assertThat(codes.findById(qr).orElseThrow().getStatus()).isEqualTo(QrCodeStatus.ACTIVE);
         var replacement = rotate(first);
         assertThatThrownBy(() -> rotate(first)).isInstanceOf(QrCodeConflictException.class);
-        var revokedVersion = new RotateQrCodeRequest(1L);
+        var revokedVersion = new QrCodeVersionRequest(1L);
         assertThatThrownBy(() -> service.rotate(table, qr, revokedVersion)).isInstanceOf(QrCodeConflictException.class);
         assertThat(activeDigestCount(replacement.qrToken())).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from qr_codes where restaurant_id=?", Integer.class, restaurant.get())).isEqualTo(2);
@@ -141,7 +143,7 @@ class QrRotationPostgresIntegrationTests {
         UUID qr = first.id();
         UUID otherTable = createTable("2");
         UUID absent = UUID.randomUUID();
-        var request = new RotateQrCodeRequest(0L);
+        var request = new QrCodeVersionRequest(0L);
         assertThatThrownBy(() -> service.rotate(table, absent, request)).isInstanceOf(QrCodeNotFoundException.class);
         assertThatThrownBy(() -> service.rotate(otherTable, qr, request)).isInstanceOf(QrCodeNotFoundException.class);
         assertThatThrownBy(() -> service.rotate(absent, qr, request)).isInstanceOf(TableNotFoundException.class);
@@ -249,7 +251,7 @@ class QrRotationPostgresIntegrationTests {
         var started = new CountDownLatch(1);
         try (var executor = Executors.newSingleThreadExecutor()) {
             Future<Object> rotation = new TransactionTemplate(transactions).execute(transaction -> {
-                var table = tableRepository.findForQrCreation(restaurant.get(), first.tableId()).orElseThrow();
+                var table = tableRepository.findForQrManagement(restaurant.get(), first.tableId()).orElseThrow();
                 table.changeActive(false);
                 tableRepository.flush();
                 var future = executor.submit(() -> {

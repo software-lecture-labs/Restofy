@@ -65,7 +65,7 @@ class TablePostgresIntegrationTests {
     @Test
     void flywayAndJpaValidateActualPostgresSchema() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("23");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='21' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForList("select indexname from pg_indexes where tablename='dining_tables'", String.class))
                 .contains("dining_tables_pkey", "uq_dining_tables_restaurant_number", "ix_dining_tables_restaurant_state");
@@ -265,7 +265,7 @@ class TablePostgresIntegrationTests {
     void httpConflictsAndMissingForeignIdsReturnSafeErrors() throws Exception {
         var table = create("1");
         api.perform(post("/api/v1/qr/tables").contentType(MediaType.APPLICATION_JSON).content("{\"tableNumber\":\"1\"}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value("Table update conflicts with the current data. Reload and retry."));
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value("The operation conflicts with the current data. Reload and retry."));
         api.perform(put("/api/v1/qr/tables/{id}", table.id()).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"tableNumber\":\"2\",\"version\":99}"))
                 .andExpect(status().isConflict());
