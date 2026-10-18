@@ -6,9 +6,13 @@ import com.restofy.menu.domain.exception.DuplicateCategoryNameException;
 import com.restofy.menu.domain.exception.ForbiddenOperationException;
 import com.restofy.menu.domain.exception.InvalidCategoryException;
 import com.restofy.menu.domain.exception.InvalidProductException;
+import com.restofy.menu.domain.exception.DuplicateProductOptionException;
 import com.restofy.menu.domain.exception.ProductAvailabilityMissingException;
 import com.restofy.menu.domain.exception.ProductAvailabilityVersionConflictException;
 import com.restofy.menu.domain.exception.ProductNotFoundException;
+import com.restofy.menu.domain.exception.ProductOptionLimitExceededException;
+import com.restofy.menu.domain.exception.ProductOptionNotFoundException;
+import com.restofy.menu.domain.exception.ProductOptionVersionConflictException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import org.springframework.beans.TypeMismatchException;
@@ -46,14 +50,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage());
     }
 
-    @ExceptionHandler({CategoryNotFoundException.class, ProductNotFoundException.class})
+    @ExceptionHandler({CategoryNotFoundException.class, ProductNotFoundException.class, ProductOptionNotFoundException.class})
     ProblemDetail notFound(RuntimeException e) {
         return problem(HttpStatus.NOT_FOUND, "Not found", e.getMessage());
     }
 
     @ExceptionHandler({DuplicateCategoryNameException.class, CategoryVersionConflictException.class,
             ProductVersionConflictException.class, ProductAvailabilityVersionConflictException.class,
-            ProductAvailabilityMissingException.class})
+            ProductAvailabilityMissingException.class, ProductOptionVersionConflictException.class,
+            DuplicateProductOptionException.class, ProductOptionLimitExceededException.class})
     ProblemDetail conflict(RuntimeException e) {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage());
     }

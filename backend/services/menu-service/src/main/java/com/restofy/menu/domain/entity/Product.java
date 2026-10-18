@@ -268,7 +268,7 @@ public class Product {
     }
 
     /** Rejects too many integer digits or fraction digits using only the stripped (small) representation. */
-    private static void requireWithinPrecision(BigDecimal raw, int maxIntegerDigits, String tooLargeMessage, String label) {
+    static void requireWithinPrecision(BigDecimal raw, int maxIntegerDigits, String tooLargeMessage, String label) {
         BigDecimal stripped = raw.stripTrailingZeros();
         if (stripped.signum() != 0 && stripped.precision() - stripped.scale() > maxIntegerDigits) {
             throw new InvalidProductException(tooLargeMessage);

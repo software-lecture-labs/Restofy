@@ -271,7 +271,7 @@ class ProductIngredientsApiTests {
         }
         assertEquals(12.5, ((Number) response.get("basePrice")).doubleValue(), "extra cheese +5 in the text did not change the price");
         assertEquals("Oven baked", response.get("description"));
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_name LIKE 'product_option%'", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM product_options", Integer.class), "the text never creates an option row");
     }
 
     @Test

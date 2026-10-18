@@ -80,6 +80,13 @@ class FailClosedProductionWiringTests {
                 .header("X-Restaurant-Id", UUID.randomUUID()).header("X-Role", "ADMIN")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"AVAILABLE\",\"version\":0}")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/products/" + id + "/options").with(user("staff")).header("X-Role", "ADMIN"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/products/" + id + "/options").with(user("staff")).with(csrf()).header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/menu/products/" + id + "/options/" + id).with(user("staff")).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"isActive\":false,\"version\":0}")).andExpect(status().isUnauthorized());
     }
 
     /** With the real (fail-closed) provider, even a request that would fail validation is 401 and says nothing about the rules. */

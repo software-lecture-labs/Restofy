@@ -64,7 +64,14 @@ class AuthorizationBeforeValidationApiTests {
                 new Call(HttpMethod.GET, C + "?size=0&page=-1&sort=password", null),
                 new Call(HttpMethod.GET, C + "/not-a-uuid", null),
                 new Call(HttpMethod.GET, C + "/" + id + "/subcategories?size=500", null),
-                new Call(HttpMethod.GET, S + "/not-a-uuid", null));
+                new Call(HttpMethod.GET, S + "/not-a-uuid", null),
+                new Call(HttpMethod.POST, P + "/" + id + "/options", "{}"),
+                new Call(HttpMethod.POST, P + "/" + id + "/options", "{not json"),
+                new Call(HttpMethod.POST, P + "/" + id + "/options", "{\"type\":\"ADD\",\"name\":\"a\\u0000\",\"priceDelta\":-1}"),
+                new Call(HttpMethod.PATCH, P + "/" + id + "/options/" + id, "{}"),
+                new Call(HttpMethod.PATCH, P + "/not-a-uuid/options/not-a-uuid", "{\"version\":-1}"),
+                new Call(HttpMethod.GET, P + "/" + id + "/options?size=0&page=-1&type=bad&isActive=maybe", null),
+                new Call(HttpMethod.GET, P + "/not-a-uuid/options/not-a-uuid", null));
     }
 
     @Autowired MockMvc mvc;
