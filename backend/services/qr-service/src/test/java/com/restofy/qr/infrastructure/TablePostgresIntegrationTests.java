@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class TablePostgresIntegrationTests {
     @Autowired TableManagementService service;
     @Autowired DiningTableRepository repository;
@@ -65,7 +65,7 @@ class TablePostgresIntegrationTests {
     @Test
     void flywayAndJpaValidateActualPostgresSchema() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("21");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("22");
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='21' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForList("select indexname from pg_indexes where tablename='dining_tables'", String.class))
                 .contains("dining_tables_pkey", "uq_dining_tables_restaurant_number", "ix_dining_tables_restaurant_state");

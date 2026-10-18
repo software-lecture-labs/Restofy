@@ -8,10 +8,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 public interface DiningTableRepository extends JpaRepository<DiningTable, UUID> {
     Optional<DiningTable> findByRestaurantIdAndId(UUID restaurantId, UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from DiningTable t where t.restaurantId = :restaurantId and t.id = :id")
+    Optional<DiningTable> findForQrCreation(@Param("restaurantId") UUID restaurantId, @Param("id") UUID id);
 
     @Query("""
             select t from DiningTable t where t.restaurantId = :restaurantId

@@ -11,7 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 import static org.assertj.core.api.Assertions.*;
 
-@SpringBootTest(useMainMethod = SpringBootTest.UseMainMethod.ALWAYS)
+@SpringBootTest(useMainMethod = SpringBootTest.UseMainMethod.ALWAYS,
+        properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 @AutoConfigureMockMvc
 class QrServiceApplicationTests {
     @Autowired MockMvc mvc;
@@ -43,6 +44,16 @@ class QrServiceApplicationTests {
     void healthIsAvailableWithoutExposingDetails() throws Exception {
         mvc.perform(get("/actuator/health")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP")).andExpect(jsonPath("$.components").doesNotExist());
+    }
+
+    @Test
+    void qrCreationRemainsClosedWithForgeryDefaultRolesAndMissingCsrf() throws Exception {
+        String path = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/qr-codes";
+        mvc.perform(post(path).with(csrf()).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(path).with(csrf()).with(user("test-staff").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path)).andExpect(status().isForbidden());
     }
 
 	@Test

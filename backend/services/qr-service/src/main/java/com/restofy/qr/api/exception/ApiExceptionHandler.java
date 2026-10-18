@@ -23,6 +23,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "Table update conflicts with the current data. Reload and retry.");
     }
 
+    @ExceptionHandler(QrCodeConflictException.class)
+    ProblemDetail qrConflict(QrCodeConflictException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     ProblemDetail invalid(IllegalArgumentException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Request validation failed.");
