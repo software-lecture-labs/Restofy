@@ -18,7 +18,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
     }
 
-    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class, InvalidQrCodeException.class})
+    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class, InvalidQrCodeException.class, InvalidGuestSessionException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage());
     }

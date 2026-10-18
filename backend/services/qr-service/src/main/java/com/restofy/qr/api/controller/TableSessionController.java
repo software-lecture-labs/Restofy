@@ -1,8 +1,8 @@
 package com.restofy.qr.api.controller;
 
 import com.restofy.qr.api.dto.request.ValidateQrCodeRequest;
-import com.restofy.qr.api.dto.response.TableSessionResponse;
-import com.restofy.qr.application.service.TableSessionOpeningService;
+import com.restofy.qr.api.dto.response.OpenedGuestSessionResponse;
+import com.restofy.qr.application.service.GuestSessionOpeningService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -13,20 +13,19 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/qr/table-sessions")
-@Tag(name = "Table sessions", description = "HTTP access remains fail closed. Main session metadata grants no guest/staff authority.")
+@Tag(name = "Table sessions", description = "HTTP access remains fail closed. Browser/Auth integration is pending.")
 public class TableSessionController {
-    private final TableSessionOpeningService service;
+    private final GuestSessionOpeningService service;
 
-    public TableSessionController(TableSessionOpeningService service) {
+    public TableSessionController(GuestSessionOpeningService service) {
         this.service = service;
     }
 
     @PostMapping("/open")
-    @Operation(summary = "Open or reuse the table's main session after QR revalidation",
-            description = "Body contains only qrToken. New session: 201; existing OPEN: 200; CLOSING/state conflict: 409. Guest sessions and idle expiry are later tasks. HTTP stays closed.")
-    public ResponseEntity<TableSessionResponse> open(@Valid @RequestBody ValidateQrCodeRequest request) {
+    @Operation(summary = "Create a distinct guest in the table's new or existing main session",
+            description = "Only qrToken is accepted. Every accepted scan creates a guest (201), including the first. Guest token is returned once; only its digest is stored. CLOSING/state conflict: 409. HTTP stays closed; idle lifecycle and Auth/browser transport are pending.")
+    public ResponseEntity<OpenedGuestSessionResponse> open(@Valid @RequestBody ValidateQrCodeRequest request) {
         var result = service.open(request.qrToken());
-        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
-                .cacheControl(CacheControl.noStore()).body(result.session());
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(result);
     }
 }

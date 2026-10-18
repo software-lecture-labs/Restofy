@@ -47,6 +47,12 @@ public class TableSession {
         // Idle calculation/refresh and closing transitions belong to QR-04.
     }
 
+    public boolean isOpenAt(Instant now) {
+        return status == TableSessionStatus.OPEN && closingAt == null && closedAt == null
+                && !openedAt.isAfter(now) && !lastActivityAt.isAfter(now)
+                && (idleExpiresAt == null || idleExpiresAt.isAfter(now));
+    }
+
     public UUID getId() { return id; }
     public UUID getRestaurantId() { return restaurantId; }
     public UUID getTableId() { return tableId; }

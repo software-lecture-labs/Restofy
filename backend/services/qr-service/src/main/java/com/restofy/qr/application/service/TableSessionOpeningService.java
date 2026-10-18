@@ -36,7 +36,7 @@ public class TableSessionOpeningService {
                 List.of(TableSessionStatus.OPEN, TableSessionStatus.CLOSING));
         if (live.isPresent()) {
             var session = live.orElseThrow();
-            if (session.getStatus() != TableSessionStatus.OPEN
+            if (!session.isOpenAt(context.checkedAt())
                     || table.getOperationalStatus() != TableOperationalStatus.OCCUPIED) {
                 throw new TableSessionConflictException();
             }

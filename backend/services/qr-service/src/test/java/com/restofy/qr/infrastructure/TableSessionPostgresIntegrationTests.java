@@ -44,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class TableSessionPostgresIntegrationTests {
     @Autowired TableSessionOpeningService opening;
+    @Autowired GuestSessionOpeningService guestOpening;
     @Autowired QrCodeCreationService creation;
     @Autowired QrCodeLifecycleService lifecycle;
     @Autowired TableManagementService tables;
@@ -64,7 +65,7 @@ class TableSessionPostgresIntegrationTests {
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
         when(clock.instant()).thenAnswer(invocation -> Instant.now());
-        api = MockMvcBuilders.standaloneSetup(new TableSessionController(opening))
+        api = MockMvcBuilders.standaloneSetup(new TableSessionController(guestOpening))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }
@@ -88,9 +89,9 @@ class TableSessionPostgresIntegrationTests {
         var code = create("1");
         api.perform(post("/api/v1/qr/table-sessions/open").contentType(MediaType.APPLICATION_JSON).content(body(code.qrToken())))
                 .andExpect(status().isCreated()).andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.restaurantId").value(code.restaurantId().toString()))
-                .andExpect(jsonPath("$.tableId").value(code.tableId().toString()))
-                .andExpect(jsonPath("$.status").value("OPEN")).andExpect(jsonPath("$.version").value(0))
+                .andExpect(jsonPath("$.tableSession.restaurantId").value(code.restaurantId().toString()))
+                .andExpect(jsonPath("$.tableSession.tableId").value(code.tableId().toString()))
+                .andExpect(jsonPath("$.tableSession.status").value("OPEN")).andExpect(jsonPath("$.tableSession.version").value(0))
                 .andExpect(jsonPath("$.qrToken").doesNotExist()).andExpect(jsonPath("$.guestSessionId").doesNotExist())
                 .andExpect(jsonPath("$.guestCount").doesNotExist()).andExpect(jsonPath("$.role").doesNotExist());
         var first = opening.open(code.qrToken());
@@ -101,11 +102,12 @@ class TableSessionPostgresIntegrationTests {
         assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
         when(clock.instant()).thenReturn(first.session().openedAt().plusSeconds(300));
         api.perform(post("/api/v1/qr/table-sessions/open").contentType(MediaType.APPLICATION_JSON).content(body(code.qrToken())))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(first.session().id().toString()));
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.tableSession.id").value(first.session().id().toString()));
         assertThat(opening.open(code.qrToken()).session()).isEqualTo(first.session());
         assertThat(count(code.tableId())).isEqualTo(1);
         assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name in ('guest_sessions','qr_scan_events')", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from guest_sessions where table_session_id=?", Integer.class, first.session().id())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name='qr_scan_events'", Integer.class)).isZero();
     }
 
     @Test
@@ -128,8 +130,8 @@ class TableSessionPostgresIntegrationTests {
         var code = create("1");
         api.perform(post("/api/v1/qr/table-sessions/open").header("X-Restaurant-Id", UUID.randomUUID().toString())
                 .header("X-Role", "ADMIN").contentType(MediaType.APPLICATION_JSON).content(body(code.qrToken())))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.restaurantId").value(code.restaurantId().toString()))
-                .andExpect(jsonPath("$.tableId").value(code.tableId().toString())).andExpect(jsonPath("$.role").doesNotExist());
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.tableSession.restaurantId").value(code.restaurantId().toString()))
+                .andExpect(jsonPath("$.tableSession.tableId").value(code.tableId().toString())).andExpect(jsonPath("$.role").doesNotExist());
     }
 
     @Test
@@ -233,7 +235,7 @@ class TableSessionPostgresIntegrationTests {
     @Test
     void databaseEnforcesLiveUniquenessAndTenantForeignKeyIndependentlyOfServiceChecks() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("26");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("27");
         var code = create("1");
         var first = opening.open(code.qrToken()).session();
         var duplicate = new TableSession(code.restaurantId(), code.tableId(), first.openedAt());

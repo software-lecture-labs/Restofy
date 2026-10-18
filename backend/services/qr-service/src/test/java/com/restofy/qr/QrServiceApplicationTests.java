@@ -21,6 +21,18 @@ class QrServiceApplicationTests {
     @Autowired MockMvc mvc;
 
     @Test
+    void guestCredentialDoesNotOpenHttpOrGrantStaffAuthority() throws Exception {
+        String token = "A".repeat(43);
+        mvc.perform(post("/api/v1/qr/table-sessions/open").with(csrf())
+                .header("Authorization", "Bearer " + token).header("X-Guest-Session-Id", "forged")
+                .header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"" + token + "\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/qr/tables").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void anonymousAndForgedTenantHeadersCannotReadTables() throws Exception {
         mvc.perform(get("/api/v1/qr/tables").header("X-Restaurant-Id", "arbitrary")
                 .header("X-Role", "ADMIN").header("X-User-Id", "arbitrary"))
