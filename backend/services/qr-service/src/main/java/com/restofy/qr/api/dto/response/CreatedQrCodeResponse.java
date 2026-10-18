@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record CreatedQrCodeResponse(UUID id, UUID restaurantId, UUID tableId, QrCodeStatus status,
-                                    long version, Instant issuedAt, String qrToken) {
+                                    long version, Instant issuedAt, Instant expiresAt, String qrToken) {
     @Override
     public String toString() {
         return "CreatedQrCodeResponse[id=" + id + ", qrToken=[REDACTED]]";

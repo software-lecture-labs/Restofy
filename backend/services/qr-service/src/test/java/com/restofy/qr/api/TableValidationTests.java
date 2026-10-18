@@ -43,5 +43,19 @@ class TableValidationTests {
         assertThat(VALIDATOR.validate(new ChangeTableActiveRequest(false, 0L))).isEmpty();
         assertThat(VALIDATOR.validate(new QrCodeVersionRequest(0L))).isEmpty();
         assertThat(VALIDATOR.validate(new ChangeQrCodeActiveRequest(false, 0L))).isEmpty();
+        assertThat(VALIDATOR.validate(new ValidateQrCodeRequest("A".repeat(43)))).isEmpty();
+    }
+
+    @Test
+    void qrValidationRequestNeverPrintsItsCredential() {
+        String token = "A".repeat(43);
+        assertThat(new ValidateQrCodeRequest(token).toString()).contains("REDACTED").doesNotContain(token);
+    }
+
+    @Test
+    void qrValidationRejectsIncorrectLengthsAndNonUrlSafeCharacters() {
+        for (String token : new String[]{"A".repeat(42), "A".repeat(44), "A".repeat(42) + "+", " " + "A".repeat(43)}) {
+            assertThat(VALIDATOR.validate(new ValidateQrCodeRequest(token))).isNotEmpty();
+        }
     }
 }

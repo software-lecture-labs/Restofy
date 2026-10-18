@@ -39,7 +39,7 @@ public class QrCodeLifecycleService {
         code.changeActive(request.isActive(), request.version());
         codes.flush();
         return new QrCodeResponse(code.getId(), code.getRestaurantId(), code.getTableId(), code.getStatus(),
-                code.getVersion(), code.getIssuedAt(), code.getRevokedAt());
+                code.getVersion(), code.getIssuedAt(), code.getRevokedAt(), code.getExpiresAt());
     }
 
     public void delete(UUID tableId, UUID qrId, QrCodeVersionRequest request) {

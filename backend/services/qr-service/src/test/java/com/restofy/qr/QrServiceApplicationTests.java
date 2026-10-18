@@ -107,4 +107,16 @@ class QrServiceApplicationTests {
 	    assertThat(mvc).isNotNull();
 	}
 
+    @Test
+    void qrValidationCannotGrantPublicOrStaffAccessBeforeReviewedIntegration() throws Exception {
+        String body = "{\"qrToken\":\"" + "A".repeat(43) + "\"}";
+        mvc.perform(post("/api/v1/qr/validate").with(csrf()).header("X-Restaurant-Id", "forged")
+                .header("X-Role", "ADMIN").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/qr/validate").with(csrf()).with(user("test-staff").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/qr/validate").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+    }
+
 }

@@ -86,7 +86,7 @@ class QrPayloadCodecTests {
     @Test
     void dtoStringRepresentationRedactsRawCredential() {
         String token = codec.generateToken();
-        var response = new CreatedQrCodeResponse(qr, restaurant, table, QrCodeStatus.ACTIVE, 0, Instant.now(), token);
+        var response = new CreatedQrCodeResponse(qr, restaurant, table, QrCodeStatus.ACTIVE, 0, Instant.now(), null, token);
         assertThat(response).hasToString("CreatedQrCodeResponse[id=" + qr + ", qrToken=[REDACTED]]");
     }
 }

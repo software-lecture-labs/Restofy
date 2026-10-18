@@ -75,6 +75,6 @@ public class QrCodeQueryService {
 
     private static QrCodeResponse metadata(QrCode code) {
         return new QrCodeResponse(code.getId(), code.getRestaurantId(), code.getTableId(), code.getStatus(),
-                code.getVersion(), code.getIssuedAt(), code.getRevokedAt());
+                code.getVersion(), code.getIssuedAt(), code.getRevokedAt(), code.getExpiresAt());
     }
 }

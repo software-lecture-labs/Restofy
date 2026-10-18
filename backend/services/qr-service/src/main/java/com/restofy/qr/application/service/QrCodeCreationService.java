@@ -62,6 +62,6 @@ public class QrCodeCreationService {
         var code = codes.saveAndFlush(new QrCode(id, restaurantId, tableId,
                 codec.digest(token), codec.encrypt(token, restaurantId, tableId, id)));
         return new CreatedQrCodeResponse(code.getId(), code.getRestaurantId(), code.getTableId(),
-                code.getStatus(), code.getVersion(), code.getIssuedAt(), token);
+                code.getStatus(), code.getVersion(), code.getIssuedAt(), code.getExpiresAt(), token);
     }
 }

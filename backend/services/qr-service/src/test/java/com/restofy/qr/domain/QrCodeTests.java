@@ -4,6 +4,8 @@ import com.restofy.qr.domain.entity.QrCode;
 import com.restofy.qr.domain.enums.QrCodeStatus;
 import com.restofy.qr.domain.exception.QrCodeConflictException;
 import java.util.UUID;
+import java.time.Instant;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -29,6 +31,40 @@ class QrCodeTests {
         assertThat(code.getTokenDigest()).isEqualTo(digest);
         assertThat(code.getEncryptedPayload()).isEqualTo(payload);
         assertThat(code.getRevokedAt()).isNull();
+        assertThat(code.getExpiresAt()).isNull();
+    }
+
+    @Test
+    void activePermanentQrIsUsableFromItsIssueTimeWithoutChangingItsState() {
+        var code = new QrCode(id, restaurant, table, digest, payload);
+        Instant issued = code.getIssuedAt();
+        assertThat(code.isUsableAt(issued.minusNanos(1))).isFalse();
+        assertThat(code.isUsableAt(issued)).isTrue();
+        assertThat(code.isUsableAt(issued.plusSeconds(1_000_000))).isTrue();
+        assertThat(code.getVersion()).isZero();
+    }
+
+    @Test
+    void optionalExpiryRejectsTheExactExpiryInstantAndAnythingAfterIt() {
+        var code = new QrCode(id, restaurant, table, digest, payload);
+        Instant expires = code.getIssuedAt().plusSeconds(60);
+        ReflectionTestUtils.setField(code, "expiresAt", expires);
+        assertThat(code.isUsableAt(expires.minusNanos(1))).isTrue();
+        assertThat(code.isUsableAt(expires)).isFalse();
+        assertThat(code.isUsableAt(expires.plusNanos(1))).isFalse();
+        assertThat(code.getExpiresAt()).isEqualTo(expires);
+    }
+
+    @Test
+    void inactiveOrRevokedQrIsNotUsableEvenWithoutExpiry() {
+        var code = new QrCode(id, restaurant, table, digest, payload);
+        Instant now = code.getIssuedAt().plusSeconds(1);
+        code.changeActive(false, 0);
+        assertThat(code.isUsableAt(now)).isFalse();
+        code.changeActive(true, 0);
+        assertThat(code.isUsableAt(now)).isTrue();
+        code.revoke(0);
+        assertThat(code.isUsableAt(now)).isFalse();
     }
 
     @Test

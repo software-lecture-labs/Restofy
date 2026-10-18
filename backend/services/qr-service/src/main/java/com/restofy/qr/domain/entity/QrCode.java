@@ -27,6 +27,8 @@ public class QrCode {
     private Instant issuedAt;
     @Column(name = "revoked_at")
     private Instant revokedAt;
+    @Column(name = "expires_at", updatable = false)
+    private Instant expiresAt;
     @Version
     private long version;
 
@@ -54,6 +56,12 @@ public class QrCode {
         }
     }
 
+    public boolean isUsableAt(Instant now) {
+        Objects.requireNonNull(now);
+        return status == QrCodeStatus.ACTIVE && revokedAt == null && !issuedAt.isAfter(now)
+                && (expiresAt == null || expiresAt.isAfter(now));
+    }
+
     public void changeActive(boolean enabled, long expectedVersion) {
         requireVersion(expectedVersion);
         if (status == QrCodeStatus.REVOKED) {
@@ -79,5 +87,6 @@ public class QrCode {
     public QrCodeStatus getStatus() { return status; }
     public Instant getIssuedAt() { return issuedAt; }
     public Instant getRevokedAt() { return revokedAt; }
+    public Instant getExpiresAt() { return expiresAt; }
     public long getVersion() { return version; }
 }
