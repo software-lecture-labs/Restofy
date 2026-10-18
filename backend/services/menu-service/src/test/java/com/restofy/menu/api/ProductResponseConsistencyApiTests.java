@@ -41,7 +41,7 @@ class ProductResponseConsistencyApiTests {
     private static final UUID RESTAURANT = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
     private static final String BASE = "/api/v1/menu/products";
     private static final List<String> CORE = List.of("id", "categoryId", "name", "description", "ingredientsText", "basePrice", "currency",
-            "vatRate", "priceIncludesVat");
+            "vatRate", "priceIncludesVat", "calories", "weightGrams", "estimatedPrepMinutes");
 
     @Autowired MockMvc mvc;
     @Autowired TestActorProvider actor;
@@ -86,7 +86,7 @@ class ProductResponseConsistencyApiTests {
     @Test
     void createGetListAndEveryCommandAgreeOnTheCoreFields() throws Exception {
         String created = send(post(BASE), "{\"categoryId\":\"" + category + "\",\"name\":\"  Lamb   kebab \","
-                + "\"description\":\" grilled \",\"ingredientsText\":\" lamb, spices \",\"basePrice\":125.5,\"currency\":\"TRY\",\"vatRate\":8.5,"
+                + "\"description\":\" grilled \",\"ingredientsText\":\" lamb, spices \",\"calories\":250,\"weightGrams\":12.50,\"estimatedPrepMinutes\":8,\"basePrice\":125.5,\"currency\":\"TRY\",\"vatRate\":8.5,"
                 + "\"priceIncludesVat\":true}", 201);
         UUID id = UUID.fromString(JsonPath.read(created, "$.id"));
         Map<String, Object> expected = core(created);
@@ -95,6 +95,9 @@ class ProductResponseConsistencyApiTests {
         assertEquals("lamb, spices", expected.get("ingredientsText"));
         assertEquals(new BigDecimal("125.5"), expected.get("basePrice"));
         assertEquals(new BigDecimal("8.5"), expected.get("vatRate"));
+        assertEquals(0, new BigDecimal("250").compareTo((BigDecimal) expected.get("calories")));
+        assertEquals(new BigDecimal("12.5"), expected.get("weightGrams"), "shown without the trailing zero the client sent");
+        assertEquals(0, new BigDecimal("8").compareTo((BigDecimal) expected.get("estimatedPrepMinutes")));
 
         assertEquals(expected, core(getOne(id)));
         String list = mvc.perform(get(BASE).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

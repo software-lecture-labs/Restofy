@@ -1,5 +1,6 @@
 package com.restofy.menu.api.dto.request;
 
+import com.restofy.menu.application.service.FieldChange;
 import com.restofy.menu.domain.entity.Product;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -17,7 +18,9 @@ import java.util.UUID;
 
 /**
  * Partial update guarded by the version the client last saw. A {@code null} field means "leave
- * unchanged"; a blank description, ingredients text or image URL clears it (the image is only a reference). Archiving, publication and availability are separate
+ * unchanged"; a blank description, ingredients text or image URL clears it (the image is only a reference).
+ * Calories, weight and preparation time are told apart three ways: missing = keep, explicit JSON {@code null} =
+ * clear, a number = set (see {@link FieldChange}). Archiving, publication and availability are separate
  * state axes and are not changed here: sending them (or the restaurant) is a 400.
  */
 public record UpdateProductRequest(
@@ -26,6 +29,9 @@ public record UpdateProductRequest(
         @Size(max = Product.DESCRIPTION_MAX_LENGTH) String description,
         @Size(max = Product.INGREDIENTS_TEXT_MAX_LENGTH) @JsonDeserialize(using = StrictStringDeserializer.class) String ingredientsText,
         @Size(max = Product.IMAGE_URL_MAX_LENGTH) @JsonDeserialize(using = StrictStringDeserializer.class) String imageUrl,
+        @JsonDeserialize(using = NutritionDeserializers.WholeNumberChange.class) FieldChange<Integer> calories,
+        @JsonDeserialize(using = NutritionDeserializers.DecimalChange.class) FieldChange<BigDecimal> weightGrams,
+        @JsonDeserialize(using = NutritionDeserializers.WholeNumberChange.class) FieldChange<Integer> estimatedPrepMinutes,
         @DecimalMin("0") @Digits(integer = 15, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal basePrice,
         @Pattern(regexp = "[A-Z]{3}", message = "must be a three-letter uppercase currency code") String currency,
         @DecimalMin("0") @DecimalMax("100") @Digits(integer = 3, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal vatRate,

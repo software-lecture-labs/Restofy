@@ -4,6 +4,8 @@ import com.restofy.menu.domain.entity.Product;
 import com.restofy.menu.infrastructure.persistence.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -205,12 +207,48 @@ class ProductSchemaPostgresIntegrationTests {
         assertNotNull(failure.getMessage());
     }
 
-    @Test
-    void optionalFuturePhaseColumnsRejectNegativeValues() {
+    /** One rejected statement per test: PostgreSQL aborts the surrounding transaction after a constraint violation. */
+    @ParameterizedTest
+    @CsvSource(delimiter = ';', value = {
+            "ck_products_calories;calories = -1",
+            "ck_products_calories;calories = 10001",
+            "ck_products_weight_grams;weight_grams = 0",
+            "ck_products_weight_grams;weight_grams = -0.001",
+            "ck_products_weight_grams;weight_grams = 10000.001",
+            "ck_products_prep_minutes;estimated_prep_minutes = -1",
+            "ck_products_prep_minutes;estimated_prep_minutes = 241"})
+    void nutritionColumnsAreBoundedByTheDatabaseToo(String constraint, String assignment) {
         UUID category = insertCategory(RESTAURANT_A, "Drinks");
         UUID id = insertProduct(RESTAURANT_A, category, "Tea");
-        assertRejectedBy("ck_products_calories",
-                () -> jdbc.update("UPDATE products SET calories = -1 WHERE id = ?", id));
+        assertRejectedBy(constraint, () -> jdbc.update("UPDATE products SET " + assignment + " WHERE id = ?", id));
+    }
+
+    @Test
+    void nutritionBoundaryValuesAndNullAreAccepted() {
+        UUID category = insertCategory(RESTAURANT_A, "Drinks");
+        UUID id = insertProduct(RESTAURANT_A, category, "Tea");
+        assertEquals(1, jdbc.update("UPDATE products SET calories = 0, weight_grams = 0.001, estimated_prep_minutes = 0 WHERE id = ?", id));
+        assertEquals(1, jdbc.update("UPDATE products SET calories = 10000, weight_grams = 10000, estimated_prep_minutes = 240 WHERE id = ?", id));
+        assertEquals(1, jdbc.update("UPDATE products SET calories = NULL, weight_grams = NULL, estimated_prep_minutes = NULL WHERE id = ?", id));
+    }
+
+    @Test
+    void nutritionColumnsRoundTripThroughTheEntityWithoutLosingTheWeightScale() {
+        UUID category = insertCategory(RESTAURANT_A, "Drinks");
+        UUID id = insertProduct(RESTAURANT_A, category, "Tea");
+        Product product = repository.findByIdAndRestaurantId(id, RESTAURANT_A).orElseThrow();
+        assertNull(product.getCalories());
+        assertNull(product.getWeightGrams());
+        assertNull(product.getEstimatedPrepMinutes());
+        assertTrue(product.changeCalories(0));
+        assertTrue(product.changeWeightGrams(new BigDecimal("12.345")));
+        assertTrue(product.changeEstimatedPrepMinutes(240));
+        repository.saveAndFlush(product);
+        entityManager.clear();
+        Product reloaded = repository.findByIdAndRestaurantId(id, RESTAURANT_A).orElseThrow();
+        assertEquals(0, reloaded.getCalories());
+        assertEquals(new BigDecimal("12.345"), reloaded.getWeightGrams());
+        assertEquals(240, reloaded.getEstimatedPrepMinutes());
     }
 
     @Test

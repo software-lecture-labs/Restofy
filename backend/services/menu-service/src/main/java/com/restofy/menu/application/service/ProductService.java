@@ -56,7 +56,7 @@ public class ProductService {
     public ProductView create(AuthenticatedActor actor, CreateProductCommand command) {
         AuthenticatedActor admin = AdminAccess.requireAdmin(actor);
         var details = new Product.Details(command.name(), command.description(), command.ingredientsText(), command.basePrice(),
-                command.currency(), command.vatRate(), command.priceIncludesVat());
+                command.currency(), command.vatRate(), command.priceIncludesVat(), command.nutrition());
         CategoryPlacement placement = requireCategory(admin.restaurantId(), command.categoryId());
         Product created = save(Product.create(admin.restaurantId(), admin.userId(), command.categoryId(), details));
         ProductAvailability availability = availabilities.saveAndFlush(
@@ -90,6 +90,7 @@ public class ProductService {
         if (command.imageUrl() != null) {
             changed |= changeImage(product, command.imageUrl());
         }
+        changed |= applyNutrition(product, command.nutrition());
         if (command.basePrice() != null) {
             changed |= product.changeBasePrice(command.basePrice());
         }
@@ -103,6 +104,21 @@ public class ProductService {
             changed |= product.changePriceIncludesVat(command.priceIncludesVat());
         }
         return finish(product, changed, admin);
+    }
+
+    /** A missing component keeps the stored value; a clear component removes it; a set component replaces it. */
+    private boolean applyNutrition(Product product, NutritionChange nutrition) {
+        boolean changed = false;
+        if (nutrition.calories() != null) {
+            changed |= product.changeCalories(nutrition.calories().value());
+        }
+        if (nutrition.weightGrams() != null) {
+            changed |= product.changeWeightGrams(nutrition.weightGrams().value());
+        }
+        if (nutrition.estimatedPrepMinutes() != null) {
+            changed |= product.changeEstimatedPrepMinutes(nutrition.estimatedPrepMinutes().value());
+        }
+        return changed;
     }
 
     /**

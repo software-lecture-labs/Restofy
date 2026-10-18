@@ -3,9 +3,12 @@ package com.restofy.menu.api;
 import com.restofy.menu.application.security.AuthenticatedActor;
 import com.restofy.menu.application.service.ChangeAvailabilityCommand;
 import com.restofy.menu.application.service.CreateProductCommand;
+import com.restofy.menu.application.service.FieldChange;
+import com.restofy.menu.application.service.NutritionChange;
 import com.restofy.menu.application.service.ProductService;
 import com.restofy.menu.application.service.UpdateProductCommand;
 import com.restofy.menu.domain.entity.Category;
+import com.restofy.menu.domain.entity.Product;
 import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.domain.enums.AvailabilityStatus;
 import com.restofy.menu.domain.exception.ProductAvailabilityVersionConflictException;
@@ -105,6 +108,52 @@ class ProductConcurrencyTests {
                 new UpdateProductCommand(null, "Winner" + i, null, null, null, null, null, 0L)));
         assertEquals(1, outcome[0]);
         assertEquals(3, outcome[1]);
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
+    }
+
+    private UpdateProductCommand nutrition(NutritionChange change) {
+        return new UpdateProductCommand(null, null, null, null, null, null, null, null, null, change, 0L);
+    }
+
+    @Test
+    void twoNutritionUpdatesOnTheSameVersionLetExactlyOneWinAndNeverMixTheirValues() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(4, i -> service.update(admin, id, nutrition(new NutritionChange(
+                FieldChange.set(100 + i), FieldChange.set(new BigDecimal(10 + i)), FieldChange.set(i)))));
+        assertEquals(1, outcome[0]);
+        assertEquals(3, outcome[1]);
+        var row = jdbc.queryForMap("SELECT calories, weight_grams, estimated_prep_minutes, version FROM products WHERE id = ?", id);
+        int winner = (Integer) row.get("calories") - 100;
+        assertEquals(0, new BigDecimal(10 + winner).compareTo((BigDecimal) row.get("weight_grams")), "one winner's values, never a mix");
+        assertEquals(winner, row.get("estimated_prep_minutes"));
+        assertEquals(1L, row.get("version"));
+    }
+
+    @Test
+    void aClearRacingASetOnTheSameVersionLetsExactlyOneWin() throws Exception {
+        UUID id = service.create(admin, new CreateProductCommand(category, "Burger", null, null, new BigDecimal("10"), "TRY",
+                new BigDecimal("10"), true, new Product.Nutrition(250, null, null))).product().getId();
+        int[] outcome = race(2, i -> service.update(admin, id, nutrition(new NutritionChange(
+                i == 0 ? FieldChange.clear() : FieldChange.set(300), null, null))));
+        assertEquals(1, outcome[0]);
+        assertEquals(1, outcome[1]);
+        Integer stored = jdbc.queryForObject("SELECT calories FROM products WHERE id = ?", Integer.class, id);
+        assertTrue(stored == null || stored == 300, "the winner's outcome is stored: " + stored);
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
+    }
+
+    @Test
+    void aNutritionUpdateRacingARenameOnTheSameVersionLetsExactlyOneWin() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(2, i -> {
+            if (i == 0) {
+                service.update(admin, id, nutrition(new NutritionChange(FieldChange.set(500), null, null)));
+            } else {
+                service.update(admin, id, new UpdateProductCommand(null, "Renamed", null, null, null, null, null, 0L));
+            }
+        });
+        assertEquals(1, outcome[0]);
+        assertEquals(1, outcome[1]);
         assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
     }
 

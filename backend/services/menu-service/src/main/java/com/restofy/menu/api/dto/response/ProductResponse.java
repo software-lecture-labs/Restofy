@@ -16,6 +16,10 @@ import java.util.UUID;
  * <p>{@code imageUrl} is the single main image reference ({@code null} = no image); it is only a reference, the
  * file is never fetched or served by this service.
  *
+ * <p>{@code calories} (kcal), {@code weightGrams} (grams, trailing zeros not shown) and
+ * {@code estimatedPrepMinutes} are optional facts ({@code null} = unknown). They are informational only and
+ * never feed a price, a stock decision or a timer.
+ *
  * <p>{@code availability} is {@code null} only when the product has no availability record, which is
  * never orderable. {@code isVisibleToCustomer} and {@code canOrder} are derived on every read and not
  * stored: visible = active, published and category chain active; orderable = visible and AVAILABLE.
@@ -33,6 +37,9 @@ public record ProductResponse(
         String description,
         String ingredientsText,
         String imageUrl,
+        Integer calories,
+        BigDecimal weightGrams,
+        Integer estimatedPrepMinutes,
         BigDecimal basePrice,
         String currency,
         BigDecimal vatRate,

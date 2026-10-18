@@ -8,6 +8,8 @@ import com.restofy.menu.domain.entity.Category;
 import com.restofy.menu.domain.entity.Product;
 import com.restofy.menu.domain.entity.ProductAvailability;
 
+import java.math.BigDecimal;
+
 /** Entities are never returned from the API; this is the only place that builds the response DTO. */
 public final class ProductMapper {
 
@@ -30,6 +32,9 @@ public final class ProductMapper {
                 product.getDescription(),
                 product.getIngredientsText(),
                 product.getImageUrl(),
+                product.getCalories(),
+                displayWeight(product.getWeightGrams()),
+                product.getEstimatedPrepMinutes(),
                 product.getBasePrice(),
                 product.getCurrency(),
                 product.getVatRate(),
@@ -39,6 +44,15 @@ public final class ProductMapper {
                 product.getVersion() == null ? 0L : product.getVersion(),
                 product.getCreatedAt(),
                 product.getUpdatedAt());
+    }
+
+    /** Stored with three decimals; shown without trailing zeros and never as an exponent (10000, not 1E+4). */
+    private static BigDecimal displayWeight(BigDecimal stored) {
+        if (stored == null) {
+            return null;
+        }
+        BigDecimal stripped = stored.stripTrailingZeros();
+        return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
     }
 
     private static ProductAvailabilityResponse availability(ProductAvailability availability) {

@@ -41,12 +41,17 @@ public class Product {
     public static final int DESCRIPTION_MAX_LENGTH = 2000;
     public static final int INGREDIENTS_TEXT_MAX_LENGTH = 1000;
     public static final int IMAGE_URL_MAX_LENGTH = 2048;
+    public static final int CALORIES_MAX = 10_000;
+    public static final int WEIGHT_GRAMS_MAX = 10_000;
+    public static final int WEIGHT_GRAMS_SCALE = 3;
+    public static final int PREP_MINUTES_MAX = 240;
 
     /** Matches numeric(19,4): 15 integer digits and 4 fraction digits. */
     private static final int PRICE_SCALE = 4;
     private static final int PRICE_INTEGER_DIGITS = 15;
     private static final int VAT_INTEGER_DIGITS = 3;
     private static final BigDecimal MAX_VAT_RATE = BigDecimal.valueOf(100);
+    private static final BigDecimal MAX_WEIGHT_GRAMS = BigDecimal.valueOf(WEIGHT_GRAMS_MAX);
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("[A-Z]{3}");
     /**
      * ISO 4217 entries that exist but are not a currency a menu item can be sold in: precious metals, the IMF
@@ -96,6 +101,18 @@ public class Product {
     @Column(name = "image_url", columnDefinition = "text")
     private String imageUrl;
 
+    /** Energy in kcal, 0 to {@value #CALORIES_MAX}; {@code null} = unknown. Display only. */
+    @Column(name = "calories")
+    private Integer calories;
+
+    /** Portion weight in grams, above 0 and up to {@value #WEIGHT_GRAMS_MAX}, three decimals at most; {@code null} = unknown. */
+    @Column(name = "weight_grams", precision = 12, scale = WEIGHT_GRAMS_SCALE)
+    private BigDecimal weightGrams;
+
+    /** Estimated preparation time in minutes, 0 to {@value #PREP_MINUTES_MAX}; {@code null} = unknown. Informational only. */
+    @Column(name = "estimated_prep_minutes")
+    private Integer estimatedPrepMinutes;
+
     @Column(name = "base_price", nullable = false, precision = 19, scale = PRICE_SCALE)
     private BigDecimal basePrice;
 
@@ -135,13 +152,25 @@ public class Product {
 
     /** Product attributes supplied together when creating an unpublished draft. */
     public record Details(String name, String description, String ingredientsText, BigDecimal basePrice,
-            String currency, BigDecimal vatRate, boolean priceIncludesVat) {
+            String currency, BigDecimal vatRate, boolean priceIncludesVat, Nutrition nutrition) {
+
+        /** Without nutrition facts (they are optional). */
+        public Details(String name, String description, String ingredientsText, BigDecimal basePrice,
+                String currency, BigDecimal vatRate, boolean priceIncludesVat) {
+            this(name, description, ingredientsText, basePrice, currency, vatRate, priceIncludesVat, Nutrition.NONE);
+        }
 
         /** Without ingredients text (it is optional). */
         public Details(String name, String description, BigDecimal basePrice, String currency, BigDecimal vatRate,
                 boolean priceIncludesVat) {
-            this(name, description, null, basePrice, currency, vatRate, priceIncludesVat);
+            this(name, description, null, basePrice, currency, vatRate, priceIncludesVat, Nutrition.NONE);
         }
+    }
+
+    /** Optional facts about a product; every component is {@code null} when unknown. Validated by the entity. */
+    public record Nutrition(Integer calories, BigDecimal weightGrams, Integer estimatedPrepMinutes) {
+
+        public static final Nutrition NONE = new Nutrition(null, null, null);
     }
 
     private Product(UUID restaurantId, UUID actorUserId, UUID categoryId, Details details) {
@@ -153,6 +182,10 @@ public class Product {
         this.name = normalizeName(details.name());
         this.description = normalizeDescription(details.description());
         this.ingredientsText = normalizeIngredientsText(details.ingredientsText());
+        Nutrition nutrition = details.nutrition() == null ? Nutrition.NONE : details.nutrition();
+        this.calories = normalizeCalories(nutrition.calories());
+        this.weightGrams = normalizeWeightGrams(nutrition.weightGrams());
+        this.estimatedPrepMinutes = normalizeEstimatedPrepMinutes(nutrition.estimatedPrepMinutes());
         this.basePrice = normalizePrice(details.basePrice());
         this.currency = normalizeCurrency(details.currency());
         this.vatRate = normalizeVatRate(details.vatRate());
@@ -221,6 +254,42 @@ public class Product {
             throw new InvalidProductException("Ingredients text contains characters that are not allowed.");
         }
         return normalized;
+    }
+
+    /** Whole kcal from 0 (valid) to {@value #CALORIES_MAX}; {@code null} stays {@code null} (unknown). */
+    public static Integer normalizeCalories(Integer raw) {
+        return requireWholeInRange(raw, CALORIES_MAX, "Calories must be a whole number between 0 and " + CALORIES_MAX + ".");
+    }
+
+    /** Whole minutes from 0 (valid) to {@value #PREP_MINUTES_MAX}; {@code null} stays {@code null} (unknown). */
+    public static Integer normalizeEstimatedPrepMinutes(Integer raw) {
+        return requireWholeInRange(raw, PREP_MINUTES_MAX,
+                "Estimated preparation time must be a whole number of minutes between 0 and " + PREP_MINUTES_MAX + ".");
+    }
+
+    private static Integer requireWholeInRange(Integer raw, int max, String message) {
+        if (raw != null && (raw < 0 || raw > max)) {
+            throw new InvalidProductException(message);
+        }
+        return raw;
+    }
+
+    /**
+     * Grams above 0 and up to {@value #WEIGHT_GRAMS_MAX} with at most {@value #WEIGHT_GRAMS_SCALE} decimals as
+     * written: an extra decimal digit, even a trailing zero ({@code 12.3450}), is rejected, never rounded or cut.
+     * The range is checked before the scale is touched, so an absurd exponent is refused without being expanded.
+     */
+    public static BigDecimal normalizeWeightGrams(BigDecimal raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw.signum() <= 0 || raw.compareTo(MAX_WEIGHT_GRAMS) > 0) {
+            throw new InvalidProductException("Weight must be above 0 and at most " + WEIGHT_GRAMS_MAX + " grams.");
+        }
+        if (raw.scale() > WEIGHT_GRAMS_SCALE) {
+            throw new InvalidProductException("Weight must have at most " + WEIGHT_GRAMS_SCALE + " decimal places.");
+        }
+        return raw.setScale(WEIGHT_GRAMS_SCALE, RoundingMode.UNNECESSARY);
     }
 
     /**
@@ -323,6 +392,33 @@ public class Product {
         return changed;
     }
 
+    /** Sets or (with {@code null}) clears the calories. Repeating the current value is a no-op. */
+    public boolean changeCalories(Integer rawCalories) {
+        Integer normalized = normalizeCalories(rawCalories);
+        boolean changed = !Objects.equals(normalized, this.calories);
+        this.calories = normalized;
+        return changed;
+    }
+
+    /** Sets or (with {@code null}) clears the weight. {@code 12.5} and {@code 12.500} are the same value. */
+    public boolean changeWeightGrams(BigDecimal rawWeight) {
+        BigDecimal normalized = normalizeWeightGrams(rawWeight);
+        boolean changed = normalized == null ? this.weightGrams != null
+                : this.weightGrams == null || normalized.compareTo(this.weightGrams) != 0;
+        if (changed) {
+            this.weightGrams = normalized;
+        }
+        return changed;
+    }
+
+    /** Sets or (with {@code null}) clears the estimated preparation time. Repeating the current value is a no-op. */
+    public boolean changeEstimatedPrepMinutes(Integer rawMinutes) {
+        Integer normalized = normalizeEstimatedPrepMinutes(rawMinutes);
+        boolean changed = !Objects.equals(normalized, this.estimatedPrepMinutes);
+        this.estimatedPrepMinutes = normalized;
+        return changed;
+    }
+
     public boolean moveToCategory(UUID newCategoryId) {
         Objects.requireNonNull(newCategoryId, "categoryId");
         boolean changed = !newCategoryId.equals(this.categoryId);
@@ -408,6 +504,12 @@ public class Product {
     public String getIngredientsText() { return ingredientsText; }
 
     public String getImageUrl() { return imageUrl; }
+
+    public Integer getCalories() { return calories; }
+
+    public BigDecimal getWeightGrams() { return weightGrams; }
+
+    public Integer getEstimatedPrepMinutes() { return estimatedPrepMinutes; }
 
     public BigDecimal getBasePrice() { return basePrice; }
 

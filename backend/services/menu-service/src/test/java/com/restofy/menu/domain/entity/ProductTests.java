@@ -312,4 +312,144 @@ class ProductTests {
         }
         assertNull(p.getImageUrl(), "a refused value leaves the field as it was");
     }
+    // ---- calories, weight, preparation time ----
+
+    private static Product withNutrition(Integer calories, BigDecimal weight, Integer minutes) {
+        return Product.create(RESTAURANT, ACTOR, CATEGORY, new Product.Details("Burger", null, null, BigDecimal.ONE, "TRY",
+                BigDecimal.ZERO, true, new Product.Nutrition(calories, weight, minutes)));
+    }
+
+    @Test
+    void aNewProductHasUnknownNutritionByDefault() {
+        Product p = product();
+        assertNull(p.getCalories());
+        assertNull(p.getWeightGrams());
+        assertNull(p.getEstimatedPrepMinutes());
+        Product explicit = Product.create(RESTAURANT, ACTOR, CATEGORY, new Product.Details("Burger", null, null, BigDecimal.ONE,
+                "TRY", BigDecimal.ZERO, true, null));
+        assertNull(explicit.getCalories());
+    }
+
+    @Test
+    void nutritionIsStoredWithTheCreatedProductAndTheWeightHasThreeDecimals() {
+        Product p = withNutrition(250, new BigDecimal("12.5"), 8);
+        assertEquals(250, p.getCalories());
+        assertEquals(new BigDecimal("12.500"), p.getWeightGrams());
+        assertEquals(8, p.getEstimatedPrepMinutes());
+    }
+
+    @Test
+    void caloriesBoundaries() {
+        assertNull(Product.normalizeCalories(null));
+        assertEquals(0, Product.normalizeCalories(0), "zero is a valid, known value");
+        assertEquals(10_000, Product.normalizeCalories(10_000));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeCalories(-1));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeCalories(10_001));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeCalories(Integer.MAX_VALUE));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeCalories(Integer.MIN_VALUE));
+    }
+
+    @Test
+    void preparationTimeBoundaries() {
+        assertNull(Product.normalizeEstimatedPrepMinutes(null));
+        assertEquals(0, Product.normalizeEstimatedPrepMinutes(0));
+        assertEquals(240, Product.normalizeEstimatedPrepMinutes(240));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeEstimatedPrepMinutes(-1));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeEstimatedPrepMinutes(241));
+    }
+
+    @Test
+    void weightBoundariesAndExactDecimals() {
+        assertNull(Product.normalizeWeightGrams(null));
+        assertEquals(new BigDecimal("0.001"), Product.normalizeWeightGrams(new BigDecimal("0.001")));
+        assertEquals(new BigDecimal("10000.000"), Product.normalizeWeightGrams(new BigDecimal("10000")));
+        assertEquals(new BigDecimal("10000.000"), Product.normalizeWeightGrams(new BigDecimal("10000.000")));
+        assertEquals(new BigDecimal("12.345"), Product.normalizeWeightGrams(new BigDecimal("12.345")));
+        assertEquals(new BigDecimal("250.000"), Product.normalizeWeightGrams(new BigDecimal("2.5E+2")));
+        for (String bad : new String[] {"0", "0.0", "0.000", "-0.001", "-1", "10000.001", "10001", "1E+4001"}) {
+            BigDecimal weight = new BigDecimal(bad);
+            assertThrows(InvalidProductException.class, () -> Product.normalizeWeightGrams(weight), bad);
+        }
+    }
+
+    @Test
+    void extraDecimalDigitsAreRefusedNeverRoundedOrCut() {
+        for (String bad : new String[] {"12.3456", "12.3450", "0.0005", "1.0000", "250.0000", "0.0001", "1E-10"}) {
+            BigDecimal weight = new BigDecimal(bad);
+            assertThrows(InvalidProductException.class, () -> Product.normalizeWeightGrams(weight), bad);
+        }
+    }
+
+    @Test
+    void anAbsurdExponentIsRefusedWithoutBeingExpanded() {
+        BigDecimal hugeExponent = new BigDecimal("1E+999999999");
+        BigDecimal tinyExponent = new BigDecimal("1E-999999999");
+        assertThrows(InvalidProductException.class, () -> Product.normalizeWeightGrams(hugeExponent));
+        assertThrows(InvalidProductException.class, () -> Product.normalizeWeightGrams(tinyExponent));
+    }
+
+    @Test
+    void creatingWithAnInvalidNutritionValueIsRejected() {
+        assertThrows(InvalidProductException.class, () -> withNutrition(-1, null, null));
+        assertThrows(InvalidProductException.class, () -> withNutrition(null, BigDecimal.ZERO, null));
+        assertThrows(InvalidProductException.class, () -> withNutrition(null, null, 241));
+    }
+
+    @Test
+    void nutritionMutatorsReportARealChangeOnly() {
+        Product p = product();
+        assertTrue(p.changeCalories(100));
+        assertFalse(p.changeCalories(100), "same value is a no-op");
+        assertTrue(p.changeCalories(null), "null clears");
+        assertFalse(p.changeCalories(null), "clearing an unknown value is a no-op");
+        assertNull(p.getCalories());
+
+        assertTrue(p.changeWeightGrams(new BigDecimal("12.5")));
+        assertFalse(p.changeWeightGrams(new BigDecimal("12.500")), "12.5 and 12.500 are the same weight");
+        assertFalse(p.changeWeightGrams(new BigDecimal("1.25E+1")));
+        assertTrue(p.changeWeightGrams(new BigDecimal("12.501")));
+        assertTrue(p.changeWeightGrams(null));
+        assertFalse(p.changeWeightGrams(null));
+        assertNull(p.getWeightGrams());
+
+        assertTrue(p.changeEstimatedPrepMinutes(0), "zero is a value, different from unknown");
+        assertFalse(p.changeEstimatedPrepMinutes(0));
+        assertTrue(p.changeEstimatedPrepMinutes(null));
+        assertFalse(p.changeEstimatedPrepMinutes(null));
+    }
+
+    @Test
+    void zeroAndUnknownAreDifferentStates() {
+        Product p = withNutrition(0, null, 0);
+        assertEquals(0, p.getCalories());
+        assertNull(p.getWeightGrams());
+        assertEquals(0, p.getEstimatedPrepMinutes());
+        assertTrue(p.changeCalories(null));
+        assertNull(p.getCalories());
+    }
+
+    @Test
+    void aRefusedNutritionValueLeavesTheFieldAsItWas() {
+        Product p = withNutrition(100, new BigDecimal("10"), 5);
+        assertThrows(InvalidProductException.class, () -> p.changeCalories(10_001));
+        BigDecimal tooPrecise = new BigDecimal("1.2345");
+        assertThrows(InvalidProductException.class, () -> p.changeWeightGrams(tooPrecise));
+        assertThrows(InvalidProductException.class, () -> p.changeEstimatedPrepMinutes(-1));
+        assertEquals(100, p.getCalories());
+        assertEquals(new BigDecimal("10.000"), p.getWeightGrams());
+        assertEquals(5, p.getEstimatedPrepMinutes());
+    }
+
+    @Test
+    void nutritionChangesLeaveEveryOtherFieldAlone() {
+        Product p = product();
+        p.changeCalories(5);
+        p.changeWeightGrams(new BigDecimal("1"));
+        p.changeEstimatedPrepMinutes(1);
+        assertEquals("Burger", p.getName());
+        assertEquals("Grilled", p.getDescription());
+        assertEquals(new BigDecimal("12.5000"), p.getBasePrice());
+        assertTrue(p.isActive());
+        assertFalse(p.isPublished());
+    }
 }

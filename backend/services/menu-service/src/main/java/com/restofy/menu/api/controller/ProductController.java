@@ -12,11 +12,13 @@ import com.restofy.menu.application.security.AdminActor;
 import com.restofy.menu.application.security.AuthenticatedActor;
 import com.restofy.menu.application.service.ChangeAvailabilityCommand;
 import com.restofy.menu.application.service.CreateProductCommand;
+import com.restofy.menu.application.service.NutritionChange;
 import com.restofy.menu.application.service.ProductFilter;
 import com.restofy.menu.application.service.ProductQueryService;
 import com.restofy.menu.application.service.ProductService;
 import com.restofy.menu.application.service.ProductView;
 import com.restofy.menu.application.service.UpdateProductCommand;
+import com.restofy.menu.domain.entity.Product;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,7 +55,8 @@ public class ProductController {
     public ResponseEntity<ProductResponse> create(@AdminActor AuthenticatedActor actor, @Valid @RequestBody CreateProductRequest request) {
         ProductView created = products.create(actor, new CreateProductCommand(request.categoryId(), request.name(),
                 request.description(), request.ingredientsText(), request.basePrice(), request.currency(),
-                request.vatRate(), request.priceIncludesVat()));
+                request.vatRate(), request.priceIncludesVat(),
+                new Product.Nutrition(request.calories(), request.weightGrams(), request.estimatedPrepMinutes())));
         return ResponseEntity.created(URI.create("/api/v1/menu/products/" + created.product().getId()))
                 .body(ProductMapper.toResponse(created));
     }
@@ -86,7 +89,9 @@ public class ProductController {
             @Valid @RequestBody UpdateProductRequest request) {
         return ProductMapper.toResponse(products.update(actor, id, new UpdateProductCommand(request.categoryId(),
                 request.name(), request.description(), request.ingredientsText(), request.imageUrl(), request.basePrice(),
-                request.currency(), request.vatRate(), request.priceIncludesVat(), request.version())));
+                request.currency(), request.vatRate(), request.priceIncludesVat(),
+                new NutritionChange(request.calories(), request.weightGrams(), request.estimatedPrepMinutes()),
+                request.version())));
     }
 
     @PatchMapping("/{id}/active")
