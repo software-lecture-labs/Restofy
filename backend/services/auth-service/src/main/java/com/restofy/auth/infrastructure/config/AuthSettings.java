@@ -12,16 +12,22 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AuthSettings {
+    private static final Logger LOG = LoggerFactory.getLogger(AuthSettings.class);
+    private static final String SESSION_PREFIX = "auth.session.";
+    private static final Set<String> DEVELOPMENT_PROFILES = Set.of("dev", "local", "test");
     private final UUID restaurantId;
     private final RSAPrivateCrtKey privateKey;
     private final RSAPublicKey publicKey;
     private final byte[] csrfSecret;
     private final boolean secure;
+    private final boolean mfaRequired;
     private final String issuer;
     private final long accessTtl;
     private final long refreshTtl;
@@ -36,17 +42,23 @@ public class AuthSettings {
             publicKey = (RSAPublicKey) factory.generatePublic(new RSAPublicKeySpec(
                     privateKey.getModulus(), privateKey.getPublicExponent()));
             csrfSecret = Base64.getDecoder().decode(required(environment, "csrf-secret"));
-            String secureValue = required(environment, "cookie-secure");
-            if (!Set.of("true", "false").contains(secureValue)) {
-                throw new IllegalArgumentException();
-            }
-            secure = Boolean.parseBoolean(secureValue);
+            secure = strictBoolean(required(environment, "cookie-secure"));
             issuer = required(environment, "issuer");
             accessTtl = Long.parseLong(required(environment, "access-ttl-seconds"));
             refreshTtl = Long.parseLong(required(environment, "refresh-ttl-seconds"));
             origins = Arrays.stream(required(environment, "allowed-origins").split(",", -1)).map(String::strip).toList();
             boolean development = environment.getActiveProfiles().length > 0
-                    && Set.of("dev", "local", "test").containsAll(List.of(environment.getActiveProfiles()));
+                    && DEVELOPMENT_PROFILES.containsAll(List.of(environment.getActiveProfiles()));
+            // MFA can only be switched off for local development; any other profile or APP_ENV keeps it mandatory.
+            mfaRequired = strictBoolean(environment.getProperty(SESSION_PREFIX + "mfa-required", "true"));
+            String appEnvironment = environment.getProperty("auth.bootstrap.environment", "");
+            boolean developmentEnvironment = appEnvironment.isBlank() || DEVELOPMENT_PROFILES.contains(appEnvironment);
+            if (!mfaRequired && (!development || !developmentEnvironment)) {
+                throw new IllegalArgumentException();
+            }
+            if (!mfaRequired) {
+                LOG.warn("ADMIN MFA is DISABLED (AUTH_MFA_REQUIRED=false). Development only; never enable outside local development.");
+            }
             if (privateKey.getModulus().bitLength() < 2048 || csrfSecret.length < 32
                     || restaurantId.equals(new UUID(0, 0)) || issuer.length() > 100
                     || accessTtl != 900 || refreshTtl != 604800 || (!secure && !development)) {
@@ -64,11 +76,18 @@ public class AuthSettings {
     }
 
     private static String required(Environment environment, String suffix) {
-        String value = environment.getRequiredProperty("auth.session." + suffix);
+        String value = environment.getRequiredProperty(SESSION_PREFIX + suffix);
         if (value.isBlank()) {
             throw new IllegalArgumentException();
         }
         return value;
+    }
+
+    private static boolean strictBoolean(String value) {
+        if (!"true".equals(value) && !"false".equals(value)) {
+            throw new IllegalArgumentException();
+        }
+        return Boolean.parseBoolean(value);
     }
 
     private static int[] toUnsigned(byte[] bytes) {
@@ -95,6 +114,7 @@ public class AuthSettings {
     public RSAPublicKey publicKey() { return publicKey; }
     public byte[] csrfSecret() { return csrfSecret.clone(); }
     public boolean secure() { return secure; }
+    public boolean mfaRequired() { return mfaRequired; }
     public String issuer() { return issuer; }
     public long accessTtl() { return accessTtl; }
     public long refreshTtl() { return refreshTtl; }

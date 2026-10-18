@@ -61,7 +61,8 @@ public class StaffSessionService {
             throw invalid();
         }
         Instant now = clock.instant();
-        UserSession session = sessions.saveAndFlush(new UserSession(user, now, settings.refreshTtl(), deviceLabel));
+        UserSession session = sessions.saveAndFlush(new UserSession(user, now, settings.refreshTtl(), deviceLabel,
+                settings.mfaRequired()));
         return grant(session, now, 0);
     }
 

@@ -35,10 +35,15 @@ public class UserSession {
     }
 
     public UserSession(StaffUser user, Instant now, long lifetime, String deviceLabel) {
+        this(user, now, lifetime, deviceLabel, true);
+    }
+
+    public UserSession(StaffUser user, Instant now, long lifetime, String deviceLabel, boolean mfaRequired) {
         id = UUID.randomUUID();
         staffUserId = user.getId();
         roleSnapshot = user.getRole();
-        authState = roleSnapshot == StaffRole.ADMIN ? SessionAuthState.MFA_PENDING : SessionAuthState.AUTHENTICATED;
+        authState = mfaRequired && roleSnapshot == StaffRole.ADMIN
+                ? SessionAuthState.MFA_PENDING : SessionAuthState.AUTHENTICATED;
         createdAt = now;
         lastActivityAt = now;
         absoluteExpiresAt = now.plusSeconds(authState == SessionAuthState.MFA_PENDING ? 300 : lifetime);
