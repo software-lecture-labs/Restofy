@@ -28,7 +28,34 @@ public final class FakeBackends {
 
     public static final JsonMapper JSON = JsonMapper.builder().build();
 
-    public record Table(UUID id, UUID restaurantId, String number, String status, UUID sessionId) {
+    /** {@code version} is QR's version of the table, {@code sessionVersion} QR's version of its live session. */
+    public record Table(UUID id, UUID restaurantId, String number, String status, UUID sessionId, long version,
+                        long sessionVersion) {
+
+        public Table(UUID id, UUID restaurantId, String number, String status, UUID sessionId) {
+            this(id, restaurantId, number, status, sessionId, 7, 3);
+        }
+
+        public Table with(String newStatus, UUID newSessionId) {
+            return new Table(id, restaurantId, number, newStatus, newSessionId, version + 1, sessionVersion);
+        }
+    }
+
+    /** The verified money facts Order reports for an order (major units); null fields are not reported at all. */
+    public record Settlement(BigDecimal collected, BigDecimal outstandingDue, BigDecimal refundRequired,
+                             BigDecimal refunded) {
+
+        public static Settlement settled(String collected) {
+            return new Settlement(new BigDecimal(collected), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+
+        public static Settlement owing(String due) {
+            return new Settlement(BigDecimal.ZERO, new BigDecimal(due), BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+
+        public Settlement withRefund(String required, String made) {
+            return new Settlement(collected, outstandingDue, new BigDecimal(required), new BigDecimal(made));
+        }
     }
 
     /**
@@ -96,7 +123,11 @@ public final class FakeBackends {
         }
     }
 
-    public final List<Table> tables = new ArrayList<>();
+    public final List<Table> tables = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** Per order: Order's settlement facts; an order without an entry gets the facts its payment summary implies. */
+    public final Map<UUID, Settlement> settlements = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Orders for which Order reports no settlement facts at all. */
+    public final Set<UUID> withoutSettlement = java.util.concurrent.ConcurrentHashMap.newKeySet();
     public final List<Order> orders = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<UUID, ServeRecord> serveRecords = new HashMap<>();
     private final java.util.Deque<ServeFault> serveFaults = new java.util.ArrayDeque<>();
@@ -108,6 +139,7 @@ public final class FakeBackends {
     private static final Pattern ORDER_ID = Pattern.compile("/internal/v1/orders/([0-9a-f-]{36})");
 
     public FakeBackends installOn(DownstreamStub stub) {
+        OVERRIDES.set(this);
         stub.route("GET", "/internal/v1/tables", this::listTables);
         stub.route("GET", TABLE_ID.pattern(), this::getTable);
         stub.route("POST", "/internal/v1/orders/session-summaries", this::sessionSummaries);
@@ -148,6 +180,16 @@ public final class FakeBackends {
                 .orElse(Response.json(404, "{\"status\":404}"));
     }
 
+    public synchronized Table table(UUID id) {
+        return tables.stream().filter(t -> t.id().equals(id)).findFirst().orElseThrow();
+    }
+
+    public synchronized void replace(Table updated) {
+        for (int index = 0; index < tables.size(); index++) {
+            if (tables.get(index).id().equals(updated.id())) tables.set(index, updated);
+        }
+    }
+
     public static Map<String, Object> tableJson(Table table) {
         Map<String, Object> json = new LinkedHashMap<>();
         json.put("id", table.id());
@@ -157,6 +199,7 @@ public final class FakeBackends {
         json.put("capacity", 4);
         json.put("operationalStatus", table.status());
         json.put("active", !"DISABLED".equals(table.status()));
+        json.put("version", table.version());
         if (table.sessionId() == null) {
             json.put("currentSession", null);
         } else {
@@ -166,6 +209,7 @@ public final class FakeBackends {
             session.put("openedAt", "2026-10-16T09:00:00Z");
             session.put("lastActivityAt", "2026-10-16T09:30:00Z");
             session.put("scanCount", 2);
+            session.put("version", table.sessionVersion());
             json.put("currentSession", session);
         }
         return json;
@@ -373,6 +417,20 @@ public final class FakeBackends {
         };
     }
 
+    /** The facts Order would derive from verified payments; tests override them per order. */
+    private static Settlement settlementOf(Order o) {
+        Settlement overridden = OVERRIDES.get().settlements.get(o.id());
+        if (OVERRIDES.get().withoutSettlement.contains(o.id())) return null;
+        if (overridden != null) return overridden;
+        BigDecimal payable = new BigDecimal("150.00").subtract(cancelledGross(o));
+        return "PAID".equals(o.payment()) ? Settlement.settled(payable.toPlainString())
+                : Settlement.owing(payable.toPlainString());
+    }
+
+    /** The orderJson helpers are static; the instance that is currently serving requests supplies the overrides. */
+    private static final java.util.concurrent.atomic.AtomicReference<FakeBackends> OVERRIDES =
+            new java.util.concurrent.atomic.AtomicReference<>(new FakeBackends());
+
     public static Map<String, Object> orderJson(Order o) {
         Map<String, Object> json = new LinkedHashMap<>();
         json.put("id", o.id());
@@ -396,6 +454,15 @@ public final class FakeBackends {
             json.put("preparation", prep);
         }
         json.put("payment", Map.of("status", o.payment(), "sourceVersion", 1, "asOf", Instant.parse("2026-10-16T10:00:00Z")));
+        Settlement settlement = settlementOf(o);
+        if (settlement != null) {
+            Map<String, Object> facts = new LinkedHashMap<>();
+            facts.put("collected", settlement.collected());
+            facts.put("outstandingDue", settlement.outstandingDue());
+            facts.put("refundRequired", settlement.refundRequired());
+            facts.put("refunded", settlement.refunded());
+            json.put("settlement", facts);
+        }
         json.put("currency", "TRY");
         json.put("originalGrossTotal", new BigDecimal("150.00"));
         json.put("cancelledGrossTotal", cancelledGross(o));

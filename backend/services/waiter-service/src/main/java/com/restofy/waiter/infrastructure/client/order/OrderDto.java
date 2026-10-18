@@ -16,12 +16,14 @@ import static com.restofy.waiter.infrastructure.client.Fields.requiredText;
 /**
  * DRAFT Order contract v0: one order with its snapshot lines. Order owns the business and delivery axes;
  * {@code preparation} and {@code payment} are projections and may be absent (for example when the Kitchen
- * record has not reached Order yet), which is not the same as "not ready".
+ * record has not reached Order yet), which is not the same as "not ready". {@code settlement} (v0.4, WAITER-04)
+ * holds the verified money facts a table closure depends on; it may be absent, and Waiter then treats the
+ * order's payment state as unverified instead of guessing.
  */
 public record OrderDto(UUID id, UUID restaurantId, String orderNumber, UUID tableId, UUID tableSessionId,
                        OrderBusinessStatus businessStatus, DeliveryStatus deliveryStatus,
                        Instant acceptedAt, Instant servedAt,
-                       PreparationProjectionDto preparation, PaymentProjectionDto payment,
+                       PreparationProjectionDto preparation, PaymentProjectionDto payment, SettlementDto settlement,
                        String currency, BigDecimal originalGrossTotal, BigDecimal cancelledGrossTotal,
                        BigDecimal payableTotal, List<OrderItemDto> items, List<CancellationDto> cancellations,
                        long version) {

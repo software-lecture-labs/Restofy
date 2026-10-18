@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class NaturalTableOrderTests {
 
     private static QrTableDto table(String number, UUID id) {
-        return new QrTableDto(id, UUID.randomUUID(), number, null, null, TableOperationalStatus.AVAILABLE, true, null);
+        return new QrTableDto(id, UUID.randomUUID(), number, null, null, TableOperationalStatus.AVAILABLE, true, 0L, null);
     }
 
     private static List<String> sorted(String... numbers) {
