@@ -52,8 +52,8 @@ public class ProductController {
     @PostMapping
     public ResponseEntity<ProductResponse> create(@AdminActor AuthenticatedActor actor, @Valid @RequestBody CreateProductRequest request) {
         ProductView created = products.create(actor, new CreateProductCommand(request.categoryId(), request.name(),
-                request.description(), request.basePrice(), request.currency(), request.vatRate(),
-                request.priceIncludesVat()));
+                request.description(), request.ingredientsText(), request.basePrice(), request.currency(),
+                request.vatRate(), request.priceIncludesVat()));
         return ResponseEntity.created(URI.create("/api/v1/menu/products/" + created.product().getId()))
                 .body(ProductMapper.toResponse(created));
     }
@@ -85,8 +85,8 @@ public class ProductController {
     public ProductResponse update(@AdminActor AuthenticatedActor actor, @PathVariable UUID id,
             @Valid @RequestBody UpdateProductRequest request) {
         return ProductMapper.toResponse(products.update(actor, id, new UpdateProductCommand(request.categoryId(),
-                request.name(), request.description(), request.basePrice(), request.currency(), request.vatRate(),
-                request.priceIncludesVat(), request.version())));
+                request.name(), request.description(), request.ingredientsText(), request.basePrice(), request.currency(),
+                request.vatRate(), request.priceIncludesVat(), request.version())));
     }
 
     @PatchMapping("/{id}/active")

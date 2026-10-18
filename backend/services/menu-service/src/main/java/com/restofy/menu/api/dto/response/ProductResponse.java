@@ -10,6 +10,9 @@ import java.util.UUID;
  * (category and, for a subcategory, its parent are active); it is NOT customer visibility, which also
  * depends on the product's own state, publication and availability.
  *
+ * <p>{@code ingredientsText} is optional display text ({@code null} = not provided). It is independent of the
+ * description, the price and any structured option: nothing is derived from it.
+ *
  * <p>{@code availability} is {@code null} only when the product has no availability record, which is
  * never orderable. {@code isVisibleToCustomer} and {@code canOrder} are derived on every read and not
  * stored: visible = active, published and category chain active; orderable = visible and AVAILABLE.
@@ -25,6 +28,7 @@ public record ProductResponse(
         boolean canOrder,
         String name,
         String description,
+        String ingredientsText,
         BigDecimal basePrice,
         String currency,
         BigDecimal vatRate,

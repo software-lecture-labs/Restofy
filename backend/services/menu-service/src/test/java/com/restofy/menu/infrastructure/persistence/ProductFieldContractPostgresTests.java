@@ -71,6 +71,20 @@ class ProductFieldContractPostgresTests {
     }
 
     @Test
+    void ingredientsTextIsAnOptionalVarchar1000AndTheDtoAndEntityShareTheBound() throws Exception {
+        var db = column("ingredients_text");
+        assertEquals("character varying", db.get("data_type"));
+        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, db.get("character_maximum_length"));
+        assertEquals(1000, Product.INGREDIENTS_TEXT_MAX_LENGTH);
+        assertEquals("YES", db.get("is_nullable"));
+        assertNull(db.get("column_default"), "no invented default content");
+        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, jpa("ingredientsText").length());
+        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, component(CreateProductRequest.class, "ingredientsText").getAnnotation(Size.class).max());
+        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, component(UpdateProductRequest.class, "ingredientsText").getAnnotation(Size.class).max());
+        assertNull(component(CreateProductRequest.class, "ingredientsText").getAnnotation(NotNull.class), "ingredients text is optional");
+    }
+
+    @Test
     void basePriceIsNumeric19_4NotNullAndTheDtoBoundsMatchIt() throws Exception {
         var db = column("base_price");
         assertEquals("numeric", db.get("data_type"));
@@ -142,7 +156,7 @@ class ProductFieldContractPostgresTests {
         List<String> checks = jdbc.queryForList(
                 "SELECT conname FROM pg_constraint WHERE conrelid = 'public.products'::regclass AND contype = 'c'", String.class);
         assertTrue(checks.containsAll(List.of("ck_products_name_trimmed", "ck_products_base_price", "ck_products_currency",
-                "ck_products_vat_rate")), checks.toString());
+                "ck_products_vat_rate", "ck_products_ingredients_text")), checks.toString());
         String price = jdbc.queryForObject(
                 "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_products_base_price'", String.class);
         assertTrue(price.contains(">= (0)") || price.contains(">= 0"), "zero is allowed, negative is not: " + price);

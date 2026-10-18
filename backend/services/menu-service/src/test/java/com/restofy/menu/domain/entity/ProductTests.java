@@ -242,4 +242,48 @@ class ProductTests {
         }
         assertTrue(accepted > 150, "a realistic set of real currencies is accepted, got " + accepted);
     }
+
+    @Test
+    void ingredientsTextRules() {
+        assertNull(Product.normalizeIngredientsText(null));
+        assertNull(Product.normalizeIngredientsText(""));
+        assertNull(Product.normalizeIngredientsText(" \t\n "), "blank is never stored");
+        assertEquals("Flour, water, salt", Product.normalizeIngredientsText("  Flour, water, salt \n"));
+        assertEquals("Un, su\ntuz", Product.normalizeIngredientsText("Un, su\ntuz"), "multi-line is allowed");
+        assertEquals("Çiğ köfte 🍅 寿司", Product.normalizeIngredientsText("Çiğ köfte 🍅 寿司"));
+        assertEquals(1000, Product.normalizeIngredientsText("i".repeat(1000)).length());
+        String oneTooLong = "i".repeat(1001);
+        assertThrows(InvalidProductException.class, () -> Product.normalizeIngredientsText(oneTooLong));
+        for (String bad : new String[] {"a\u0000b", "a\u0001b", "a\u007fb", "a\u0085b", "a\ud800b", "\udc00", "ab\ud83d"}) {
+            assertThrows(InvalidProductException.class, () -> Product.normalizeIngredientsText(bad), "bad " + bad.length());
+        }
+    }
+
+    @Test
+    void ingredientsTextIsOptionalOnCreateAndIndependentOfEveryOtherField() {
+        Product without = product();
+        assertNull(without.getIngredientsText(), "an old-style product has none and nothing is invented");
+        Product with = Product.create(RESTAURANT, ACTOR, CATEGORY, new Product.Details("Pide", "Hot", " Flour, cheese ",
+                new BigDecimal("12.5"), "TRY", BigDecimal.TEN, true));
+        assertEquals("Flour, cheese", with.getIngredientsText());
+        assertEquals("Hot", with.getDescription(), "the description is a separate field");
+        assertEquals(new BigDecimal("12.5000"), with.getBasePrice(), "the text never touches the price");
+        assertFalse(with.isPublished());
+        var unsafe = new Product.Details("Pide", null, "bad\u0000", BigDecimal.ONE, "TRY", BigDecimal.TEN, true);
+        assertThrows(InvalidProductException.class, () -> Product.create(RESTAURANT, ACTOR, CATEGORY, unsafe));
+    }
+
+    @Test
+    void ingredientsTextMutatorSetsReplacesClearsAndReportsRealChangesOnly() {
+        Product p = product();
+        assertFalse(p.changeIngredientsText(null));
+        assertFalse(p.changeIngredientsText("  "), "already null");
+        assertTrue(p.changeIngredientsText("Flour"));
+        assertFalse(p.changeIngredientsText(" Flour "));
+        assertTrue(p.changeIngredientsText("Flour, salt"));
+        assertTrue(p.changeIngredientsText(" "), "a blank text clears it");
+        assertNull(p.getIngredientsText());
+        assertThrows(InvalidProductException.class, () -> p.changeIngredientsText("x\u0000"));
+        assertNull(p.getIngredientsText(), "a refused change leaves the value as it was");
+    }
 }

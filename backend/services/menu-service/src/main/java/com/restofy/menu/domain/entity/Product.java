@@ -39,6 +39,7 @@ public class Product {
 
     public static final int NAME_MAX_LENGTH = 200;
     public static final int DESCRIPTION_MAX_LENGTH = 2000;
+    public static final int INGREDIENTS_TEXT_MAX_LENGTH = 1000;
 
     /** Matches numeric(19,4): 15 integer digits and 4 fraction digits. */
     private static final int PRICE_SCALE = 4;
@@ -80,6 +81,13 @@ public class Product {
     @Column(columnDefinition = "text")
     private String description;
 
+    /**
+     * Optional customer-facing ingredients text. Display only: it never creates removable or addable options,
+     * a price difference or allergen information, and it is independent of the structured options of a later task.
+     */
+    @Column(name = "ingredients_text", length = INGREDIENTS_TEXT_MAX_LENGTH)
+    private String ingredientsText;
+
     @Column(name = "base_price", nullable = false, precision = 19, scale = PRICE_SCALE)
     private BigDecimal basePrice;
 
@@ -118,8 +126,15 @@ public class Product {
     protected Product() { }
 
     /** Product attributes supplied together when creating an unpublished draft. */
-    public record Details(String name, String description, BigDecimal basePrice, String currency,
-            BigDecimal vatRate, boolean priceIncludesVat) { }
+    public record Details(String name, String description, String ingredientsText, BigDecimal basePrice,
+            String currency, BigDecimal vatRate, boolean priceIncludesVat) {
+
+        /** Without ingredients text (it is optional). */
+        public Details(String name, String description, BigDecimal basePrice, String currency, BigDecimal vatRate,
+                boolean priceIncludesVat) {
+            this(name, description, null, basePrice, currency, vatRate, priceIncludesVat);
+        }
+    }
 
     private Product(UUID restaurantId, UUID actorUserId, UUID categoryId, Details details) {
         this.id = UUID.randomUUID();
@@ -129,6 +144,7 @@ public class Product {
         this.categoryId = Objects.requireNonNull(categoryId, "categoryId");
         this.name = normalizeName(details.name());
         this.description = normalizeDescription(details.description());
+        this.ingredientsText = normalizeIngredientsText(details.ingredientsText());
         this.basePrice = normalizePrice(details.basePrice());
         this.currency = normalizeCurrency(details.currency());
         this.vatRate = normalizeVatRate(details.vatRate());
@@ -176,6 +192,25 @@ public class Product {
         }
         if (!SafeText.isSafe(normalized, true)) {
             throw new InvalidProductException("Product description contains characters that are not allowed.");
+        }
+        return normalized;
+    }
+
+    /** Optional display text shaped like the description: blank becomes {@code null}, never a fake empty value. */
+    public static String normalizeIngredientsText(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String normalized = raw.strip();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.length() > INGREDIENTS_TEXT_MAX_LENGTH) {
+            throw new InvalidProductException(
+                    "Ingredients text must be at most " + INGREDIENTS_TEXT_MAX_LENGTH + " characters.");
+        }
+        if (!SafeText.isSafe(normalized, true)) {
+            throw new InvalidProductException("Ingredients text contains characters that are not allowed.");
         }
         return normalized;
     }
@@ -248,6 +283,14 @@ public class Product {
         String normalized = normalizeDescription(rawDescription);
         boolean changed = !Objects.equals(normalized, this.description);
         this.description = normalized;
+        return changed;
+    }
+
+    /** Sets, replaces or (with a blank text) clears the ingredients text. Touches nothing else. */
+    public boolean changeIngredientsText(String rawIngredientsText) {
+        String normalized = normalizeIngredientsText(rawIngredientsText);
+        boolean changed = !Objects.equals(normalized, this.ingredientsText);
+        this.ingredientsText = normalized;
         return changed;
     }
 
@@ -332,6 +375,8 @@ public class Product {
     public String getName() { return name; }
 
     public String getDescription() { return description; }
+
+    public String getIngredientsText() { return ingredientsText; }
 
     public BigDecimal getBasePrice() { return basePrice; }
 

@@ -28,6 +28,7 @@ public final class ProductMapper {
                 eligibility.canOrder(),
                 product.getName(),
                 product.getDescription(),
+                product.getIngredientsText(),
                 product.getBasePrice(),
                 product.getCurrency(),
                 product.getVatRate(),

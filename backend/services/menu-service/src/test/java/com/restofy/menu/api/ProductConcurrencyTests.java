@@ -215,4 +215,16 @@ class ProductConcurrencyTests {
         assertEquals(winner % 2 == 0, row.get("price_includes_vat"));
         assertEquals(1L, row.get("version"));
     }
+
+    @Test
+    void parallelIngredientsEditsWithTheSameVersionLetExactlyOneWin() throws Exception {
+        UUID id = newProduct();
+        int[] outcome = race(4, i -> service.update(admin, id,
+                new UpdateProductCommand(null, null, null, "Recipe " + i, null, null, null, null, 0L)));
+        assertEquals(1, outcome[0]);
+        assertEquals(3, outcome[1]);
+        String stored = jdbc.queryForObject("SELECT ingredients_text FROM products WHERE id = ?", String.class, id);
+        assertTrue(stored.matches("Recipe [0-3]"), stored);
+        assertEquals(1L, jdbc.queryForObject("SELECT version FROM products WHERE id = ?", Long.class, id));
+    }
 }

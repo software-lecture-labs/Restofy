@@ -53,7 +53,7 @@ public class ProductService {
     @Transactional
     public ProductView create(AuthenticatedActor actor, CreateProductCommand command) {
         AuthenticatedActor admin = AdminAccess.requireAdmin(actor);
-        var details = new Product.Details(command.name(), command.description(), command.basePrice(),
+        var details = new Product.Details(command.name(), command.description(), command.ingredientsText(), command.basePrice(),
                 command.currency(), command.vatRate(), command.priceIncludesVat());
         CategoryPlacement placement = requireCategory(admin.restaurantId(), command.categoryId());
         Product created = save(Product.create(admin.restaurantId(), admin.userId(), command.categoryId(), details));
@@ -81,6 +81,9 @@ public class ProductService {
         }
         if (command.description() != null) {
             changed |= product.describe(command.description());
+        }
+        if (command.ingredientsText() != null) {
+            changed |= product.changeIngredientsText(command.ingredientsText());
         }
         if (command.basePrice() != null) {
             changed |= product.changeBasePrice(command.basePrice());

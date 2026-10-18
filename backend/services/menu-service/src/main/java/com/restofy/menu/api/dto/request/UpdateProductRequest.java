@@ -24,6 +24,7 @@ public record UpdateProductRequest(
         UUID categoryId,
         @Size(max = Product.NAME_MAX_LENGTH) String name,
         @Size(max = Product.DESCRIPTION_MAX_LENGTH) String description,
+        @Size(max = Product.INGREDIENTS_TEXT_MAX_LENGTH) @JsonDeserialize(using = StrictStringDeserializer.class) String ingredientsText,
         @DecimalMin("0") @Digits(integer = 15, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal basePrice,
         @Pattern(regexp = "[A-Z]{3}", message = "must be a three-letter uppercase currency code") String currency,
         @DecimalMin("0") @DecimalMax("100") @Digits(integer = 3, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal vatRate,

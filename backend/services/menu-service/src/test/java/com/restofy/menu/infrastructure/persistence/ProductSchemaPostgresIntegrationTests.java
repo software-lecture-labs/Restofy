@@ -214,6 +214,30 @@ class ProductSchemaPostgresIntegrationTests {
     }
 
     @Test
+    void ingredientsTextIsOptionalAndDefaultsToNull() {
+        UUID id = insertProduct(RESTAURANT_A, insertCategory(RESTAURANT_A, "Drinks"), "Tea");
+        assertNull(jdbc.queryForObject("SELECT ingredients_text FROM products WHERE id = ?", String.class, id));
+        jdbc.update("UPDATE products SET ingredients_text = ? WHERE id = ?", "Tea leaves, water", id);
+        assertEquals("Tea leaves, water", jdbc.queryForObject("SELECT ingredients_text FROM products WHERE id = ?", String.class, id));
+    }
+
+    @Test
+    void ingredientsTextAcceptsExactlyThousandCharactersButNotMore() {
+        UUID id = insertProduct(RESTAURANT_A, insertCategory(RESTAURANT_A, "Drinks"), "Tea");
+        jdbc.update("UPDATE products SET ingredients_text = ? WHERE id = ?", "i".repeat(1000), id);
+        String oneTooLong = "i".repeat(1001);
+        var failure = assertThrows(DataIntegrityViolationException.class,
+                () -> jdbc.update("UPDATE products SET ingredients_text = ? WHERE id = ?", oneTooLong, id));
+        assertNotNull(failure.getMessage());
+    }
+
+    @Test
+    void blankIngredientsTextIsRejectedSoOnlyNullMeansNotProvided() {
+        UUID id = insertProduct(RESTAURANT_A, insertCategory(RESTAURANT_A, "Drinks"), "Tea");
+        assertRejectedBy("ck_products_ingredients_text", () -> jdbc.update("UPDATE products SET ingredients_text = ' ' WHERE id = ?", id));
+    }
+
+    @Test
     void sameNameIsAllowedInOneRestaurantBecauseNoUniquenessRuleIsApproved() {
         UUID category = insertCategory(RESTAURANT_A, "Drinks");
         insertProduct(RESTAURANT_A, category, "Tea");

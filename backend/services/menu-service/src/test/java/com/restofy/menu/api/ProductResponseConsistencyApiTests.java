@@ -40,7 +40,7 @@ class ProductResponseConsistencyApiTests {
 
     private static final UUID RESTAURANT = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
     private static final String BASE = "/api/v1/menu/products";
-    private static final List<String> CORE = List.of("id", "categoryId", "name", "description", "basePrice", "currency",
+    private static final List<String> CORE = List.of("id", "categoryId", "name", "description", "ingredientsText", "basePrice", "currency",
             "vatRate", "priceIncludesVat");
 
     @Autowired MockMvc mvc;
@@ -86,12 +86,13 @@ class ProductResponseConsistencyApiTests {
     @Test
     void createGetListAndEveryCommandAgreeOnTheCoreFields() throws Exception {
         String created = send(post(BASE), "{\"categoryId\":\"" + category + "\",\"name\":\"  Lamb   kebab \","
-                + "\"description\":\" grilled \",\"basePrice\":125.5,\"currency\":\"TRY\",\"vatRate\":8.5,"
+                + "\"description\":\" grilled \",\"ingredientsText\":\" lamb, spices \",\"basePrice\":125.5,\"currency\":\"TRY\",\"vatRate\":8.5,"
                 + "\"priceIncludesVat\":true}", 201);
         UUID id = UUID.fromString(JsonPath.read(created, "$.id"));
         Map<String, Object> expected = core(created);
         assertEquals("Lamb kebab", expected.get("name"));
         assertEquals("grilled", expected.get("description"));
+        assertEquals("lamb, spices", expected.get("ingredientsText"));
         assertEquals(new BigDecimal("125.5"), expected.get("basePrice"));
         assertEquals(new BigDecimal("8.5"), expected.get("vatRate"));
 
