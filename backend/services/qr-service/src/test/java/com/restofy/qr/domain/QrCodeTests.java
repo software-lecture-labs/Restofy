@@ -2,6 +2,7 @@ package com.restofy.qr.domain;
 
 import com.restofy.qr.domain.entity.QrCode;
 import com.restofy.qr.domain.enums.QrCodeStatus;
+import com.restofy.qr.domain.exception.QrCodeConflictException;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -27,6 +28,27 @@ class QrCodeTests {
         assertThat(code.getIssuedAt()).isNotNull();
         assertThat(code.getTokenDigest()).isEqualTo(digest);
         assertThat(code.getEncryptedPayload()).isEqualTo(payload);
+        assertThat(code.getRevokedAt()).isNull();
+    }
+
+    @Test
+    void revocationRetainsIdentityAndSetsTimestampWithoutReactivating() {
+        var code = new QrCode(id, restaurant, table, digest, payload);
+        code.revoke(0);
+        assertThat(code.getStatus()).isEqualTo(QrCodeStatus.REVOKED);
+        assertThat(code.getRevokedAt()).isAfterOrEqualTo(code.getIssuedAt());
+        assertThat(code.getTokenDigest()).isEqualTo(digest);
+        assertThat(code.getEncryptedPayload()).isEqualTo(payload);
+        assertThatThrownBy(() -> code.revoke(0)).isInstanceOf(QrCodeConflictException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {-1, 1, Long.MAX_VALUE})
+    void revocationRejectsInvalidOrStaleVersionWithoutChangingState(long version) {
+        var code = new QrCode(id, restaurant, table, digest, payload);
+        assertThatThrownBy(() -> code.revoke(version)).isInstanceOf(QrCodeConflictException.class);
+        assertThat(code.getStatus()).isEqualTo(QrCodeStatus.ACTIVE);
+        assertThat(code.getRevokedAt()).isNull();
     }
 
     @Test

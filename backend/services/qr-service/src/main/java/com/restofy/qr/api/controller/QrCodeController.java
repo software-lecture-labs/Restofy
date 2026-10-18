@@ -1,9 +1,11 @@
 package com.restofy.qr.api.controller;
 
 import com.restofy.qr.api.dto.response.CreatedQrCodeResponse;
+import com.restofy.qr.api.dto.request.RotateQrCodeRequest;
 import com.restofy.qr.application.service.QrCodeCreationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -25,5 +27,14 @@ public class QrCodeController {
             description = "No request body. The server generates the QR token. Image rendering/download is a later phase.")
     public ResponseEntity<CreatedQrCodeResponse> create(@PathVariable UUID tableId) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(service.create(tableId));
+    }
+
+    @PostMapping("/{qrId}/rotate")
+    @Operation(summary = "Replace an active QR credential using its current version",
+            description = "Revokes the previous credential and issues a new one atomically. Guest session policy is pending.")
+    public ResponseEntity<CreatedQrCodeResponse> rotate(@PathVariable UUID tableId, @PathVariable UUID qrId,
+                                                       @Valid @RequestBody RotateQrCodeRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
+                .body(service.rotate(tableId, qrId, request));
     }
 }

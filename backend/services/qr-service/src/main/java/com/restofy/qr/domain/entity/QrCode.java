@@ -1,6 +1,7 @@
 package com.restofy.qr.domain.entity;
 
 import com.restofy.qr.domain.enums.QrCodeStatus;
+import com.restofy.qr.domain.exception.QrCodeConflictException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.Objects;
@@ -24,6 +25,8 @@ public class QrCode {
     private QrCodeStatus status;
     @Column(name = "issued_at", nullable = false, updatable = false)
     private Instant issuedAt;
+    @Column(name = "revoked_at")
+    private Instant revokedAt;
     @Version
     private long version;
 
@@ -45,6 +48,14 @@ public class QrCode {
         this.issuedAt = Instant.now();
     }
 
+    public void revoke(long expectedVersion) {
+        if (expectedVersion < 0 || version != expectedVersion || status != QrCodeStatus.ACTIVE) {
+            throw new QrCodeConflictException();
+        }
+        status = QrCodeStatus.REVOKED;
+        revokedAt = Instant.now();
+    }
+
     public UUID getId() { return id; }
     public UUID getRestaurantId() { return restaurantId; }
     public UUID getTableId() { return tableId; }
@@ -52,5 +63,6 @@ public class QrCode {
     public String getEncryptedPayload() { return encryptedPayload; }
     public QrCodeStatus getStatus() { return status; }
     public Instant getIssuedAt() { return issuedAt; }
+    public Instant getRevokedAt() { return revokedAt; }
     public long getVersion() { return version; }
 }

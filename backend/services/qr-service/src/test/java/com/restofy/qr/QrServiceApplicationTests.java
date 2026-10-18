@@ -56,6 +56,19 @@ class QrServiceApplicationTests {
         mvc.perform(post(path)).andExpect(status().isForbidden());
     }
 
+    @Test
+    void qrRotationCannotBeOpenedByForgedHeadersDefaultRolesOrMissingCsrf() throws Exception {
+        String path = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/qr-codes/00000000-0000-0000-0000-000000000002/rotate";
+        mvc.perform(post(path).with(csrf()).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(path).with(csrf()).with(user("test-staff").roles("ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isForbidden());
+    }
+
 	@Test
 	void contextLoadsThroughMain() {
 	    assertThat(mvc).isNotNull();

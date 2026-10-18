@@ -13,8 +13,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
-    @ExceptionHandler(TableNotFoundException.class)
-    ProblemDetail notFound(TableNotFoundException exception) {
+    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class})
+    ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage());
     }
 

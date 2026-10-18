@@ -75,9 +75,9 @@ class QrCodePostgresIntegrationTests {
     @Test
     void appliesForwardMigrationWithCompositeFkAndPartialUniqueIndex() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("22");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("23");
         assertThat(jdbc.queryForList("select version from flyway_schema_history where success order by installed_rank", String.class))
-                .containsExactly("21", "22");
+                .containsExactly("21", "22", "23");
         assertThat(jdbc.queryForList("select indexname from pg_indexes where tablename='qr_codes'", String.class))
                 .contains("qr_codes_pkey", "uq_qr_codes_token_digest", "uq_qr_codes_active_table");
     }
@@ -226,7 +226,7 @@ class QrCodePostgresIntegrationTests {
                 .andExpect(jsonPath("$.qrToken").value(matchesPattern("[A-Za-z0-9_-]{43}")))
                 .andExpect(jsonPath("$.tokenDigest").doesNotExist()).andExpect(jsonPath("$.encryptedPayload").doesNotExist());
         api.perform(post(path(table))).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value("QR creation conflicts with the current table or QR state."))
+                .andExpect(jsonPath("$.detail").value("QR operation conflicts with the current table or QR state."))
                 .andExpect(jsonPath("$.qrToken").doesNotExist()).andExpect(jsonPath("$.trace").doesNotExist());
         api.perform(post("/api/v1/qr/tables/not-a-uuid/qr-codes")).andExpect(status().isBadRequest());
         api.perform(post(path(UUID.randomUUID()))).andExpect(status().isNotFound());

@@ -1,9 +1,11 @@
 package com.restofy.qr.application.service;
 
 import com.restofy.qr.api.dto.response.CreatedQrCodeResponse;
+import com.restofy.qr.api.dto.request.RotateQrCodeRequest;
 import com.restofy.qr.domain.entity.QrCode;
 import com.restofy.qr.domain.enums.QrCodeStatus;
 import com.restofy.qr.domain.exception.QrCodeConflictException;
+import com.restofy.qr.domain.exception.QrCodeNotFoundException;
 import com.restofy.qr.domain.exception.TableNotFoundException;
 import com.restofy.qr.infrastructure.persistence.repository.DiningTableRepository;
 import com.restofy.qr.infrastructure.persistence.repository.QrCodeRepository;
@@ -35,6 +37,26 @@ public class QrCodeCreationService {
         if (!table.isActive() || codes.existsByRestaurantIdAndTableIdAndStatus(restaurantId, tableId, QrCodeStatus.ACTIVE)) {
             throw new QrCodeConflictException();
         }
+        return issue(restaurantId, tableId);
+    }
+
+    @Transactional
+    public CreatedQrCodeResponse rotate(UUID tableId, UUID qrId, RotateQrCodeRequest request) {
+        UUID restaurantId = access.requireRestaurantId();
+        var table = tables.findForQrCreation(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
+        if (!table.isActive()) {
+            throw new QrCodeConflictException();
+        }
+        var previous = codes.findByRestaurantIdAndTableIdAndId(restaurantId, tableId, qrId)
+                .orElseThrow(QrCodeNotFoundException::new);
+        previous.revoke(request.version());
+        // Flush the revocation before INSERT to release the partial unique index slot.
+        // Both writes still commit or roll back in this same local transaction.
+        codes.flush();
+        return issue(restaurantId, tableId);
+    }
+
+    private CreatedQrCodeResponse issue(UUID restaurantId, UUID tableId) {
         UUID id = UUID.randomUUID();
         String token = codec.generateToken();
         var code = codes.saveAndFlush(new QrCode(id, restaurantId, tableId,
