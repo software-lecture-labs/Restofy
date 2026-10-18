@@ -2,6 +2,7 @@ package com.restofy.menu.api;
 
 import com.jayway.jsonpath.JsonPath;
 import com.restofy.menu.support.PublicMenuFixture;
+import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestPublicScopeConfiguration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(TestPublicScopeConfiguration.class)
+@Import({TestActorConfiguration.class, TestPublicScopeConfiguration.class})
 class PublicMenuApiTests {
 
     private static final UUID ALPHA = TestPublicScopeConfiguration.RESTAURANT_ALPHA;
@@ -532,6 +533,17 @@ class PublicMenuApiTests {
         jdbc.update("UPDATE products SET is_active = TRUE WHERE id = ?", id);
         jdbc.update("UPDATE categories SET is_active = FALSE WHERE id = ?", food);
         products("").andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void successAndErrorAnswersAreNeverCached() throws Exception {
+        visible(food, "Pide");
+        var noStore = org.hamcrest.Matchers.containsString("no-store");
+        products("").andExpect(status().isOk()).andExpect(header().string("Cache-Control", noStore));
+        products("?q=p").andExpect(status().isBadRequest()).andExpect(header().string("Cache-Control", noStore));
+        products("?categoryId=" + UUID.randomUUID()).andExpect(status().isNotFound()).andExpect(header().string("Cache-Control", noStore));
+        mvc.perform(get("/api/v1/menu/public/restaurants/unknown/categories")).andExpect(status().isNotFound())
+                .andExpect(header().string("Cache-Control", noStore));
     }
 
     // ---- cost ----

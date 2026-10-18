@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -20,9 +21,16 @@ import java.util.UUID;
  * through the {@link PublicRestaurantScopeResolver}, and only a restaurant it verified is read (the fail-closed
  * default verifies none). Anything that cannot be shown to this customer, whatever the reason, is the same
  * {@link PublicMenuNotFoundException}. Nothing here writes, orders or grants any authority.
+ *
+ * <p><b>What a read guarantees.</b> Each public read runs in one {@code REPEATABLE READ} transaction, so the page, the
+ * total and the categories and availability loaded for it all come from the same PostgreSQL snapshot: a card never
+ * disagrees with the list it is in, and the total counts exactly the products that could be listed. It is a snapshot
+ * of the moment the read started, not a live view: a change committed a moment later shows on the next read.
+ * "Orderable" here is a display fact only. Nothing is reserved or locked, so the order flow must check the
+ * availability again when it places an order.
  */
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class PublicMenuService {
 
     private static final int MAX_REFERENCE_LENGTH = 128;
@@ -68,9 +76,31 @@ public class PublicMenuService {
         var result = search.search(new PublicProductSearchRepository.Scope(restaurantId, query.categoryId(),
                 query.subcategoryId(), term), sort, page, size);
         List<Card> cards = views.assembleAll(restaurantId, result.items()).stream()
-                .map(view -> new Card(view, ProductSummary.of(view.product().getDescription())))
+                .filter(view -> view.eligibility().isListedPublicly()) // fail closed if SQL and the rule ever drift apart
+                .map(PublicMenuService::card)
                 .toList();
         return new PageImpl<>(cards, PageRequest.of(page, size), result.total());
+    }
+
+    /**
+     * One product by id under exactly the conditions of the list, for the product detail of a later task. A hidden
+     * product, an unknown id and the product of another restaurant all end in the same
+     * {@link PublicMenuNotFoundException}, like an unverified restaurant reference.
+     */
+    public Card listedProduct(String restaurantRef, UUID productId) {
+        UUID restaurantId = verifiedRestaurant(restaurantRef);
+        if (productId == null) {
+            throw new PublicMenuNotFoundException();
+        }
+        return search.findListed(restaurantId, productId)
+                .map(views::assemble)
+                .filter(view -> view.eligibility().isListedPublicly())
+                .map(PublicMenuService::card)
+                .orElseThrow(PublicMenuNotFoundException::new);
+    }
+
+    private static Card card(ProductView view) {
+        return new Card(view, ProductSummary.of(view.product().getDescription()));
     }
 
     private UUID verifiedRestaurant(String restaurantRef) {

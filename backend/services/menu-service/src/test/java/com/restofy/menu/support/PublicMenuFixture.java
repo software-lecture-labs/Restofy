@@ -67,6 +67,14 @@ public final class PublicMenuFixture {
             return new Spec(description, price, createdAt, active, false, availability);
         }
 
+        public Spec archivedIf(boolean condition) {
+            return condition ? archived() : this;
+        }
+
+        public Spec unpublishedIf(boolean condition) {
+            return condition ? unpublished() : this;
+        }
+
         /** An availability status, or {@code null} for a product WITHOUT an availability record. */
         public Spec availability(String status) {
             return new Spec(description, price, createdAt, active, published, status);

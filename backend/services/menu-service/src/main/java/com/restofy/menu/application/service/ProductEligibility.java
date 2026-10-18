@@ -11,19 +11,27 @@ import com.restofy.menu.domain.enums.AvailabilityStatus;
  * <ul>
  *   <li>{@code isVisibleToCustomer} = product active AND published AND category chain effectively
  *       active. Availability does not take part, so a product that is out of stock stays visible
- *       (it can be shown as "out of stock").</li>
- *   <li>{@code canOrder} = visible AND availability is {@link AvailabilityStatus#AVAILABLE}.</li>
- *   <li>A product without an availability record is never orderable (fail closed): the missing record
- *       is not treated as {@code AVAILABLE}, and it is not treated as visible-by-default either; it is
- *       only visible when the other three conditions hold.</li>
+ *       (it can be shown as "out of stock"). This is the management (ADMIN) meaning and is unchanged.</li>
+ *   <li>{@code canOrder} = visible AND availability is {@link AvailabilityStatus#AVAILABLE}. A closed product is
+ *       shown but never orderable; the stored price and the stock state are separate things and never mix.</li>
+ *   <li>{@link #isListedPublicly()} = visible AND an availability record exists. This is what the customer menu
+ *       lists: a product without an availability record is hidden there (fail closed), while management still
+ *       sees it and its {@code isVisibleToCustomer} flag keeps the meaning above.</li>
  * </ul>
  *
- * <p>This is a rule foundation for the future customer menu and order validation (MENU-04 / Order).
- * No public endpoint uses it yet.
+ * <p>The customer menu applies the same conditions in SQL
+ * ({@code PublicProductSearchRepository}, before paging, so the page and the total agree). The two are kept equal
+ * by a test that runs every combination of the state axes through both. A change to one side must change the
+ * other, and that test fails otherwise.
  *
  * @param availability {@code null} when the product has no availability record
  */
 public record ProductEligibility(boolean isVisibleToCustomer, boolean canOrder, AvailabilityStatus availability) {
+
+    /** What the customer menu (and a future public product detail) may show: visible and with an availability record. */
+    public boolean isListedPublicly() {
+        return isVisibleToCustomer && availability != null;
+    }
 
     public static ProductEligibility of(boolean productActive, boolean published, boolean categoryEffectivelyActive,
             AvailabilityStatus availability) {

@@ -85,12 +85,31 @@ class ProductEligibilityTests {
                         assertEquals(visible, result.isVisibleToCustomer());
                         assertEquals(visible && status == AvailabilityStatus.AVAILABLE, result.canOrder());
                         assertTrue(!result.canOrder() || result.isVisibleToCustomer(), "orderable implies visible");
+                        assertEquals(visible && status != null, result.isListedPublicly(), "listed = visible with an availability record");
+                        assertTrue(!result.canOrder() || result.isListedPublicly(), "orderable implies listed");
                         checked++;
                     }
                 }
             }
         }
         assertEquals(32, checked);
+    }
+
+    @Test
+    void aMissingAvailabilityRecordHidesTheProductPubliclyButNotInTheManagementMeaning() {
+        var result = ProductEligibility.of(true, true, true, null);
+        assertTrue(result.isVisibleToCustomer(), "the management flag keeps its meaning");
+        assertFalse(result.isListedPublicly(), "the customer menu fails closed");
+        assertFalse(result.canOrder());
+    }
+
+    @ParameterizedTest
+    @EnumSource(AvailabilityStatus.class)
+    void everyKnownStatusIsListedWhenTheOtherAxesAllow(AvailabilityStatus status) {
+        assertTrue(ProductEligibility.of(true, true, true, status).isListedPublicly());
+        assertFalse(ProductEligibility.of(false, true, true, status).isListedPublicly());
+        assertFalse(ProductEligibility.of(true, false, true, status).isListedPublicly());
+        assertFalse(ProductEligibility.of(true, true, false, status).isListedPublicly());
     }
 
     @Test
