@@ -14,6 +14,7 @@ import com.restofy.menu.domain.exception.ProductOptionLimitExceededException;
 import com.restofy.menu.domain.exception.ProductOptionNotFoundException;
 import com.restofy.menu.domain.exception.ProductOptionVersionConflictException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
+import com.restofy.menu.domain.exception.PublicMenuNotFoundException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
@@ -50,7 +51,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage());
     }
 
-    @ExceptionHandler({CategoryNotFoundException.class, ProductNotFoundException.class, ProductOptionNotFoundException.class})
+    @ExceptionHandler({CategoryNotFoundException.class, ProductNotFoundException.class, ProductOptionNotFoundException.class,
+            PublicMenuNotFoundException.class})
     ProblemDetail notFound(RuntimeException e) {
         return problem(HttpStatus.NOT_FOUND, "Not found", e.getMessage());
     }
