@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Real PostgreSQL (Testcontainers): Flyway applies V101-V103, Hibernate validates the entity against them, and
+ * Real PostgreSQL (Testcontainers): Flyway applies V101-V105, Hibernate validates the entity against them, and
  * the database itself enforces the call constraints, the single active call per guest and type, the tenant
  * foreign keys of the audit tables and the delivery queue states.
  */
@@ -63,6 +63,7 @@ class ServiceRequestPersistenceTests {
         jdbc.update("DELETE FROM notification_deliveries");
         jdbc.update("DELETE FROM service_call_events");
         jdbc.update("DELETE FROM service_requests");
+        jdbc.update("DELETE FROM table_commands");
     }
 
     private void insert(UUID id, UUID restaurant, UUID session, String type, String status, Instant createdAt) {
@@ -73,14 +74,32 @@ class ServiceRequestPersistenceTests {
         Timestamp at = Timestamp.from(createdAt);
         boolean claimed = status.equals("CLAIMED");
         boolean resolved = status.equals("RESOLVED");
+        boolean cancelled = status.equals("CANCELLED");
         jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type,
                                               message, status, claimed_by_user_id, claimed_at, resolved_by_user_id,
-                                              resolved_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                              resolved_at, closure_reason, cancelled_at, cancelled_by_command_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, id, restaurant, TABLE, session, guest, type, "mesaj", status,
                 claimed ? UUID.randomUUID() : null, claimed ? at : null,
-                resolved ? UUID.randomUUID() : null, resolved ? at : null, at);
+                resolved ? UUID.randomUUID() : null, resolved ? at : null,
+                cancelled ? "TABLE_SESSION_CLOSED" : null, cancelled ? at : null,
+                cancelled ? closingCommand(restaurant, session) : null, at);
+    }
+
+    /** A call only ends CANCELLED together with a confirmed close of its session (WAITER-04); this is that close. */
+    private UUID closingCommand(UUID restaurant, UUID session) {
+        List<UUID> existing = jdbc.queryForList("SELECT id FROM table_commands WHERE restaurant_id = ? AND table_session_id = ?",
+                UUID.class, restaurant, session);
+        if (!existing.isEmpty()) return existing.getFirst();
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO table_commands (id, restaurant_id, command_type, table_id, table_session_id, expected_version,
+                                            requested_by_user_id, idempotency_key, request_digest, status, qr_closed_at,
+                                            ended_guest_sessions, cancelled_call_count, created_at, updated_at, completed_at)
+                VALUES (?, ?, 'CLOSE', ?, ?, 1, ?, ?, 'digest', 'COMPLETED', now(), 1, 1, now(), now(), now())
+                """, id, restaurant, TABLE, session, UUID.randomUUID(), "key-" + id);
+        return id;
     }
 
     private void insertEvent(UUID eventId, UUID restaurant, UUID call, long version) {
@@ -104,10 +123,10 @@ class ServiceRequestPersistenceTests {
     }
 
     @Test
-    void flywayAppliedV101ToV104AndHibernateValidatesTheSchema() {
+    void flywayAppliedV101ToV105AndHibernateValidatesTheSchema() {
         List<String> versions = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        assertEquals(List.of("101", "102", "103", "104"), versions,
+        assertEquals(List.of("101", "102", "103", "104", "105"), versions,
                 "Waiter migrations must stay inside the V101-V110 range, in order and without gaps");
         assertEquals("validate", entityManagerFactory.getProperties().get("hibernate.hbm2ddl.auto"));
     }

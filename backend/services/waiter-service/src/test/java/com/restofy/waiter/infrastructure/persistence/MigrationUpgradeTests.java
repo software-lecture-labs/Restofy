@@ -90,7 +90,7 @@ class MigrationUpgradeTests {
         flyway("latest").migrate();
 
         try (Connection connection = probe(); Statement statement = connection.createStatement()) {
-            assertEquals(List.of("101", "102", "103", "104"), appliedVersions(connection));
+            assertEquals(List.of("101", "102", "103", "104", "105"), appliedVersions(connection));
             try (var checksum = statement.executeQuery("SELECT checksum FROM flyway_schema_history WHERE version = '101'")) {
                 assertTrue(checksum.next());
                 assertEquals(V101_CHECKSUM, checksum.getInt(1), "V101 is applied history and must never be edited");
@@ -101,6 +101,20 @@ class MigrationUpgradeTests {
                 assertEquals("OPEN", legacyRow.getString("status"));
                 assertEquals(0L, legacyRow.getLong("version"));
             }
+            // WAITER-04: the command table exists, the legacy row has no closure, and a cancelled call must say why.
+            try (var commands = statement.executeQuery("SELECT count(*) FROM table_commands")) {
+                assertTrue(commands.next());
+                assertEquals(0, commands.getInt(1));
+            }
+            try (var legacyRow = statement.executeQuery("SELECT closure_reason, cancelled_at, cancelled_by_command_id FROM service_requests WHERE id = '" + legacy + "'")) {
+                assertTrue(legacyRow.next());
+                assertNull(legacyRow.getObject(1));
+                assertNull(legacyRow.getObject(2));
+                assertNull(legacyRow.getObject(3));
+            }
+            assertThrows(SQLException.class, () -> statement.execute("INSERT INTO service_requests "
+                    + "(id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status) "
+                    + "VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'WAITER', 'CANCELLED')"));
             // New rows are held to the new rules.
             assertThrows(SQLException.class, () -> statement.execute("INSERT INTO service_requests "
                     + "(id, restaurant_id, table_session_id, guest_session_id, request_type, status) "

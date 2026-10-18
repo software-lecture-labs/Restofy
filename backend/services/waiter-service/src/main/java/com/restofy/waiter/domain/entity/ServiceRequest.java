@@ -1,5 +1,6 @@
 package com.restofy.waiter.domain.entity;
 
+import com.restofy.waiter.domain.enums.CallClosureReason;
 import com.restofy.waiter.domain.enums.ServiceRequestStatus;
 import com.restofy.waiter.domain.enums.ServiceRequestType;
 import com.restofy.waiter.domain.exception.CallConflictException;
@@ -64,6 +65,18 @@ public class ServiceRequest {
     @Column(name = "resolved_at")
     private Instant resolvedAt;
 
+    /** Set only when the call ended unresolved because its table session closed; such a call is CANCELLED. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "closure_reason")
+    private CallClosureReason closureReason;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    /** The table command (a QR-confirmed close) that ended this call. */
+    @Column(name = "cancelled_by_command_id")
+    private UUID cancelledByCommandId;
+
     /** Wrapper type on purpose: null marks a new entity, so Spring Data persists instead of merging. */
     @Version
     @Column(name = "version", nullable = false)
@@ -112,6 +125,20 @@ public class ServiceRequest {
         status = ServiceRequestStatus.RESOLVED;
         resolvedByUserId = staffUserId;
         resolvedAt = now;
+        updatedAt = now;
+    }
+
+    /**
+     * Ends an unresolved call because QR confirmed that its main table session is closed. This is not a
+     * resolution: nobody did the work, so the resolver fields stay empty and the call keeps its history
+     * (claimer, creation time) instead of being deleted or marked as done.
+     */
+    public void cancelForTableClosure(UUID closingCommandId, Instant now) {
+        requireUnresolved();
+        status = ServiceRequestStatus.CANCELLED;
+        closureReason = CallClosureReason.TABLE_SESSION_CLOSED;
+        cancelledAt = now;
+        cancelledByCommandId = closingCommandId;
         updatedAt = now;
     }
 

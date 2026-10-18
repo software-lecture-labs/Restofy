@@ -117,7 +117,9 @@ class NotificationSyncTests extends ApiTestBase {
         JsonNode body = received.body();
         assertEquals(Set.of("eventId", "schemaVersion", "eventType", "occurredAt", "restaurantId", "call"), names(body));
         assertEquals(Set.of("id", "tableId", "tableSessionId", "type", "status", "version", "claimedByUserId", "claimedAt",
-                "resolvedByUserId", "resolvedAt"), names(body.get("call")));
+                "resolvedByUserId", "resolvedAt", "cancellationReason", "cancelledAt"), names(body.get("call")));
+        assertTrue(body.get("call").get("cancellationReason").isNull() && body.get("call").get("cancelledAt").isNull(),
+                "Only the end of a call with its table session fills the cancellation fields");
         assertEquals(1, body.get("schemaVersion").asInt());
         assertEquals("SERVICE_CALL_CREATED", body.get("eventType").asString());
         assertEquals(RESTAURANT.toString(), body.get("restaurantId").asString());

@@ -4,7 +4,9 @@ package com.restofy.waiter.domain.enums;
 public enum CallEventType {
     CREATED,
     CLAIMED,
-    RESOLVED;
+    RESOLVED,
+    /** The call ended unresolved because its table session was closed (WAITER-04). */
+    CANCELLED;
 
     /** Event name used on the wire to Notification (docs/waiter/integration-contracts.md). */
     public String wireName() {

@@ -225,7 +225,7 @@ class CallRulesUnitTests {
 
     @Test
     void everyEventTypeHasADistinctWireName() {
-        assertEquals(Set.of("SERVICE_CALL_CREATED", "SERVICE_CALL_CLAIMED", "SERVICE_CALL_RESOLVED"),
+        assertEquals(Set.of("SERVICE_CALL_CREATED", "SERVICE_CALL_CLAIMED", "SERVICE_CALL_RESOLVED", "SERVICE_CALL_CANCELLED"),
                 EnumSet.allOf(CallEventType.class).stream().map(CallEventType::wireName).collect(java.util.stream.Collectors.toSet()));
     }
 

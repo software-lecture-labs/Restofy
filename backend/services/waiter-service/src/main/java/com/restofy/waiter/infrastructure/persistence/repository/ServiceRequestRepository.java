@@ -21,6 +21,13 @@ public interface ServiceRequestRepository
     List<ServiceRequest> findByRestaurantIdAndTableSessionIdInAndStatusInOrderByCreatedAtAscIdAsc(
             UUID restaurantId, Collection<UUID> tableSessionIds, Collection<ServiceRequestStatus> statuses);
 
+    /** Every call of one main session in the given states; used when QR confirms that the session is closed. */
+    List<ServiceRequest> findByRestaurantIdAndTableSessionIdAndStatusInOrderByCreatedAtAscIdAsc(
+            UUID restaurantId, UUID tableSessionId, Collection<ServiceRequestStatus> statuses);
+
+    long countByRestaurantIdAndTableSessionIdAndStatusIn(UUID restaurantId, UUID tableSessionId,
+                                                         Collection<ServiceRequestStatus> statuses);
+
     /** Tenant-scoped lookup: another restaurant's call id is indistinguishable from a missing one. */
     Optional<ServiceRequest> findByIdAndRestaurantId(UUID id, UUID restaurantId);
 

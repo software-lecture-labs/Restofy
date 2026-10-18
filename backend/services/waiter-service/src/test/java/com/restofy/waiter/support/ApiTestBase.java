@@ -33,9 +33,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * principal that the future Auth integration will provide; nothing in the production chain is relaxed. Guests
  * authenticate the way production does: with a credential that the QR stub verifies.
  *
- * <p>The background delivery trigger is switched off here so tests drive delivery rounds deterministically.
+ * <p>The background triggers (Notification delivery, table command reconciliation) are switched off here so
+ * tests drive their rounds deterministically.
  */
-@SpringBootTest(properties = "restofy.notification.dispatcher.enabled=false")
+@SpringBootTest(properties = {"restofy.notification.dispatcher.enabled=false",
+        "restofy.table-commands.reconciler.enabled=false"})
 @AutoConfigureMockMvc
 public abstract class ApiTestBase {
 
@@ -85,6 +87,7 @@ public abstract class ApiTestBase {
         jdbc.update("DELETE FROM notification_deliveries");
         jdbc.update("DELETE FROM service_call_events");
         jdbc.update("DELETE FROM service_requests");
+        jdbc.update("DELETE FROM table_commands");
     }
 
     protected static RequestPostProcessor asStaff(StaffRole role, UUID restaurantId) {
@@ -153,14 +156,32 @@ public abstract class ApiTestBase {
         Timestamp now = Timestamp.from(createdAt);
         boolean claimed = "CLAIMED".equals(status);
         boolean resolved = "RESOLVED".equals(status);
+        boolean cancelled = "CANCELLED".equals(status);
         jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type,
                                               message, status, claimed_by_user_id, claimed_at, resolved_by_user_id, resolved_at,
-                                              created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                              closure_reason, cancelled_at, cancelled_by_command_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, id, restaurantId, tableId, sessionId, guestSessionId, type, "Yardım lütfen", status,
                 claimed ? UUID.randomUUID() : null, claimed ? now : null,
-                resolved ? UUID.randomUUID() : null, resolved ? now : null, now, now);
+                resolved ? UUID.randomUUID() : null, resolved ? now : null,
+                cancelled ? "TABLE_SESSION_CLOSED" : null, cancelled ? now : null,
+                cancelled ? closingCommand(restaurantId, tableId, sessionId) : null, now, now);
+        return id;
+    }
+
+    /** A call only ends CANCELLED together with a confirmed close of its session (WAITER-04); this is that close. */
+    private UUID closingCommand(UUID restaurantId, UUID tableId, UUID sessionId) {
+        List<UUID> existing = jdbc.queryForList("SELECT id FROM table_commands WHERE restaurant_id = ? AND table_session_id = ?",
+                UUID.class, restaurantId, sessionId);
+        if (!existing.isEmpty()) return existing.getFirst();
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO table_commands (id, restaurant_id, command_type, table_id, table_session_id, expected_version,
+                                            requested_by_user_id, idempotency_key, request_digest, status, qr_closed_at,
+                                            ended_guest_sessions, cancelled_call_count, created_at, updated_at, completed_at)
+                VALUES (?, ?, 'CLOSE', ?, ?, 1, ?, ?, 'digest', 'COMPLETED', now(), 1, 1, now(), now(), now())
+                """, id, restaurantId, tableId, sessionId, UUID.randomUUID(), "key-" + id);
         return id;
     }
 
