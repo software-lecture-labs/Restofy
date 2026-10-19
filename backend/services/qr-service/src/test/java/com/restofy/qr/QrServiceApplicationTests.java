@@ -22,6 +22,30 @@ class QrServiceApplicationTests {
     @Autowired com.restofy.qr.application.service.OrderAdmissionService admissions;
     @Autowired com.restofy.qr.application.service.GuestSessionContextReader contexts;
     @Autowired com.restofy.qr.application.service.OrderBusinessOutcomeService outcomes;
+    @Autowired com.restofy.qr.application.service.TableSessionClosureService closure;
+
+    @Test
+    void neitherAClaimedStaffRoleNorAPaymentReferenceSuppliesLifecycleAuthority() {
+        var id = java.util.UUID.randomUUID();
+        assertThatThrownBy(() -> closure.close(id, 0)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+        assertThatThrownBy(() -> closure.cleaned(id, 0)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"close", "cleaned"})
+    void closureAndCleaningStayClosedToForgedRolesAndMissingCsrf(String operation) throws Exception {
+        String path = "/api/v1/qr/table-sessions/00000000-0000-0000-0000-000000000001/" + operation;
+        mvc.perform(post(path).with(csrf()).header("X-Role", "WAITER").header("X-Restaurant-Id", "forged")
+                .header("X-User-Id", "forged").contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isUnauthorized());
+        for (String role : new String[]{"ADMIN", "WAITER", "KITCHEN"}) {
+            mvc.perform(post(path).with(csrf()).with(user("test-staff").roles(role))
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                    .andExpect(status().isForbidden());
+        }
+        mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     void aPaymentReferenceCannotSupplyTheMissingOrderAndPaymentAuthority() {

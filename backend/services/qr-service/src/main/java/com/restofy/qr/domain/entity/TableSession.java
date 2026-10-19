@@ -4,6 +4,7 @@ import com.restofy.qr.domain.enums.TableSessionStatus;
 import com.restofy.qr.domain.IdleWindow;
 import com.restofy.qr.domain.exception.TableSessionConflictException;
 import com.restofy.qr.domain.exception.OrderOutcomeConflictException;
+import com.restofy.qr.domain.exception.SessionClosureConflictException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.Objects;
@@ -102,6 +103,26 @@ public class TableSession {
         status = TableSessionStatus.EXPIRED;
         closedAt = now;
         return true;
+    }
+
+    public void beginClosingAt(Instant now) {
+        if ((status != TableSessionStatus.OPEN && status != TableSessionStatus.CLOSING)
+                || closedAt != null || now.isBefore(lastActivityAt)
+                || (closingAt != null && now.isBefore(closingAt))) { throw new SessionClosureConflictException(); }
+        if (status == TableSessionStatus.OPEN) {
+            closingAt = IdleWindow.storedTime(now);
+            status = TableSessionStatus.CLOSING;
+        }
+    }
+
+    public void closeAt(Instant now, UUID staffUserId) {
+        Objects.requireNonNull(staffUserId);
+        if (status != TableSessionStatus.CLOSING || closingAt == null || closedAt != null
+                || now.isBefore(lastActivityAt) || now.isBefore(closingAt)) { throw new SessionClosureConflictException(); }
+        status = TableSessionStatus.CLOSED;
+        closedAt = IdleWindow.storedTime(now);
+        closedByUserId = staffUserId;
+        invalidateOrderScope();
     }
 
     public UUID getId() { return id; }

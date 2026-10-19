@@ -13,8 +13,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
-    @ExceptionHandler(QrImageUnavailableException.class)
-    ProblemDetail imageUnavailable(QrImageUnavailableException exception) {
+    @ExceptionHandler({QrImageUnavailableException.class, SessionClosureUnavailableException.class})
+    ProblemDetail unavailable(RuntimeException exception) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
     }
 
@@ -28,7 +28,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "The operation conflicts with the current data. Reload and retry.");
     }
 
-    @ExceptionHandler({QrCodeConflictException.class, TableSessionConflictException.class, OrderAdmissionConflictException.class, OrderOutcomeConflictException.class})
+    @ExceptionHandler({QrCodeConflictException.class, TableSessionConflictException.class, OrderAdmissionConflictException.class, OrderOutcomeConflictException.class, SessionClosureConflictException.class})
     ProblemDetail qrConflict(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, exception.getMessage());
     }

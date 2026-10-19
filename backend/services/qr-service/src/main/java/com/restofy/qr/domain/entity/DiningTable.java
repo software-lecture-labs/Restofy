@@ -96,6 +96,20 @@ public class DiningTable {
         operationalStatus = TableOperationalStatus.AVAILABLE;
     }
 
+    public void beginCleaning() {
+        if (!active || operationalStatus != TableOperationalStatus.OCCUPIED) {
+            throw new TableConflictException("Only an active occupied table can enter cleaning.");
+        }
+        operationalStatus = TableOperationalStatus.CLEANING;
+    }
+
+    public void finishCleaning() {
+        if (!active || operationalStatus != TableOperationalStatus.CLEANING) {
+            throw new TableConflictException("Only an active cleaning table can become available.");
+        }
+        operationalStatus = TableOperationalStatus.AVAILABLE;
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

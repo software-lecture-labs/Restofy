@@ -99,6 +99,13 @@ public class GuestSession {
         endedAt = now;
     }
 
+    public void endWithMainAt(Instant now) {
+        if (status != GuestSessionStatus.ACTIVE) { return; }
+        if (now.isBefore(lastActivityAt)) { throw new InvalidGuestSessionException(); }
+        status = GuestSessionStatus.ENDED;
+        endedAt = IdleWindow.storedTime(now);
+    }
+
     public UUID getId() { return id; }
     public UUID getRestaurantId() { return restaurantId; }
     public UUID getTableSessionId() { return tableSessionId; }
