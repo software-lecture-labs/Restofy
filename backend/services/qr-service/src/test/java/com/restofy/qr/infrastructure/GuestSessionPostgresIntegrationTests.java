@@ -102,13 +102,16 @@ class GuestSessionPostgresIntegrationTests {
         var first = opening.open(code.qrToken());
         when(clock.instant()).thenReturn(first.guestSession().joinedAt().plusSeconds(30));
         var repeat = opening.open(code.qrToken());
-        assertThat(repeat.tableSession()).isEqualTo(first.tableSession());
+        assertThat(repeat.tableSession().id()).isEqualTo(first.tableSession().id());
+        assertThat(repeat.tableSession().openedAt()).isEqualTo(first.tableSession().openedAt());
+        assertThat(repeat.tableSession().lastActivityAt()).isEqualTo(first.guestSession().joinedAt().plusSeconds(30));
+        assertThat(repeat.tableSession().idleExpiresAt()).isEqualTo(repeat.tableSession().lastActivityAt().plusSeconds(900));
         assertThat(repeat.guestSession().id()).isNotEqualTo(first.guestSession().id());
         assertThat(repeat.guestToken()).isNotEqualTo(first.guestToken()).isNotEqualTo(code.qrToken());
         assertThat(repeat.guestSession().tableSessionId()).isEqualTo(first.tableSession().id());
         assertThat(repeat.guestSession().joinedAt()).isAfter(first.guestSession().joinedAt());
         assertThat(repeat.guestSession().joinedAt()).isEqualTo(repeat.guestSession().lastActivityAt());
-        assertThat(repeat.guestSession().expiresAt()).isNull();
+        assertThat(repeat.guestSession().expiresAt()).isEqualTo(repeat.guestSession().joinedAt().plusSeconds(900));
         assertThat(repeat.guestSession().version()).isZero();
         assertThat(count(code.tableId())).isEqualTo(3);
         assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
@@ -159,7 +162,7 @@ class GuestSessionPostgresIntegrationTests {
             var after = guests.findById(result.guestSession().id()).orElseThrow();
             assertThat(after.getVersion()).isEqualTo(before.getVersion());
             assertThat(after.getLastActivityAt()).isEqualTo(before.getLastActivityAt());
-            assertThat(after.getExpiresAt()).isNull();
+            assertThat(after.getExpiresAt()).isEqualTo(before.getExpiresAt());
         }
         assertThat(first.tableSession().id()).isNotEqualTo(second.tableSession().id());
         assertThat(first.guestSession().restaurantId()).isNotEqualTo(third.guestSession().restaurantId());
@@ -305,15 +308,17 @@ class GuestSessionPostgresIntegrationTests {
     }
 
     @Test
-    void backwardsClockBetweenMainAndGuestDoesNotCommitAPartialFirstScan() {
+    void backwardsClockCannotRefreshAnExistingMainOrAddAnotherGuest() {
         var code = create("1");
-        Instant checked = code.issuedAt().plusSeconds(1).truncatedTo(ChronoUnit.MICROS);
-        when(clock.instant()).thenReturn(checked, checked.minusSeconds(1));
+        Instant checked = code.issuedAt().plusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+        when(clock.instant()).thenReturn(checked);
+        opening.open(code.qrToken());
+        when(clock.instant()).thenReturn(checked.minusSeconds(1));
         String token = code.qrToken();
         assertThatThrownBy(() -> opening.open(token)).isInstanceOf(TableSessionConflictException.class);
-        assertThat(count(code.tableId())).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from table_sessions where table_id=?", Integer.class, code.tableId())).isZero();
-        assertThat(tables.get(code.tableId()).version()).isZero();
+        assertThat(count(code.tableId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from table_sessions where table_id=?", Integer.class, code.tableId())).isEqualTo(1);
+        assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
     }
 
     @ParameterizedTest

@@ -89,6 +89,13 @@ public class DiningTable {
         operationalStatus = TableOperationalStatus.OCCUPIED;
     }
 
+    public void releaseAfterIdle() {
+        if (!active || operationalStatus != TableOperationalStatus.OCCUPIED) {
+            throw new TableConflictException("Only an active occupied table can be released after idle expiry.");
+        }
+        operationalStatus = TableOperationalStatus.AVAILABLE;
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

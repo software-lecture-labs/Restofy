@@ -1,6 +1,8 @@
 package com.restofy.qr.domain.entity;
 
 import com.restofy.qr.domain.enums.TableSessionStatus;
+import com.restofy.qr.domain.IdleWindow;
+import com.restofy.qr.domain.exception.TableSessionConflictException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.Objects;
@@ -41,16 +43,39 @@ public class TableSession {
         this.id = UUID.randomUUID();
         this.restaurantId = Objects.requireNonNull(restaurantId);
         this.tableId = Objects.requireNonNull(tableId);
-        this.openedAt = Objects.requireNonNull(now);
-        this.lastActivityAt = now;
+        this.openedAt = IdleWindow.storedTime(Objects.requireNonNull(now));
+        this.lastActivityAt = openedAt;
+        this.idleExpiresAt = IdleWindow.deadline(openedAt);
         this.status = TableSessionStatus.OPEN;
-        // Idle calculation/refresh and closing transitions belong to QR-04.
     }
 
     public boolean isOpenAt(Instant now) {
         return status == TableSessionStatus.OPEN && closingAt == null && closedAt == null
                 && !openedAt.isAfter(now) && !lastActivityAt.isAfter(now)
                 && (idleExpiresAt == null || idleExpiresAt.isAfter(now));
+    }
+
+    public void recordActivityAt(Instant now) {
+        if (!isOpenAt(now)) {
+            throw new TableSessionConflictException();
+        }
+        lastActivityAt = IdleWindow.storedTime(now);
+        idleExpiresAt = IdleWindow.deadline(lastActivityAt);
+    }
+
+    public boolean isIdleDueAt(Instant now) {
+        return status == TableSessionStatus.OPEN && closingAt == null && closedAt == null
+                && idleExpiresAt != null && !idleExpiresAt.isAfter(now);
+    }
+
+    // Service must first establish verified NO_ORDERS under the parent lock.
+    public boolean expireIdleAt(Instant now) {
+        if (!isIdleDueAt(now)) {
+            return false;
+        }
+        status = TableSessionStatus.EXPIRED;
+        closedAt = now;
+        return true;
     }
 
     public UUID getId() { return id; }

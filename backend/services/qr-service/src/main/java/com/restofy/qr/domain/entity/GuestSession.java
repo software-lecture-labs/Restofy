@@ -1,6 +1,8 @@
 package com.restofy.qr.domain.entity;
 
 import com.restofy.qr.domain.enums.GuestSessionStatus;
+import com.restofy.qr.domain.IdleWindow;
+import com.restofy.qr.domain.exception.InvalidGuestSessionException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.Objects;
@@ -43,15 +45,42 @@ public class GuestSession {
             throw new IllegalArgumentException("Invalid guest digest format.");
         }
         this.tokenDigest = tokenDigest;
-        this.joinedAt = Objects.requireNonNull(joinedAt);
-        this.lastActivityAt = joinedAt;
+        this.joinedAt = IdleWindow.storedTime(Objects.requireNonNull(joinedAt));
+        this.lastActivityAt = this.joinedAt;
+        this.expiresAt = IdleWindow.deadline(this.joinedAt);
         this.status = GuestSessionStatus.ACTIVE;
-        // Idle calculation and terminal transition writers belong to QR-04.
     }
 
     public boolean isUsableAt(Instant now) {
         return status == GuestSessionStatus.ACTIVE && endedAt == null && !joinedAt.isAfter(now)
                 && !lastActivityAt.isAfter(now) && (expiresAt == null || expiresAt.isAfter(now));
+    }
+
+    public void recordActivityAt(Instant now) {
+        if (!isUsableAt(now)) {
+            throw new InvalidGuestSessionException();
+        }
+        lastActivityAt = IdleWindow.storedTime(now);
+        expiresAt = IdleWindow.deadline(lastActivityAt);
+    }
+
+    public boolean expireIdleAt(Instant now) {
+        if (status != GuestSessionStatus.ACTIVE || expiresAt == null || expiresAt.isAfter(now)) {
+            return false;
+        }
+        expireWithMainAt(now);
+        return true;
+    }
+
+    public void expireWithMainAt(Instant now) {
+        if (status != GuestSessionStatus.ACTIVE) {
+            return;
+        }
+        if (now.isBefore(lastActivityAt)) {
+            throw new InvalidGuestSessionException();
+        }
+        status = GuestSessionStatus.EXPIRED;
+        endedAt = now;
     }
 
     public UUID getId() { return id; }

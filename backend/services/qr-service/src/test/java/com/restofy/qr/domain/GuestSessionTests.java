@@ -17,7 +17,7 @@ class GuestSessionTests {
     private final Instant now = Instant.parse("2026-10-19T00:00:00Z");
 
     @Test
-    void newGuestHasOwnedIdentityActivityAndNoInventedExpiry() {
+    void newGuestHasOwnedIdentityActivityAndTheApprovedFifteenMinuteExpiry() {
         var guest = new GuestSession(restaurant, main, "a".repeat(64), now);
         assertThat(guest.getId()).isNotNull();
         assertThat(guest.getRestaurantId()).isEqualTo(restaurant);
@@ -25,7 +25,7 @@ class GuestSessionTests {
         assertThat(guest.getTokenDigest()).isEqualTo("a".repeat(64));
         assertThat(guest.getStatus()).isEqualTo(GuestSessionStatus.ACTIVE);
         assertThat(guest.getJoinedAt()).isEqualTo(now).isEqualTo(guest.getLastActivityAt());
-        assertThat(guest.getExpiresAt()).isNull();
+        assertThat(guest.getExpiresAt()).isEqualTo(now.plusSeconds(900));
         assertThat(guest.getEndedAt()).isNull();
         assertThat(guest.getVersion()).isZero();
         assertThat(guest.isUsableAt(now)).isTrue();

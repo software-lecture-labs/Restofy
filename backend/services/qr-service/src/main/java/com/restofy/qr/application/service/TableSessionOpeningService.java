@@ -1,6 +1,7 @@
 package com.restofy.qr.application.service;
 
 import com.restofy.qr.api.dto.response.TableSessionResponse;
+import com.restofy.qr.domain.IdleWindow;
 import com.restofy.qr.domain.entity.TableSession;
 import com.restofy.qr.domain.enums.TableOperationalStatus;
 import com.restofy.qr.domain.enums.TableSessionStatus;
@@ -10,6 +11,7 @@ import com.restofy.qr.infrastructure.persistence.repository.DiningTableRepositor
 import com.restofy.qr.infrastructure.persistence.repository.TableSessionRepository;
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,12 +43,13 @@ public class TableSessionOpeningService {
                     || table.getOperationalStatus() != TableOperationalStatus.OCCUPIED) {
                 throw new TableSessionConflictException();
             }
-            // Repeat scans do not implement the unresolved idle-refresh policy.
-            return new OpeningResult(metadata(session), false, context.qrId());
+            session.recordActivityAt(context.checkedAt());
+            sessions.flush();
+            return new OpeningResult(metadata(session), false, context.qrId(), IdleWindow.storedTime(context.checkedAt()));
         }
         table.occupy();
         var session = sessions.saveAndFlush(new TableSession(context.restaurantId(), context.tableId(), context.checkedAt()));
-        return new OpeningResult(metadata(session), true, context.qrId());
+        return new OpeningResult(metadata(session), true, context.qrId(), session.getOpenedAt());
     }
 
     private static TableSessionResponse metadata(TableSession session) {
@@ -54,6 +57,6 @@ public class TableSessionOpeningService {
                 session.getVersion(), session.getOpenedAt(), session.getLastActivityAt(), session.getIdleExpiresAt());
     }
 
-    public record OpeningResult(TableSessionResponse session, boolean created, UUID qrCodeId) {
+    public record OpeningResult(TableSessionResponse session, boolean created, UUID qrCodeId, Instant checkedAt) {
     }
 }

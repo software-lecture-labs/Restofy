@@ -31,7 +31,7 @@ class TableSessionTests {
     }
 
     @Test
-    void newMainSessionHasOwnedIdentityAndInitialActivityWithoutInventingAnIdleDeadline() {
+    void newMainSessionHasOwnedIdentityAndTheApprovedFifteenMinuteIdleDeadline() {
         UUID restaurant = UUID.randomUUID();
         UUID table = UUID.randomUUID();
         Instant now = Instant.parse("2026-10-19T00:00:00Z");
@@ -43,7 +43,7 @@ class TableSessionTests {
         assertThat(session.getVersion()).isZero();
         assertThat(session.getOpenedAt()).isEqualTo(now);
         assertThat(session.getLastActivityAt()).isEqualTo(now);
-        assertThat(session.getIdleExpiresAt()).isNull();
+        assertThat(session.getIdleExpiresAt()).isEqualTo(now.plusSeconds(900));
         assertThat(session.getClosingAt()).isNull();
         assertThat(session.getClosedAt()).isNull();
         assertThat(session.getClosedByUserId()).isNull();

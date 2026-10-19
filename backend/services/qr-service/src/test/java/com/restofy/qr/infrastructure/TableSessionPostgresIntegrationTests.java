@@ -85,7 +85,7 @@ class TableSessionPostgresIntegrationTests {
     }
 
     @Test
-    void firstOpenIsAtomicWithOccupancyAndRepeatReturnsSameSessionWithoutRefreshingIdle() throws Exception {
+    void firstOpenIsAtomicAndRepeatKeepsIdentityWhileRefreshingOnlyTheMainIdleWindow() throws Exception {
         var code = create("1");
         api.perform(post("/api/v1/qr/table-sessions/open").contentType(MediaType.APPLICATION_JSON).content(body(code.qrToken())))
                 .andExpect(status().isCreated()).andExpect(header().string("Cache-Control", "no-store"))
@@ -97,13 +97,18 @@ class TableSessionPostgresIntegrationTests {
         var first = opening.open(code.qrToken());
         assertThat(first.created()).isFalse();
         assertThat(first.session().openedAt()).isEqualTo(first.session().lastActivityAt());
-        assertThat(first.session().idleExpiresAt()).isNull();
+        assertThat(first.session().idleExpiresAt()).isEqualTo(first.session().openedAt().plusSeconds(900));
         assertThat(tables.get(code.tableId()).operationalStatus()).isEqualTo(TableOperationalStatus.OCCUPIED);
         assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
         when(clock.instant()).thenReturn(first.session().openedAt().plusSeconds(300));
         api.perform(post("/api/v1/qr/table-sessions/open").contentType(MediaType.APPLICATION_JSON).content(body(code.qrToken())))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.tableSession.id").value(first.session().id().toString()));
-        assertThat(opening.open(code.qrToken()).session()).isEqualTo(first.session());
+        var refreshed = opening.open(code.qrToken()).session();
+        assertThat(refreshed.id()).isEqualTo(first.session().id());
+        assertThat(refreshed.openedAt()).isEqualTo(first.session().openedAt());
+        assertThat(refreshed.lastActivityAt()).isEqualTo(first.session().openedAt().plusSeconds(300));
+        assertThat(refreshed.idleExpiresAt()).isEqualTo(refreshed.lastActivityAt().plusSeconds(900));
+        assertThat(refreshed.version()).isEqualTo(first.session().version() + 1);
         assertThat(count(code.tableId())).isEqualTo(1);
         assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from guest_sessions where table_session_id=?", Integer.class, first.session().id())).isEqualTo(2);
@@ -229,7 +234,9 @@ class TableSessionPostgresIntegrationTests {
         when(clock.instant()).thenReturn(replacement.issuedAt().plusSeconds(1).truncatedTo(ChronoUnit.MICROS));
         var reused = opening.open(replacement.qrToken());
         assertThat(reused.created()).isFalse();
-        assertThat(reused.session()).isEqualTo(first);
+        assertThat(reused.session().id()).isEqualTo(first.id());
+        assertThat(reused.session().openedAt()).isEqualTo(first.openedAt());
+        assertThat(reused.session().idleExpiresAt()).isEqualTo(reused.session().lastActivityAt().plusSeconds(900));
     }
 
     @Test

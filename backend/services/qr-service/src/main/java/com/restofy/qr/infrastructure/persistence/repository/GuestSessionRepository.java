@@ -4,11 +4,14 @@ import com.restofy.qr.domain.entity.GuestSession;
 import com.restofy.qr.domain.enums.GuestSessionStatus;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface GuestSessionRepository extends JpaRepository<GuestSession, UUID> {
+    List<GuestSession> findByRestaurantIdAndTableSessionIdAndStatus(UUID restaurantId, UUID tableSessionId, GuestSessionStatus status);
+
     @Query("select count(g) from GuestSession g where g.restaurantId = :restaurantId and g.tableSessionId = :tableSessionId "
             + "and g.status = :status and g.endedAt is null and g.joinedAt <= :now and g.lastActivityAt <= :now "
             + "and (g.expiresAt is null or g.expiresAt > :now)")
