@@ -3,8 +3,10 @@ package com.restofy.menu.api.controller;
 import com.restofy.menu.api.dto.response.PageResponse;
 import com.restofy.menu.api.dto.response.PublicCategoriesResponse;
 import com.restofy.menu.api.dto.response.PublicProductCardResponse;
+import com.restofy.menu.api.dto.response.PublicProductDetailResponse;
 import com.restofy.menu.application.mapper.PublicMenuMapper;
 import com.restofy.menu.application.service.PublicMenuService;
+import com.restofy.menu.application.service.PublicProductDetailService;
 import com.restofy.menu.application.service.PublicProductQuery;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -27,9 +29,11 @@ import java.util.UUID;
 class PublicMenuController {
 
     private final PublicMenuService menu;
+    private final PublicProductDetailService details;
 
-    PublicMenuController(PublicMenuService menu) {
+    PublicMenuController(PublicMenuService menu, PublicProductDetailService details) {
         this.menu = menu;
+        this.details = details;
     }
 
     @GetMapping("/categories")
@@ -52,5 +56,15 @@ class PublicMenuController {
                 PublicProductPageParameters.sort(sort), page, size);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(PageResponse.of(result, card -> PublicMenuMapper.toCard(card.view(), card.summary())));
+    }
+
+    /**
+     * One product in full. A hidden, unknown or foreign product and an unverified restaurant are the same 404; a
+     * malformed product id is a 400. The rating is added after the database read and never fails the answer.
+     */
+    @GetMapping("/products/{productId}")
+    ResponseEntity<PublicProductDetailResponse> product(@PathVariable String restaurantRef, @PathVariable UUID productId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(PublicMenuMapper.toDetail(details.detail(restaurantRef, productId)));
     }
 }

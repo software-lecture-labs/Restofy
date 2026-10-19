@@ -47,7 +47,7 @@ public final class ProductMapper {
     }
 
     /** Stored with three decimals; shown without trailing zeros and never as an exponent (10000, not 1E+4). */
-    private static BigDecimal displayWeight(BigDecimal stored) {
+    static BigDecimal displayWeight(BigDecimal stored) {
         if (stored == null) {
             return null;
         }

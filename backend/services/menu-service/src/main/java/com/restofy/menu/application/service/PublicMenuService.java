@@ -1,10 +1,13 @@
 package com.restofy.menu.application.service;
 
 import com.restofy.menu.application.security.PublicRestaurantScopeResolver;
+import com.restofy.menu.domain.entity.ProductOption;
 import com.restofy.menu.domain.entity.ProductSearchTerm;
+import com.restofy.menu.domain.enums.OptionType;
 import com.restofy.menu.domain.exception.CategoryNotFoundException;
 import com.restofy.menu.domain.exception.InvalidProductException;
 import com.restofy.menu.domain.exception.PublicMenuNotFoundException;
+import com.restofy.menu.infrastructure.persistence.repository.ProductOptionRepository;
 import com.restofy.menu.infrastructure.persistence.repository.PublicProductSearchRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -13,7 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.text.Collator;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -40,9 +46,12 @@ public class PublicMenuService {
     private final CategoryPlacementResolver placements;
     private final PublicProductSearchRepository search;
     private final ProductViewAssembler views;
+    private final ProductOptionRepository options;
 
     public PublicMenuService(PublicRestaurantScopeResolver scope, ActiveCategoryTreeReader categoryTree,
-            CategoryPlacementResolver placements, PublicProductSearchRepository search, ProductViewAssembler views) {
+            CategoryPlacementResolver placements, PublicProductSearchRepository search, ProductViewAssembler views,
+            ProductOptionRepository options) {
+        this.options = options;
         this.scope = scope;
         this.categoryTree = categoryTree;
         this.placements = placements;
@@ -97,6 +106,29 @@ public class PublicMenuService {
                 .filter(view -> view.eligibility().isListedPublicly())
                 .map(PublicMenuService::card)
                 .orElseThrow(PublicMenuNotFoundException::new);
+    }
+
+    /** A listed product with its active options, read in one snapshot. */
+    public record ListedDetail(ProductView view, List<ProductOption> includedIngredients, List<ProductOption> extras) { }
+
+    /**
+     * The product detail: {@link #listedProduct} (same visibility, same single "not found") plus the product's active
+     * options from the same transaction, one statement for all of them. Only active options exist for a customer, of
+     * this product and this restaurant. They are ordered by sort order, then name in Turkish alphabetical order, then id,
+     * and split by kind. They stay visible when the product is closed (it is then simply not orderable).
+     */
+    public ListedDetail listedDetail(String restaurantRef, UUID productId) {
+        ProductView view = listedProduct(restaurantRef, productId).view();
+        List<ProductOption> active = options.findByRestaurantIdAndProductIdAndActiveTrue(
+                view.product().getRestaurantId(), view.product().getId());
+        Collator turkish = Collator.getInstance(Locale.forLanguageTag("tr-TR"));
+        Comparator<ProductOption> order = Comparator.comparingInt(ProductOption::getSortOrder)
+                .thenComparing(ProductOption::getName, turkish).thenComparing(ProductOption::getId);
+        return new ListedDetail(view, ofType(active, OptionType.INCLUDED, order), ofType(active, OptionType.ADD, order));
+    }
+
+    private static List<ProductOption> ofType(List<ProductOption> all, OptionType type, Comparator<ProductOption> order) {
+        return all.stream().filter(option -> option.getType() == type).sorted(order).toList();
     }
 
     private static Card card(ProductView view) {

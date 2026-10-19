@@ -4,6 +4,7 @@ import com.restofy.menu.domain.entity.ProductOption;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,6 +16,9 @@ public interface ProductOptionRepository extends JpaRepository<ProductOption, UU
 
     /** Tenant- and product-scoped lookup: an option of another product or restaurant is simply absent. */
     Optional<ProductOption> findByIdAndProductIdAndRestaurantId(UUID id, UUID productId, UUID restaurantId);
+
+    /** The options a customer may see: active ones only, one product, one restaurant, one statement. Order is applied by the caller. */
+    List<ProductOption> findByRestaurantIdAndProductIdAndActiveTrue(UUID restaurantId, UUID productId);
 
     long countByRestaurantIdAndProductIdAndActiveTrue(UUID restaurantId, UUID productId);
 }

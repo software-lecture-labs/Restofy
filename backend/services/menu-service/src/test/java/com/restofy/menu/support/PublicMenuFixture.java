@@ -96,6 +96,25 @@ public final class PublicMenuFixture {
         return id;
     }
 
+    /** An INCLUDED ingredient: removable ones have min quantity 0, mandatory ones 1. */
+    public UUID included(UUID restaurant, UUID product, String name, boolean removable, int sortOrder, boolean active) {
+        return option(restaurant, product, name, "INCLUDED", new String[] {"0", removable ? "0" : "1", "1"}, sortOrder, active);
+    }
+
+    /** An ADD extra with its price difference and the most that may be added. */
+    public UUID extra(UUID restaurant, UUID product, String name, String price, int maxQuantity, int sortOrder, boolean active) {
+        return option(restaurant, product, name, "ADD", new String[] {price, "0", String.valueOf(maxQuantity)}, sortOrder, active);
+    }
+
+    private UUID option(UUID restaurant, UUID product, String name, String type, String[] priceMinMax, int sortOrder, boolean active) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO product_options (id, restaurant_id, product_id, name, option_type, price_delta, min_quantity, max_quantity, "
+                + "sort_order, is_active, created_by_user_id, updated_by_user_id) VALUES (?, ?, ?, ?, ?, CAST(? AS numeric), CAST(? AS integer), "
+                + "CAST(? AS integer), ?, ?, ?, ?)", id, restaurant, product, name, type, priceMinMax[0], priceMinMax[1], priceMinMax[2],
+                sortOrder, active, ACTOR, ACTOR);
+        return id;
+    }
+
     /** A visible, available product with a price of 10. */
     public UUID visible(UUID restaurant, UUID category, String name) {
         return product(restaurant, category, name, Spec.visible());

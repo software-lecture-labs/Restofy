@@ -2,6 +2,8 @@ package com.restofy.menu.api;
 
 import com.jayway.jsonpath.JsonPath;
 import com.restofy.menu.application.security.PublicRestaurantScopeResolver;
+import com.restofy.menu.application.service.RatingSummary;
+import com.restofy.menu.application.service.RatingSummaryPort;
 import com.restofy.menu.support.PublicMenuFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +33,7 @@ class PublicMenuProductionWiringTests {
 
     @Autowired MockMvc mvc;
     @Autowired PublicRestaurantScopeResolver resolver;
+    @Autowired RatingSummaryPort ratings;
     @Autowired JdbcTemplate jdbc;
 
     private PublicMenuFixture fixture;
@@ -65,6 +68,20 @@ class PublicMenuProductionWiringTests {
                 assertFalse(body.toLowerCase().contains("secret"), body);
             }
         }
+    }
+
+    @Test
+    void theProductDetailIsNotFoundForEveryReferenceAndTheProductionRatingSourceIsTheUnavailableDefault() throws Exception {
+        UUID product = fixture.visible(RESTAURANT, fixture.root(RESTAURANT, "Main"), "Pide");
+        for (String ref : new String[] {RESTAURANT.toString(), "alpha-menu", "unknown"}) {
+            String body = mvc.perform(get("/api/v1/menu/public/restaurants/" + ref + "/products/" + product)
+                            .header("X-Restaurant-Id", RESTAURANT).header("X-Role", "ADMIN"))
+                    .andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString();
+            assertEquals("The requested menu was not found.", JsonPath.read(body, "$.detail"));
+            assertFalse(body.contains("Pide"), body);
+        }
+        assertEquals("UnavailableRatingSummaryPort", ratings.getClass().getSimpleName(), "no real Rating connection exists");
+        assertEquals(RatingSummary.unavailable(), ratings.summaryFor(RESTAURANT, product));
     }
 
     @Test

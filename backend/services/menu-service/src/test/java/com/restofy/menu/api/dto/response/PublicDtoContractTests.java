@@ -34,12 +34,23 @@ class PublicDtoContractTests {
     }
 
     @Test
+    void theProductDetailIsExactlyTheDetailFields() {
+        assertEquals(Set.of("id", "name", "description", "ingredientsText", "imageUrl", "category", "subcategory", "basePrice", "currency",
+                "priceIncludesVat", "calories", "weightGrams", "estimatedPrepMinutes", "availability", "canOrder", "includedIngredients",
+                "extras", "rating"), components(PublicProductDetailResponse.class));
+        assertEquals(Set.of("id", "name", "removable"), components(PublicProductDetailResponse.IncludedIngredient.class));
+        assertEquals(Set.of("id", "name", "priceDelta", "maxQuantity"), components(PublicProductDetailResponse.Extra.class));
+        assertEquals(Set.of("status", "averageRating", "ratingCount"), components(PublicProductDetailResponse.Rating.class));
+    }
+
+    @Test
     void noManagementFieldIsEverInAPublicDto() {
         List<String> forbidden = List.of("restaurantId", "version", "createdAt", "updatedAt", "createdByUserId", "updatedByUserId", "isActive",
-                "isPublished", "isVisibleToCustomer", "reasonCode", "reasonText", "changedAt", "ingredientsText", "calories", "weightGrams",
-                "estimatedPrepMinutes", "vatRate", "categoryId", "parentCategory", "categoryEffectivelyActive");
+                "isPublished", "isVisibleToCustomer", "reasonCode", "reasonText", "changedAt", "vatRate", "categoryId", "parentCategory",
+                "categoryEffectivelyActive", "commandId", "sortOrder", "minQuantity");
         for (Class<?> type : List.of(PublicProductCardResponse.class, PublicCategoryRef.class, PublicCategoryResponse.class,
-                PublicCategoriesResponse.class)) {
+                PublicCategoriesResponse.class, PublicProductDetailResponse.class, PublicProductDetailResponse.IncludedIngredient.class,
+                PublicProductDetailResponse.Extra.class, PublicProductDetailResponse.Rating.class)) {
             Set<String> names = components(type);
             forbidden.forEach(name -> assertFalse(names.contains(name), type.getSimpleName() + " must not expose " + name));
         }
