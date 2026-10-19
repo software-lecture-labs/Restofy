@@ -15,7 +15,9 @@ import java.util.UUID;
 /**
  * One immutable entry per availability change: previous state, new state, reason, actor and time. It
  * is written in the same transaction as the change, so re-opening a product never erases why it was
- * closed. Command ids / idempotency are intentionally not part of it yet (a later phase).
+ * closed. When a command from another service caused the change, {@code commandId} names it (the command itself,
+ * with its idempotency record, lives in {@code product_availability_commands}); it is {@code null} for the first entry
+ * of a product and for changes made by an administrator.
  */
 @Entity
 @Table(name = "product_availability_history")
@@ -50,9 +52,12 @@ public class ProductAvailabilityHistory {
     @Column(name = "changed_at", nullable = false, updatable = false)
     private Instant changedAt;
 
+    @Column(name = "command_id", updatable = false)
+    private UUID commandId;
+
     protected ProductAvailabilityHistory() { }
 
-    private ProductAvailabilityHistory(AvailabilityStatus from, ProductAvailability after) {
+    private ProductAvailabilityHistory(AvailabilityStatus from, ProductAvailability after, UUID commandId) {
         this.id = UUID.randomUUID();
         this.restaurantId = after.getRestaurantId();
         this.productId = after.getProductId();
@@ -62,16 +67,22 @@ public class ProductAvailabilityHistory {
         this.reasonText = after.getReasonText();
         this.changedByUserId = after.getChangedByUserId();
         this.changedAt = after.getChangedAt();
+        this.commandId = commandId;
     }
 
     /** The first entry of a product: it had no previous state. */
     public static ProductAvailabilityHistory initial(ProductAvailability created) {
-        return new ProductAvailabilityHistory(null, created);
+        return new ProductAvailabilityHistory(null, created, null);
     }
 
     /** A change from {@code from} to the state now held by {@code after}. */
     public static ProductAvailabilityHistory changed(AvailabilityStatus from, ProductAvailability after) {
-        return new ProductAvailabilityHistory(Objects.requireNonNull(from, "from"), after);
+        return changed(from, after, null);
+    }
+
+    /** A change caused by the command {@code commandId} (or by no command when it is {@code null}). */
+    public static ProductAvailabilityHistory changed(AvailabilityStatus from, ProductAvailability after, UUID commandId) {
+        return new ProductAvailabilityHistory(Objects.requireNonNull(from, "from"), after, commandId);
     }
 
     public UUID getId() { return id; }
@@ -91,4 +102,6 @@ public class ProductAvailabilityHistory {
     public UUID getChangedByUserId() { return changedByUserId; }
 
     public Instant getChangedAt() { return changedAt; }
+
+    public UUID getCommandId() { return commandId; }
 }
