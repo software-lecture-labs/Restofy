@@ -22,15 +22,17 @@ public class TableSessionStatisticsService {
     private final GuestSessionRepository guests;
     private final QrScanEventRepository scans;
     private final Clock clock;
+    private final SessionOrderProtection protection;
 
     public TableSessionStatisticsService(TableManagementAccess access, DiningTableRepository tables, TableSessionRepository sessions,
-                                          GuestSessionRepository guests, QrScanEventRepository scans, Clock clock) {
+                                          GuestSessionRepository guests, QrScanEventRepository scans, Clock clock, SessionOrderProtection protection) {
         this.access = access;
         this.tables = tables;
         this.sessions = sessions;
         this.guests = guests;
         this.scans = scans;
         this.clock = clock;
+        this.protection = protection;
     }
 
     @Transactional
@@ -49,7 +51,8 @@ public class TableSessionStatisticsService {
         var main = live.orElseThrow();
         // Stored timestamptz values have microsecond precision. Floor the cutoff
         // so JDBC cannot round a just-before-expiry Instant up to the expiry itself.
-        long active = table.isActive() && table.getOperationalStatus() == TableOperationalStatus.OCCUPIED && main.isOpenAt(now)
+        var held = protection.snapshot(restaurantId, main.getId(), now);
+        long active = table.isActive() && table.getOperationalStatus() == TableOperationalStatus.OCCUPIED && main.isOpenAt(now, held.protectsMain())
                 ? guests.countUsable(restaurantId, main.getId(), GuestSessionStatus.ACTIVE, now.truncatedTo(ChronoUnit.MICROS)) : 0;
         return new TableSessionStatisticsResponse(restaurantId, tableId, main.getId(), main.getStatus(), active,
                 scans.countByRestaurantIdAndTableSessionId(restaurantId, main.getId()), tableScans, now);

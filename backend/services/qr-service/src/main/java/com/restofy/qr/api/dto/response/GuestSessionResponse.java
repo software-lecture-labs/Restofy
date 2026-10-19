@@ -5,5 +5,5 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record GuestSessionResponse(UUID id, UUID restaurantId, UUID tableSessionId, GuestSessionStatus status,
-                                   long version, Instant joinedAt, Instant lastActivityAt, Instant expiresAt) {
+                                   long version, Instant joinedAt, Instant lastActivityAt, Instant expiresAt, boolean orderProtected) {
 }

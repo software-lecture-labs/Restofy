@@ -301,7 +301,7 @@ class ScanStatisticsPostgresIntegrationTests {
     @ValueSource(strings = {"qr", "main", "guest", "tenant"})
     void compositeForeignKeysRejectWrongTableTenantAndGuestChains(String mismatch) {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
         var firstCode = create("1");
         var secondCode = create("2");
         var first = opening.open(firstCode.qrToken());

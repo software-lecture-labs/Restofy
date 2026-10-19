@@ -6,5 +6,5 @@ import java.util.UUID;
 
 /** Main session metadata only; its UUID grants no guest or staff authority. */
 public record TableSessionResponse(UUID id, UUID restaurantId, UUID tableId, TableSessionStatus status,
-                                    long version, Instant openedAt, Instant lastActivityAt, Instant idleExpiresAt) {
+                                    long version, Instant openedAt, Instant lastActivityAt, Instant idleExpiresAt, boolean orderProtected) {
 }

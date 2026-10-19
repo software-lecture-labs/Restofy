@@ -28,7 +28,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "The operation conflicts with the current data. Reload and retry.");
     }
 
-    @ExceptionHandler({QrCodeConflictException.class, TableSessionConflictException.class})
+    @ExceptionHandler({QrCodeConflictException.class, TableSessionConflictException.class, OrderAdmissionConflictException.class})
     ProblemDetail qrConflict(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, exception.getMessage());
     }

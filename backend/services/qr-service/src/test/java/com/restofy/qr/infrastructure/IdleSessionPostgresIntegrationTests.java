@@ -370,4 +370,3 @@ class IdleSessionPostgresIntegrationTests {
         assertThat(sessions.findById(legacy.tableSession().id()).orElseThrow().getStatus()).isEqualTo(TableSessionStatus.OPEN);
     }
 }
-

@@ -38,6 +38,6 @@ public class GuestSessionOpeningService {
         scans.saveAndFlush(new QrScanEvent(main.restaurantId(), main.tableId(), opened.qrCodeId(), main.id(), guest.getId(), joinedAt));
         return new OpenedGuestSessionResponse(main,
                 new GuestSessionResponse(guest.getId(), guest.getRestaurantId(), guest.getTableSessionId(), guest.getStatus(),
-                        guest.getVersion(), guest.getJoinedAt(), guest.getLastActivityAt(), guest.getExpiresAt()), token);
+                        guest.getVersion(), guest.getJoinedAt(), guest.getLastActivityAt(), guest.getExpiresAt(), false), token);
     }
 }

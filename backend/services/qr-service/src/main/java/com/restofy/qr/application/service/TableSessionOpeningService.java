@@ -20,12 +20,14 @@ public class TableSessionOpeningService {
     private final QrCodeValidationService validation;
     private final DiningTableRepository tables;
     private final TableSessionRepository sessions;
+    private final SessionOrderProtection protection;
 
     public TableSessionOpeningService(QrCodeValidationService validation, DiningTableRepository tables,
-                                       TableSessionRepository sessions) {
+                                       TableSessionRepository sessions, SessionOrderProtection protection) {
         this.validation = validation;
         this.tables = tables;
         this.sessions = sessions;
+        this.protection = protection;
     }
 
     @Transactional
@@ -39,22 +41,23 @@ public class TableSessionOpeningService {
                 List.of(TableSessionStatus.OPEN, TableSessionStatus.CLOSING));
         if (live.isPresent()) {
             var session = live.orElseThrow();
-            if (!session.isOpenAt(context.checkedAt())
+            boolean held = protection.snapshot(context.restaurantId(), session.getId(), context.checkedAt()).protectsMain();
+            if (!session.isOpenAt(context.checkedAt(), held)
                     || table.getOperationalStatus() != TableOperationalStatus.OCCUPIED) {
                 throw new TableSessionConflictException();
             }
-            session.recordActivityAt(context.checkedAt());
+            session.recordActivityAt(context.checkedAt(), held);
             sessions.flush();
-            return new OpeningResult(metadata(session), false, context.qrId(), IdleWindow.storedTime(context.checkedAt()));
+            return new OpeningResult(metadata(session, held), false, context.qrId(), IdleWindow.storedTime(context.checkedAt()));
         }
         table.occupy();
         var session = sessions.saveAndFlush(new TableSession(context.restaurantId(), context.tableId(), context.checkedAt()));
-        return new OpeningResult(metadata(session), true, context.qrId(), session.getOpenedAt());
+        return new OpeningResult(metadata(session, false), true, context.qrId(), session.getOpenedAt());
     }
 
-    private static TableSessionResponse metadata(TableSession session) {
+    private static TableSessionResponse metadata(TableSession session, boolean orderProtected) {
         return new TableSessionResponse(session.getId(), session.getRestaurantId(), session.getTableId(), session.getStatus(),
-                session.getVersion(), session.getOpenedAt(), session.getLastActivityAt(), session.getIdleExpiresAt());
+                session.getVersion(), session.getOpenedAt(), session.getLastActivityAt(), session.getIdleExpiresAt(), orderProtected);
     }
 
     public record OpeningResult(TableSessionResponse session, boolean created, UUID qrCodeId, Instant checkedAt) {

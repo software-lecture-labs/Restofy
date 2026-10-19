@@ -14,7 +14,9 @@ public interface GuestSessionRepository extends JpaRepository<GuestSession, UUID
 
     @Query("select count(g) from GuestSession g where g.restaurantId = :restaurantId and g.tableSessionId = :tableSessionId "
             + "and g.status = :status and g.endedAt is null and g.joinedAt <= :now and g.lastActivityAt <= :now "
-            + "and (g.expiresAt is null or g.expiresAt > :now)")
+            + "and (g.expiresAt is null or g.expiresAt > :now or exists "
+            + "(select a.id from OrderAdmission a where a.restaurantId=g.restaurantId and a.tableSessionId=g.tableSessionId "
+            + "and a.guestSessionId=g.id and a.status=com.restofy.qr.domain.enums.OrderAdmissionStatus.CONFIRMED and a.confirmedAt<=:now))")
     long countUsable(UUID restaurantId, UUID tableSessionId, GuestSessionStatus status, Instant now);
 
     // Only immutable IDs before locking; do not cache mutable guest/parent state here.

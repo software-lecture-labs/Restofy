@@ -19,6 +19,29 @@ import static org.assertj.core.api.Assertions.*;
 @AutoConfigureMockMvc
 class QrServiceApplicationTests {
     @Autowired MockMvc mvc;
+    @Autowired com.restofy.qr.application.service.OrderAdmissionService admissions;
+    @Autowired com.restofy.qr.application.service.GuestSessionContextReader contexts;
+
+    @Test
+    void lockedContextsRequireTheCallersMutationTransaction() {
+        var id = java.util.UUID.randomUUID();
+        assertThatThrownBy(() -> contexts.lockSession(id, id)).isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
+    }
+
+    @Test
+    void defaultAdminRoleCannotSupplyOrderAuthorityEvenForInternalCommands() throws Exception {
+        var context = org.springframework.security.core.context.SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated(
+                "test-staff", "unused-test-credential", java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))));
+        org.springframework.security.core.context.SecurityContextHolder.setContext(context);
+        try {
+            var id = java.util.UUID.randomUUID();
+            var request = new com.restofy.qr.application.service.OrderAdmissionService.Reservation(id, id, id, id, "key", "a".repeat(64), "A".repeat(43));
+            assertThatThrownBy(() -> admissions.reserve(request)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+        } finally { org.springframework.security.core.context.SecurityContextHolder.clearContext(); }
+        mvc.perform(post("/api/v1/qr/order-admissions").with(csrf()).header("X-Role", "ORDER_SERVICE")
+                .header("X-Restaurant-Id", "forged")).andExpect(status().isUnauthorized());
+    }
 
     @Test
     void explicitGuestActivityStaysClosedBeforeReviewedBrowserAndAuthIntegration() throws Exception {

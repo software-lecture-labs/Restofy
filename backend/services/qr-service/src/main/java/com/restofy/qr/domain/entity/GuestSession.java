@@ -52,12 +52,20 @@ public class GuestSession {
     }
 
     public boolean isUsableAt(Instant now) {
+        return isUsableAt(now, false);
+    }
+
+    public boolean isUsableAt(Instant now, boolean orderProtected) {
         return status == GuestSessionStatus.ACTIVE && endedAt == null && !joinedAt.isAfter(now)
-                && !lastActivityAt.isAfter(now) && (expiresAt == null || expiresAt.isAfter(now));
+                && !lastActivityAt.isAfter(now) && (orderProtected || expiresAt == null || expiresAt.isAfter(now));
     }
 
     public void recordActivityAt(Instant now) {
-        if (!isUsableAt(now)) {
+        recordActivityAt(now, false);
+    }
+
+    public void recordActivityAt(Instant now, boolean orderProtected) {
+        if (!isUsableAt(now, orderProtected)) {
             throw new InvalidGuestSessionException();
         }
         lastActivityAt = IdleWindow.storedTime(now);

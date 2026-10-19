@@ -50,13 +50,21 @@ public class TableSession {
     }
 
     public boolean isOpenAt(Instant now) {
+        return isOpenAt(now, false);
+    }
+
+    public boolean isOpenAt(Instant now, boolean orderProtected) {
         return status == TableSessionStatus.OPEN && closingAt == null && closedAt == null
                 && !openedAt.isAfter(now) && !lastActivityAt.isAfter(now)
-                && (idleExpiresAt == null || idleExpiresAt.isAfter(now));
+                && (orderProtected || idleExpiresAt == null || idleExpiresAt.isAfter(now));
     }
 
     public void recordActivityAt(Instant now) {
-        if (!isOpenAt(now)) {
+        recordActivityAt(now, false);
+    }
+
+    public void recordActivityAt(Instant now, boolean orderProtected) {
+        if (!isOpenAt(now, orderProtected)) {
             throw new TableSessionConflictException();
         }
         lastActivityAt = IdleWindow.storedTime(now);

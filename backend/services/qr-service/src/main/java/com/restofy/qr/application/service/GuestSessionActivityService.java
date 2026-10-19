@@ -13,12 +13,14 @@ public class GuestSessionActivityService {
     private final GuestSessionValidationService validation;
     private final TableSessionRepository sessions;
     private final GuestSessionRepository guests;
+    private final SessionOrderProtection protection;
 
     public GuestSessionActivityService(GuestSessionValidationService validation, TableSessionRepository sessions,
-                                         GuestSessionRepository guests) {
+                                         GuestSessionRepository guests, SessionOrderProtection protection) {
         this.validation = validation;
         this.sessions = sessions;
         this.guests = guests;
+        this.protection = protection;
     }
 
     @Transactional
@@ -29,10 +31,11 @@ public class GuestSessionActivityService {
         var main = sessions.findByRestaurantIdAndId(context.restaurantId(), context.tableSessionId()).orElseThrow(InvalidGuestSessionException::new);
         var guest = guests.findByRestaurantIdAndTableSessionIdAndId(context.restaurantId(), context.tableSessionId(), context.guestSessionId())
                 .orElseThrow(InvalidGuestSessionException::new);
-        main.recordActivityAt(context.checkedAt());
-        guest.recordActivityAt(context.checkedAt());
+        var held = protection.snapshot(context.restaurantId(), context.tableSessionId(), context.checkedAt());
+        main.recordActivityAt(context.checkedAt(), held.protectsMain());
+        guest.recordActivityAt(context.checkedAt(), held.protectsGuest(guest.getId()));
         sessions.flush();
         return new GuestActivityResponse(context.restaurantId(), main.getId(), guest.getId(), main.getVersion(), guest.getVersion(),
-                guest.getLastActivityAt(), main.getIdleExpiresAt(), guest.getExpiresAt());
+                guest.getLastActivityAt(), main.getIdleExpiresAt(), guest.getExpiresAt(), held.protectsMain(), held.protectsGuest(guest.getId()));
     }
 }

@@ -263,7 +263,7 @@ class GuestSessionPostgresIntegrationTests {
     @Test
     void databaseEnforcesDigestUniquenessAndTheCompositeTenantParentKey() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
         var opened = opening.open(create("1").qrToken());
         var guest = opened.guestSession();
         var duplicate = new GuestSession(guest.restaurantId(), guest.tableSessionId(), tokens.digest(opened.guestToken()), guest.joinedAt());
