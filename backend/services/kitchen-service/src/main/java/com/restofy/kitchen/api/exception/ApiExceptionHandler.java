@@ -1,8 +1,11 @@
 package com.restofy.kitchen.api.exception;
 
+import com.restofy.kitchen.application.service.ProductAvailabilityException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
+import com.restofy.kitchen.domain.exception.UnsupportedAvailabilityStatusException;
+import com.restofy.kitchen.infrastructure.config.MenuIntegrationConfiguration;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -30,6 +33,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String COMMAND_ID_CONFLICT = "COMMAND_ID_CONFLICT";
 	public static final String CONCURRENT_MODIFICATION = "CONCURRENT_MODIFICATION";
 	public static final String ORDER_BUSY = "ORDER_BUSY";
+	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
+	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
 
 	/** Seconds a client should wait before retrying a busy order. */
 	static final String RETRY_AFTER_SECONDS = "2";
@@ -66,6 +71,53 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		problem.setProperty(CODE, CONCURRENT_MODIFICATION);
 		problem.setProperty(RETRYABLE, true);
 		return problem;
+	}
+
+	/**
+	 * An availability command that did not succeed. Nothing in Kitchen was shown as changed. 503 means the outcome at
+	 * the Menu service is UNKNOWN (the change may or may not have been applied); it is never reported as a success.
+	 */
+	@ExceptionHandler(ProductAvailabilityException.class)
+	ResponseEntity<ProblemDetail> availabilityFailed(ProductAvailabilityException e) {
+		switch (e.getKind()) {
+			case PRODUCT_NOT_FOUND -> {
+				return problem(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND", false, "Product not found");
+			}
+			case INVALID_COMMAND -> {
+				return problem(HttpStatus.BAD_REQUEST, "INVALID_COMMAND", false, "The Menu service rejected the command");
+			}
+			case COMMAND_CONFLICT -> {
+				return problem(HttpStatus.CONFLICT, COMMAND_ID_CONFLICT, false, "The Idempotency-Key was already used for a different command");
+			}
+			case VERSION_CONFLICT, APPLIED -> {
+				return problem(HttpStatus.CONFLICT, AVAILABILITY_CONFLICT, true,
+						"The product is in a different availability state; reload it before deciding what to do");
+			}
+			default -> {
+				if (MenuIntegrationConfiguration.NOT_INTEGRATED.equals(e.getCode())) {
+					return problem(HttpStatus.SERVICE_UNAVAILABLE, MenuIntegrationConfiguration.NOT_INTEGRATED, false,
+							"The Menu service is not integrated yet; nothing was changed");
+				}
+				ResponseEntity<ProblemDetail> unavailable = problem(HttpStatus.SERVICE_UNAVAILABLE, MENU_UNAVAILABLE, true,
+						"The outcome at the Menu service is unknown: the change may or may not have been applied. "
+								+ "Retry with the same Idempotency-Key or check the product");
+				return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+						.body(unavailable.getBody());
+			}
+		}
+	}
+
+	/** The requested target status is not offered by this version of the API. */
+	@ExceptionHandler(UnsupportedAvailabilityStatusException.class)
+	ResponseEntity<ProblemDetail> unsupportedStatus(UnsupportedAvailabilityStatusException e) {
+		return problem(HttpStatus.BAD_REQUEST, "UNSUPPORTED_STATUS", false, e.getMessage());
+	}
+
+	private static ResponseEntity<ProblemDetail> problem(HttpStatus status, String code, boolean retryable, String detail) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+		problem.setProperty(CODE, code);
+		problem.setProperty(RETRYABLE, retryable);
+		return ResponseEntity.status(status).body(problem);
 	}
 
 	/**

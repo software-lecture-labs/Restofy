@@ -3,6 +3,7 @@ package com.restofy.kitchen.api.controller;
 import com.restofy.kitchen.api.dto.response.KitchenOrderDetailResponse;
 import com.restofy.kitchen.api.dto.response.KitchenOrderSummaryResponse;
 import com.restofy.kitchen.api.dto.response.PageResponse;
+import com.restofy.kitchen.api.support.IdempotencyKey;
 import com.restofy.kitchen.application.service.KitchenOrderQueryService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.domain.enums.KitchenStatusFilter;
@@ -22,7 +23,6 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/v1/kitchen/orders")
@@ -116,7 +116,7 @@ public class KitchenOrderController {
 	@PatchMapping("/{orderId}/start-preparation")
 	public KitchenOrderDetailResponse startPreparation(@AuthenticationPrincipal KitchenPrincipal principal,
 			@PathVariable UUID orderId, @RequestHeader("Idempotency-Key") List<String> commandIdHeader) {
-		return preparation.startPreparation(principal.restaurantId(), principal.userId(), commandId(commandIdHeader), orderId);
+		return preparation.startPreparation(principal.restaurantId(), principal.userId(), IdempotencyKey.parse(commandIdHeader), orderId);
 	}
 
 	/**
@@ -127,21 +127,7 @@ public class KitchenOrderController {
 	@PatchMapping("/{orderId}/mark-ready")
 	public KitchenOrderDetailResponse markReady(@AuthenticationPrincipal KitchenPrincipal principal,
 			@PathVariable UUID orderId, @RequestHeader("Idempotency-Key") List<String> commandIdHeader) {
-		return preparation.markReady(principal.restaurantId(), principal.userId(), commandId(commandIdHeader), orderId);
-	}
-
-	private static final Pattern STRICT_UUID = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
-
-	/**
-	 * The command id must be exactly one canonical UUID. Several headers or a comma separated list are ambiguous
-	 * (which one is the command?) and are rejected rather than resolved by picking one; lenient forms such as
-	 * {@code 1-1-1-1-1} are rejected too. The value is never echoed back.
-	 */
-	private static UUID commandId(List<String> header) {
-		if (header.size() != 1 || !STRICT_UUID.matcher(header.get(0)).matches()) {
-			throw badRequest("Idempotency-Key must be exactly one UUID");
-		}
-		return UUID.fromString(header.get(0));
+		return preparation.markReady(principal.restaurantId(), principal.userId(), IdempotencyKey.parse(commandIdHeader), orderId);
 	}
 
 	/** Read-only detail by Order service id. 404 for unknown ids and for other restaurants' orders alike. */

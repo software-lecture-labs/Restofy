@@ -53,7 +53,7 @@ class KitchenSchemaIntegrationTests {
 	void flywayAppliedTheKitchenMigrationsInOrderAndHibernateValidatedTheSchema() {
 		List<String> versions = jdbc.queryForList(
 				"SELECT version FROM flyway_schema_history WHERE success AND version IS NOT NULL ORDER BY installed_rank", String.class);
-		assertEquals(List.of("81", "82", "83"), versions);
+		assertEquals(List.of("81", "82", "83", "84"), versions);
 		assertEquals(3, jdbc.queryForObject("""
 				SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'
 				  AND table_name IN ('kitchen_orders', 'kitchen_order_items', 'kitchen_status_history')
