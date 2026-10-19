@@ -2,11 +2,11 @@ package com.restofy.qr.application.service;
 
 import com.restofy.qr.domain.IdleWindow;
 import com.restofy.qr.domain.entity.OrderAdmission;
+import com.restofy.qr.domain.entity.OrderBusinessState;
 import com.restofy.qr.domain.enums.*;
 import com.restofy.qr.domain.exception.*;
 import com.restofy.qr.infrastructure.persistence.repository.*;
 import com.restofy.qr.infrastructure.security.OrderAdmissionAccess;
-import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -26,12 +26,12 @@ public class OrderAdmissionService {
     private final GuestSessionValidationService validation;
     private final GuestSessionContextReader contexts;
     private final SessionOrderProtection protection;
-    private final Clock clock;
+    private final OrderBusinessStateRepository businessStates;
 
     public OrderAdmissionService(OrderAdmissionAccess access, OrderAdmissionRepository admissions, GuestSessionRepository guests,
-                                  GuestSessionValidationService validation, GuestSessionContextReader contexts, SessionOrderProtection protection, Clock clock) {
+                                  GuestSessionValidationService validation, GuestSessionContextReader contexts, SessionOrderProtection protection, OrderBusinessStateRepository businessStates) {
         this.access = access; this.admissions = admissions;
-        this.guests = guests; this.validation = validation; this.contexts = contexts; this.protection = protection; this.clock = clock;
+        this.guests = guests; this.validation = validation; this.contexts = contexts; this.protection = protection; this.businessStates = businessStates;
     }
 
     public record Reservation(UUID restaurantId, UUID tableSessionId, UUID guestSessionId, UUID orderId,
@@ -78,6 +78,7 @@ public class OrderAdmissionService {
         Instant deadline = now.plusSeconds(60);
         if (!held.protectsMain() && main.getIdleExpiresAt() != null && main.getIdleExpiresAt().isBefore(deadline)) { deadline = main.getIdleExpiresAt(); }
         if (!held.protectsGuest(guest.getId()) && guest.getExpiresAt() != null && guest.getExpiresAt().isBefore(deadline)) { deadline = guest.getExpiresAt(); }
+        main.invalidateOrderScope();
         return result(admissions.saveAndFlush(new OrderAdmission(guest, request.orderId(), request.idempotencyKey(), request.requestDigest(), now, deadline)));
     }
 
@@ -100,8 +101,13 @@ public class OrderAdmissionService {
             if ((main.getStatus() != TableSessionStatus.OPEN && main.getStatus() != TableSessionStatus.CLOSING)
                     || guest.getStatus() != GuestSessionStatus.ACTIVE || guest.getEndedAt() != null) { throw new OrderAdmissionConflictException(); }
         }
-        admission.decide(accepted, decision.expectedVersion(), decision.occurredAt(), clock.instant());
+        var previousStatus = admission.getStatus();
+        admission.decide(accepted, decision.expectedVersion(), decision.occurredAt(), parent.checkedAt());
         admissions.flush();
+        if (previousStatus != admission.getStatus()) {
+            parent.main().invalidateOrderScope();
+            if (accepted) { businessStates.saveAndFlush(new OrderBusinessState(admission)); }
+        }
         return result(admission);
     }
 

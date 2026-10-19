@@ -58,7 +58,7 @@ public class SessionIdleExpiryService {
         if (held.protectsMain()) {
             return expireOtherGuests(restaurantId, tableSessionId, main.getLastActivityAt(), now, held);
         }
-        var knowledge = orders.knowledge(restaurantId, tableSessionId);
+        var knowledge = orderKnowledge(main, now);
         if (knowledge == null || knowledge == IdleExpiryOrderAccess.Knowledge.UNKNOWN) { return unchanged(Outcome.UNKNOWN_ORDERS); }
         if (knowledge != IdleExpiryOrderAccess.Knowledge.NO_ORDERS) { return unchanged(Outcome.ORDERS_PRESENT); }
         var active = guests.findByRestaurantIdAndTableSessionIdAndStatus(restaurantId, tableSessionId, GuestSessionStatus.ACTIVE);
@@ -100,5 +100,10 @@ public class SessionIdleExpiryService {
     private static boolean inconsistentParent(DiningTable table, TableSession main, Instant now) {
         return !table.isActive() || table.getOperationalStatus() != TableOperationalStatus.OCCUPIED
                 || main.getOpenedAt().isAfter(now) || main.getLastActivityAt().isAfter(now);
+    }
+
+    private IdleExpiryOrderAccess.Knowledge orderKnowledge(TableSession main, Instant now) {
+        if (main.hasVerifiedNoOrdersAt(now)) { return IdleExpiryOrderAccess.Knowledge.NO_ORDERS; }
+        return orders.knowledge(main.getRestaurantId(), main.getId());
     }
 }

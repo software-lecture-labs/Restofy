@@ -242,7 +242,7 @@ class TableSessionPostgresIntegrationTests {
     @Test
     void databaseEnforcesLiveUniquenessAndTenantForeignKeyIndependentlyOfServiceChecks() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("30");
         var code = create("1");
         var first = opening.open(code.qrToken()).session();
         var duplicate = new TableSession(code.restaurantId(), code.tableId(), first.openedAt());

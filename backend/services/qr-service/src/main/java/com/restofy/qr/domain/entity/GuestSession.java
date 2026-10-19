@@ -3,6 +3,7 @@ package com.restofy.qr.domain.entity;
 import com.restofy.qr.domain.enums.GuestSessionStatus;
 import com.restofy.qr.domain.IdleWindow;
 import com.restofy.qr.domain.exception.InvalidGuestSessionException;
+import com.restofy.qr.domain.exception.OrderOutcomeConflictException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.Objects;
@@ -78,6 +79,13 @@ public class GuestSession {
         }
         expireWithMainAt(now);
         return true;
+    }
+
+    public void restartIdleAfterCancellation(Instant cancelledAt, Instant now, boolean wasProtected) {
+        if (!isUsableAt(now, wasProtected)) { return; }
+        if (cancelledAt.isAfter(now)) { throw new OrderOutcomeConflictException(); }
+        // A guest may have joined after another guest's cancellation.
+        expiresAt = IdleWindow.deadline(cancelledAt.isAfter(lastActivityAt) ? cancelledAt : lastActivityAt);
     }
 
     public void expireWithMainAt(Instant now) {

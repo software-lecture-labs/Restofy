@@ -53,7 +53,7 @@ public class TableSessionStatisticsService {
         // so JDBC cannot round a just-before-expiry Instant up to the expiry itself.
         var held = protection.snapshot(restaurantId, main.getId(), now);
         long active = table.isActive() && table.getOperationalStatus() == TableOperationalStatus.OCCUPIED && main.isOpenAt(now, held.protectsMain())
-                ? guests.countUsable(restaurantId, main.getId(), GuestSessionStatus.ACTIVE, now.truncatedTo(ChronoUnit.MICROS)) : 0;
+                ? guests.countUsable(restaurantId, main.getId(), GuestSessionStatus.ACTIVE, now.truncatedTo(ChronoUnit.MICROS), held.confirmedGuests()) : 0;
         return new TableSessionStatisticsResponse(restaurantId, tableId, main.getId(), main.getStatus(), active,
                 scans.countByRestaurantIdAndTableSessionId(restaurantId, main.getId()), tableScans, now);
     }

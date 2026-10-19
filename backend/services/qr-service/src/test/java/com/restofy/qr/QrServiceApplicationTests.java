@@ -21,6 +21,15 @@ class QrServiceApplicationTests {
     @Autowired MockMvc mvc;
     @Autowired com.restofy.qr.application.service.OrderAdmissionService admissions;
     @Autowired com.restofy.qr.application.service.GuestSessionContextReader contexts;
+    @Autowired com.restofy.qr.application.service.OrderBusinessOutcomeService outcomes;
+
+    @Test
+    void aPaymentReferenceCannotSupplyTheMissingOrderAndPaymentAuthority() {
+        var id = java.util.UUID.randomUUID();
+        var command = new com.restofy.qr.domain.OrderOutcome.Command(id, id, id, 1, 0,
+                com.restofy.qr.domain.enums.OrderBusinessStatus.COMPLETED, java.time.Instant.now(), id);
+        assertThatThrownBy(() -> outcomes.apply(command)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+    }
 
     @Test
     void lockedContextsRequireTheCallersMutationTransaction() {
