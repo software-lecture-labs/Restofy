@@ -71,3 +71,45 @@ Durum: **Faz 2 çalışma notu.** Dış servislerle ilgili sözleşmeler *öneri
 **Listeler:** `READY` sipariş `status=READY` filtresinde görünür, `WAITING`/`PREPARING`/`ACTIVE` listelerinden çıkar; FIFO sırası ve `newArrival=false` (Faz 1 sözleşmesi) korunur.
 
 **Zaman hassasiyeti:** `startedAt` ve `readyAt` **mikrosaniyeye** kesilerek yazılır (PostgreSQL `timestamptz` hassasiyeti). Böylece komutun döndürdüğü zaman ile sonraki GET'in gösterdiği zaman birebir aynıdır (kesilmeseydi Windows'ta nanosaniyeli yanıt, mikrosaniyeli okumadan farklı olabilirdi).
+
+## 5. Geçiş matrisi ve hata sözleşmesi (task 2.3)
+
+### 5.1 Geçiş matrisi (her komut YENİ bir `Idempotency-Key` ile; `KitchenTransitionMatrixTests` ile birebir test edilir)
+
+| Kaynak durum | `start-preparation` | `mark-ready` |
+|---|---|---|
+| `WAITING` | **200** → `PREPARING`, `startedAt` yazılır | **409** `ORDER_STATE_CONFLICT`, değişiklik yok |
+| `PREPARING` | **409** (zaten hazırlanıyor, bu komut onu yapan değil), değişiklik yok | **200** → `READY`, `readyAt` yazılır |
+| `READY` | **409**, değişiklik yok | **409**, değişiklik yok |
+| `CANCELLED` | **409**, değişiklik yok | **409**, değişiklik yok |
+
+Reddedilen her komutta `status`, `version`, `started_at`, `ready_at`, `cancelled_at` ve history satır sayısı **değişmez** (test eder). `WAITING/PREPARING → CANCELLED` iptal akışı Faz 4'tür ve bu fazda uygulanmaz; `CANCELLED` kaynakları test verisiyle sınanır.
+
+### 5.2 Tekrar (idempotency) — ne garanti edilir, ne edilmez
+
+Tekrar **200** döner ve hiçbir şeyi değiştirmez ancak şu hepsi doğruysa: aynı `Idempotency-Key`, aynı kullanıcı, aynı sipariş, aynı geçiş **ve sipariş hâlâ o hedef durumda**.
+
+**Sınır (bilinçli karar):** idempotency burada *tarihsel sonuç tekrarı garantisi vermez*. Başarılı bir komut, sipariş sonradan başka bir duruma geçtikten sonra aynı anahtarla tekrar gönderilirse **409** döner (`ORDER_STATE_CONFLICT`, `currentStatus` gerçek durumu söyler), çünkü Kitchen o komutun eski başarılı yanıtını saklamaz ve bayat bir "başarılı" döndürmek siparişin bugünkü gerçeğini gizlerdi. Örnek: `start-preparation` başarılı oldu, sipariş `READY` oldu; ağ zaman aşımı yüzünden istemci eski start'ı tekrar gönderirse 409 ve `currentStatus=READY` alır. İstemci bunu "komut kaybolmadı, sipariş ilerledi" diye yorumlamalı ve siparişi (GET) okumalıdır.
+
+### 5.3 Hata kodları
+
+Her 409/503 yanıtı RFC 9457 `ProblemDetail` içinde makine tarafından okunur `code` ve `retryable` alanı taşır.
+
+| HTTP | `code` | Ne zaman | `retryable` | İstemci ne yapmalı |
+|---|---|---|---|---|
+| 400 | — | `orderId`/`Idempotency-Key` UUID değil, header yok, geçersiz parametre | — | isteği düzelt |
+| 401 / 403 | — | kimliksiz / yetkisiz rol (ADMIN dahil yazmada) | — | kimlik / yetki |
+| 404 | — | sipariş yok **veya başka restoranın** | — | — |
+| 409 | `ORDER_STATE_CONFLICT` | geçiş mevcut durumdan yapılamaz veya sipariş bu komutun hedefinde ama komut farklı | `false` | `currentStatus`'a göre siparişi oku; **aynı komutu tekrarlamak işe yaramaz** |
+| 409 | `COMMAND_ID_CONFLICT` | anahtar başka sipariş/kullanıcı/geçiş için kullanılmış | `false` | yeni anahtar üret |
+| 409 | `CONCURRENT_MODIFICATION` | iyimser kilit (`version`) yarışı: sipariş bu istek sırasında değişti | `true` | siparişi yeniden oku, sonra karar ver |
+| **503** | `ORDER_BUSY` | sipariş satır kilidi 5 sn içinde alınamadı (geçici yoğunluk) | `true` | **aynı `Idempotency-Key` ile güvenle tekrar dene**, `Retry-After: 2` sn bekle |
+
+**Kilit zaman aşımı (`503 ORDER_BUSY`) neden 409 değil:** 409, istemcinin çözmesi gereken kalıcı bir durum çakışmasıdır; kilit zaman aşımı ise geçici bir sunucu yoğunluğudur ve hiçbir şeyin kesin olarak başarısız olduğunu söylemez. Bu istek siparişi değiştirmemiştir, ama başka bir istek (hatta aynı komutun kendisi) başarılı olmuş olabilir. Bu yüzden istemci "başarısız" varsaymamalı; aynı anahtarla tekrar gönderebilir (başarılı komut ise doğrulanmış tekrar olarak 200 döner) ya da siparişi okuyabilir. Sunucu **otomatik ve sınırsız yeniden deneme yapmaz**; kilit beklemesi 5 sn ile sınırlıdır ve ölçülmüştür. *Not: önceki sürümde bu durum 409 idi; 409 yerine 503'e geçiş onayınıza sunulmuş bir karardır.*
+
+### 5.4 `Idempotency-Key` biçimi ve kötü istek kuralları
+
+- Başlık **tam olarak bir tane** ve **kanonik UUID** (`8-4-4-4-12` onaltılı; büyük/küçük harf aynı komuttur) olmalıdır. Birden çok `Idempotency-Key` başlığı, virgülle ayrılmış liste, `1-1-1-1-1` gibi gevşek biçimler, boşluklu/aşırı uzun/UUID olmayan değerler **400** döner ve hiçbir şey değişmez; değer yanıtta yansıtılmaz. (Belirsiz bir komut kimliği "ilkini seçerek" çözülmez.)
+- Komut yollarında `GET/POST/PUT/DELETE` (KITCHEN için) **405**, ADMIN için her yazma yöntemi **403**; yol hileleri (`;`, `//`, `..`, büyük harf, sondaki `/`) komutu çalıştırmaz.
+- Aynı `orderId` iki farklı restoranda iki bağımsız siparişdir; birinin komutu diğerini etkilemez.
+- Sahte `X-Role`, `X-Restaurant-Id`, `X-User-Id`, `X-HTTP-Method-Override` başlıkları etkisizdir.
