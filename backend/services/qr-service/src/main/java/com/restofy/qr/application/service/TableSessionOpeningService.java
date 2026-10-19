@@ -9,6 +9,7 @@ import com.restofy.qr.domain.exception.TableSessionConflictException;
 import com.restofy.qr.infrastructure.persistence.repository.DiningTableRepository;
 import com.restofy.qr.infrastructure.persistence.repository.TableSessionRepository;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,11 +42,11 @@ public class TableSessionOpeningService {
                 throw new TableSessionConflictException();
             }
             // Repeat scans do not implement the unresolved idle-refresh policy.
-            return new OpeningResult(metadata(session), false);
+            return new OpeningResult(metadata(session), false, context.qrId());
         }
         table.occupy();
         var session = sessions.saveAndFlush(new TableSession(context.restaurantId(), context.tableId(), context.checkedAt()));
-        return new OpeningResult(metadata(session), true);
+        return new OpeningResult(metadata(session), true, context.qrId());
     }
 
     private static TableSessionResponse metadata(TableSession session) {
@@ -53,6 +54,6 @@ public class TableSessionOpeningService {
                 session.getVersion(), session.getOpenedAt(), session.getLastActivityAt(), session.getIdleExpiresAt());
     }
 
-    public record OpeningResult(TableSessionResponse session, boolean created) {
+    public record OpeningResult(TableSessionResponse session, boolean created, UUID qrCodeId) {
     }
 }

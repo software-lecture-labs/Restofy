@@ -21,6 +21,14 @@ class QrServiceApplicationTests {
     @Autowired MockMvc mvc;
 
     @Test
+    void statisticsRemainsClosedForAnonymousForgedAndUnverifiedStaffRequests() throws Exception {
+        String path = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/session-statistics";
+        mvc.perform(get(path).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get(path).with(user("test-staff").roles("ADMIN"))).andExpect(status().isForbidden());
+    }
+
+    @Test
     void guestCredentialDoesNotOpenHttpOrGrantStaffAuthority() throws Exception {
         String token = "A".repeat(43);
         mvc.perform(post("/api/v1/qr/table-sessions/open").with(csrf())

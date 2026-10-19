@@ -117,7 +117,7 @@ class GuestSessionPostgresIntegrationTests {
         assertThat(first.toString()).doesNotContain(first.guestToken());
         assertThat(jdbc.queryForList("select column_name from information_schema.columns where table_name='guest_sessions'", String.class))
                 .containsExactlyInAnyOrder("id", "restaurant_id", "table_session_id", "token_digest", "status", "joined_at", "last_activity_at", "expires_at", "ended_at", "version");
-        assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_name='qr_scan_events'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId())).isEqualTo(3);
     }
 
     @Test
@@ -260,7 +260,7 @@ class GuestSessionPostgresIntegrationTests {
     @Test
     void databaseEnforcesDigestUniquenessAndTheCompositeTenantParentKey() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("27");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
         var opened = opening.open(create("1").qrToken());
         var guest = opened.guestSession();
         var duplicate = new GuestSession(guest.restaurantId(), guest.tableSessionId(), tokens.digest(opened.guestToken()), guest.joinedAt());

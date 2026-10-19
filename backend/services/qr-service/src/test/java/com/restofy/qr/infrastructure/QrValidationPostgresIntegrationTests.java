@@ -103,7 +103,7 @@ class QrValidationPostgresIntegrationTests {
         assertThat(validation.validate(code.qrToken()).checkedAt()).isEqualTo(checked);
         assertThat(jdbc.queryForObject("select count(*) from table_sessions where table_id=?", Integer.class, code.tableId())).isZero();
         assertThat(jdbc.queryForObject("select count(*) from guest_sessions g join table_sessions s on s.id=g.table_session_id where s.table_id=?", Integer.class, code.tableId())).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name='qr_scan_events'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId())).isZero();
     }
 
     @Test
@@ -196,7 +196,7 @@ class QrValidationPostgresIntegrationTests {
     @Test
     void forwardMigrationRetainsUnboundedCodesAndChecksOptionalExpiry() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("27");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
         var code = create("1");
         assertThat(codes.findById(code.id()).orElseThrow().getExpiresAt()).isNull();
         UUID id = code.id();
