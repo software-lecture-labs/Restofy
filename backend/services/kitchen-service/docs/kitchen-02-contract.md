@@ -113,3 +113,74 @@ Her 409/503 yanıtı RFC 9457 `ProblemDetail` içinde makine tarafından okunur 
 - Komut yollarında `GET/POST/PUT/DELETE` (KITCHEN için) **405**, ADMIN için her yazma yöntemi **403**; yol hileleri (`;`, `//`, `..`, büyük harf, sondaki `/`) komutu çalıştırmaz.
 - Aynı `orderId` iki farklı restoranda iki bağımsız siparişdir; birinin komutu diğerini etkilemez.
 - Sahte `X-Role`, `X-Restaurant-Id`, `X-User-Id`, `X-HTTP-Method-Override` başlıkları etkisizdir.
+
+## 6. "Hazır" olayı ve Order'a bildirim sözleşmesi (task 2.4)
+
+### 6.1 Sipariş bazlı tamamlama
+
+V1'de "tüm ürünler hazır" ifadesi yalnızca **`KitchenOrder.status == READY`** demektir. Kalem bazlı `ready` alanı, kalem endpoint'i veya tamamlama sayacı **yoktur ve eklenmeyecektir**. Siparişin kendi iş durumunu (Order tarafında "hazır" görünümü) nasıl güncelleyeceği **Order sahibinin kararıdır**; Kitchen Order'ın veritabanına yazmaz ve Order kodu üretmez.
+
+### 6.2 Olay: `KitchenOrderReady` (öneri, `schemaVersion` 1 — Order ekibiyle teyit edilecek)
+
+Her `PREPARING → READY` geçişi, **aynı transaction'da** tam bir olay üretir (sipariş başına en fazla bir; tekrar komutu yenisini üretmez).
+
+```json
+{
+  "eventId": "uuid (sabit; yeniden gönderimde değişmez)",
+  "eventType": "KitchenOrderReady",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-17T15:04:05.123456Z",
+  "restaurantId": "uuid",
+  "orderId": "uuid (Order servisinin sipariş kimliği)",
+  "aggregateVersion": 3,
+  "correlationId": "string|null",
+  "causationId": "uuid (READY komutunun Idempotency-Key değeri)",
+  "payload": {
+    "preparationStatus": "READY",
+    "startedAt": "2026-10-17T15:00:00.000000Z",
+    "readyAt": "2026-10-17T15:04:05.123456Z"
+  }
+}
+```
+
+- **Asgari veri:** kullanıcı kimliği, masa, ürün, not, fiyat veya kişisel veri **taşınmaz**; yalnız Order'ın zaten bildiği `orderId` ve hazırlık zamanları. Sır yoktur.
+- `aggregateVersion` = geçişten sonraki Kitchen sipariş `version` değeri; tüketici eski olayın yeni durumu ezmesini buna bakarak engelleyebilir. `occurredAt` = `readyAt` (mikrosaniye).
+- **Teslim garantisi: en az bir kez.** `eventId` sabittir; **tüketici (Order) olayı `eventId` ile idempotent işlemelidir**. "Tam bir kez" garantisi verilmez.
+- `KitchenPreparationStarted` yalnızca **mimari öneridir**; Order'ın bir "hazırlanıyor" projeksiyonuna ihtiyacı olup olmadığı belli olmadığından **üretilmez ve kaydedilmez**.
+
+### 6.3 Statüler — neyin ne kadar doğrulandığı
+
+| Konu | Durum |
+|---|---|
+| Olay sözleşmesi (§6.2) | **CONTRACT READY** — Order ekibinin onayı bekliyor |
+| Olayın yerel, dayanıklı kaydı (READY ile aynı transaction) | **LOCAL EVENT PERSISTED** — uygulanır ve testlidir |
+| `OrderEventSink` portu + teslimat durum makinesi | **PORT READY** — sahte hedefle testli |
+| Order'a gerçek iletim (zamanlayıcı, HTTP/broker adaptörü, hedef adres, servis kimliği) | **BLOCKED / DELIVERY NOT VERIFIED** — D-10 ve Order sözleşmesi gelmeden kurulmaz |
+
+### 6.4 Order ekibiyle teyit edilecekler
+1. Taşıma: iç HTTP + outbox mu, broker mu (D-10). 2. Hedef endpoint/yol/yöntem ve servisler arası kimlik doğrulama. 3. `KitchenOrderReady` alanları ve `eventId` ile idempotent tüketim. 4. Order'ın READY bildirimini sipariş durumuna nasıl yansıttığı (Kitchen'dan bağımsız). 5. Sıra boşluğunda veya kayıp olayda Order'ın Kitchen'dan güncel durumu nasıl alacağı (örn. salt okunur servis çağrısı; bugün yoktur).
+
+### 6.5 Yerel olay kaydı (V83) — uygulanan teslim garantisinin tam sınırı
+
+- **Tablolar (`V83__create_outbox.sql`, Kitchen aralığı):** `outbox_events` (olay, sabit `id` = `eventId`) ve `outbox_deliveries` (hedef başına teslim durumu). `UNIQUE(restaurant_id, aggregate_type, aggregate_id, event_type)`: bir sipariş için en fazla **bir** `KitchenOrderReady`; tekrar veya yarışan komut ikinci olay **üretemez** (veritabanı güvencesi). `UNIQUE(restaurant_id, event_id, destination)`, tenant uyumlu bileşik FK, `DELIVERED ⇔ delivered_at` ve `PENDING ⇒ next_attempt_at` CHECK'leri.
+- **Atomiklik:** olay ve teslimat satırı, READY geçişiyle **aynı transaction'da** yazılır (`Propagation.MANDATORY`). Olay yazılamazsa durum, `readyAt`, `version`, history, olay ve teslimat **birlikte geri alınır** (testle kanıtlı); komut kimliği yeniden kullanılabilir kalır. Tekrar komutu (200) ve reddedilen komutlar (409/404/401) **hiçbir olay yazmaz**.
+- **Teslim garantisi:** *bu sürümde kayıt dayanıklıdır, iletim yoktur.* Olay yerel olarak kalıcıdır (`PENDING`); Order'a hiçbir şey gönderilmez.
+- **Yeniden başlatma:** olay ve teslimat PostgreSQL'dedir; uygulama yeniden başlatıldığında kaybolmaz.
+
+### 6.6 `OrderEventSink` portu ve teslimat davranışı (sahte hedefle testli)
+
+`OrderEventSink` (port) için **üretim uygulaması yoktur**; `OutboxDeliveryService` kimse tarafından zamanlanmaz veya çağrılmaz. Port sözleşmesi ve kurallar testlerle sabittir:
+
+| Durum | Sonuç |
+|---|---|
+| Onay (acknowledgement) | `DELIVERED`, kalıcı ve nihai; sonraki denemeler hedefi **çağırmaz** |
+| Zaman aşımı, bağlantı hatası, 5xx, istisna, boş/belirsiz sonuç | `RETRYABLE_FAILURE`: **başarı sayılmaz**; aynı `eventId` ile yeniden denenir. Gecikme 5, 10, 20, 40, 80, 160, 320 sn (en çok 1 saat) |
+| Kalıcı ret | `FAILED` hemen; yeniden deneme yok |
+| 8 deneme tükendi | `FAILED` (`MAX_ATTEMPTS_EXCEEDED`), **görünür**; elle uzlaştırma gerekir |
+| Eşzamanlı işçiler | Satır kilidiyle alınan 60 sn'lik **kira**: aynı olay aynı anda iki kez gönderilmez; işçi çökerse kira dolunca yeniden alınır |
+| Dış çağrı sırasında | Transaction ve satır kilidi **açık değildir** |
+| Hata kodu | Yalnız kısa, temizlenmiş kod saklanır (adres, token, ileti saklanmaz) |
+
+**K2-A15:** Order ulaşılamasa da (zaman aşımı/istisna) Kitchen siparişi `READY` kalır; teslimat `PENDING` ve yeniden deneme zamanı görünür; olay, history ve sipariş değişmez. Teslimat sorunu "hazır"ı geri alamaz.
+
+**Uzlaştırma planı (uygulanmadı):** `FAILED` teslimatlar sorgulanabilir (`outbox_deliveries.status = 'FAILED'`); Order ile bir zaman damgası/sürüm karşılaştırması ve gerekirse salt okunur Kitchen durum sorgusu ekibin kararıdır (§6.4). Tüketici `eventId` ile idempotent olmak zorundadır.

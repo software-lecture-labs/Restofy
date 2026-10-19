@@ -40,13 +40,15 @@ public class KitchenPreparationService {
 	private final KitchenOrderRepository orders;
 	private final KitchenStatusHistoryRepository history;
 	private final KitchenOrderQueryService views;
+	private final KitchenEventRecorder events;
 	private final Clock clock;
 
 	public KitchenPreparationService(KitchenOrderRepository orders, KitchenStatusHistoryRepository history,
-			KitchenOrderQueryService views, Clock clock) {
+			KitchenOrderQueryService views, KitchenEventRecorder events, Clock clock) {
 		this.orders = orders;
 		this.history = history;
 		this.views = views;
+		this.events = events;
 		this.clock = clock;
 	}
 
@@ -83,6 +85,10 @@ public class KitchenPreparationService {
 		Instant occurredAt = transition.apply(order);
 		orders.saveAndFlush(order);
 		saveHistory(KitchenStatusHistory.transition(order, from, target, actorUserId, commandId, occurredAt));
+		if (target == KitchenOrderStatus.READY) {
+			// Same transaction: the "ready" event exists if and only if this READY transition commits.
+			events.recordOrderReady(order, commandId);
+		}
 		log.info("{} APPLIED: restaurantId={} orderId={} actor={}", command, restaurantId, orderId, actorUserId);
 		return views.toDetail(order);
 	}
