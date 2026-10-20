@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -73,6 +74,12 @@ public class CancellationRequest implements Persistable<UUID> {
 	@Column(name = "decision_reason_code", length = 60)
 	private String decisionReasonCode;
 
+	@Column(name = "decision_order_version")
+	private Long decisionOrderVersion;
+
+	@Column(name = "decision_event_id")
+	private UUID decisionEventId;
+
 	@Version
 	private Long version;
 
@@ -98,6 +105,31 @@ public class CancellationRequest implements Persistable<UUID> {
 		request.requestedByUserId = data.requestedByUserId();
 		request.requestedAt = data.requestedAt();
 		return request;
+	}
+
+	/** What the Order service decided, written exactly once (the database refuses any later change). */
+	public record Decision(Instant decidedAt, String reasonCode, long orderVersion, UUID eventId) {
+	}
+
+	/** The Order service approved: this request is APPROVED. The kitchen order's own change is made by the caller. */
+	public void approve(Decision decision) {
+		decide(CancellationRequestStatus.APPROVED, decision);
+	}
+
+	/** The Order service refused: this request is REJECTED; the kitchen order is not touched. */
+	public void reject(Decision decision) {
+		decide(CancellationRequestStatus.REJECTED, decision);
+	}
+
+	private void decide(CancellationRequestStatus outcome, Decision decision) {
+		if (status != CancellationRequestStatus.REQUESTED) {
+			throw new IllegalStateException("A decided cancellation request is final");
+		}
+		status = outcome;
+		decidedAt = decision.decidedAt().truncatedTo(ChronoUnit.MICROS);
+		decisionReasonCode = decision.reasonCode();
+		decisionOrderVersion = decision.orderVersion();
+		decisionEventId = decision.eventId();
 	}
 
 	/** Is this exactly the request that is being sent again (same order, reason, text, stock reference and user)? */

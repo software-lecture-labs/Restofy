@@ -13,6 +13,8 @@ import java.util.UUID;
  * Internal ids, the tenant id, versions and event ids are intentionally not exposed. No prices are carried.
  * {@code receivedAt} is when the Kitchen service stored the order (not Order's acceptance time). Empty values are
  * always serialized as explicit JSON {@code null} (never omitted), independent of global Jackson settings.
+ * {@code cancelledAt} and {@code cancellationReason} are set only once the Order service approved a cancellation (the
+ * time is its decision time, the reason the kitchen's reason code); a pending cancellation REQUEST changes neither.
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
 public record KitchenOrderDetailResponse(
@@ -24,6 +26,8 @@ public record KitchenOrderDetailResponse(
 		Instant receivedAt,
 		Instant startedAt,
 		Instant readyAt,
+		Instant cancelledAt,
+		String cancellationReason,
 		List<Item> items) {
 
 	@JsonInclude(JsonInclude.Include.ALWAYS)

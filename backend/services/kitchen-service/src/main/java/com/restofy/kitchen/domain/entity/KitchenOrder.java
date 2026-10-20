@@ -68,7 +68,8 @@ public class KitchenOrder {
 	@Column(name = "cancellation_reason")
 	private String cancellationReason;
 
-	@Column(name = "source_order_version", nullable = false, updatable = false)
+	/** The Order service's version of this order as last known: set at acceptance, advanced only by a decision that changed it. */
+	@Column(name = "source_order_version", nullable = false)
 	private long sourceOrderVersion;
 
 	@Column(name = "source_event_id", nullable = false, updatable = false)
@@ -143,6 +144,26 @@ public class KitchenOrder {
 		status = KitchenOrderStatus.READY;
 		readyAt = notBefore(now, startedAt);
 		return readyAt;
+	}
+
+	/** Only an order that has not been finished (WAITING or PREPARING) can still be cancelled by an Order decision. */
+	public boolean canBeCancelledByDecision() {
+		return status == KitchenOrderStatus.WAITING || status == KitchenOrderStatus.PREPARING;
+	}
+
+	/**
+	 * WAITING or PREPARING -> CANCELLED, applied ONLY because the Order service approved a cancellation (Kitchen never
+	 * cancels on its own). {@code cancelledAt} is the Order service's decision time; READY is never cancelled here (D-02).
+	 * The Order service's version of the order after its decision becomes the version Kitchen knows.
+	 */
+	public void cancelByDecision(Instant decidedAt, String reason, long orderVersion) {
+		if (!canBeCancelledByDecision()) {
+			throw new InvalidKitchenTransitionException(status, KitchenOrderStatus.CANCELLED);
+		}
+		status = KitchenOrderStatus.CANCELLED;
+		cancelledAt = decidedAt.truncatedTo(ChronoUnit.MICROS);
+		cancellationReason = reason;
+		sourceOrderVersion = orderVersion;
 	}
 
 	/**

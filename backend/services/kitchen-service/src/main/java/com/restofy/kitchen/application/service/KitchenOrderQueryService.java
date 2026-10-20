@@ -59,7 +59,8 @@ public class KitchenOrderQueryService {
 						i.getProductNameSnapshot(), i.getQuantity(), i.getNoteSnapshot(), options(i)))
 				.toList();
 		return new KitchenOrderDetailResponse(o.getOrderId(), o.getOrderNumberSnapshot(), o.getTableNumberSnapshot(),
-				o.getTableSessionId(), o.getStatus(), o.getReceivedAt(), o.getStartedAt(), o.getReadyAt(), items);
+				o.getTableSessionId(), o.getStatus(), o.getReceivedAt(), o.getStartedAt(), o.getReadyAt(), o.getCancelledAt(),
+				o.getCancellationReason(), items);
 	}
 
 	private List<KitchenOrderDetailResponse.Option> options(KitchenOrderItem item) {
@@ -71,6 +72,6 @@ public class KitchenOrderQueryService {
 	private static KitchenOrderSummaryResponse toSummary(KitchenOrder o) {
 		return new KitchenOrderSummaryResponse(o.getOrderId(), o.getOrderNumberSnapshot(), o.getTableNumberSnapshot(),
 				o.getTableSessionId(), o.getStatus(), o.getReceivedAt(), o.getStatus() == KitchenOrderStatus.WAITING,
-				o.getItems().size());
+				o.getItems().size(), o.getCancelledAt(), o.getCancellationReason());
 	}
 }

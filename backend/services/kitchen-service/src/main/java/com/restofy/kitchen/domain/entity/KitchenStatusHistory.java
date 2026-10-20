@@ -87,6 +87,24 @@ public class KitchenStatusHistory implements Persistable<UUID> {
 		return history;
 	}
 
+	/**
+	 * The change to CANCELLED caused by the Order service's approved decision. There is no user and no command: the
+	 * Order service's event id says what caused it.
+	 */
+	public static KitchenStatusHistory cancelled(KitchenOrder order, KitchenOrderStatus from, UUID sourceEventId, String reason,
+			Instant occurredAt) {
+		KitchenStatusHistory history = new KitchenStatusHistory();
+		history.id = UUID.randomUUID();
+		history.restaurantId = order.getRestaurantId();
+		history.kitchenOrderId = order.getId();
+		history.fromStatus = from;
+		history.toStatus = KitchenOrderStatus.CANCELLED;
+		history.sourceEventId = sourceEventId;
+		history.reason = reason;
+		history.occurredAt = occurredAt;
+		return history;
+	}
+
 	/** Is this entry the result of the given command, issued by the same actor, for this order and target status? */
 	public boolean isResultOf(UUID commandId, UUID actorUserId, UUID kitchenOrderId, KitchenOrderStatus target) {
 		return commandId != null && commandId.equals(this.commandId) && actorUserId != null
