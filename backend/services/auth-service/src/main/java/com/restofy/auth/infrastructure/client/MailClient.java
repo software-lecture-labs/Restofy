@@ -31,8 +31,8 @@ import org.springframework.web.client.RestClient;
  * Hands password-reset mail commands to the Mail service after the surrounding transaction has committed.
  *
  * <p>Delivery is best effort: the commands wait in a bounded in-memory queue and are not retried or persisted, so a
- * restart or a Mail outage drops them. The user can simply request a new code; this trade-off and the outbox
- * alternative are recorded in ADR-AUTH-001.
+ * restart or a Mail outage drops them. The user can simply request a new code; an outbox table would remove this
+ * gap at the cost of a migration and a relay job.
  */
 @Component
 @PropertySource("classpath:mail-service-contract.properties")

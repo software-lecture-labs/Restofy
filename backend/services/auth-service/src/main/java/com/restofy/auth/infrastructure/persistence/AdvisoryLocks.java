@@ -12,7 +12,7 @@ public final class AdvisoryLocks {
     public static final long STAFF_BOOTSTRAP = 1_381_254_745L;
     /**
      * Serialises admission of new password-reset limit buckets across instances. It is global on purpose (the table
-     * has a hard size bound), which makes reset requests of different users queue behind each other; see ADR-AUTH-002.
+     * has a hard size bound), which makes reset requests of different users queue behind each other.
      */
     public static final long PASSWORD_RESET_LIMITS = 409_004L;
 

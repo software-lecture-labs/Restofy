@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Unlike the in-memory login limiter this one fails closed when its table is full: the buckets protect the
  * six-digit reset code against guessing, so refusing a brand-new bucket is safer than evicting an existing one. The
- * per-address budget keeps a single client from filling the table quickly (see ADR-AUTH-002).
+ * per-address budget keeps a single client from filling the table quickly.
  */
 @Service
 public class PasswordResetLimiter {

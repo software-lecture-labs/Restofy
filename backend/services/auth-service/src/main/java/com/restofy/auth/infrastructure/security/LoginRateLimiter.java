@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * <p>The strict budget is kept per account <em>and</em> remote address, so someone who only knows an e-mail address
  * can exhaust their own budget but cannot lock the real owner out from another address. A much larger per-account
  * ceiling remains as a safety net against guessing spread over many addresses; reaching it is the accepted
- * availability trade-off (see ADR-AUTH-002).
+ * availability trade-off.
  */
 @Component
 public class LoginRateLimiter {

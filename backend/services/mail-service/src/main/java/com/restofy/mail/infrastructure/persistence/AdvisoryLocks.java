@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public final class AdvisoryLocks {
     /**
      * Serialises admission of new mail jobs so the bound on open jobs holds across instances. It is global on
-     * purpose, which makes job creation of different users queue behind each other; see ADR-AUTH-002.
+     * purpose, which makes job creation of different users queue behind each other.
      */
     public static final long MAIL_JOB_ADMISSION = 409_005L;
 
