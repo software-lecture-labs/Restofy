@@ -1,6 +1,6 @@
 package com.restofy.kitchen.application.service;
 
-import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
+import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.domain.entity.OutboxDelivery;
 import com.restofy.kitchen.domain.entity.OutboxEvent;
@@ -67,7 +67,7 @@ public class OutboxDeliveryService {
 	 * (the sink is not called). Otherwise returns the delivery's status after the result was recorded.
 	 */
 	public Optional<DeliveryStatus> attempt(UUID deliveryId, OrderEventSink sink) {
-		Optional<KitchenOrderReadyMessage> message = tx.execute(status -> claim(deliveryId));
+		Optional<OutboundMessage> message = tx.execute(status -> claim(deliveryId));
 		if (message.isEmpty()) {
 			return Optional.empty();
 		}
@@ -75,7 +75,7 @@ public class OutboxDeliveryService {
 		return Optional.of(tx.execute(status -> recordResult(deliveryId, result)));
 	}
 
-	private Optional<KitchenOrderReadyMessage> claim(UUID deliveryId) {
+	private Optional<OutboundMessage> claim(UUID deliveryId) {
 		Optional<OutboxDelivery> found = deliveries.findForUpdate(deliveryId);
 		if (found.isEmpty() || !found.get().claim(clock.instant(), LEASE)) {
 			return Optional.empty();
@@ -85,7 +85,7 @@ public class OutboxDeliveryService {
 	}
 
 	/** An exception, a missing or an inconsistent result is an unknown outcome: retry, never success. */
-	private OrderEventSink.Result callSink(OrderEventSink sink, KitchenOrderReadyMessage message) {
+	private OrderEventSink.Result callSink(OrderEventSink sink, OutboundMessage message) {
 		try {
 			OrderEventSink.Result result = sink.deliver(message);
 			if (result == null || result.outcome() == null) {

@@ -1,6 +1,6 @@
 package com.restofy.kitchen.application.port;
 
-import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
+import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.domain.enums.DeliveryOutcome;
 
 /**
@@ -15,11 +15,13 @@ import com.restofy.kitchen.domain.enums.DeliveryOutcome;
  *       {@code PERMANENT_FAILURE}.</li>
  *   <li>The receiver must treat the event id idempotently: delivery is at-least-once, never exactly-once.</li>
  *   <li>The adapter does not retry on its own and holds no database lock while it works.</li>
+ *   <li>A positive acknowledgement of a {@code KitchenCancellationRequested} event only means "the request arrived":
+ *       it is NOT the Order service's decision, which is a separate inbound fact that Kitchen never assumes.</li>
  * </ul>
  */
 public interface OrderEventSink {
 
-	Result deliver(KitchenOrderReadyMessage message);
+	Result deliver(OutboundMessage message);
 
 	/** Result of one attempt; {@code errorCode} is a short, safe code (never a message, address or token). */
 	record Result(DeliveryOutcome outcome, String errorCode) {

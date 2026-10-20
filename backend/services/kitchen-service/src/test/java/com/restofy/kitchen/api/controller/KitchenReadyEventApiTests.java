@@ -122,7 +122,7 @@ class KitchenReadyEventApiTests {
 		assertEquals(readyKey, event.getCausationId());
 		assertEquals(((Timestamp) order.get("ready_at")).toInstant(), event.getOccurredAt());
 
-		KitchenOrderReadyMessage message = recorder.toMessage(event);
+		KitchenOrderReadyMessage message = (KitchenOrderReadyMessage) recorder.toMessage(event);
 		assertEquals(event.getId(), message.eventId());
 		assertEquals("READY", message.payload().preparationStatus());
 		assertEquals(((Timestamp) order.get("started_at")).toInstant(), message.payload().startedAt());

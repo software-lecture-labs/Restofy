@@ -1,6 +1,7 @@
 package com.restofy.kitchen.application.service;
 
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
+import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.domain.enums.DeliveryStatus;
 import com.restofy.kitchen.infrastructure.persistence.repository.OutboxDeliveryRepository;
@@ -87,7 +88,7 @@ class OutboxDeliveryServiceTests {
 	@Test
 	void anAcknowledgedEventIsDeliveredOnceWithTheStoredStableMessage() {
 		Ready ready = readyOrder();
-		List<KitchenOrderReadyMessage> received = new ArrayList<>();
+		List<OutboundMessage> received = new ArrayList<>();
 
 		Optional<DeliveryStatus> first = delivery.attempt(ready.deliveryId(), message -> {
 			received.add(message);
@@ -100,7 +101,7 @@ class OutboxDeliveryServiceTests {
 		assertEquals(1, row.get("attempt_count"));
 		assertNotNull(row.get("delivered_at"));
 		assertEquals(1, received.size());
-		KitchenOrderReadyMessage message = received.getFirst();
+		KitchenOrderReadyMessage message = (KitchenOrderReadyMessage) received.getFirst();
 		assertEquals("KitchenOrderReady", message.eventType());
 		assertEquals(1, message.schemaVersion());
 		assertEquals(ready.orderId(), message.orderId());
@@ -263,7 +264,7 @@ class OutboxDeliveryServiceTests {
 				first.deliveryId(), second.deliveryId(), notDue.deliveryId());
 		List<UUID> order = new ArrayList<>();
 		OrderEventSink sink = message -> {
-			order.add(message.orderId());
+			order.add(((KitchenOrderReadyMessage) message).orderId());
 			return OrderEventSink.Result.delivered();
 		};
 

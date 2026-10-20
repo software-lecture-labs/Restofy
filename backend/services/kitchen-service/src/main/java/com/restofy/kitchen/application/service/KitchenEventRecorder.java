@@ -1,6 +1,9 @@
 package com.restofy.kitchen.application.service;
 
+import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
+import com.restofy.kitchen.application.contract.OutboundMessage;
+import com.restofy.kitchen.domain.entity.CancellationRequest;
 import com.restofy.kitchen.domain.entity.KitchenOrder;
 import com.restofy.kitchen.domain.entity.OutboxDelivery;
 import com.restofy.kitchen.domain.entity.OutboxEvent;
@@ -50,19 +53,46 @@ public class KitchenEventRecorder {
 		var aggregate = new OutboxEvent.Aggregate(order.getRestaurantId(), order.getOrderId(), order.getVersion());
 		var eventData = new OutboxEvent.EventData(KitchenOrderReadyMessage.TYPE, KitchenOrderReadyMessage.SCHEMA_VERSION,
 				MDC.get(CorrelationIdFilter.MDC_KEY), commandId, jsonMapper.writeValueAsString(payload), order.getReadyAt());
-		OutboxEvent event = OutboxEvent.create(aggregate, eventData, clock.instant());
+		return store(OutboxEvent.create(aggregate, eventData, clock.instant()));
+	}
+
+	/**
+	 * Records {@code KitchenCancellationRequested} for a request that was just stored. The order itself is NOT
+	 * changed by a request, so its version is the one at request time. At most one such event exists per request.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public OutboxEvent recordCancellationRequested(CancellationRequest request, KitchenOrder order) {
+		var payload = new KitchenCancellationRequestedMessage.Payload(request.getOrderId(), request.getReasonCode().name());
+		var aggregate = new OutboxEvent.Aggregate(OutboxEvent.AGGREGATE_CANCELLATION_REQUEST, request.getRestaurantId(),
+				request.getId(), order.getVersion());
+		var eventData = new OutboxEvent.EventData(KitchenCancellationRequestedMessage.TYPE,
+				KitchenCancellationRequestedMessage.SCHEMA_VERSION, MDC.get(CorrelationIdFilter.MDC_KEY), request.getCommandId(),
+				jsonMapper.writeValueAsString(payload), request.getRequestedAt());
+		return store(OutboxEvent.create(aggregate, eventData, clock.instant()));
+	}
+
+	private OutboxEvent store(OutboxEvent event) {
 		events.saveAndFlush(event);
 		deliveries.saveAndFlush(OutboxDelivery.pending(event, ORDER_DESTINATION, clock.instant()));
 		return event;
 	}
 
 	/** The wire form of a stored event, exactly as every delivery attempt (and redelivery) sends it. */
-	public KitchenOrderReadyMessage toMessage(OutboxEvent event) {
+	public OutboundMessage toMessage(OutboxEvent event) {
 		try {
-			return new KitchenOrderReadyMessage(event.getId(), event.getEventType(), event.getSchemaVersion(),
-					event.getOccurredAt(), event.getRestaurantId(), event.getAggregateId(), event.getAggregateVersion(),
-					event.getCorrelationId(), event.getCausationId(),
-					jsonMapper.readValue(event.getPayload(), KitchenOrderReadyMessage.Payload.class));
+			return switch (event.getEventType()) {
+				case KitchenOrderReadyMessage.TYPE -> new KitchenOrderReadyMessage(event.getId(), event.getEventType(),
+						event.getSchemaVersion(), event.getOccurredAt(), event.getRestaurantId(), event.getAggregateId(),
+						event.getAggregateVersion(), event.getCorrelationId(), event.getCausationId(),
+						jsonMapper.readValue(event.getPayload(), KitchenOrderReadyMessage.Payload.class));
+				case KitchenCancellationRequestedMessage.TYPE -> {
+					var payload = jsonMapper.readValue(event.getPayload(), KitchenCancellationRequestedMessage.Payload.class);
+					yield new KitchenCancellationRequestedMessage(event.getId(), event.getEventType(), event.getSchemaVersion(),
+							event.getOccurredAt(), event.getRestaurantId(), payload.orderId(), event.getAggregateId(),
+							event.getAggregateVersion(), event.getCorrelationId(), event.getCausationId(), payload);
+				}
+				default -> throw new IllegalStateException("Unknown outbox event type " + event.getEventType());
+			};
 		} catch (JacksonException e) {
 			throw new IllegalStateException("Stored outbox payload is not readable", e);
 		}

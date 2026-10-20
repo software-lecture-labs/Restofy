@@ -1,6 +1,7 @@
 package com.restofy.kitchen.api.exception;
 
 import com.restofy.kitchen.application.service.ProductAvailabilityException;
+import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
@@ -32,6 +33,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String COMMAND_ID_CONFLICT = "COMMAND_ID_CONFLICT";
 	public static final String CONCURRENT_MODIFICATION = "CONCURRENT_MODIFICATION";
 	public static final String ORDER_BUSY = "ORDER_BUSY";
+	public static final String CANCELLATION_ALREADY_REQUESTED = "CANCELLATION_ALREADY_REQUESTED";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
 	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
 
@@ -58,6 +60,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	ProblemDetail commandIdConflict(CommandIdConflictException e) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 		problem.setProperty(CODE, COMMAND_ID_CONFLICT);
+		problem.setProperty(RETRYABLE, false);
+		return problem;
+	}
+
+	/** The order's cancellation request is still waiting for the Order service: a second request is refused. */
+	@ExceptionHandler(CancellationAlreadyRequestedException.class)
+	ProblemDetail cancellationAlreadyRequested(CancellationAlreadyRequestedException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+		problem.setProperty(CODE, CANCELLATION_ALREADY_REQUESTED);
 		problem.setProperty(RETRYABLE, false);
 		return problem;
 	}

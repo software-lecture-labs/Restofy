@@ -25,6 +25,8 @@ import java.util.UUID;
 public class OutboxEvent implements Persistable<UUID> {
 
 	public static final String AGGREGATE_KITCHEN_ORDER = "KITCHEN_ORDER";
+	/** One cancellation request of an order; a rejected request can be followed by a new one, each with its own events. */
+	public static final String AGGREGATE_CANCELLATION_REQUEST = "CANCELLATION_REQUEST";
 
 	@Id
 	private UUID id;
@@ -66,7 +68,12 @@ public class OutboxEvent implements Persistable<UUID> {
 	@Transient
 	private boolean isNew = true;
 
-	public record Aggregate(UUID restaurantId, UUID id, long version) {
+	/** The thing an event is about. Without a type it is the kitchen order; the event kind is unique per aggregate. */
+	public record Aggregate(String type, UUID restaurantId, UUID id, long version) {
+
+		public Aggregate(UUID restaurantId, UUID id, long version) {
+			this(AGGREGATE_KITCHEN_ORDER, restaurantId, id, version);
+		}
 	}
 
 	public record EventData(String type, int schemaVersion, String correlationId, UUID causationId, String payload,
@@ -77,7 +84,7 @@ public class OutboxEvent implements Persistable<UUID> {
 		OutboxEvent event = new OutboxEvent();
 		event.id = UUID.randomUUID();
 		event.restaurantId = aggregate.restaurantId();
-		event.aggregateType = AGGREGATE_KITCHEN_ORDER;
+		event.aggregateType = aggregate.type();
 		event.aggregateId = aggregate.id();
 		event.aggregateVersion = aggregate.version();
 		event.eventType = data.type();

@@ -17,7 +17,7 @@ public record KitchenOrderReadyMessage(
 		long aggregateVersion,
 		String correlationId,
 		UUID causationId,
-		Payload payload) {
+		Payload payload) implements OutboundMessage {
 
 	public static final String TYPE = "KitchenOrderReady";
 	public static final int SCHEMA_VERSION = 1;
