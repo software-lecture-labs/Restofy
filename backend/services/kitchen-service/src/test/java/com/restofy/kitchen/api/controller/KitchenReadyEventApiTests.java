@@ -109,7 +109,7 @@ class KitchenReadyEventApiTests {
 		mvc.perform(command("mark-ready", orderId, restaurant, actor, readyKey)).andExpect(status().isOk());
 
 		assertEquals(1, events(restaurant));
-		assertEquals(1, deliveries(restaurant));
+		assertEquals(2, deliveries(restaurant), "one event, one delivery for the Order and one for the Notification service");
 		Map<String, Object> order = jdbc.queryForMap(
 				"SELECT version, started_at, ready_at FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", restaurant, orderId);
 		OutboxEvent event = outbox.findByRestaurantIdAndAggregateId(restaurant, orderId).getFirst();
@@ -129,7 +129,7 @@ class KitchenReadyEventApiTests {
 		assertEquals(((Timestamp) order.get("ready_at")).toInstant(), message.payload().readyAt());
 
 		Map<String, Object> delivery = jdbc.queryForMap(
-				"SELECT destination, status, attempt_count, delivered_at, next_attempt_at FROM outbox_deliveries WHERE restaurant_id = ?", restaurant);
+				"SELECT destination, status, attempt_count, delivered_at, next_attempt_at FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'", restaurant);
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals("PENDING", delivery.get("status"));
 		assertEquals(0, delivery.get("attempt_count"));
@@ -172,7 +172,7 @@ class KitchenReadyEventApiTests {
 		mvc.perform(command("start-preparation", orderId, restaurant, actor, UUID.randomUUID())).andExpect(status().isConflict());
 
 		assertEquals(1, events(restaurant));
-		assertEquals(1, deliveries(restaurant));
+		assertEquals(2, deliveries(restaurant), "one event, one delivery for the Order and one for the Notification service");
 		assertEquals(firstEvent, outbox.findByRestaurantIdAndAggregateId(restaurant, orderId).getFirst().getId(), "the event id is stable");
 	}
 
@@ -206,7 +206,7 @@ class KitchenReadyEventApiTests {
 		List<Integer> differentKeys = runParallel(8, i -> command("mark-ready", other, restaurant, UUID.randomUUID(), UUID.randomUUID()));
 		assertEquals(1, differentKeys.stream().filter(code -> code == 200).count(), differentKeys.toString());
 		assertEquals(2, events(restaurant), "one event per ready order, never more");
-		assertEquals(2, deliveries(restaurant));
+		assertEquals(4, deliveries(restaurant), "two events, each with two deliveries");
 	}
 
 	@Test

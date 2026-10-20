@@ -27,8 +27,10 @@ import java.util.UUID;
 @Component
 public class KitchenEventRecorder {
 
-	/** The only destination wired for now: the Order service. Delivery itself is not implemented (D-10). */
+	/** The Order service. Delivery itself is not implemented (D-10). */
 	public static final String ORDER_DESTINATION = "ORDER";
+	/** The Notification service, which only receives the order-ready event (architecture: Kitchen -> Order, Waiter, Notification). */
+	public static final String NOTIFICATION_DESTINATION = "NOTIFICATION";
 
 	private final OutboxEventRepository events;
 	private final OutboxDeliveryRepository deliveries;
@@ -53,7 +55,8 @@ public class KitchenEventRecorder {
 		var aggregate = new OutboxEvent.Aggregate(order.getRestaurantId(), order.getOrderId(), order.getVersion());
 		var eventData = new OutboxEvent.EventData(KitchenOrderReadyMessage.TYPE, KitchenOrderReadyMessage.SCHEMA_VERSION,
 				MDC.get(CorrelationIdFilter.MDC_KEY), commandId, jsonMapper.writeValueAsString(payload), order.getReadyAt());
-		return store(OutboxEvent.create(aggregate, eventData, clock.instant()));
+		// ONE event, one delivery per interested service: each is acknowledged, retried and given up on by itself.
+		return store(OutboxEvent.create(aggregate, eventData, clock.instant()), ORDER_DESTINATION, NOTIFICATION_DESTINATION);
 	}
 
 	/**
@@ -69,12 +72,15 @@ public class KitchenEventRecorder {
 		var eventData = new OutboxEvent.EventData(KitchenCancellationRequestedMessage.TYPE,
 				KitchenCancellationRequestedMessage.SCHEMA_VERSION, MDC.get(CorrelationIdFilter.MDC_KEY), request.getCommandId(),
 				jsonMapper.writeValueAsString(payload), request.getRequestedAt());
-		return store(OutboxEvent.create(aggregate, eventData, clock.instant()));
+		// A request is for the Order service only: telling people about a REQUEST needs its own decision.
+		return store(OutboxEvent.create(aggregate, eventData, clock.instant()), ORDER_DESTINATION);
 	}
 
-	private OutboxEvent store(OutboxEvent event) {
+	private OutboxEvent store(OutboxEvent event, String... destinations) {
 		events.saveAndFlush(event);
-		deliveries.saveAndFlush(OutboxDelivery.pending(event, ORDER_DESTINATION, clock.instant()));
+		for (String destination : destinations) {
+			deliveries.saveAndFlush(OutboxDelivery.pending(event, destination, clock.instant()));
+		}
 		return event;
 	}
 

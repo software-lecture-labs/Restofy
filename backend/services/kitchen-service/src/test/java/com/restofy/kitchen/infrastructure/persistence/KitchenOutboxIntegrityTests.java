@@ -51,7 +51,7 @@ class KitchenOutboxIntegrityTests {
 		assertEquals(orderId, event.get("aggregate_id"));
 		assertEquals("KitchenOrderReady", event.get("event_type"));
 		assertEquals(1, event.get("schema_version"));
-		Map<String, Object> delivery = jdbc.queryForMap("SELECT status, destination, attempt_count FROM outbox_deliveries WHERE restaurant_id = ?", restaurant);
+		Map<String, Object> delivery = jdbc.queryForMap("SELECT status, destination, attempt_count FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'", restaurant);
 		assertEquals("PENDING", delivery.get("status"));
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals(0, delivery.get("attempt_count"));
@@ -87,7 +87,8 @@ class KitchenOutboxIntegrityTests {
 				VALUES (?, ?, 'KITCHEN_ORDER', ?, 1, 'Other', 0, '{}'::jsonb, now())
 				""", invalidSchemaEventId, restaurant, invalidSchemaAggregateId));
 
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ?", Integer.class, restaurant));
+		assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ?", Integer.class, restaurant),
+				"the ready event has one delivery per interested service; the refused rows added none");
 		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant));
 	}
 

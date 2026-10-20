@@ -19,10 +19,13 @@ public interface OutboxDeliveryRepository extends JpaRepository<OutboxDelivery, 
 
 	List<OutboxDelivery> findByRestaurantIdAndEventId(UUID restaurantId, UUID eventId);
 
-	/** Ids of deliveries that are due, oldest first. A plain read; claiming happens per delivery under a row lock. */
+	/**
+	 * Ids of the deliveries to one destination that are due, oldest first. A plain read; claiming happens per delivery
+	 * under a row lock. Another destination's deliveries are never returned for this one.
+	 */
 	@Query("select d.id from OutboxDelivery d where d.status = com.restofy.kitchen.domain.enums.DeliveryStatus.PENDING "
-			+ "and d.nextAttemptAt <= :now order by d.nextAttemptAt, d.id")
-	List<UUID> findDueIds(@Param("now") Instant now, Pageable limit);
+			+ "and d.destination = :destination and d.nextAttemptAt <= :now order by d.nextAttemptAt, d.id")
+	List<UUID> findDueIds(@Param("now") Instant now, @Param("destination") String destination, Pageable limit);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
