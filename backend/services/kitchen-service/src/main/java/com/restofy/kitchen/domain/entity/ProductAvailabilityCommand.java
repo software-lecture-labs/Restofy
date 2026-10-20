@@ -50,7 +50,7 @@ public class ProductAvailabilityCommand implements Persistable<UUID> {
 	@Column(name = "target_status", nullable = false, updatable = false, length = 30)
 	private ProductAvailabilityStatus targetStatus;
 
-	@Column(name = "reason_code", nullable = false, updatable = false, length = 40)
+	@Column(name = "reason_code", updatable = false, length = 40)
 	private String reasonCode;
 
 	@Column(name = "reason_text", updatable = false, length = 500)
@@ -106,7 +106,7 @@ public class ProductAvailabilityCommand implements Persistable<UUID> {
 	/** Is this exactly the command that is being sent again (same product, status, reason, text and user)? */
 	public boolean isSameCommand(UUID productId, ProductAvailabilityStatus targetStatus, String reasonCode,
 			String reasonText, UUID requestedByUserId) {
-		return this.productId.equals(productId) && this.targetStatus == targetStatus && this.reasonCode.equals(reasonCode)
+		return this.productId.equals(productId) && this.targetStatus == targetStatus && Objects.equals(this.reasonCode, reasonCode)
 				&& Objects.equals(this.reasonText, reasonText) && this.requestedByUserId.equals(requestedByUserId);
 	}
 

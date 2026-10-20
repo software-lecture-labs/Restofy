@@ -31,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 
 import static com.restofy.kitchen.support.KitchenTestAuth.admin;
@@ -88,6 +89,10 @@ class KitchenProductAvailabilityApiTests {
 
 	private static String body() {
 		return body("OUT_OF_STOCK", null);
+	}
+
+	private static String closeBody(String reasonCode, String reasonText) {
+		return body(reasonCode, reasonText).replace("OUT_OF_STOCK\",\"reasonCode", "TEMPORARILY_CLOSED\",\"reasonCode");
 	}
 
 	private static String path(UUID productId) {
@@ -228,9 +233,6 @@ class KitchenProductAvailabilityApiTests {
 				"{\"status\":null,\"reasonCode\":\"OUT_OF_STOCK\"}",
 				"{\"status\":\"BROKEN\",\"reasonCode\":\"OUT_OF_STOCK\"}",
 				"{\"status\":\"out_of_stock\",\"reasonCode\":\"OUT_OF_STOCK\"}",
-				"{\"status\":\"OUT_OF_STOCK\"}",
-				"{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"\"}",
-				"{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"   \"}",
 				"{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"lowercase\"}",
 				"{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"A\"}",
 				"{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"BAD CODE\"}",
@@ -272,7 +274,7 @@ class KitchenProductAvailabilityApiTests {
 	@Test
 	void statusesThisVersionDoesNotOfferAreRejectedBeforeAnythingIsRecorded() throws Exception {
 		UUID restaurant = UUID.randomUUID();
-		for (String unsupported : List.of("TEMPORARILY_CLOSED", "AVAILABLE")) {
+		for (String unsupported : List.of("AVAILABLE")) {
 			send(restaurant, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
 					"{\"status\":\"" + unsupported + "\",\"reasonCode\":\"OUT_OF_STOCK\"}").andExpect(status().isBadRequest())
 					.andExpect(jsonPath("$.code").value("UNSUPPORTED_STATUS")).andExpect(jsonPath("$.retryable").value(false));
@@ -632,6 +634,224 @@ class KitchenProductAvailabilityApiTests {
 		send(restaurant, UUID.randomUUID(), product, UUID.randomUUID(), body()).andExpect(status().isOk());
 
 		assertEquals(before, jdbc.queryForMap(snapshot, restaurant, orderId), "orders already in the kitchen keep their own snapshot");
+	}
+
+	// ---- KITCHEN-03 / 3.2: TEMPORARILY_CLOSED --------------------------------------------------------------------
+
+	@Test
+	void aTemporaryClosureIsReportedAsMenuConfirmedItWithTheWrittenReason() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		UUID key = UUID.randomUUID();
+		menuConfirmsEverything();
+
+		send(restaurant, actor, product, key, closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu, yarın tamir edilecek"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.status").value("TEMPORARILY_CLOSED"))
+				.andExpect(jsonPath("$.reasonCode").value("EQUIPMENT_FAILURE"))
+				.andExpect(jsonPath("$.reasonText").value("Fritöz bozuldu, yarın tamir edilecek"))
+				.andExpect(jsonPath("$.changedAt").value(MENU_TIME)).andExpect(jsonPath("$.changedByUserId").value(actor.toString()));
+
+		ArgumentCaptor<MenuAvailabilityCommand> sent = ArgumentCaptor.forClass(MenuAvailabilityCommand.class);
+		verify(menu).change(sent.capture());
+		assertEquals(new MenuAvailabilityCommand(key, restaurant, product, ProductAvailabilityStatus.TEMPORARILY_CLOSED,
+				"EQUIPMENT_FAILURE", "Fritöz bozuldu, yarın tamir edilecek", actor), sent.getValue());
+		Map<String, Object> commandRow = row(restaurant, key);
+		assertEquals("TEMPORARILY_CLOSED", commandRow.get("target_status"));
+		assertEquals("CONFIRMED", commandRow.get("outcome"));
+		assertNotNull(commandRow.get("confirmed_at"));
+	}
+
+	@Test
+	void aMalformedReasonOfAClosureIsStillRejectedBeforeAnythingIsSentOrRecorded() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		for (String json : List.of(
+				closeBody("equipment failure", "Fritöz bozuldu"),
+				closeBody("A", "Fritöz bozuldu"),
+				closeBody("EQUIPMENT_FAILURE", "x".repeat(501)),
+				closeBody("EQUIPMENT_FAILURE", "bell\\u0007"),
+				closeBody("EQUIPMENT_FAILURE", "line\\nbreak"))) {
+			send(restaurant, UUID.randomUUID(), product, UUID.randomUUID(), json).andExpect(status().isBadRequest());
+		}
+		verifyNoInteractions(menu);
+		assertEquals(0, rows(restaurant));
+	}
+
+	@Test
+	void noReasonAtAllIsValidForEveryStatusAndNothingIsInventedInItsPlace() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		menuConfirmsEverything();
+		int expectedCalls = 0;
+
+		for (String status : List.of("OUT_OF_STOCK", "TEMPORARILY_CLOSED")) {
+			for (String json : List.of(
+					"{\"status\":\"" + status + "\"}",
+					"{\"status\":\"" + status + "\",\"reasonCode\":null,\"reasonText\":null}",
+					"{\"status\":\"" + status + "\",\"reasonCode\":\"\",\"reasonText\":\"   \"}")) {
+				UUID product = UUID.randomUUID();
+				UUID key = UUID.randomUUID();
+
+				send(restaurant, actor, product, key, json).andExpect(status().isOk())
+						.andExpect(jsonPath("$.status").value(status)).andExpect(jsonPath("$.reasonCode").value((Object) null))
+						.andExpect(jsonPath("$.reasonText").value((Object) null));
+
+				expectedCalls++;
+				ArgumentCaptor<MenuAvailabilityCommand> sent = ArgumentCaptor.forClass(MenuAvailabilityCommand.class);
+				verify(menu, times(expectedCalls)).change(sent.capture());
+				MenuAvailabilityCommand command = sent.getValue();
+				assertNull(command.reasonCode(), json);
+				assertNull(command.reasonText(), json);
+				Map<String, Object> commandRow = row(restaurant, key);
+				assertNull(commandRow.get("reason_code"), json);
+				assertNull(commandRow.get("reason_text"), json);
+				assertEquals("CONFIRMED", commandRow.get("outcome"));
+			}
+		}
+	}
+
+	@Test
+	void eitherReasonFieldAloneIsPassedOnAsGivenAndTheOtherStaysEmpty() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		menuConfirmsEverything();
+		UUID codeOnly = UUID.randomUUID();
+		UUID textOnly = UUID.randomUUID();
+
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), codeOnly, "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"EQUIPMENT_FAILURE\"}")
+				.andExpect(status().isOk());
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), textOnly, "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonText\":\"Fritöz bozuldu\"}")
+				.andExpect(status().isOk());
+
+		assertEquals("EQUIPMENT_FAILURE", row(restaurant, codeOnly).get("reason_code"));
+		assertNull(row(restaurant, codeOnly).get("reason_text"));
+		assertNull(row(restaurant, textOnly).get("reason_code"));
+		assertEquals("Fritöz bozuldu", row(restaurant, textOnly).get("reason_text"));
+	}
+
+	@Test
+	void withAndWithoutAReasonAreDifferentCommandsForTheSameKey() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		UUID key = UUID.randomUUID();
+		menuConfirmsEverything();
+
+		send(restaurant, actor, product, key, "{\"status\":\"OUT_OF_STOCK\"}").andExpect(status().isOk());
+		// Spelled differently but still "no reason": the same command.
+		send(restaurant, actor, product, key, "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"\",\"reasonText\":null}").andExpect(status().isOk());
+		// Now a reason is given: another command.
+		send(restaurant, actor, product, key, body("OUT_OF_STOCK", null)).andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("COMMAND_ID_CONFLICT"));
+		verify(menu, times(2)).change(any());
+		assertEquals(1, rows(restaurant));
+	}
+
+	@Test
+	void aTemporaryClosureIsForKitchenOnlyAndATimeSentByTheClientIsIgnored() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		menuConfirmsEverything();
+		String json = closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu").replace("}", ",\"changedAt\":\"1999-01-01T00:00:00Z\",\"closedUntil\":\"2999-01-01T00:00:00Z\"}");
+
+		mvc.perform(change(product, UUID.randomUUID(), json).with(csrf())).andExpect(status().isUnauthorized());
+		mvc.perform(change(product, UUID.randomUUID(), json).with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());
+		mvc.perform(change(product, UUID.randomUUID(), json).with(kitchen(restaurant))).andExpect(status().isForbidden());
+		verifyNoInteractions(menu);
+
+		send(restaurant, actor, product, UUID.randomUUID(), json).andExpect(status().isOk())
+				.andExpect(jsonPath("$.changedAt").value(MENU_TIME));
+		assertEquals(1, rows(restaurant));
+	}
+
+	@Test
+	void aClosureRepeatIsAskedFromMenuAgainAndTheSameKeyForAnotherStatusIsAConflict() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		UUID key = UUID.randomUUID();
+		menuConfirmsEverything();
+
+		send(restaurant, actor, product, key, closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu")).andExpect(status().isOk());
+		send(restaurant, actor, product, key, closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu")).andExpect(status().isOk());
+		verify(menu, times(2)).change(any());
+		assertEquals(2, row(restaurant, key).get("attempt_count"));
+
+		// The same key now for "out of stock" or with another text is a different command: Menu is not asked.
+		send(restaurant, actor, product, key, body("EQUIPMENT_FAILURE", "Fritöz bozuldu")).andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("COMMAND_ID_CONFLICT"));
+		send(restaurant, actor, product, key, closeBody("EQUIPMENT_FAILURE", "Başka gerekçe")).andExpect(status().isConflict());
+		verify(menu, times(2)).change(any());
+		assertEquals(1, rows(restaurant));
+		assertEquals("CONFIRMED", row(restaurant, key).get("outcome"));
+	}
+
+	@Test
+	void twoDifferentCommandsOnTheSameProductAtOnceLetMenuDecideAndNeitherRecordOverwritesTheOther() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		AtomicBoolean menuTaken = new AtomicBoolean(false);
+		CountDownLatch concurrentMenuCalls = new CountDownLatch(2);
+		// Menu stand-in: the first command to arrive wins, the other one lost against a newer state.
+		doAnswer(call -> {
+			concurrentMenuCalls.countDown();
+			assertTrue(concurrentMenuCalls.await(10, TimeUnit.SECONDS), "both competing commands should reach the Menu port");
+			return menuTaken.compareAndSet(false, true) ? Result.applied(stateOf(call.getArgument(0)))
+					: Result.rejected(Kind.VERSION_CONFLICT, "VERSION_CONFLICT");
+		}).when(menu).change(any());
+		UUID closeKey = UUID.randomUUID();
+		UUID stockKey = UUID.randomUUID();
+
+		List<Integer> statuses = fire(2, n -> n == 0
+				? change(product, closeKey, closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu")).with(kitchen(restaurant)).with(csrf())
+				: change(product, stockKey, body()).with(kitchen(restaurant)).with(csrf()));
+
+		assertEquals(List.of(200, 409), statuses);
+		assertEquals(2, rows(restaurant));
+		long confirmed = jdbc.queryForObject(
+				"SELECT count(*) FROM product_availability_commands WHERE restaurant_id = ? AND outcome = 'CONFIRMED'", Long.class, restaurant);
+		long rejected = jdbc.queryForObject("SELECT count(*) FROM product_availability_commands WHERE restaurant_id = ? "
+				+ "AND outcome = 'REJECTED' AND outcome_code = 'VERSION_CONFLICT'", Long.class, restaurant);
+		assertEquals(1, confirmed);
+		assertEquals(1, rejected);
+	}
+
+	@Test
+	void theLosingCommandOfARaceIsRetryableAndAnswersWithTheAvailabilityConflict() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		menuAnswers(Result.rejected(Kind.VERSION_CONFLICT, "VERSION_CONFLICT"));
+
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu"))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AVAILABILITY_CONFLICT"))
+				.andExpect(jsonPath("$.retryable").value(true));
+	}
+
+	@Test
+	void everyMenuAnswerToAClosureIsMappedAndNeverShownAsClosedUnlessMenuConfirmed() throws Exception {
+		record Case(Function<MenuAvailabilityCommand, Result> answer, int status, String code, String outcome) {
+		}
+		// Menu "confirms" but reports only OUT_OF_STOCK (someone else changed the product meanwhile): not a closure.
+		Function<MenuAvailabilityCommand, Result> otherState = cmd -> Result.applied(new ProductAvailabilityState(cmd.productId(),
+				ProductAvailabilityStatus.OUT_OF_STOCK, "OUT_OF_STOCK", null, Instant.parse(MENU_TIME), UUID.randomUUID(), 4L));
+		for (Case c : List.of(
+				new Case(cmd -> Result.rejected(Kind.PRODUCT_NOT_FOUND, "X"), 404, "PRODUCT_NOT_FOUND", "REJECTED"),
+				new Case(cmd -> Result.rejected(Kind.INVALID_COMMAND, "X"), 400, "INVALID_COMMAND", "REJECTED"),
+				new Case(cmd -> Result.rejected(Kind.COMMAND_CONFLICT, "X"), 409, "COMMAND_ID_CONFLICT", "REJECTED"),
+				new Case(cmd -> Result.unavailable("HTTP_503"), 503, "MENU_UNAVAILABLE", "UNCONFIRMED"),
+				new Case(cmd -> Result.unavailable("TIMEOUT"), 503, "MENU_UNAVAILABLE", "UNCONFIRMED"),
+				new Case(otherState, 409, "AVAILABILITY_CONFLICT", "UNCONFIRMED"))) {
+			UUID restaurant = UUID.randomUUID();
+			UUID key = UUID.randomUUID();
+			doAnswer(call -> c.answer().apply(call.getArgument(0))).when(menu).change(any());
+
+			send(restaurant, UUID.randomUUID(), UUID.randomUUID(), key, closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu"))
+					.andExpect(status().is(c.status())).andExpect(jsonPath("$.code").value(c.code()));
+
+			Map<String, Object> commandRow = row(restaurant, key);
+			assertEquals(c.outcome(), commandRow.get("outcome"), c.code());
+			assertNull(commandRow.get("confirmed_at"), c.code());
+		}
 	}
 
 	@Test

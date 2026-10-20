@@ -40,8 +40,9 @@ public class ProductAvailabilityService {
 	static final String INCONSISTENT_RESPONSE = "INCONSISTENT_RESPONSE";
 	static final String PORT_EXCEPTION = "PORT_EXCEPTION";
 
-	/** Statuses this version of the API can set. Extended task by task (TEMPORARILY_CLOSED, AVAILABLE follow). */
-	static final Set<ProductAvailabilityStatus> SUPPORTED = Set.of(ProductAvailabilityStatus.OUT_OF_STOCK);
+	/** Statuses this version of the API can set. Extended task by task (AVAILABLE, the reopening, follows). */
+	static final Set<ProductAvailabilityStatus> SUPPORTED = Set.of(ProductAvailabilityStatus.OUT_OF_STOCK,
+			ProductAvailabilityStatus.TEMPORARILY_CLOSED);
 
 	private final ProductAvailabilityCommandRepository commands;
 	private final MenuAvailabilityPort menu;

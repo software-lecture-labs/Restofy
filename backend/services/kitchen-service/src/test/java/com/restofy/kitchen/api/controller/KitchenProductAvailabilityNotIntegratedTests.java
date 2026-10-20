@@ -49,4 +49,24 @@ class KitchenProductAvailabilityNotIntegratedTests {
 		assertEquals("MENU_NOT_INTEGRATED", commandRow.get("outcome_code"));
 		assertNull(commandRow.get("confirmed_at"));
 	}
+
+	@Test
+	void aTemporaryClosureIsNeverShownAsClosedWithoutAMenuAdapterEither() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID key = UUID.randomUUID();
+
+		mvc.perform(patch("/api/v1/kitchen/products/" + UUID.randomUUID() + "/availability").header("Idempotency-Key", key.toString())
+				.contentType("application/json")
+				.content("{\"status\":\"TEMPORARILY_CLOSED\"}")
+				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("MENU_NOT_INTEGRATED")).andExpect(jsonPath("$.status").value(503));
+
+		Map<String, Object> commandRow = jdbc.queryForMap(
+				"SELECT * FROM product_availability_commands WHERE restaurant_id = ? AND command_id = ?", restaurant, key);
+		assertEquals("TEMPORARILY_CLOSED", commandRow.get("target_status"));
+		assertNull(commandRow.get("reason_code"), "no reason was given and none is invented");
+		assertNull(commandRow.get("reason_text"));
+		assertEquals("UNCONFIRMED", commandRow.get("outcome"));
+		assertNull(commandRow.get("confirmed_at"));
+	}
 }

@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** Real PostgreSQL: the V84 constraints that protect the command record even if the application is wrong. */
@@ -75,6 +76,20 @@ class ProductAvailabilityCommandSchemaTests {
 		assertInvalidInsert(restaurant, "OUT_OF_STOCK", "X1", "CONFIRMED", 1, null);
 		assertValidInsert(restaurant, "TEMPORARILY_CLOSED", "CONFIRMED", "2026-10-20T09:00:00Z");
 		assertValidInsert(restaurant, "AVAILABLE", "REJECTED", null);
+	}
+
+	@Test
+	void aReasonCodeIsOptionalButNeverBlank() {
+		UUID restaurant = UUID.randomUUID();
+		UUID command = UUID.randomUUID();
+
+		assertDoesNotThrow(() -> insert(restaurant, command, "OUT_OF_STOCK", null, "UNCONFIRMED", 0, null));
+		assertDoesNotThrow(() -> insert(restaurant, UUID.randomUUID(), "TEMPORARILY_CLOSED", null, "UNCONFIRMED", 0, null));
+		assertInvalidInsert(restaurant, "OUT_OF_STOCK", "", "UNCONFIRMED", 0, null);
+		assertInvalidInsert(restaurant, "OUT_OF_STOCK", "   ", "UNCONFIRMED", 0, null);
+		// Nothing was invented for the missing reason.
+		assertNull(jdbc.queryForObject("SELECT reason_code FROM product_availability_commands WHERE restaurant_id = ? AND command_id = ?",
+				String.class, restaurant, command));
 	}
 
 	@Test

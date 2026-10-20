@@ -27,11 +27,31 @@ class ChangeProductAvailabilityRequestTests {
 	}
 
 	@Test
-	void statusAndReasonCodeAreMandatory() {
+	void onlyTheStatusIsMandatory() {
 		assertFalse(valid(null, "OUT_OF_STOCK", null));
-		assertFalse(valid(ProductAvailabilityStatus.OUT_OF_STOCK, null, null));
-		assertFalse(valid(ProductAvailabilityStatus.OUT_OF_STOCK, "", null));
-		assertFalse(valid(ProductAvailabilityStatus.OUT_OF_STOCK, "   ", null));
+		assertFalse(valid(null, null, null));
+		assertTrue(valid(ProductAvailabilityStatus.OUT_OF_STOCK, null, null));
+		assertTrue(valid(ProductAvailabilityStatus.TEMPORARILY_CLOSED, null, null));
+	}
+
+	@Test
+	void aMissingOrBlankReasonIsStoredAsNoneAndNothingIsInvented() {
+		for (ProductAvailabilityStatus status : new ProductAvailabilityStatus[] { ProductAvailabilityStatus.OUT_OF_STOCK,
+				ProductAvailabilityStatus.TEMPORARILY_CLOSED }) {
+			for (String blank : new String[] { null, "", "   ", "\t" }) {
+				ChangeProductAvailabilityRequest request = new ChangeProductAvailabilityRequest(status, blank, blank);
+				assertNull(request.reasonCode(), "blank code '" + blank + "'");
+				assertNull(request.reasonText(), "blank text '" + blank + "'");
+				assertTrue(validator.validate(request).isEmpty());
+			}
+		}
+	}
+
+	@Test
+	void eitherReasonFieldMayBeGivenAlone() {
+		assertTrue(valid(ProductAvailabilityStatus.TEMPORARILY_CLOSED, "EQUIPMENT_FAILURE", null));
+		assertTrue(valid(ProductAvailabilityStatus.TEMPORARILY_CLOSED, null, "Fritöz bozuldu"));
+		assertTrue(valid(ProductAvailabilityStatus.OUT_OF_STOCK, null, "Malzeme tükendi"));
 	}
 
 	@Test
