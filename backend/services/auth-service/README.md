@@ -111,9 +111,7 @@ belirten bir hatayla başlamaz. Başlangıçta WARN logu yazılır. Karar tek ye
   olduğu için servisler arası çakışma olmaz).
 - `MailClient` Mail'e bellek içi kuyrukla, commit sonrası ve **yeniden denemesiz** gönderir;
   Auth yeniden başlarsa ya da Mail kısa süre kesilirse mesaj kaybolur, kullanıcı yeni kod ister.
-  Bu ödünleşim ve transactional outbox alternatifi ADR-AUTH-001'de kayıtlıdır.
-- Kararların gerekçesi: `docs/decisions/ADR-AUTH-001-mail-gonderimi.md` ve
-  `docs/decisions/ADR-AUTH-002-rate-limit-ve-kilitler.md`.
+  Bu ödünleşimin alternatifi transactional outbox'tır; ölçek ihtiyacı doğarsa ayrıca değerlendirilir.
 
 ## Java 25 ve test
 
@@ -252,7 +250,7 @@ Login limiti iki katmanlıdır (`LoginRateLimiter`, 15 dakikalık pencere; başa
 sayılır): normalize hesap + uzak adres başına 10 deneme ve hesap başına toplam 50 deneme.
 Böylece e-postayı bilen biri kendi adresinin bütçesini tüketebilir ama gerçek sahibini başka
 bir adresten kilitleyemez; birçok adrese yayılmış tahmin ise hesap tavanında durur (tavana
-ulaşmak kabul edilen erişilebilirlik ödünleşimidir, bkz. ADR-AUTH-002).
+ulaşmak kabul edilen erişilebilirlik ödünleşimidir).
 Bellekte en fazla 10000 pencere tutulur; kapasite dolunca **en eski pencereler silinir**,
 yeni kullanıcı reddedilmez (aksi halde sahte hesap seliyle masum kullanıcılar da 429 alırdı).
 MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama limitleri
@@ -261,7 +259,7 @@ MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama
 Bellek içi limitler yalnız tek süreç içindir; yeniden başlatmada sıfırlanır ve birden fazla
 Auth örneğinde paylaşılmaz. Gateway/dağıtık rate limit ve refresh rate limit bu kapsamda
 uygulanmadı. Uzak adres `request.getRemoteAddr()` değeridir; Gateway arkasında bu Gateway'in
-adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır (ADR-AUTH-002).
+adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır.
 
 ## AUTH-02 zorunlu ayarlar ve işletim sınırı
 
