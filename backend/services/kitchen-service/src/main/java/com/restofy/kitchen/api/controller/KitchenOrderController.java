@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -51,8 +50,8 @@ public class KitchenOrderController {
 			@RequestParam(required = false) String receivedTo,
 			@RequestParam(required = false) String page,
 			@RequestParam(required = false) String size) {
-		Instant from = parseInstant("receivedFrom", receivedFrom);
-		Instant to = parseInstant("receivedTo", receivedTo);
+		Instant from = QueryParams.parseInstant("receivedFrom", receivedFrom);
+		Instant to = QueryParams.parseInstant("receivedTo", receivedTo);
 		if (from != null && to != null && !from.isBefore(to)) {
 			throw QueryParams.badRequest("receivedFrom must be before receivedTo");
 		}
@@ -69,17 +68,6 @@ public class KitchenOrderController {
 			return KitchenStatusFilter.valueOf(status);
 		} catch (IllegalArgumentException e) {
 			throw QueryParams.badRequest("status must be one of WAITING, PREPARING, READY, CANCELLED, ACTIVE");
-		}
-	}
-
-	private static Instant parseInstant(String name, String value) {
-		if (value == null) {
-			return null;
-		}
-		try {
-			return Instant.parse(value);
-		} catch (DateTimeParseException e) {
-			throw QueryParams.badRequest(name + " must be an ISO-8601 instant such as 2026-10-17T10:00:00Z");
 		}
 	}
 

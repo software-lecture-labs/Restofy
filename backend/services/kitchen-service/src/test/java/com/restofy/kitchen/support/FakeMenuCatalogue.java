@@ -35,6 +35,23 @@ public class FakeMenuCatalogue implements MenuAvailabilityPort, MenuClosedProduc
 	private final Map<String, MenuAvailabilityCommand> seenCommands = new HashMap<>();
 	private final Map<String, MenuAvailabilityPort.Result> answers = new HashMap<>();
 	private int clock;
+	private boolean reachable = true;
+	private int commandCalls;
+	private int listCalls;
+
+	/** Simulates a Menu service that cannot be reached (timeout, connection refused): every call is "unknown". */
+	public synchronized void setReachable(boolean reachable) {
+		this.reachable = reachable;
+	}
+
+	/** How many commands Kitchen has sent to Menu, reachable or not (a restart must add none). */
+	public synchronized int commandCalls() {
+		return commandCalls;
+	}
+
+	public synchronized int listCalls() {
+		return listCalls;
+	}
 
 	/** Adds a catalogue product that is sold (AVAILABLE). */
 	public synchronized UUID addProduct(UUID restaurantId, String name, boolean published, boolean active) {
@@ -53,6 +70,10 @@ public class FakeMenuCatalogue implements MenuAvailabilityPort, MenuClosedProduc
 
 	@Override
 	public synchronized MenuAvailabilityPort.Result change(MenuAvailabilityCommand command) {
+		commandCalls++;
+		if (!reachable) {
+			return MenuAvailabilityPort.Result.unavailable("MENU_DOWN");
+		}
 		String key = command.restaurantId() + ":" + command.commandId();
 		MenuAvailabilityCommand earlier = seenCommands.get(key);
 		if (earlier != null) {
@@ -82,6 +103,10 @@ public class FakeMenuCatalogue implements MenuAvailabilityPort, MenuClosedProduc
 
 	@Override
 	public synchronized MenuClosedProductsPort.Result list(ClosedProductsQuery query) {
+		listCalls++;
+		if (!reachable) {
+			return MenuClosedProductsPort.Result.unavailable("MENU_DOWN");
+		}
 		List<Entry> matching = new ArrayList<>(products.values().stream()
 				.filter(e -> e.restaurantId().equals(query.restaurantId()) && e.active() && query.statuses().contains(e.status())).toList());
 		matching.sort(Comparator.comparing(Entry::changedAt).reversed().thenComparing(Entry::productId));
