@@ -87,12 +87,12 @@ class MfaSecurityTests {
     @Test
     void missingMalformedWeakAndWrongSizedKeysFailWithoutValues() {
         MockEnvironment environment = new MockEnvironment();
-        assertThatThrownBy(() -> new MfaSettings(environment)).hasMessage("Invalid or missing MFA encryption configuration");
+        assertThatThrownBy(() -> new MfaSettings(environment)).hasMessageContaining("Invalid or missing AUTH_MFA_ENCRYPTION_KEY");
         for (String value : new String[]{"invalid-key", Base64.getEncoder().encodeToString(new byte[32]),
                 Base64.getEncoder().encodeToString(new byte[31])}) {
             environment.withProperty("auth.mfa.encryption-key", value);
             assertThatThrownBy(() -> new MfaSettings(environment)).isInstanceOf(IllegalStateException.class)
-                    .hasMessage("Invalid or missing MFA encryption configuration").hasNoCause();
+                    .hasMessageContaining("Invalid or missing AUTH_MFA_ENCRYPTION_KEY").hasNoCause();
         }
     }
 

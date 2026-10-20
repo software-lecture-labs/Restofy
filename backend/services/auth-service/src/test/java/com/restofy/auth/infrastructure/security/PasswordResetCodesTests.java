@@ -10,7 +10,7 @@ class PasswordResetCodesTests {
         for (String key:new String[]{"", "invalid", Base64.getEncoder().encodeToString(new byte[32]),Base64.getEncoder().encodeToString(new byte[10])}) {
             MockEnvironment invalid=new MockEnvironment().withProperty("auth.reset.hmac-key",key);
             assertThatThrownBy(() -> new PasswordResetCodes(invalid))
-                    .isInstanceOf(IllegalStateException.class).hasMessage("Invalid or missing password reset configuration");
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("Invalid or missing AUTH_RESET_HMAC_KEY");
         }
         MockEnvironment missing=new MockEnvironment();
         assertThatThrownBy(() -> new PasswordResetCodes(missing)).isInstanceOf(IllegalStateException.class);

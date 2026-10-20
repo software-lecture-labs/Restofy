@@ -30,6 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(noRollbackFor = BadCredentialsException.class)
 public class StaffSessionService {
+    /** How long after its first use a refresh token is still honoured for a concurrent refresh of the same client. */
+    public static final long REFRESH_REUSE_GRACE_SECONDS = 10;
+    /** 256 random bits; base64url encodes them to the 43 characters the cookie validation expects. */
+    private static final int REFRESH_TOKEN_BYTES = 32;
     private final StaffPasswordVerification passwords;
     private final StaffUserRepository users;
     private final UserSessionRepository sessions;
@@ -77,11 +81,20 @@ public class StaffSessionService {
             throw invalid();
         }
         Instant now = clock.instant();
+        // A token spent a moment ago is a concurrent refresh of the same client (two tabs), not theft; it is only
+        // honoured inside the grace window, which is measured from the first use and never extended by replays.
+        boolean spent = token.getUsedAt() != null;
+        boolean replayedInsideGrace = spent && now.isBefore(token.getUsedAt().plusSeconds(REFRESH_REUSE_GRACE_SECONDS));
         if (!session.isUsable(now) || user.getRole() != session.getRoleSnapshot()
-                || session.getAuthState() != SessionAuthState.AUTHENTICATED || token.getUsedAt() != null
+                || session.getAuthState() != SessionAuthState.AUTHENTICATED || (spent && !replayedInsideGrace)
                 || token.getRevokedAt() != null || !now.isBefore(token.getExpiresAt())) {
             revoke(session, now);
             throw invalid();
+        }
+        if (spent) {
+            // The winning request already received the successor pair. Issuing a second live token would break the
+            // one-live-token-per-session invariant, and handing credentials to a replay would reward a thief.
+            return new Grant(session, null, null);
         }
         token.consume(now);
         refreshTokens.flush();
@@ -191,7 +204,7 @@ public class StaffSessionService {
     private Grant grant(UserSession session, Instant now, long generation) {
         String refresh = null;
         if (session.getAuthState() == SessionAuthState.AUTHENTICATED) {
-            byte[] bytes = new byte[32];
+            byte[] bytes = new byte[REFRESH_TOKEN_BYTES];
             random.nextBytes(bytes);
             refresh = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
             refreshTokens.saveAndFlush(new RefreshToken(session, digest(refresh), now, generation));
@@ -221,6 +234,11 @@ public class StaffSessionService {
     }
 
     public record Grant(UserSession session, @JsonIgnore String access, @JsonIgnore String refresh) {
+        /** True for a refresh that lost a concurrent race: the session is fine but no new credentials are issued. */
+        public boolean concurrentReplay() {
+            return access == null;
+        }
+
         @Override public String toString() { return "Session grant"; }
     }
 }

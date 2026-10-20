@@ -4,6 +4,7 @@ import java.time.*;
 import java.util.*;
 import com.restofy.mail.api.dto.request.PasswordResetMailRequest;
 import com.restofy.mail.application.service.*;
+import com.restofy.mail.domain.enums.MailJobStatus;
 import com.restofy.mail.infrastructure.client.SmtpMailSender;
 import com.restofy.mail.infrastructure.persistence.repository.MailJobRepository;
 import com.restofy.mail.infrastructure.security.*;
@@ -52,7 +53,7 @@ class MailIntegrationTests extends MailTestSupport {
     private String body(UUID id) {
         return "{\"messageId\":\""+id+"\",\"templateKey\":\"ADMIN_PASSWORD_RESET\",\"recipient\":\"admin@example.test\",\"locale\":\"en\",\"code\":\"123456\",\"codeExpiresAt\":\""+Instant.now().plusSeconds(900)+"\",\"sendBefore\":\""+Instant.now().plusSeconds(100)+"\"}";
     }
-    private void accepted(UUID id) { await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(jobs.find(id).orElseThrow().status()).isEqualTo("SMTP_ACCEPTED")); }
+    private void accepted(UUID id) { await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(jobs.find(id).orElseThrow().status()).isEqualTo(MailJobStatus.SMTP_ACCEPTED)); }
 
     @Test void validServiceIdentityCreatesJobAndSendsOnceWithoutPersistingPayload() throws Exception {
         UUID id=UUID.randomUUID();
@@ -129,7 +130,7 @@ class MailIntegrationTests extends MailTestSupport {
     @Test void unknownSmtpResultIsNeverRetried(org.springframework.boot.test.system.CapturedOutput output) {
         doThrow(new org.springframework.mail.MailSendException("test",new java.net.SocketTimeoutException("test"))).when(smtp).send(any());
         UUID id=UUID.randomUUID(); service.accept(message(id));
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(jobs.find(id).orElseThrow().status()).isEqualTo("UNKNOWN"));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(jobs.find(id).orElseThrow().status()).isEqualTo(MailJobStatus.UNKNOWN));
         verify(smtp,times(1)).send(any());
         assertThat(output.getAll()).doesNotContain("123456","admin@example.test");
     }
@@ -137,7 +138,7 @@ class MailIntegrationTests extends MailTestSupport {
     @Test void definiteConnectionFailureRetriesAtMostThreeTimes() {
         doThrow(new org.springframework.mail.MailSendException("test",new java.net.ConnectException("test"))).when(smtp).send(any());
         UUID id=UUID.randomUUID(); service.accept(message(id));
-        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(jobs.find(id).orElseThrow().status()).isEqualTo("FAILED"));
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(jobs.find(id).orElseThrow().status()).isEqualTo(MailJobStatus.FAILED));
         verify(smtp,times(3)).send(any());
         assertThat(jobs.find(id).orElseThrow().attempts()).isEqualTo(3);
     }
@@ -148,8 +149,8 @@ class MailIntegrationTests extends MailTestSupport {
         jdbc.update("UPDATE mail_jobs SET status='SENDING',attempt_count=1 WHERE id=?",sending);
         jdbc.update("INSERT INTO mail_delivery_attempts VALUES (?,?,1,now(),'SENDING',NULL)",UUID.randomUUID(),sending);
         jobs.expire();
-        assertThat(jobs.find(pending).orElseThrow().status()).isEqualTo("PAYLOAD_LOST");
-        assertThat(jobs.find(sending).orElseThrow().status()).isEqualTo("UNKNOWN");
+        assertThat(jobs.find(pending).orElseThrow().status()).isEqualTo(MailJobStatus.PAYLOAD_LOST);
+        assertThat(jobs.find(sending).orElseThrow().status()).isEqualTo(MailJobStatus.UNKNOWN);
         assertThat(jobs.claim(pending)).isZero(); assertThat(jobs.claim(sending)).isZero();
     }
 
@@ -165,6 +166,19 @@ class MailIntegrationTests extends MailTestSupport {
         }
         accepted(id);verify(smtp,times(1)).send(any());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM mail_jobs",Integer.class)).isEqualTo(1);
+    }
+
+    @Test void statusEnumMatchesTheStatusCheckConstraintOfTheTable() {
+        String definition=jdbc.queryForObject("""
+                SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                WHERE conrelid = 'mail_jobs'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%PAYLOAD_LOST%'""",
+                String.class);
+        var allowed=new TreeSet<String>();
+        var quoted=java.util.regex.Pattern.compile("'([A-Z_]+)'").matcher(definition);
+        while (quoted.find()) { allowed.add(quoted.group(1)); }
+        var declared=new TreeSet<String>();
+        for (MailJobStatus status : MailJobStatus.values()) { declared.add(status.name()); }
+        assertThat(declared).isEqualTo(allowed);
     }
 
     @Test void invalidDeadlineAndDatabaseConstraintsFailClosed() {

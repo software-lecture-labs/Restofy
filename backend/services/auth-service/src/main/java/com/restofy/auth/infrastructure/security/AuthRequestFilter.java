@@ -36,7 +36,7 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             String origin = request.getHeader("Origin");
             boolean safe = Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(request.getMethod());
             if ((!safe || origin != null) && (origin == null || !settings.origins().contains(origin))) {
-                AuthProblems.write(response, 403);
+                AuthProblems.write(response, HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
             String path = request.getRequestURI().substring(request.getContextPath().length());
@@ -50,7 +50,7 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             }
             chain.doFilter(request, response);
         } catch (BadCredentialsException _) {
-            AuthProblems.write(response, 401);
+            AuthProblems.write(response, HttpServletResponse.SC_UNAUTHORIZED);
         }
     }
 

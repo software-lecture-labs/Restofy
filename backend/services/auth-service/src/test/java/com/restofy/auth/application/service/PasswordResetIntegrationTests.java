@@ -295,6 +295,24 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("4");
     }
 
+    @Test
+    void statusEnumMatchesTheStatusCheckConstraintOfTheTable() {
+        String definition = jdbc.queryForObject("""
+                SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                WHERE conrelid = 'password_reset_requests'::regclass AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%CODE_PENDING%'""", String.class);
+        var allowed = new java.util.TreeSet<String>();
+        var quoted = java.util.regex.Pattern.compile("'([A-Z_]+)'").matcher(definition);
+        while (quoted.find()) {
+            allowed.add(quoted.group(1));
+        }
+        var declared = new java.util.TreeSet<String>();
+        for (var status : com.restofy.auth.domain.enums.PasswordResetStatus.values()) {
+            declared.add(status.name());
+        }
+        assertThat(declared).isEqualTo(allowed);
+    }
+
     @TestConfiguration static class TimeConfiguration {
         @Bean @Primary MutableAuthClock resetClock() { return new MutableAuthClock(); }
     }

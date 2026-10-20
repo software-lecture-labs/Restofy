@@ -51,7 +51,7 @@ public class StaffAuthController {
     @PostMapping("/login")
     public SessionResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest,
             HttpServletResponse response) {
-        limiter.check(request.email());
+        limiter.check(request.email(), servletRequest.getRemoteAddr());
         Grant grant = sessions.login(request.email(), request.password(), request.deviceLabel());
         writeGrant(grant, servletRequest, response);
         return SessionResponse.from(grant.session());
@@ -60,7 +60,9 @@ public class StaffAuthController {
     @PostMapping("/refresh")
     public SessionResponse refresh(HttpServletRequest request, HttpServletResponse response) {
         Grant grant = sessions.refresh(AuthCookies.read(request, AuthCookies.REFRESH));
-        writeGrant(grant, request, response);
+        if (!grant.concurrentReplay()) {
+            writeGrant(grant, request, response);
+        }
         return SessionResponse.from(grant.session());
     }
 

@@ -1,7 +1,13 @@
 package com.restofy.auth.api.exception;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
 import com.restofy.auth.infrastructure.security.MfaUnavailableException;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -16,6 +22,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class AuthExceptionHandler {
+    private static final Logger LOG = LoggerFactory.getLogger(AuthExceptionHandler.class);
+    private static final int MAX_CAUSE_DEPTH = 10;
+    private static final int LOGGED_STACK_FRAMES = 5;
+
     @ExceptionHandler(BadCredentialsException.class)
     ResponseEntity<ProblemDetail> unauthorized() { return response(HttpStatus.UNAUTHORIZED); }
 
@@ -36,7 +46,13 @@ public class AuthExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ProblemDetail> failure() { return response(HttpStatus.INTERNAL_SERVER_ERROR); }
+    ResponseEntity<ProblemDetail> failure(Exception exception, HttpServletRequest request) {
+        if (LOG.isErrorEnabled()) {
+            LOG.error("Unhandled error method={} path={} {}", request.getMethod(), request.getRequestURI(),
+                    safeSummary(exception));
+        }
+        return response(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
 
     @ExceptionHandler(MfaUnavailableException.class)
     ResponseEntity<ProblemDetail> unavailable() { return response(HttpStatus.SERVICE_UNAVAILABLE); }
@@ -44,6 +60,21 @@ public class AuthExceptionHandler {
     @ExceptionHandler(ResponseStatusException.class)
     ResponseEntity<ProblemDetail> status(ResponseStatusException exception) {
         return response(HttpStatus.valueOf(exception.getStatusCode().value()));
+    }
+
+    /**
+     * Exception messages can carry user input or SQL values, so only the types and the first stack frames of the
+     * root cause are logged. That is enough to locate the failure without leaking data.
+     */
+    static String safeSummary(Throwable exception) {
+        Throwable root = exception;
+        for (int depth = 0; root.getCause() != null && root.getCause() != root && depth < MAX_CAUSE_DEPTH; depth++) {
+            root = root.getCause();
+        }
+        String frames = Arrays.stream(root.getStackTrace()).limit(LOGGED_STACK_FRAMES)
+                .map(frame -> frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber())
+                .collect(Collectors.joining(" <- "));
+        return "type=" + exception.getClass().getName() + " rootType=" + root.getClass().getName() + " at=" + frames;
     }
 
     private ResponseEntity<ProblemDetail> response(HttpStatus status) {

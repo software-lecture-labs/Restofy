@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.restofy.auth.domain.entity.UserSession;
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.domain.policy.SessionPolicy;
 import com.restofy.auth.infrastructure.config.AuthSettings;
 import io.jsonwebtoken.Jwts;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -15,6 +16,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class StaffJwtTokens {
+    /** Upper bound on the token text we are willing to parse, rejected before any signature work. */
+    static final int MAX_TOKEN_LENGTH = 4096;
     private final AuthSettings settings;
     private final Clock clock;
 
@@ -26,7 +29,7 @@ public class StaffJwtTokens {
     public String issue(UserSession session) {
         Instant now = clock.instant();
         boolean pending = session.getAuthState() == SessionAuthState.MFA_PENDING;
-        Instant expiry = now.plusSeconds(pending ? 300 : settings.accessTtl());
+        Instant expiry = now.plusSeconds(lifetimeSeconds(pending));
         if (expiry.isAfter(session.getAbsoluteExpiresAt())) {
             expiry = session.getAbsoluteExpiresAt();
         }
@@ -40,9 +43,13 @@ public class StaffJwtTokens {
                 .signWith(settings.privateKey(), Jwts.SIG.RS256).compact();
     }
 
+    private long lifetimeSeconds(boolean pending) {
+        return pending ? SessionPolicy.MFA_PENDING_TTL.toSeconds() : settings.accessTtl();
+    }
+
     public Identity verify(String token, boolean pending) {
         try {
-            if (token == null || token.length() > 4096) {
+            if (token == null || token.length() > MAX_TOKEN_LENGTH) {
                 throw new IllegalArgumentException();
             }
             var claims = Jwts.parser().verifyWith(settings.publicKey())
@@ -58,7 +65,8 @@ public class StaffJwtTokens {
                     || claims.getId() == null || !now.isBefore(claims.getExpiration().toInstant())
                     || claims.getIssuedAt().toInstant().isAfter(now)
                     || !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant())
-                    || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(pending ? 300 : settings.accessTtl()))) {
+                    || claims.getExpiration().toInstant()
+                            .isAfter(claims.getIssuedAt().toInstant().plusSeconds(lifetimeSeconds(pending)))) {
                 throw new IllegalArgumentException();
             }
             StaffRole role = StaffRole.valueOf(claims.get("role", String.class));

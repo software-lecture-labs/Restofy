@@ -75,16 +75,16 @@ class MfaStateTests {
     }
 
     @Test
-    void peerLimitExpiresAndBoundsMemory() {
+    void peerLimitExpiresAndFloodingNeverRejectsNewPeers() {
         MutableAuthClock clock = new MutableAuthClock();
         MfaPeerLimiter limiter = new MfaPeerLimiter(clock);
-        for (int index = 0; index < 30; index++) { limiter.check("127.0.0.1"); }
+        for (int index = 0; index < MfaPeerLimiter.ATTEMPTS_PER_WINDOW; index++) { limiter.check("127.0.0.1"); }
         assertThatThrownBy(() -> limiter.check("127.0.0.1")).isInstanceOf(LoginLimitException.class);
-        clock.advance(60);
+        clock.advance(MfaPeerLimiter.WINDOW_SECONDS);
         limiter.check("127.0.0.1");
         limiter.check(null);
-        limiter.check("x".repeat(65));
-        for (int index = 0; index < 9998; index++) { limiter.check("test-peer-" + index); }
-        assertThatThrownBy(() -> limiter.check("overflow")).isInstanceOf(LoginLimitException.class);
+        limiter.check("x".repeat(BoundedWindows.MAX_PEER_LENGTH + 1));
+        for (int index = 0; index < BoundedWindows.MAX_TRACKED_KEYS; index++) { limiter.check("test-peer-" + index); }
+        assertThatCode(() -> limiter.check("honest-peer")).doesNotThrowAnyException();
     }
 }

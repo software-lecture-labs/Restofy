@@ -7,6 +7,7 @@ import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.entity.UserSession;
 import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.domain.policy.MfaPolicy;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
 import com.restofy.auth.infrastructure.security.MfaAuditLogger.Event;
@@ -52,9 +53,9 @@ public class MfaAttemptLimiter {
             mfaState.failed(clock.instant());
             records.saveAndFlush(mfaState);
             audit.publish(Event.VERIFICATION_FAILED, identity.userId(), identity.sessionId());
-            if (mfaState.getFailedAttempts() == 5) {
+            if (mfaState.getFailedAttempts() == MfaPolicy.FAILURES_BEFORE_LOCK) {
                 audit.publish(Event.LOCKED, identity.userId(), identity.sessionId());
-                throw new LoginLimitException(300);
+                throw new LoginLimitException(MfaPolicy.LOCK_DURATION.toSeconds());
             }
             throw exception;
         } catch (MfaUnavailableException exception) {

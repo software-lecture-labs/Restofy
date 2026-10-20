@@ -77,6 +77,25 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void refreshReplayedByASecondTabSucceedsWithoutRewritingCookiesAndKeepsTheSession() throws Exception {
+        csrf();
+        update(mvc.perform(mutation("/login").content(body("staff@example.com", PASSWORD))).andExpect(status().isOk()).andReturn());
+        Cookie[] staleCookies = cookies();
+        String staleCsrf = jar.get(AuthCookies.CSRF).getValue();
+        update(mvc.perform(mutation("/refresh")).andExpect(status().isOk()).andReturn());
+        String winnerRefresh = jar.get(AuthCookies.REFRESH).getValue();
+
+        MvcResult replay = mvc.perform(post("/api/v1/auth/refresh").header("Origin", ORIGIN).cookie(staleCookies)
+                .header("X-CSRF-TOKEN", staleCsrf)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("AUTHENTICATED")).andReturn();
+
+        assertThat(replay.getResponse().getHeaders("Set-Cookie")).isEmpty();
+        mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isOk());
+        assertThat(jar.get(AuthCookies.REFRESH).getValue()).isEqualTo(winnerRefresh);
+        assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() == null);
+    }
+
+    @Test
     void csrfRequiresValidHeaderOriginAndCredentialBinding() throws Exception {
         mvc.perform(post("/api/v1/auth/login").header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
                 .content(body("staff@example.com", PASSWORD))).andExpect(status().isForbidden());

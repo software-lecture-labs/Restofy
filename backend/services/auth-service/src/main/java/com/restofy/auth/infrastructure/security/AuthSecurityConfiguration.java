@@ -5,6 +5,7 @@ import java.util.List;
 import com.restofy.auth.api.exception.AuthProblems;
 import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.infrastructure.config.AuthSettings;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -72,8 +73,10 @@ public class AuthSecurityConfiguration {
                 .securityContext(context -> context.securityContextRepository(new NullSecurityContextRepository()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((request, response, exception) -> AuthProblems.write(response, 401))
-                        .accessDeniedHandler((request, response, exception) -> AuthProblems.write(response, 403)))
+                        .authenticationEntryPoint((request, response, exception) ->
+                                AuthProblems.write(response, HttpServletResponse.SC_UNAUTHORIZED))
+                        .accessDeniedHandler((request, response, exception) ->
+                                AuthProblems.write(response, HttpServletResponse.SC_FORBIDDEN)))
                 .build();
     }
 }

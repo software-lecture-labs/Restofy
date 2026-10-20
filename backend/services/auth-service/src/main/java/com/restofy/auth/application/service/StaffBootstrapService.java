@@ -7,8 +7,10 @@ import java.util.Set;
 import com.restofy.auth.domain.entity.StaffEmail;
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.infrastructure.config.EnvironmentPolicy;
 import com.restofy.auth.infrastructure.config.StaffBootstrapProperties;
 import com.restofy.auth.infrastructure.config.StaffBootstrapProperties.Account;
+import com.restofy.auth.infrastructure.persistence.AdvisoryLocks;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.security.StaffPasswords;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -17,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class StaffBootstrapService {
-    private static final Set<String> DEVELOPMENT_PROFILES = Set.of("dev", "local", "test");
     private final StaffUserRepository users;
     private final StaffPasswords passwords;
     private final JdbcTemplate jdbc;
@@ -46,7 +47,7 @@ public class StaffBootstrapService {
 
         // Transaction-scoped, DB-local lock serializes concurrent application starts.
         // No lock survives commit/rollback. UNIQUE(email_normalized) is the final DB guard.
-        jdbc.execute("SELECT pg_advisory_xact_lock(1381254745)");
+        AdvisoryLocks.acquireForTransaction(jdbc, AdvisoryLocks.STAFF_BOOTSTRAP);
         if (dev.isEnabled()) {
             createOrPreserve(dev.getAdmin(), StaffRole.ADMIN);
             createOrPreserve(dev.getWaiter(), StaffRole.WAITER);
@@ -58,9 +59,8 @@ public class StaffBootstrapService {
 
     private void validateDevelopment(StaffBootstrapProperties properties, String[] activeProfiles) {
         var dev = properties.getDevUsers();
-        if (activeProfiles.length == 0 || !DEVELOPMENT_PROFILES.containsAll(List.of(activeProfiles))
-                || (!properties.getEnvironment().isBlank()
-                && !DEVELOPMENT_PROFILES.contains(properties.getEnvironment()))) {
+        if (!EnvironmentPolicy.isDevelopment(activeProfiles)
+                || !EnvironmentPolicy.isDevelopmentEnvironmentName(properties.getEnvironment())) {
             throw new IllegalStateException("Development staff bootstrap requires only dev/local/test profiles and environment");
         }
         List<Account> accounts = List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen());

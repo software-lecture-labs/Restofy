@@ -4,7 +4,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import com.restofy.auth.domain.entity.*;
+import com.restofy.auth.domain.enums.PasswordResetStatus;
 import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.domain.policy.PasswordResetPolicy;
 import com.restofy.auth.infrastructure.client.MailClient;
 import com.restofy.auth.infrastructure.client.MailClient.Message;
 import com.restofy.auth.infrastructure.persistence.repository.*;
@@ -41,9 +43,18 @@ public class PasswordResetService {
     public PasswordResetService(StaffUserRepository users, StaffMfaRepository mfa, PasswordResetRepository requests,
             PasswordResetCodes codes, PasswordResetLimiter limiter, MfaFactors factors, TotpVerifier totp,
             StaffPasswords passwords, StaffSessionService sessions, MailClient mail, EntityManager entities, Clock clock) {
-        this.users = users; this.mfa = mfa; this.requests = requests; this.codes = codes; this.limiter = limiter;
-        this.factors = factors; this.totp = totp; this.passwords = passwords; this.sessions = sessions;
-        this.mail = mail; this.entities = entities; this.clock = clock;
+        this.users = users;
+        this.mfa = mfa;
+        this.requests = requests;
+        this.codes = codes;
+        this.limiter = limiter;
+        this.factors = factors;
+        this.totp = totp;
+        this.passwords = passwords;
+        this.sessions = sessions;
+        this.mail = mail;
+        this.entities = entities;
+        this.clock = clock;
     }
 
     public String request(String email, String factor, String locale) {
@@ -53,37 +64,46 @@ public class PasswordResetService {
         var found = users.findByEmailNormalized(email);
         StaffUser user = found.map(value -> lock(value.getId())).orElse(null);
         var state = user == null ? null : mfa.findByStaffUserId(user.getId()).orElse(null);
-        boolean eligible = user != null && user.isActive() && user.getRole() == StaffRole.ADMIN && state != null && state.enabled();
+        boolean eligible = user != null && user.isActive() && user.getRole() == StaffRole.ADMIN
+                && state != null && state.enabled();
         if (!eligible) {
-            totp.verify(new byte[20], factor, Long.MAX_VALUE);
+            totp.verify(new byte[TotpVerifier.SECRET_BYTES], factor, Long.MAX_VALUE);
             limiter.factorFailure(email);
             return cookie;
         }
         long counter;
-        try { counter = factors.verifiedCounter(state, factor); }
-        catch (BadCredentialsException _) {
+        try {
+            counter = factors.verifiedCounter(state, factor);
+        } catch (BadCredentialsException _) {
             audit("FACTOR_FAILED", user.getId());
             limiter.factorFailure(email);
             return cookie;
+        } catch (MfaUnavailableException _) {
+            audit("FACTOR_UNAVAILABLE", user.getId());
+            return cookie;
         }
-        catch (MfaUnavailableException _) { audit("FACTOR_UNAVAILABLE", user.getId()); return cookie; }
         factors.advance(state, counter);
         UUID id = UUID.randomUUID();
         String code = codes.code();
         Instant now = clock.instant();
         requests.create(id, user.getId(), codes.digest(COOKIE_PURPOSE, cookie), codes.digest("code:" + id, code), locale, now);
-        dispatch(new Message(id, "ADMIN_PASSWORD_RESET", email, locale, code, now.plusSeconds(900), now.plusSeconds(120)));
+        dispatch(new Message(id, "ADMIN_PASSWORD_RESET", email, locale, code, now.plus(PasswordResetPolicy.CODE_TTL),
+                now.plus(PasswordResetPolicy.MAIL_DEADLINE)));
         audit("REQUESTED", user.getId());
         return cookie;
     }
 
     public String verify(String cookie, String supplied) {
         PasswordResetRequest request = lockedRequest(cookie);
-        if (!"CODE_PENDING".equals(request.status()) || !clock.instant().isBefore(request.codeExpiry())) { throw invalid(); }
+        if (request.status() != PasswordResetStatus.CODE_PENDING || !clock.instant().isBefore(request.codeExpiry())) {
+            throw invalid();
+        }
         limiter.codeAttempt(request.userId());
         if (!codes.matches(request.codeDigest(), codes.digest("code:" + request.id(), supplied))) {
             requests.fail(request);
-            audit(request.failures() == 4 ? "LOCKED" : "CODE_FAILED", request.userId());
+            // The counter is read before this failure is recorded, so the last allowed failure sees MAX - 1.
+            audit(request.failures() == PasswordResetPolicy.MAX_CODE_FAILURES - 1 ? "LOCKED" : "CODE_FAILED",
+                    request.userId());
             throw invalid();
         }
         String rotated = codes.token();
@@ -94,32 +114,48 @@ public class PasswordResetService {
 
     public void confirm(String cookie, String password) {
         PasswordResetRequest request = lockedRequest(cookie);
-        if (!"CODE_VERIFIED".equals(request.status()) || request.grantExpiry() == null
-                || !clock.instant().isBefore(request.grantExpiry())) { throw invalid(); }
+        if (request.status() != PasswordResetStatus.CODE_VERIFIED || request.grantExpiry() == null
+                || !clock.instant().isBefore(request.grantExpiry())) {
+            throw invalid();
+        }
         StaffUser user = users.findById(request.userId()).orElseThrow(PasswordResetService::invalid);
-        try { passwords.validateNewPassword(password); }
-        catch (IllegalArgumentException _) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST); }
-        if (passwords.matches(password, user.getPasswordHash())) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST); }
+        try {
+            passwords.validateNewPassword(password);
+        } catch (IllegalArgumentException _) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        if (passwords.matches(password, user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
         user.changePassword(passwords.hash(password), clock.instant());
         users.flush();
         sessions.revokeAllSessions(user.getId());
         requests.complete(request.id(), clock.instant());
         dispatch(new Message(UUID.randomUUID(), "PASSWORD_CHANGED", user.getEmailNormalized(), request.locale(), null,
-                null, clock.instant().plusSeconds(120)));
+                null, clock.instant().plus(PasswordResetPolicy.MAIL_DEADLINE)));
         audit("COMPLETED", user.getId());
     }
 
     private void dispatch(Message message) {
-        try { mail.afterCommit(message); }
-        catch (RuntimeException _) { LOG.warn("reset_event=DISPATCH_FAILED message_id={}", message.messageId()); }
+        try {
+            mail.afterCommit(message);
+        } catch (RuntimeException _) {
+            LOG.warn("reset_event=DISPATCH_FAILED message_id={}", message.messageId());
+        }
     }
 
     private PasswordResetRequest lockedRequest(String cookie) {
-        if (cookie == null || !cookie.matches("[A-Za-z0-9_-]{43}")) { throw invalid(); }
+        if (cookie == null || !cookie.matches("[A-Za-z0-9_-]{43}")) {
+            throw invalid();
+        }
         String digest = codes.digest(COOKIE_PURPOSE, cookie);
         PasswordResetRequest first = requests.find(digest).orElseThrow(PasswordResetService::invalid);
         StaffUser user = lock(first.userId());
-        if (!user.isActive() || user.getRole() != StaffRole.ADMIN || !mfa.existsByStaffUserIdAndEnabledAtIsNotNull(user.getId())) { throw invalid(); }
+        boolean allowed = user.isActive() && user.getRole() == StaffRole.ADMIN
+                && mfa.existsByStaffUserIdAndEnabledAtIsNotNull(user.getId());
+        if (!allowed) {
+            throw invalid();
+        }
         return requests.find(digest).orElseThrow(PasswordResetService::invalid);
     }
 

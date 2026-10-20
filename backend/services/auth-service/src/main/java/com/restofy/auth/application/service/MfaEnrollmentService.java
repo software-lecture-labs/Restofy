@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import com.restofy.auth.domain.enums.SessionAuthState;
+import com.restofy.auth.domain.policy.MfaPolicy;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
 import com.restofy.auth.infrastructure.security.*;
@@ -52,10 +53,13 @@ public class MfaEnrollmentService {
                     && !identity.sessionId().equals(mfaState.getPendingSessionId()) && now.isBefore(mfaState.getPendingExpiresAt()))) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT);
             }
-            if (mfaState.getPendingCreatedAt() != null && now.isBefore(mfaState.getPendingCreatedAt().plusSeconds(60))) {
-                throw new LoginLimitException(Math.max(1, mfaState.getPendingCreatedAt().plusSeconds(60).getEpochSecond() - now.getEpochSecond()));
+            if (mfaState.getPendingCreatedAt() != null) {
+                Instant restartAllowedAt = mfaState.getPendingCreatedAt().plus(MfaPolicy.ENROLLMENT_RESTART_COOLDOWN);
+                if (now.isBefore(restartAllowedAt)) {
+                    throw new LoginLimitException(Math.max(1, restartAllowedAt.getEpochSecond() - now.getEpochSecond()));
+                }
             }
-            Instant expiry = now.plusSeconds(300);
+            Instant expiry = now.plus(MfaPolicy.ENROLLMENT_TTL);
             if (expiry.isAfter(session.getAbsoluteExpiresAt())) { expiry = session.getAbsoluteExpiresAt(); }
             byte[] secret = totp.newSecret();
             try {

@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.domain.policy.SessionPolicy;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -46,7 +47,8 @@ public class UserSession {
                 ? SessionAuthState.MFA_PENDING : SessionAuthState.AUTHENTICATED;
         createdAt = now;
         lastActivityAt = now;
-        absoluteExpiresAt = now.plusSeconds(authState == SessionAuthState.MFA_PENDING ? 300 : lifetime);
+        absoluteExpiresAt = authState == SessionAuthState.MFA_PENDING
+                ? now.plus(SessionPolicy.MFA_PENDING_TTL) : now.plusSeconds(lifetime);
         this.deviceLabel = deviceLabel;
     }
 
@@ -55,7 +57,8 @@ public class UserSession {
     }
 
     public Instant idleExpiresAt() {
-        return lastActivityAt.plusSeconds(roleSnapshot == StaffRole.KITCHEN ? 3600 : 900);
+        return lastActivityAt.plus(roleSnapshot == StaffRole.KITCHEN
+                ? SessionPolicy.KITCHEN_IDLE_TIMEOUT : SessionPolicy.IDLE_TIMEOUT);
     }
 
     public void recordActivity(Instant now) {

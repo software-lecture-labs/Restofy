@@ -1,3 +1,7 @@
 package com.restofy.mail.domain.entity;
+
 import java.util.UUID;
-public record MailJob(UUID jobId, String status, int attempts) { }
+
+import com.restofy.mail.domain.enums.MailJobStatus;
+
+public record MailJob(UUID jobId, MailJobStatus status, int attempts) { }

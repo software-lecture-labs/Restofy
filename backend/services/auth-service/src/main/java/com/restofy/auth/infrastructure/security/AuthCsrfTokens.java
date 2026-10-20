@@ -2,8 +2,10 @@ package com.restofy.auth.infrastructure.security;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Base64;
 
 import javax.crypto.Mac;
@@ -20,6 +22,13 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class AuthCsrfTokens implements CsrfTokenRepository {
+    private static final Duration TOKEN_TTL = Duration.ofMinutes(15);
+    private static final int NONCE_BYTES = 32;
+    /** A token is "expiry.nonce.signature"; the cookie value stays far below this length. */
+    private static final int MAX_COOKIE_LENGTH = 180;
+    private static final int TOKEN_PARTS = 3;
+    /** 32 bytes encoded as unpadded base64url. */
+    private static final String BASE64URL_256_BITS = "[A-Za-z0-9_-]{43}";
     private final AuthSettings settings;
     private final AuthCookies cookies;
     private final Clock clock;
@@ -37,30 +46,31 @@ public class AuthCsrfTokens implements CsrfTokenRepository {
     }
 
     public CsrfToken create(String binding) {
-        byte[] nonce = new byte[32];
+        byte[] nonce = new byte[NONCE_BYTES];
         random.nextBytes(nonce);
-        String payload = clock.instant().plusSeconds(900).getEpochSecond() + "."
+        String payload = clock.instant().plus(TOKEN_TTL).getEpochSecond() + "."
                 + Base64.getUrlEncoder().withoutPadding().encodeToString(nonce);
         return token(payload + "." + sign(payload, binding));
     }
 
     @Override
     public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {
-        cookies.write(response, AuthCookies.CSRF, token == null ? "" : token.getToken(), "/api/v1", false, token == null ? 0 : 900);
+        cookies.write(response, AuthCookies.CSRF, token == null ? "" : token.getToken(), "/api/v1", false,
+                token == null ? 0 : TOKEN_TTL.toSeconds());
     }
 
     @Override
     public CsrfToken loadToken(HttpServletRequest request) {
         String value = AuthCookies.read(request, AuthCookies.CSRF);
-        if (value == null || value.length() > 180) {
+        if (value == null || value.length() > MAX_COOKIE_LENGTH) {
             return null;
         }
         String[] parts = value.split("\\.", -1);
         try {
-            if (parts.length != 3 || !parts[1].matches("[A-Za-z0-9_-]{43}")
-                    || !parts[2].matches("[A-Za-z0-9_-]{43}")
+            if (parts.length != TOKEN_PARTS || !parts[1].matches(BASE64URL_256_BITS)
+                    || !parts[2].matches(BASE64URL_256_BITS)
                     || clock.instant().getEpochSecond() >= Long.parseLong(parts[0])
-                    || Long.parseLong(parts[0]) > clock.instant().plusSeconds(900).getEpochSecond()) {
+                    || Long.parseLong(parts[0]) > clock.instant().plus(TOKEN_TTL).getEpochSecond()) {
                 return null;
             }
             String expected = sign(parts[0] + "." + parts[1], binding(request));
@@ -90,7 +100,7 @@ public class AuthCsrfTokens implements CsrfTokenRepository {
             mac.init(new SecretKeySpec(settings.csrfSecret(), "HmacSHA256"));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(
                     mac.doFinal((payload + ":" + binding).getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.GeneralSecurityException exception) {
+        } catch (GeneralSecurityException exception) {
             throw new IllegalStateException("CSRF signing unavailable", exception);
         }
     }

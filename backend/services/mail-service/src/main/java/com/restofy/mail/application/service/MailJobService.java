@@ -12,14 +12,23 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class MailJobService {
     private final MailJobRepository jobs;
     private final MailDeliveryWorker worker;
-    public MailJobService(MailJobRepository jobs, MailDeliveryWorker worker) { this.jobs = jobs; this.worker = worker; }
+
+    public MailJobService(MailJobRepository jobs, MailDeliveryWorker worker) {
+        this.jobs = jobs;
+        this.worker = worker;
+    }
+
     @Transactional
     public MailJob accept(PasswordResetMailRequest message) {
         if (jobs.create(message)) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    try { worker.submit(message); }
-                    catch (RuntimeException _) { /* Accepted metadata remains available for deadline reconciliation. */ }
+                @Override
+                public void afterCommit() {
+                    try {
+                        worker.submit(message);
+                    } catch (RuntimeException _) {
+                        /* Accepted metadata remains available for deadline reconciliation. */
+                    }
                 }
             });
         }

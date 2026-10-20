@@ -13,6 +13,8 @@ public interface StaffMfaRepository extends JpaRepository<StaffMfa, UUID> {
     boolean existsByStaffUserIdAndEnabledAtIsNotNull(UUID userId);
 
     @Modifying
-    @Query("update StaffMfa mfa set mfa.lastAcceptedCounter = :counter, mfa.updatedAt = :now where mfa.id = :id and mfa.enabledAt is not null and mfa.lastAcceptedCounter < :counter")
+    @Query("""
+            update StaffMfa mfa set mfa.lastAcceptedCounter = :counter, mfa.updatedAt = :now
+            where mfa.id = :id and mfa.enabledAt is not null and mfa.lastAcceptedCounter < :counter""")
     int advance(UUID id, long counter, Instant now);
 }

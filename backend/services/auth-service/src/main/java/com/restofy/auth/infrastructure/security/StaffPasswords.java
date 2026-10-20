@@ -8,13 +8,18 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class StaffPasswords {
-    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(12);
+    static final int BCRYPT_COST = 12;
+    static final int MIN_PASSWORD_LENGTH = 12;
+    /** BCrypt silently ignores everything after the 72nd byte, so longer input is refused instead. */
+    static final int MAX_PASSWORD_BYTES = 72;
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(BCRYPT_COST);
     private final String dummyHash = encoder.encode(UUID.randomUUID().toString());
 
     public void validateNewPassword(String password) {
-        if (!validInput(password) || password.codePointCount(0, password.length()) < 12
+        if (!validInput(password) || password.codePointCount(0, password.length()) < MIN_PASSWORD_LENGTH
                 || password.isBlank()) {
-            throw new IllegalArgumentException("Staff password must contain at least 12 characters and at most 72 UTF-8 bytes");
+            throw new IllegalArgumentException("Staff password must contain at least " + MIN_PASSWORD_LENGTH
+                    + " characters and at most " + MAX_PASSWORD_BYTES + " UTF-8 bytes");
         }
     }
 
@@ -25,15 +30,15 @@ public class StaffPasswords {
 
     public boolean matches(String password, String hash) {
         boolean validPassword = validInput(password);
-        boolean validHash = hash != null && hash.matches("\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}");
-        // Unknown accounts and invalid inputs still perform a cost-12 comparison.
+        boolean validHash = hash != null && hash.matches("\\$2[aby]\\$" + BCRYPT_COST + "\\$[./A-Za-z0-9]{53}");
+        // Unknown accounts and invalid inputs still pay the full BCrypt cost.
         boolean matched = encoder.matches(validPassword ? password : "invalid-credential", validHash ? hash : dummyHash);
         return validPassword && validHash && matched;
     }
 
     private boolean validInput(String password) {
-        return password != null && !password.isEmpty() && password.length() <= 72
+        return password != null && !password.isEmpty() && password.length() <= MAX_PASSWORD_BYTES
                 && StandardCharsets.UTF_8.newEncoder().canEncode(password)
-                && password.getBytes(StandardCharsets.UTF_8).length <= 72;
+                && password.getBytes(StandardCharsets.UTF_8).length <= MAX_PASSWORD_BYTES;
     }
 }

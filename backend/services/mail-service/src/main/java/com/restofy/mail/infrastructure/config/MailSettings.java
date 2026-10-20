@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class MailSettings {
+    private static final int MIN_KEY_BITS = 2048;
+    private static final int MAX_ISSUER_LENGTH = 100;
     private final RSAPublicKey key;
     private final String issuer;
     private final String from;
@@ -21,9 +23,8 @@ public class MailSettings {
             issuer = environment.getRequiredProperty("restofy.mail.issuer");
             from = environment.getRequiredProperty("restofy.mail.from");
             String mode = environment.getRequiredProperty("restofy.mail.tls-mode");
-            boolean development = environment.getActiveProfiles().length > 0
-                    && Set.of("dev", "local", "test").containsAll(java.util.List.of(environment.getActiveProfiles()));
-            if (key.getModulus().bitLength() < 2048 || issuer.isBlank() || issuer.length() > 100
+            boolean development = EnvironmentPolicy.isDevelopment(environment);
+            if (key.getModulus().bitLength() < MIN_KEY_BITS || issuer.isBlank() || issuer.length() > MAX_ISSUER_LENGTH
                     || !from.matches("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
                     || !Set.of("STARTTLS", "SMTPS", "NONE").contains(mode)
                     || ("NONE".equals(mode) && (!development || !Set.of("localhost", "127.0.0.1").contains(

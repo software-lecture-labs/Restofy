@@ -3,6 +3,7 @@ package com.restofy.auth.domain.entity;
 import java.time.Instant;
 import java.util.UUID;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.restofy.auth.domain.policy.MfaPolicy;
 import jakarta.persistence.*;
 import lombok.Getter;
 
@@ -59,13 +60,15 @@ public class StaffMfa {
     }
 
     public void failed(Instant now) {
-        if (failureWindowStartedAt == null || !now.isBefore(failureWindowStartedAt.plusSeconds(300))) {
+        if (failureWindowStartedAt == null || !now.isBefore(failureWindowStartedAt.plus(MfaPolicy.FAILURE_WINDOW))) {
             failedAttempts = 0;
             failureWindowStartedAt = now;
             lockedUntil = null;
         }
-        failedAttempts = Math.min(5, failedAttempts + 1);
-        if (failedAttempts == 5) { lockedUntil = now.plusSeconds(300); }
+        failedAttempts = Math.min(MfaPolicy.FAILURES_BEFORE_LOCK, failedAttempts + 1);
+        if (failedAttempts == MfaPolicy.FAILURES_BEFORE_LOCK) {
+            lockedUntil = now.plus(MfaPolicy.LOCK_DURATION);
+        }
         updatedAt = now;
     }
 

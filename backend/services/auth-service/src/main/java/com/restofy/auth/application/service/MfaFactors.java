@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 import com.restofy.auth.domain.entity.MfaRecoveryCode;
 import com.restofy.auth.domain.entity.StaffMfa;
+import com.restofy.auth.domain.policy.MfaPolicy;
 import com.restofy.auth.infrastructure.persistence.repository.MfaRecoveryCodeRepository;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
 import com.restofy.auth.infrastructure.security.MfaRecoveryCodes;
@@ -17,6 +18,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class MfaFactors {
+    /** Stands in for a missing recovery code so every verification compares the same number of 64-char digests. */
+    private static final String PLACEHOLDER_DIGEST = "0".repeat(64);
     private final MfaSecretCipher cipher;
     private final TotpVerifier totp;
     private final MfaRecoveryCodes codes;
@@ -56,9 +59,9 @@ public class MfaFactors {
         var candidates = recovery.findByStaffUserIdAndRevokedAtIsNull(userId);
         String digest = codes.digest(userId, supplied);
         MfaRecoveryCode matched = null;
-        for (int index = 0; index < 10; index++) {
+        for (int index = 0; index < MfaPolicy.RECOVERY_CODE_COUNT; index++) {
             MfaRecoveryCode candidate = index < candidates.size() ? candidates.get(index) : null;
-            boolean equal = codes.matches(candidate == null ? "0".repeat(64) : candidate.getCodeDigest(), digest);
+            boolean equal = codes.matches(candidate == null ? PLACEHOLDER_DIGEST : candidate.getCodeDigest(), digest);
             if (equal && candidate != null && candidate.getUsedAt() == null) { matched = candidate; }
         }
         if (matched == null) { throw invalid(); }
@@ -82,7 +85,7 @@ public class MfaFactors {
 
     public void requireEnabled(StaffMfa mfaState) {
         if (!mfaState.enabled()) {
-            totp.verify(new byte[20], "------", null);
+            totp.verify(new byte[TotpVerifier.SECRET_BYTES], TotpVerifier.NO_CODE, null);
             throw invalid();
         }
     }

@@ -7,6 +7,11 @@ public final class StaffEmail {
     private static final Pattern LOCAL_PART = Pattern.compile("[a-z0-9.!#$%&'*+/=?^_`{|}~-]+");
     private static final Pattern DOMAIN_LABEL = Pattern.compile("[a-z0-9](?:[a-z0-9-]*[a-z0-9])?");
     private static final Pattern TOP_LEVEL_LABEL = Pattern.compile("[a-z]{2,}");
+    /** Raw input is cut off here, before any trimming or pattern matching work. */
+    private static final int MAX_INPUT_LENGTH = 300;
+    /** RFC 5321 limits for a whole address and for its local part. */
+    private static final int MAX_ADDRESS_LENGTH = 254;
+    private static final int MAX_LOCAL_PART_LENGTH = 64;
 
     private StaffEmail() {
     }
@@ -31,12 +36,12 @@ public final class StaffEmail {
     }
 
     public static String normalize(String email) {
-        if (email == null || email.length() > 300) {
+        if (email == null || email.length() > MAX_INPUT_LENGTH) {
             throw new IllegalArgumentException("Invalid staff email");
         }
         String normalized = email.strip().toLowerCase(Locale.ROOT);
         int at = normalized.indexOf('@');
-        if (normalized.length() > 254 || at < 1 || at > 64
+        if (normalized.length() > MAX_ADDRESS_LENGTH || at < 1 || at > MAX_LOCAL_PART_LENGTH
                 || normalized.startsWith(".") || normalized.charAt(at - 1) == '.'
                 || normalized.substring(0, at).contains("..")
                 || !hasValidFormat(normalized, at)) {

@@ -9,7 +9,8 @@ import com.restofy.auth.domain.enums.StaffRole;
 public record SessionResponse(SessionAuthState status, StaffRole role, Instant idleExpiresAt, Instant absoluteExpiresAt,
         Boolean mfaSetupRequired) {
     public static SessionResponse from(UserSession session) {
-        return new SessionResponse(session.getAuthState(), session.getRoleSnapshot(), session.idleExpiresAt(), session.getAbsoluteExpiresAt(), null);
+        return new SessionResponse(session.getAuthState(), session.getRoleSnapshot(), session.idleExpiresAt(),
+                session.getAbsoluteExpiresAt(), null);
     }
 
     public SessionResponse withMfaSetup(boolean required) {

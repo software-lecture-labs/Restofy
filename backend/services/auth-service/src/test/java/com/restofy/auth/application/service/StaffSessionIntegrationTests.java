@@ -69,6 +69,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         assertThat(second.session().getLastActivityAt()).isEqualTo(first.session().getLastActivityAt());
         assertThat(second.session().getAbsoluteExpiresAt()).isEqualTo(first.session().getAbsoluteExpiresAt());
         assertThat(tokens.findByTokenHash(StaffSessionService.digest(first.refresh())).orElseThrow().getUsedAt()).isNotNull();
+        clock.advance(StaffSessionService.REFRESH_REUSE_GRACE_SECONDS);
         assertRefreshRejected(first);
         assertThat(sessions.findById(first.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
         assertRefreshRejected(second);
@@ -253,12 +254,40 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test
-    void simultaneousRefreshHasSingleWinnerAndRevokesCompromisedSession() throws Exception {
+    void simultaneousRefreshFromTwoTabsKeepsTheSessionAndIssuesCredentialsOnlyOnce() throws Exception {
         var grant = login();
-        assertThat(race(() -> refreshOutcome(grant.refresh()), () -> refreshOutcome(grant.refresh())))
+        assertThat(race(() -> refreshIssuedCredentials(grant.refresh()), () -> refreshIssuedCredentials(grant.refresh())))
                 .containsExactlyInAnyOrder(true, false);
         assertThat(tokens.count()).isEqualTo(2);
-        assertThat(sessions.findById(grant.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
+        assertThat(sessions.findById(grant.session().getId()).orElseThrow().getRevokedAt()).isNull();
+        assertThat(tokens.findAll()).noneMatch(token -> token.getRevokedAt() != null);
+    }
+
+    @Test
+    void replayInsideTheGraceWindowGetsNoCredentialsAndNeverExtendsTheWindow() {
+        var first = login();
+        var winner = service.refresh(first.refresh());
+        clock.advance(StaffSessionService.REFRESH_REUSE_GRACE_SECONDS - 1);
+        var replay = service.refresh(first.refresh());
+        assertThat(replay.concurrentReplay()).isTrue();
+        assertThat(replay.access()).isNull();
+        assertThat(replay.refresh()).isNull();
+        assertThat(replay.session().getId()).isEqualTo(first.session().getId());
+        assertThat(tokens.count()).isEqualTo(2);
+        clock.advance(1);
+        assertRefreshRejected(first);
+        assertRefreshRejected(winner);
+        assertThat(sessions.findById(first.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void replayAfterTheGraceWindowRevokesEverySiblingToken() {
+        var first = login();
+        var winner = service.refresh(first.refresh());
+        clock.advance(StaffSessionService.REFRESH_REUSE_GRACE_SECONDS);
+        assertRefreshRejected(first);
+        assertRefreshRejected(winner);
+        assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
     }
 
     @Test
@@ -304,6 +333,9 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     }
 
     private StaffSessionService.Grant login() { return service.login("waiter@example.com", PASSWORD, "Test browser"); }
+    private boolean refreshIssuedCredentials(String raw) {
+        return !service.refresh(raw).concurrentReplay();
+    }
     private boolean refreshOutcome(String raw) {
         try { service.refresh(raw); return true; } catch (BadCredentialsException _) { return false; }
     }

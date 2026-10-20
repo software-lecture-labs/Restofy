@@ -13,6 +13,6 @@ public class StaffBootstrapConfiguration {
     @Bean
     ApplicationRunner staffBootstrapRunner(StaffBootstrapService bootstrap,
             StaffBootstrapProperties properties, Environment environment) {
-        return args -> bootstrap.initialize(properties, environment.getActiveProfiles());
+        return args -> bootstrap.initialize(properties, EnvironmentPolicy.activeProfiles(environment));
     }
 }

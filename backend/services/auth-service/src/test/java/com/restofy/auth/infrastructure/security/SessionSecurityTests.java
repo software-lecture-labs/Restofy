@@ -18,16 +18,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class SessionSecurityTests {
     private static final java.security.KeyPair KEYS = AuthSessionTestSupport.generateKeys();
     private static final String HASH = new StaffPasswords().hash("Session-test-password-01");
+    private static final String PEER = "198.51.100.10";
     private final MutableAuthClock clock = new MutableAuthClock();
     private AuthSettings settings;
     private StaffJwtTokens jwt;
@@ -119,31 +122,52 @@ class SessionSecurityTests {
 
     @ParameterizedTest
     @MethodSource("unsafeSettings")
-    void rejectsUnsafeConfigurationWithoutLeakingValues(String name, String value) {
+    void rejectsUnsafeConfigurationNamingTheVariableButNeverItsValue(String name, String variable, String value) {
         MockEnvironment environment = environment().withProperty("auth.session." + name, value);
-        assertThatThrownBy(() -> new AuthSettings(environment)).isInstanceOf(IllegalStateException.class)
-                .hasMessage("Invalid or missing Auth session configuration").hasNoCause();
+        var failure = assertThatThrownBy(() -> new AuthSettings(environment)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Invalid or missing " + variable + ": expected").hasNoCause();
+        if (value.length() > 3) {
+            failure.message().doesNotContain(value);
+        }
     }
 
     static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> unsafeSettings() {
         return java.util.stream.Stream.of(
-                org.junit.jupiter.params.provider.Arguments.of("private-key", "invalid-secret"),
-                org.junit.jupiter.params.provider.Arguments.of("restaurant-id", "invalid"),
-                org.junit.jupiter.params.provider.Arguments.of("restaurant-id", new UUID(0, 0).toString()),
-                org.junit.jupiter.params.provider.Arguments.of("issuer", ""),
-                org.junit.jupiter.params.provider.Arguments.of("issuer", "x".repeat(101)),
-                org.junit.jupiter.params.provider.Arguments.of("csrf-secret", "invalid"),
-                org.junit.jupiter.params.provider.Arguments.of("csrf-secret", Base64.getEncoder().encodeToString(new byte[32])),
-                org.junit.jupiter.params.provider.Arguments.of("csrf-secret", Base64.getEncoder().encodeToString(new byte[16])),
-                org.junit.jupiter.params.provider.Arguments.of("cookie-secure", "maybe"),
-                org.junit.jupiter.params.provider.Arguments.of("access-ttl-seconds", "901"),
-                org.junit.jupiter.params.provider.Arguments.of("refresh-ttl-seconds", "0"),
-                org.junit.jupiter.params.provider.Arguments.of("allowed-origins", "*"),
-                org.junit.jupiter.params.provider.Arguments.of("allowed-origins", "http://example.com"),
-                org.junit.jupiter.params.provider.Arguments.of("allowed-origins", "https://example.com/path"),
-                org.junit.jupiter.params.provider.Arguments.of("allowed-origins", "https://user@example.com"),
-                org.junit.jupiter.params.provider.Arguments.of("allowed-origins", "https://example.com?query=1"),
-                org.junit.jupiter.params.provider.Arguments.of("allowed-origins", "https://example.com#fragment"));
+                arguments("private-key", "AUTH_JWT_PRIVATE_KEY", "invalid-secret"),
+                arguments("restaurant-id", "AUTH_RESTAURANT_ID", "invalid"),
+                arguments("restaurant-id", "AUTH_RESTAURANT_ID", new UUID(0, 0).toString()),
+                arguments("issuer", "JWT_ISSUER", ""),
+                arguments("issuer", "JWT_ISSUER", "x".repeat(101)),
+                arguments("csrf-secret", "AUTH_CSRF_SECRET", "invalid"),
+                arguments("csrf-secret", "AUTH_CSRF_SECRET", Base64.getEncoder().encodeToString(new byte[32])),
+                arguments("csrf-secret", "AUTH_CSRF_SECRET", Base64.getEncoder().encodeToString(new byte[16])),
+                arguments("cookie-secure", "AUTH_COOKIE_SECURE", "maybe"),
+                arguments("access-ttl-seconds", "JWT_ACCESS_TTL_SECONDS", "299"),
+                arguments("access-ttl-seconds", "JWT_ACCESS_TTL_SECONDS", "3601"),
+                arguments("access-ttl-seconds", "JWT_ACCESS_TTL_SECONDS", "fifteen"),
+                arguments("refresh-ttl-seconds", "JWT_REFRESH_TTL_SECONDS", "0"),
+                arguments("refresh-ttl-seconds", "JWT_REFRESH_TTL_SECONDS", "86399"),
+                arguments("refresh-ttl-seconds", "JWT_REFRESH_TTL_SECONDS", "2592001"),
+                arguments("allowed-origins", "CORS_ALLOWED_ORIGINS", "*"),
+                arguments("allowed-origins", "CORS_ALLOWED_ORIGINS", "http://example.com"),
+                arguments("allowed-origins", "CORS_ALLOWED_ORIGINS", "https://example.com/path"),
+                arguments("allowed-origins", "CORS_ALLOWED_ORIGINS", "https://user@example.com"),
+                arguments("allowed-origins", "CORS_ALLOWED_ORIGINS", "https://example.com?query=1"),
+                arguments("allowed-origins", "CORS_ALLOWED_ORIGINS", "https://example.com#fragment"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"300", "900", "3600"})
+    void acceptsAccessLifetimesInsideTheConfiguredRange(String seconds) {
+        MockEnvironment environment = environment().withProperty("auth.session.access-ttl-seconds", seconds);
+        assertThat(new AuthSettings(environment).accessTtl()).isEqualTo(Long.parseLong(seconds));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"86400", "604800", "2592000"})
+    void acceptsRefreshLifetimesInsideTheConfiguredRange(String seconds) {
+        MockEnvironment environment = environment().withProperty("auth.session.refresh-ttl-seconds", seconds);
+        assertThat(new AuthSettings(environment).refreshTtl()).isEqualTo(Long.parseLong(seconds));
     }
 
     @Test
@@ -201,18 +225,18 @@ class SessionSecurityTests {
     }
 
     @Test
-    void loginLimiterNormalizesAccountsExpiresWindowsAndBoundsMemory() {
+    void loginLimiterNormalizesAccountsAndExpiresWindows() {
         LoginRateLimiter limiter = new LoginRateLimiter(clock);
-        for (int attempt = 0; attempt < 10; attempt++) { limiter.check(" STAFF@EXAMPLE.COM "); }
-        assertThatThrownBy(() -> limiter.check("staff@example.com"))
-                .isInstanceOfSatisfying(LoginRateLimiter.LoginLimitException.class, exception -> assertThat(exception.retryAfter()).isEqualTo(900));
-        limiter.check("other@example.com");
-        limiter.check(null);
-        clock.advance(900);
-        assertThatCode(() -> limiter.check("staff@example.com")).doesNotThrowAnyException();
-        LoginRateLimiter bounded = new LoginRateLimiter(clock);
-        for (int account = 0; account < 10000; account++) { bounded.check("staff" + account + "@example.com"); }
-        assertThatThrownBy(() -> bounded.check("overflow@example.com")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
+        for (int attempt = 0; attempt < LoginRateLimiter.ATTEMPTS_PER_ACCOUNT_AND_PEER; attempt++) {
+            limiter.check(" STAFF@EXAMPLE.COM ", PEER);
+        }
+        assertThatThrownBy(() -> limiter.check("staff@example.com", PEER))
+                .isInstanceOfSatisfying(LoginRateLimiter.LoginLimitException.class,
+                        exception -> assertThat(exception.retryAfter()).isEqualTo(LoginRateLimiter.WINDOW_SECONDS));
+        limiter.check("other@example.com", PEER);
+        limiter.check(null, PEER);
+        clock.advance(LoginRateLimiter.WINDOW_SECONDS);
+        assertThatCode(() -> limiter.check("staff@example.com", PEER)).doesNotThrowAnyException();
     }
 
     private io.jsonwebtoken.JwtBuilder builder() {

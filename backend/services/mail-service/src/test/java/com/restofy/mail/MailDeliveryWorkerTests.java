@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 import com.restofy.mail.api.dto.request.PasswordResetMailRequest;
 import com.restofy.mail.application.service.MailDeliveryWorker;
+import com.restofy.mail.domain.enums.MailJobStatus;
 import com.restofy.mail.infrastructure.client.SmtpMailSender;
 import com.restofy.mail.infrastructure.persistence.repository.MailJobRepository;
 import org.junit.jupiter.api.Test;
@@ -30,8 +31,8 @@ class MailDeliveryWorkerTests {
         try {
             worker.submit(message(ok)); worker.submit(badMessage); worker.submit(message(skipped));
             await().atMost(Duration.ofSeconds(3)).untilAsserted(()->{
-                verify(jobs).finish(ok,1,"SMTP_ACCEPTED",null);
-                verify(jobs).finish(bad,1,"FAILED","PERMANENT");
+                verify(jobs).finish(ok,1,MailJobStatus.SMTP_ACCEPTED,null);
+                verify(jobs).finish(bad,1,MailJobStatus.FAILED,"PERMANENT");
                 verify(jobs).claim(skipped);
                 org.assertj.core.api.Assertions.assertThat(permits(worker)).isEqualTo(100);
             });
@@ -46,10 +47,10 @@ class MailDeliveryWorkerTests {
         var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
         try {
             worker.submit(message(id));
-            await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,"RETRY","TRANSIENT"));
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,MailJobStatus.RETRY,"TRANSIENT"));
             org.assertj.core.api.Assertions.assertThat(permits(worker)).isEqualTo(99);
             await().atMost(Duration.ofSeconds(9)).untilAsserted(()->{
-                verify(jobs).finish(id,2,"SMTP_ACCEPTED",null);
+                verify(jobs).finish(id,2,MailJobStatus.SMTP_ACCEPTED,null);
                 org.assertj.core.api.Assertions.assertThat(permits(worker)).isEqualTo(100);
             });
         } finally { worker.close(); }
@@ -61,11 +62,11 @@ class MailDeliveryWorkerTests {
         var message=new PasswordResetMailRequest(id,"PASSWORD_CHANGED","admin@example.test","en",null,null,Instant.now().plusSeconds(100));
         when(jobs.claim(id)).thenReturn(1);
         doThrow(new org.springframework.dao.DataAccessResourceFailureException("test",new java.net.ConnectException("test")))
-                .doNothing().when(jobs).finish(id,1,"SMTP_ACCEPTED",null);
+                .doNothing().when(jobs).finish(id,1,MailJobStatus.SMTP_ACCEPTED,null);
         var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
         try {
             worker.submit(message);
-            await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,"SMTP_ACCEPTED",null));
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,MailJobStatus.SMTP_ACCEPTED,null));
             await().during(Duration.ofSeconds(6)).atMost(Duration.ofSeconds(8)).untilAsserted(()->verify(smtp,times(1)).send(message));
         }finally{worker.close();}
     }
