@@ -4,11 +4,11 @@ import com.restofy.kitchen.api.dto.response.KitchenOrderDetailResponse;
 import com.restofy.kitchen.api.dto.response.KitchenOrderSummaryResponse;
 import com.restofy.kitchen.api.dto.response.PageResponse;
 import com.restofy.kitchen.api.support.IdempotencyKey;
+import com.restofy.kitchen.api.support.QueryParams;
 import com.restofy.kitchen.application.service.KitchenOrderQueryService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.domain.enums.KitchenStatusFilter;
 import com.restofy.kitchen.infrastructure.security.KitchenPrincipal;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -17,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -55,14 +54,12 @@ public class KitchenOrderController {
 		Instant from = parseInstant("receivedFrom", receivedFrom);
 		Instant to = parseInstant("receivedTo", receivedTo);
 		if (from != null && to != null && !from.isBefore(to)) {
-			throw badRequest("receivedFrom must be before receivedTo");
+			throw QueryParams.badRequest("receivedFrom must be before receivedTo");
 		}
 		return queries.list(principal.restaurantId(), parseStatus(status), from, to,
-				parseInt("page", page, 0, 0, Integer.MAX_VALUE), parseInt("size", size, DEFAULT_SIZE, 1, MAX_SIZE));
+				QueryParams.parseInt("page", page, 0, 0, Integer.MAX_VALUE),
+				QueryParams.parseInt("size", size, QueryParams.DEFAULT_SIZE, 1, QueryParams.MAX_SIZE));
 	}
-
-	private static final int DEFAULT_SIZE = 20;
-	private static final int MAX_SIZE = 100;
 
 	private static KitchenStatusFilter parseStatus(String status) {
 		if (status == null) {
@@ -71,7 +68,7 @@ public class KitchenOrderController {
 		try {
 			return KitchenStatusFilter.valueOf(status);
 		} catch (IllegalArgumentException e) {
-			throw badRequest("status must be one of WAITING, PREPARING, READY, CANCELLED, ACTIVE");
+			throw QueryParams.badRequest("status must be one of WAITING, PREPARING, READY, CANCELLED, ACTIVE");
 		}
 	}
 
@@ -82,28 +79,8 @@ public class KitchenOrderController {
 		try {
 			return Instant.parse(value);
 		} catch (DateTimeParseException e) {
-			throw badRequest(name + " must be an ISO-8601 instant such as 2026-10-17T10:00:00Z");
+			throw QueryParams.badRequest(name + " must be an ISO-8601 instant such as 2026-10-17T10:00:00Z");
 		}
-	}
-
-	private static int parseInt(String name, String value, int defaultValue, int min, int max) {
-		if (value == null) {
-			return defaultValue;
-		}
-		try {
-			int parsed = Integer.parseInt(value);
-			if (parsed >= min && parsed <= max) {
-				return parsed;
-			}
-		} catch (NumberFormatException e) {
-			// falls through to the same 400 as an out-of-range value
-		}
-		throw badRequest(max == Integer.MAX_VALUE ? name + " must be an integer >= " + min
-				: name + " must be an integer between " + min + " and " + max);
-	}
-
-	private static ResponseStatusException badRequest(String message) {
-		return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
 	}
 
 	/**

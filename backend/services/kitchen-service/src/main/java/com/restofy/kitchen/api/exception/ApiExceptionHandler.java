@@ -4,7 +4,6 @@ import com.restofy.kitchen.application.service.ProductAvailabilityException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
-import com.restofy.kitchen.domain.exception.UnsupportedAvailabilityStatusException;
 import com.restofy.kitchen.infrastructure.config.MenuIntegrationConfiguration;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
@@ -83,6 +82,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			case PRODUCT_NOT_FOUND -> {
 				return problem(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND", false, "Product not found");
 			}
+			case PRODUCT_INACTIVE -> {
+				return problem(HttpStatus.CONFLICT, "PRODUCT_INACTIVE", false, "The product is passive in the catalogue and its availability cannot be changed");
+			}
 			case INVALID_COMMAND -> {
 				return problem(HttpStatus.BAD_REQUEST, "INVALID_COMMAND", false, "The Menu service rejected the command");
 			}
@@ -105,12 +107,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 						.body(unavailable.getBody());
 			}
 		}
-	}
-
-	/** The requested target status is not offered by this version of the API. */
-	@ExceptionHandler(UnsupportedAvailabilityStatusException.class)
-	ResponseEntity<ProblemDetail> unsupportedStatus(UnsupportedAvailabilityStatusException e) {
-		return problem(HttpStatus.BAD_REQUEST, "UNSUPPORTED_STATUS", false, e.getMessage());
 	}
 
 	private static ResponseEntity<ProblemDetail> problem(HttpStatus status, String code, boolean retryable, String detail) {

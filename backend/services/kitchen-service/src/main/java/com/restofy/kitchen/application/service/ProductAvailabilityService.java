@@ -6,9 +6,7 @@ import com.restofy.kitchen.application.contract.ProductAvailabilityState;
 import com.restofy.kitchen.application.port.MenuAvailabilityPort;
 import com.restofy.kitchen.domain.entity.ProductAvailabilityCommand;
 import com.restofy.kitchen.domain.enums.CommandOutcome;
-import com.restofy.kitchen.domain.enums.ProductAvailabilityStatus;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
-import com.restofy.kitchen.domain.exception.UnsupportedAvailabilityStatusException;
 import com.restofy.kitchen.infrastructure.persistence.repository.ProductAvailabilityCommandRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -39,10 +36,6 @@ public class ProductAvailabilityService {
 	static final String STATE_MISMATCH = "STATE_MISMATCH";
 	static final String INCONSISTENT_RESPONSE = "INCONSISTENT_RESPONSE";
 	static final String PORT_EXCEPTION = "PORT_EXCEPTION";
-
-	/** Statuses this version of the API can set. Extended task by task (AVAILABLE, the reopening, follows). */
-	static final Set<ProductAvailabilityStatus> SUPPORTED = Set.of(ProductAvailabilityStatus.OUT_OF_STOCK,
-			ProductAvailabilityStatus.TEMPORARILY_CLOSED);
 
 	private final ProductAvailabilityCommandRepository commands;
 	private final MenuAvailabilityPort menu;
@@ -66,9 +59,6 @@ public class ProductAvailabilityService {
 
 	public ProductAvailabilityState change(UUID restaurantId, UUID actorUserId, UUID commandId, UUID productId,
 			ChangeProductAvailabilityRequest request) {
-		if (!SUPPORTED.contains(request.status())) {
-			throw new UnsupportedAvailabilityStatusException(request.status());
-		}
 		MenuAvailabilityCommand command = new MenuAvailabilityCommand(commandId, restaurantId, productId, request.status(),
 				request.reasonCode(), request.reasonText(), actorUserId);
 
@@ -190,7 +180,7 @@ public class ProductAvailabilityService {
 	}
 
 	/** Only a short, harmless code is kept or shown: never a message, address or token. */
-	private static String safe(String code) {
+	static String safe(String code) {
 		if (code == null || code.isBlank()) {
 			return "UNKNOWN";
 		}

@@ -109,7 +109,7 @@ class KitchenProductAvailabilityApiTests {
 
 	private static ProductAvailabilityState stateOf(MenuAvailabilityCommand c) {
 		return new ProductAvailabilityState(c.productId(), c.targetStatus(), c.reasonCode(), c.reasonText(),
-				Instant.parse(MENU_TIME), c.requestedByUserId(), 3L);
+				Instant.parse(MENU_TIME), c.requestedByUserId(), 3L, true);
 	}
 
 	private void menuConfirmsEverything() {
@@ -269,18 +269,6 @@ class KitchenProductAvailabilityApiTests {
 		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
 				body("A" + "B".repeat(39), "ş".repeat(500))).andExpect(status().isOk());
 		assertEquals(1, rows(restaurant));
-	}
-
-	@Test
-	void statusesThisVersionDoesNotOfferAreRejectedBeforeAnythingIsRecorded() throws Exception {
-		UUID restaurant = UUID.randomUUID();
-		for (String unsupported : List.of("AVAILABLE")) {
-			send(restaurant, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-					"{\"status\":\"" + unsupported + "\",\"reasonCode\":\"OUT_OF_STOCK\"}").andExpect(status().isBadRequest())
-					.andExpect(jsonPath("$.code").value("UNSUPPORTED_STATUS")).andExpect(jsonPath("$.retryable").value(false));
-		}
-		verifyNoInteractions(menu);
-		assertEquals(0, rows(restaurant));
 	}
 
 	// ---- security ------------------------------------------------------------------------------------------------
@@ -505,11 +493,11 @@ class KitchenProductAvailabilityApiTests {
 		for (Case c : List.of(
 				new Case("no state", cmd -> new Result(Kind.APPLIED, null, null), 503, "INCONSISTENT_RESPONSE"),
 				new Case("other product", cmd -> Result.applied(new ProductAvailabilityState(UUID.randomUUID(), cmd.targetStatus(),
-						cmd.reasonCode(), cmd.reasonText(), Instant.parse(MENU_TIME), cmd.requestedByUserId(), 1L)), 503, "INCONSISTENT_RESPONSE"),
+						cmd.reasonCode(), cmd.reasonText(), Instant.parse(MENU_TIME), cmd.requestedByUserId(), 1L, true)), 503, "INCONSISTENT_RESPONSE"),
 				new Case("no change time", cmd -> Result.applied(new ProductAvailabilityState(cmd.productId(), cmd.targetStatus(),
-						cmd.reasonCode(), cmd.reasonText(), null, cmd.requestedByUserId(), 1L)), 503, "INCONSISTENT_RESPONSE"),
+						cmd.reasonCode(), cmd.reasonText(), null, cmd.requestedByUserId(), 1L, true)), 503, "INCONSISTENT_RESPONSE"),
 				new Case("other status", cmd -> Result.applied(new ProductAvailabilityState(cmd.productId(), ProductAvailabilityStatus.AVAILABLE,
-						null, null, Instant.parse(MENU_TIME), UUID.randomUUID(), 5L)), 409, "AVAILABILITY_CONFLICT"))) {
+						null, null, Instant.parse(MENU_TIME), UUID.randomUUID(), 5L, true)), 409, "AVAILABILITY_CONFLICT"))) {
 			UUID key = UUID.randomUUID();
 			doAnswer(call -> c.answer().apply(call.getArgument(0))).when(menu).change(any());
 
@@ -833,7 +821,7 @@ class KitchenProductAvailabilityApiTests {
 		}
 		// Menu "confirms" but reports only OUT_OF_STOCK (someone else changed the product meanwhile): not a closure.
 		Function<MenuAvailabilityCommand, Result> otherState = cmd -> Result.applied(new ProductAvailabilityState(cmd.productId(),
-				ProductAvailabilityStatus.OUT_OF_STOCK, "OUT_OF_STOCK", null, Instant.parse(MENU_TIME), UUID.randomUUID(), 4L));
+				ProductAvailabilityStatus.OUT_OF_STOCK, "OUT_OF_STOCK", null, Instant.parse(MENU_TIME), UUID.randomUUID(), 4L, true));
 		for (Case c : List.of(
 				new Case(cmd -> Result.rejected(Kind.PRODUCT_NOT_FOUND, "X"), 404, "PRODUCT_NOT_FOUND", "REJECTED"),
 				new Case(cmd -> Result.rejected(Kind.INVALID_COMMAND, "X"), 400, "INVALID_COMMAND", "REJECTED"),
@@ -852,6 +840,80 @@ class KitchenProductAvailabilityApiTests {
 			assertEquals(c.outcome(), commandRow.get("outcome"), c.code());
 			assertNull(commandRow.get("confirmed_at"), c.code());
 		}
+	}
+
+	// ---- KITCHEN-03 / 3.3: reopening (AVAILABLE) -------------------------------------------------------------------
+
+	@Test
+	void reopeningIsGuardedLikeClosingAndNeverReachesMenuWithoutKitchenRoleAndCsrf() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		menuConfirmsEverything();
+		String reopen = "{\"status\":\"AVAILABLE\"}";
+
+		mvc.perform(change(product, UUID.randomUUID(), reopen).with(csrf())).andExpect(status().isUnauthorized());
+		mvc.perform(change(product, UUID.randomUUID(), reopen).with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());
+		mvc.perform(change(product, UUID.randomUUID(), reopen).with(kitchen(restaurant))).andExpect(status().isForbidden());
+		mvc.perform(patch(path(product)).contentType("application/json").content(reopen).with(kitchen(restaurant)).with(csrf()))
+				.andExpect(status().isBadRequest());
+		verifyNoInteractions(menu);
+		assertEquals(0, rows(restaurant));
+	}
+
+	@Test
+	void aReopenIsReportedAsOpenOnlyWithMenusConfirmationAndAReasonIsOptional() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		UUID plain = UUID.randomUUID();
+		UUID explained = UUID.randomUUID();
+		menuConfirmsEverything();
+
+		send(restaurant, actor, product, plain, "{\"status\":\"AVAILABLE\"}").andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("AVAILABLE")).andExpect(jsonPath("$.reasonCode").value((Object) null))
+				.andExpect(jsonPath("$.changedAt").value(MENU_TIME)).andExpect(jsonPath("$.published").value(true));
+		send(restaurant, actor, product, explained, "{\"status\":\"AVAILABLE\",\"reasonCode\":\"RESTOCKED\",\"reasonText\":\"Geldi\"}")
+				.andExpect(status().isOk()).andExpect(jsonPath("$.reasonText").value("Geldi"));
+
+		ArgumentCaptor<MenuAvailabilityCommand> sent = ArgumentCaptor.forClass(MenuAvailabilityCommand.class);
+		verify(menu, times(2)).change(sent.capture());
+		assertEquals(ProductAvailabilityStatus.AVAILABLE, sent.getAllValues().get(0).targetStatus());
+		assertNull(sent.getAllValues().get(0).reasonCode());
+		assertEquals("RESTOCKED", sent.getAllValues().get(1).reasonCode());
+		assertEquals("CONFIRMED", row(restaurant, plain).get("outcome"));
+	}
+
+	@Test
+	void aReopenAnsweredWithAnotherStateOrNoAnswerIsNeverShownAsOpen() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID product = UUID.randomUUID();
+		UUID stale = UUID.randomUUID();
+		// Menu says the product is closed again (somebody closed it after the user looked): not "open".
+		doAnswer(call -> Result.applied(new ProductAvailabilityState(product, ProductAvailabilityStatus.TEMPORARILY_CLOSED, "BUSY",
+				"Yoğunluk", Instant.parse(MENU_TIME), UUID.randomUUID(), 9L, true))).when(menu).change(any());
+
+		send(restaurant, UUID.randomUUID(), product, stale, "{\"status\":\"AVAILABLE\"}").andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("AVAILABILITY_CONFLICT")).andExpect(jsonPath("$.retryable").value(true));
+		assertEquals("UNCONFIRMED", row(restaurant, stale).get("outcome"));
+		assertNull(row(restaurant, stale).get("confirmed_at"));
+
+		UUID silent = UUID.randomUUID();
+		menuAnswers(Result.unavailable("TIMEOUT"));
+		send(restaurant, UUID.randomUUID(), product, silent, "{\"status\":\"AVAILABLE\"}").andExpect(status().isServiceUnavailable())
+				.andExpect(header().string("Retry-After", "2")).andExpect(jsonPath("$.code").value("MENU_UNAVAILABLE"));
+		assertEquals("UNCONFIRMED", row(restaurant, silent).get("outcome"));
+	}
+
+	@Test
+	void aPassiveProductAnswerIsAConflictThatIsFinalAndNotRetryable() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID key = UUID.randomUUID();
+		menuAnswers(Result.rejected(Kind.PRODUCT_INACTIVE, "PRODUCT_INACTIVE"));
+
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), key, "{\"status\":\"AVAILABLE\"}").andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("PRODUCT_INACTIVE")).andExpect(jsonPath("$.retryable").value(false));
+		assertEquals("REJECTED", row(restaurant, key).get("outcome"));
+		assertEquals("PRODUCT_INACTIVE", row(restaurant, key).get("outcome_code"));
 	}
 
 	@Test

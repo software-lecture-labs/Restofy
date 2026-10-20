@@ -22,6 +22,8 @@ public interface MenuAvailabilityPort {
 		APPLIED,
 		/** Unknown product, or a product of another restaurant. */
 		PRODUCT_NOT_FOUND,
+		/** The product exists but is passive in the catalogue, so its availability cannot be changed. */
+		PRODUCT_INACTIVE,
 		/** Menu rejected the command content. */
 		INVALID_COMMAND,
 		/** The same command id was already used by Menu for a different command. */

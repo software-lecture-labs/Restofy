@@ -14,6 +14,7 @@ import static com.restofy.kitchen.support.KitchenTestAuth.kitchen;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,6 +67,30 @@ class KitchenProductAvailabilityNotIntegratedTests {
 		assertEquals("TEMPORARILY_CLOSED", commandRow.get("target_status"));
 		assertNull(commandRow.get("reason_code"), "no reason was given and none is invented");
 		assertNull(commandRow.get("reason_text"));
+		assertEquals("UNCONFIRMED", commandRow.get("outcome"));
+		assertNull(commandRow.get("confirmed_at"));
+	}
+
+	@Test
+	void withoutAMenuAdapterTheClosedListIsAnErrorNeverAnEmptyList() throws Exception {
+		mvc.perform(get("/api/v1/kitchen/products/closed").with(kitchen(UUID.randomUUID()))).andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("MENU_NOT_INTEGRATED")).andExpect(jsonPath("$.retryable").value(false))
+				.andExpect(header().doesNotExist("Retry-After")).andExpect(jsonPath("$.content").doesNotExist())
+				.andExpect(jsonPath("$.totalElements").doesNotExist());
+	}
+
+	@Test
+	void aReopenIsNeverShownAsOpenWithoutAMenuAdapterEither() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID key = UUID.randomUUID();
+
+		mvc.perform(patch("/api/v1/kitchen/products/" + UUID.randomUUID() + "/availability").header("Idempotency-Key", key.toString())
+				.contentType("application/json").content("{\"status\":\"AVAILABLE\"}").with(kitchen(restaurant)).with(csrf()))
+				.andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("MENU_NOT_INTEGRATED"));
+
+		Map<String, Object> commandRow = jdbc.queryForMap(
+				"SELECT * FROM product_availability_commands WHERE restaurant_id = ? AND command_id = ?", restaurant, key);
+		assertEquals("AVAILABLE", commandRow.get("target_status"));
 		assertEquals("UNCONFIRMED", commandRow.get("outcome"));
 		assertNull(commandRow.get("confirmed_at"));
 	}
