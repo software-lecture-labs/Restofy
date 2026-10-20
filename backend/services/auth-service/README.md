@@ -76,6 +76,45 @@ AUTH-02: HTTP giriş, cookie/token/session, iptal/çıkış, hız sınırları v
 AUTH-03: zorunlu ADMIN TOTP, ilk MFA kurulumu, kurtarma ve replay kontrolü.
 AUTH-04: admin parola sıfırlama ve Mail entegrasyonu.
 
+### curl, Postman ve `Origin` kuralı
+
+Durum değiştiren (POST) her istek `CORS_ALLOWED_ORIGINS` listesinde bulunan bir `Origin`
+başlığı ister; başlık yoksa ya da listede değilse yanıt **403**'tür. Bu bilinçli bir savunmadır
+(tarayıcı `Origin`'i her zaman gönderir, bir saldırgan sayfası ise izinli bir değer gönderemez).
+Sonuç olarak curl, Postman ve ileride servisler arası çağrılar da bu uçlarda `Origin` olmadan
+reddedilir. Elle denemek için izinli bir origin ve CSRF çifti gerekir:
+
+```bash
+curl -si -c jar.txt http://localhost:5051/api/v1/auth/csrf           # restofy_csrf cookie'si ve token
+curl -si -b jar.txt -c jar.txt -H 'Origin: http://localhost:5000' \
+  -H "X-CSRF-TOKEN: $(grep restofy_csrf jar.txt | awk '{print $7}')" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"...","password":"..."}' http://localhost:5051/api/v1/auth/login
+```
+
+Servisler arası kimlik bu uçlardan geçmez; o, ayrı bir `Authorization: Service` sözleşmesidir.
+
+### Geliştirme anahtarı `AUTH_MFA_REQUIRED`
+
+Varsayılan `true`'dur. Yerel geliştirmede `false` yapılırsa ADMIN, MFA kurmadan/kod girmeden
+parolayla tam oturum alır. Değer yalnız `dev`/`local`/`test` profilinde **ve** `APP_ENV`
+boş ya da dev/local/test iken kabul edilir; aksi halde Auth `AUTH_MFA_REQUIRED` adını
+belirten bir hatayla başlamaz. Başlangıçta WARN logu yazılır. Karar tek yerde verilir
+(`EnvironmentPolicy`); bir mimari test, profil okumasının başka yerde yapılmasını engeller.
+
+### Ölçek ve işletim notları
+
+- Parola sıfırlama limitleri `pg_advisory_xact_lock` ile **global** serileştirilir: farklı
+  kullanıcıların sıfırlama istekleri bu kısa kilitte sıraya girer. Mevcut yük için sorun
+  değildir; yatay ölçekte darboğaz olabilir. Mail servisindeki iş kabulü de aynıdır.
+  Kilit numaraları `AdvisoryLocks` sınıfında toplanmıştır (servis başına ayrı veritabanı
+  olduğu için servisler arası çakışma olmaz).
+- `MailClient` Mail'e bellek içi kuyrukla, commit sonrası ve **yeniden denemesiz** gönderir;
+  Auth yeniden başlarsa ya da Mail kısa süre kesilirse mesaj kaybolur, kullanıcı yeni kod ister.
+  Bu ödünleşim ve transactional outbox alternatifi ADR-AUTH-001'de kayıtlıdır.
+- Kararların gerekçesi: `docs/decisions/ADR-AUTH-001-mail-gonderimi.md` ve
+  `docs/decisions/ADR-AUTH-002-rate-limit-ve-kilitler.md`.
+
 ## Java 25 ve test
 
 Yeni bir PowerShell'de (yalnız o süreç için, kalıcı Windows ayarı değiştirilmez):
@@ -190,8 +229,16 @@ dışında izin eklenmez. Farklı site deployment'ı ayrıca tasarlanmalıdır.
 Her login ayrı session açar. Refresh 32 rastgele bayttan üretilir; DB yalnız SHA-256
 digest saklar. Tek kullanım/rotation kullanıcı satırı kilidi altında atomiktir.
 Reuse ilgili session ve bütün refresh geçmişini iptal eder; diğer cihazlar etkilenmez.
-İki sekmenin eşzamanlı refresh'i de reuse sayılabilir; frontend sekmeler arası koordinasyon
-sağlamalıdır. Ağda kaybolan rotation cevabı sonrası tekrar giriş gerekebilir.
+Bir refresh token'ın ilk kullanımından sonraki `REFRESH_REUSE_GRACE_SECONDS` (10 sn)
+içinde gelen ikinci istek, aynı istemcinin eşzamanlı yenilemesi (iki sekme) sayılır:
+session iptal edilmez ve istek **200** döner, ama **yeni kimlik bilgisi (cookie) yazılmaz**;
+kazanan isteğin cevabı yeni çifti paylaşılan cookie kabına zaten yazmıştır. Böylece oturum
+başına tek canlı refresh token değişmezi (`uq_refresh_current`) korunur ve çalıntı bir token
+tekrar oynatıldığında yeni token almaz. Pencere ilk kullanımdan ölçülür ve tekrarlarla uzamaz;
+süre dolduktan sonra aynı token reuse sayılır ve oturum iptal edilir. Ödünleşim: çalıntı bir
+token ilk kullanımdan sonraki 10 sn içinde oturumu iptal ettirmez. Frontend yine de sekmeler
+arası tek uçuşlu (single-flight) refresh yapmalıdır. Kazanan isteğin cevabı ağda kaybolursa
+istemci eski token'la kalır ve pencere dolduktan sonraki ilk yenileme tekrar giriş gerektirir.
 
 Session mutlak üst sınırı 604800 sn'dir; refresh bunu uzatmaz. Idle ADMIN/WAITER 900 sn,
 KITCHEN 3600 sn. Pending ADMIN ayrıca 300 sn mutlak sınırla ve iş authority'si olmadan
@@ -201,10 +248,20 @@ kullanıcı etkileşiminde göndermelidir; sunucu insan etkileşimini kriptograf
 `StaffSessionService.deactivate` kullanıcı ve bütün session'ları aynı transaction'da
 kapatır. Doğrudan pasifleştirme de sonraki Auth kontrolünde erişimi reddeder ve iptali tamamlar.
 
-Login limiti normalize hesap başına 15 dakikada 10 denemedir; başarılı denemeler de sayılır.
-En fazla 10000 hesap penceresi tutulur; kapasite dolunca yeni hesaplar 429 alır.
-Bu limit yalnız tek süreç içindir; yeniden başlatmada sıfırlanır. IP/Gateway/distributed
-rate limit ve refresh rate limit bu kapsamda uygulanmadı.
+Login limiti iki katmanlıdır (`LoginRateLimiter`, 15 dakikalık pencere; başarılı denemeler de
+sayılır): normalize hesap + uzak adres başına 10 deneme ve hesap başına toplam 50 deneme.
+Böylece e-postayı bilen biri kendi adresinin bütçesini tüketebilir ama gerçek sahibini başka
+bir adresten kilitleyemez; birçok adrese yayılmış tahmin ise hesap tavanında durur (tavana
+ulaşmak kabul edilen erişilebilirlik ödünleşimidir, bkz. ADR-AUTH-002).
+Bellekte en fazla 10000 pencere tutulur; kapasite dolunca **en eski pencereler silinir**,
+yeni kullanıcı reddedilmez (aksi halde sahte hesap seliyle masum kullanıcılar da 429 alırdı).
+MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama limitleri
+(`PasswordResetLimiter`) ise veritabanı tabanlıdır ve bilerek **kapalı kalır (fail-closed)**:
+6 haneli kodun tahminini sınırladıkları için dolu tabloda yeni kova açılmaz.
+Bellek içi limitler yalnız tek süreç içindir; yeniden başlatmada sıfırlanır ve birden fazla
+Auth örneğinde paylaşılmaz. Gateway/dağıtık rate limit ve refresh rate limit bu kapsamda
+uygulanmadı. Uzak adres `request.getRemoteAddr()` değeridir; Gateway arkasında bu Gateway'in
+adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır (ADR-AUTH-002).
 
 ## AUTH-02 zorunlu ayarlar ve işletim sınırı
 
@@ -212,7 +269,11 @@ Yeni ENV değerleri `AUTH_RESTAURANT_ID`, `AUTH_JWT_PRIVATE_KEY`, `AUTH_CSRF_SEC
 `AUTH_COOKIE_SECURE` olarak application.properties üzerinden varsayılansız beklenir.
 RSA anahtarı Base64 PKCS#8, en az 2048 bit; CSRF sırrı ayrı Base64, en az 32 rastgele bayt
 olmalıdır. Gerçek değerler dosyalara/loga/sohbete yazılmaz. Issuer ve CORS allowlist boş
-olamaz; mevcut TTL anahtarları bu sözleşmede 900/604800 olmalıdır.
+olamaz. `JWT_ACCESS_TTL_SECONDS` 300–3600 sn, `JWT_REFRESH_TTL_SECONDS` 86400–2592000 sn
+(1–30 gün) aralığında olmalıdır; varsayılan geliştirme değerleri 900 ve 604800'dür. Aralık
+dışı değer başlangıçta, ilgili ENV adı belirtilerek reddedilir (değer yazılmaz). Önceki
+"yalnız 900/604800" kısıtı başka bir servisle yapılmış bir anlaşma değildi; ilk tasarımın
+sıkı bir varsayımıydı ve bu aralıkla gevşetildi.
 Secure=false yalnız salt dev/local/test profillerinde kabul edilir; production origin'leri
 HTTPS olmalıdır. Eksik/geçersiz ayarlar uygulamanın başlamasını durdurur.
 
