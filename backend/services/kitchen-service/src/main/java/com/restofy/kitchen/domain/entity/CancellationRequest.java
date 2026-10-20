@@ -55,6 +55,12 @@ public class CancellationRequest implements Persistable<UUID> {
 	@Column(name = "reason_text", updatable = false, length = 500)
 	private String reasonText;
 
+	@Column(name = "product_id", updatable = false)
+	private UUID productId;
+
+	@Column(name = "order_item_id", updatable = false)
+	private UUID orderItemId;
+
 	@Column(name = "requested_by_user_id", nullable = false, updatable = false)
 	private UUID requestedByUserId;
 
@@ -75,7 +81,7 @@ public class CancellationRequest implements Persistable<UUID> {
 
 	/** Everything the client asked for; the restaurant, the user and the time come from the verified caller and the server. */
 	public record NewRequest(UUID restaurantId, UUID orderId, UUID commandId, CancellationReason reasonCode, String reasonText,
-			UUID requestedByUserId, Instant requestedAt) {
+			UUID productId, UUID orderItemId, UUID requestedByUserId, Instant requestedAt) {
 	}
 
 	public static CancellationRequest open(NewRequest data) {
@@ -87,14 +93,18 @@ public class CancellationRequest implements Persistable<UUID> {
 		request.status = CancellationRequestStatus.REQUESTED;
 		request.reasonCode = data.reasonCode();
 		request.reasonText = data.reasonText();
+		request.productId = data.productId();
+		request.orderItemId = data.orderItemId();
 		request.requestedByUserId = data.requestedByUserId();
 		request.requestedAt = data.requestedAt();
 		return request;
 	}
 
-	/** Is this exactly the request that is being sent again (same order, reason, text and user)? */
-	public boolean isSameRequest(UUID orderId, CancellationReason reasonCode, String reasonText, UUID requestedByUserId) {
+	/** Is this exactly the request that is being sent again (same order, reason, text, stock reference and user)? */
+	public boolean isSameRequest(UUID orderId, CancellationReason reasonCode, String reasonText, UUID productId,
+			UUID orderItemId, UUID requestedByUserId) {
 		return this.orderId.equals(orderId) && this.reasonCode == reasonCode && Objects.equals(this.reasonText, reasonText)
+				&& Objects.equals(this.productId, productId) && Objects.equals(this.orderItemId, orderItemId)
 				&& this.requestedByUserId.equals(requestedByUserId);
 	}
 

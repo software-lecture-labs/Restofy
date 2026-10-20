@@ -4,6 +4,7 @@ import com.restofy.kitchen.application.service.ProductAvailabilityException;
 import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
+import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import com.restofy.kitchen.infrastructure.config.MenuIntegrationConfiguration;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -34,6 +35,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String CONCURRENT_MODIFICATION = "CONCURRENT_MODIFICATION";
 	public static final String ORDER_BUSY = "ORDER_BUSY";
 	public static final String CANCELLATION_ALREADY_REQUESTED = "CANCELLATION_ALREADY_REQUESTED";
+	public static final String INVALID_STOCK_REFERENCE = "INVALID_STOCK_REFERENCE";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
 	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
 
@@ -60,6 +62,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	ProblemDetail commandIdConflict(CommandIdConflictException e) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 		problem.setProperty(CODE, COMMAND_ID_CONFLICT);
+		problem.setProperty(RETRYABLE, false);
+		return problem;
+	}
+
+	/** The stock reference of a cancellation request does not fit the reason or this order. Nothing was stored. */
+	@ExceptionHandler(InvalidStockReferenceException.class)
+	ProblemDetail invalidStockReference(InvalidStockReferenceException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+		problem.setProperty(CODE, INVALID_STOCK_REFERENCE);
 		problem.setProperty(RETRYABLE, false);
 		return problem;
 	}

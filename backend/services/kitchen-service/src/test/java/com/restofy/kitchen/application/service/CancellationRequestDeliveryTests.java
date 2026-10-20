@@ -45,8 +45,12 @@ class CancellationRequestDeliveryTests {
 		UUID restaurant = UUID.randomUUID();
 		UUID orderId = UUID.randomUUID();
 		ingest.ingest(simple(restaurant, orderId));
+		UUID productId = jdbc.queryForObject("""
+				SELECT i.product_id FROM kitchen_order_items i JOIN kitchen_orders o ON o.id = i.kitchen_order_id
+				WHERE o.restaurant_id = ? AND o.order_id = ? LIMIT 1
+				""", UUID.class, restaurant, orderId);
 		var requested = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OUT_OF_STOCK, "iç not"));
+				new RequestOrderCancellationRequest(CancellationReason.OUT_OF_STOCK, "iç not", productId, null));
 		UUID deliveryId = jdbc.queryForObject("""
 				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
 				WHERE d.restaurant_id = ? AND e.event_type = 'KitchenCancellationRequested'

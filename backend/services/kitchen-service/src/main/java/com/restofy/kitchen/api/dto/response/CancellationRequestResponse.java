@@ -20,6 +20,8 @@ public record CancellationRequestResponse(
 		CancellationRequestStatus status,
 		CancellationReason reasonCode,
 		String reasonText,
+		UUID productId,
+		UUID orderItemId,
 		Instant requestedAt,
 		UUID requestedByUserId,
 		Instant decidedAt,
@@ -27,7 +29,7 @@ public record CancellationRequestResponse(
 
 	public static CancellationRequestResponse from(CancellationRequest request) {
 		return new CancellationRequestResponse(request.getId(), request.getOrderId(), request.getStatus(), request.getReasonCode(),
-				request.getReasonText(), request.getRequestedAt(), request.getRequestedByUserId(), request.getDecidedAt(),
+				request.getReasonText(), request.getProductId(), request.getOrderItemId(), request.getRequestedAt(), request.getRequestedByUserId(), request.getDecidedAt(),
 				request.getDecisionReasonCode());
 	}
 }

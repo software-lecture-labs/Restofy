@@ -24,6 +24,7 @@ public record KitchenCancellationRequestedMessage(
 	public static final String TYPE = "KitchenCancellationRequested";
 	public static final int SCHEMA_VERSION = 1;
 
-	public record Payload(UUID orderId, String reasonCode) {
+	/** {@code productId} / {@code orderItemId} are only set for an OUT_OF_STOCK request (the line that ran out). */
+	public record Payload(UUID orderId, String reasonCode, UUID productId, UUID orderItemId) {
 	}
 }

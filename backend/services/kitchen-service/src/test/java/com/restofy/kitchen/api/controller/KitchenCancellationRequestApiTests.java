@@ -34,7 +34,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -78,6 +77,20 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = preparingOrder(restaurant, actor);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
 		return orderId;
+	}
+
+	/** The product of the order's line, a product the kitchen really received (needed by an OUT_OF_STOCK request). */
+	private UUID productOf(UUID restaurant, UUID orderId) {
+		return jdbc.queryForObject("""
+				SELECT i.product_id FROM kitchen_order_items i JOIN kitchen_orders o ON o.id = i.kitchen_order_id
+				WHERE o.restaurant_id = ? AND o.order_id = ? LIMIT 1
+				""", UUID.class, restaurant, orderId);
+	}
+
+	/** A body for any reason; a stock (OUT_OF_STOCK) reason carries the order's own product. */
+	private String bodyFor(UUID restaurant, UUID orderId, String reason, String text) {
+		String json = body(reason, text);
+		return "OUT_OF_STOCK".equals(reason) ? json.replace("}", ",\"productId\":\"" + productOf(restaurant, orderId) + "\"}") : json;
 	}
 
 	private static String path(UUID orderId) {
@@ -181,7 +194,7 @@ class KitchenCancellationRequestApiTests {
 		UUID restaurant = UUID.randomUUID();
 		for (String reason : List.of("OUT_OF_STOCK", "CUSTOMER_REQUEST", "KITCHEN_ERROR", "OTHER")) {
 			UUID orderId = order(restaurant);
-			send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), body(reason, "   ")).andExpect(status().isAccepted())
+			send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), bodyFor(restaurant, orderId, reason, "   ")).andExpect(status().isAccepted())
 					.andExpect(jsonPath("$.reasonCode").value(reason)).andExpect(jsonPath("$.reasonText").value((Object) null));
 		}
 		assertEquals(4, requests(restaurant));
@@ -196,7 +209,7 @@ class KitchenCancellationRequestApiTests {
 		UUID key = UUID.randomUUID();
 
 		String requestId = com.jayway.jsonpath.JsonPath.read(send(restaurant, UUID.randomUUID(), orderId, key,
-				body("OUT_OF_STOCK", "Tavuk bitti, bu not olaya girmez")).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString(),
+				bodyFor(restaurant, orderId, "OUT_OF_STOCK", "Tavuk bitti, bu not olaya girmez")).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString(),
 				"$.requestId");
 
 		Map<String, Object> event = jdbc.queryForMap("SELECT * FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenCancellationRequested'", restaurant);
@@ -205,7 +218,7 @@ class KitchenCancellationRequestApiTests {
 		assertEquals(key, event.get("causation_id"));
 		assertEquals(1, event.get("schema_version"));
 		String payload = event.get("payload").toString();
-		assertTrue(payload.contains(orderId.toString()) && payload.contains("OUT_OF_STOCK"), payload);
+		assertTrue(payload.contains(orderId.toString()) && payload.contains("OUT_OF_STOCK") && payload.contains(productOf(restaurant, orderId).toString()), payload);
 		assertFalse(payload.contains("Tavuk") || payload.contains("not olaya"), "the free text never leaves Kitchen: " + payload);
 		Map<String, Object> delivery = jdbc.queryForMap("SELECT destination, status, attempt_count FROM outbox_deliveries WHERE restaurant_id = ? AND event_id = ?",
 				restaurant, event.get("id"));
@@ -366,7 +379,7 @@ class KitchenCancellationRequestApiTests {
 				.with(csrf())).andExpect(status().isUnauthorized());
 		mvc.perform(ask(orderId, UUID.randomUUID(), json).with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());
 		mvc.perform(ask(orderId, UUID.randomUUID(), json).with(kitchen(restaurant))).andExpect(status().isForbidden());
-		for (var request : List.of(get(path(orderId)), put(path(orderId)), patch(path(orderId)), delete(path(orderId)))) {
+		for (var request : List.of(put(path(orderId)), patch(path(orderId)), delete(path(orderId)))) {
 			mvc.perform(request.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().is4xxClientError());
 		}
 		// Another restaurant, or an order that does not exist, looks identical: not found.

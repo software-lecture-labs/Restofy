@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -45,5 +46,15 @@ public class KitchenCancellationController {
 				IdempotencyKey.parse(commandIdHeader), orderId, body);
 		return ResponseEntity.status(requested.created() ? HttpStatus.ACCEPTED : HttpStatus.OK)
 				.body(CancellationRequestResponse.from(requested.request()));
+	}
+
+	/**
+	 * The order's cancellation request history, newest first. KITCHEN and ADMIN may read. Every entry is a REQUEST with
+	 * its own state (REQUESTED / APPROVED / REJECTED); only an APPROVED one, decided by the Order service, means the
+	 * order is cancelled, which is why this list and the order's own status are shown side by side, never merged.
+	 */
+	@GetMapping("/{orderId}/cancellation-requests")
+	public List<CancellationRequestResponse> history(@AuthenticationPrincipal KitchenPrincipal principal, @PathVariable UUID orderId) {
+		return cancellations.history(principal.restaurantId(), orderId).stream().map(CancellationRequestResponse::from).toList();
 	}
 }
