@@ -111,7 +111,9 @@ belirten bir hatayla başlamaz. Başlangıçta WARN logu yazılır. Karar tek ye
   olduğu için servisler arası çakışma olmaz).
 - `MailClient` Mail'e bellek içi kuyrukla, commit sonrası ve **yeniden denemesiz** gönderir;
   Auth yeniden başlarsa ya da Mail kısa süre kesilirse mesaj kaybolur, kullanıcı yeni kod ister.
-  Bu ödünleşimin alternatifi transactional outbox'tır; ölçek ihtiyacı doğarsa ayrıca değerlendirilir.
+  Bu ödünleşim ve transactional outbox alternatifi ADR-AUTH-001'de kayıtlıdır.
+- Kararların gerekçesi: `docs/decisions/ADR-AUTH-001-mail-gonderimi.md` ve
+  `docs/decisions/ADR-AUTH-002-rate-limit-ve-kilitler.md`.
 
 ## Java 25 ve test
 
@@ -250,7 +252,7 @@ Login limiti iki katmanlıdır (`LoginRateLimiter`, 15 dakikalık pencere; başa
 sayılır): normalize hesap + uzak adres başına 10 deneme ve hesap başına toplam 50 deneme.
 Böylece e-postayı bilen biri kendi adresinin bütçesini tüketebilir ama gerçek sahibini başka
 bir adresten kilitleyemez; birçok adrese yayılmış tahmin ise hesap tavanında durur (tavana
-ulaşmak kabul edilen erişilebilirlik ödünleşimidir).
+ulaşmak kabul edilen erişilebilirlik ödünleşimidir, bkz. ADR-AUTH-002).
 Bellekte en fazla 10000 pencere tutulur; kapasite dolunca **en eski pencereler silinir**,
 yeni kullanıcı reddedilmez (aksi halde sahte hesap seliyle masum kullanıcılar da 429 alırdı).
 MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama limitleri
@@ -259,7 +261,7 @@ MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama
 Bellek içi limitler yalnız tek süreç içindir; yeniden başlatmada sıfırlanır ve birden fazla
 Auth örneğinde paylaşılmaz. Gateway/dağıtık rate limit ve refresh rate limit bu kapsamda
 uygulanmadı. Uzak adres `request.getRemoteAddr()` değeridir; Gateway arkasında bu Gateway'in
-adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır.
+adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır (ADR-AUTH-002).
 
 ## AUTH-02 zorunlu ayarlar ve işletim sınırı
 
@@ -275,9 +277,9 @@ sıkı bir varsayımıydı ve bu aralıkla gevşetildi.
 Secure=false yalnız salt dev/local/test profillerinde kabul edilir; production origin'leri
 HTTPS olmalıdır. Eksik/geçersiz ayarlar uygulamanın başlamasını durdurur.
 
-Kök `.env.example` ve Compose bu görevde değiştirilmedi. Alper onayından sonra yeni dört
-anahtarın şablonu ve yalnız Auth container'ına aktarımı hazırlanmalıdır; mevcut container
-henüz bu kodun çalıştığını kanıtlamaz. Testler kendi JVM-içi anahtarlarını üretir.
+Kök `.env.example` ve `docker-compose.yml` bu anahtarlarla güncellenmiştir (Alper onayıyla);
+anahtarlar yalnız Auth container'ına aktarılır. Gerçek değerler Git dışındaki ENV
+dosyalarında tutulur. Testler kendi JVM-içi anahtarlarını üretir.
 V2 yalnız `user_sessions` ve `refresh_tokens` ekler. Canlı migration/rebuild ayrı onay
 gerektirir. Audit tablosu, session listesi/silme API'si ve frontend ekranları kapsam dışındadır.
 
@@ -372,6 +374,6 @@ Hesap kilidi mevcut doğrulanmış diğer cihazların yetkisini kendiliğinden k
 - V3 uygulanmış V1/V2'yi değiştirmez; iki MFA tablosu ekler ve ADMIN'in iki auth durumunu
   kabul eden CHECK oluşturur. Migration mevcut pending session'ları yükseltmez veya
   sürelerini yenilemez. Tam ADMIN satırları varken eski V2 CHECK'ine geri dönülemez.
-- Kök ENV şablonu/Compose değişikliği Alper onayı bekler; bu teslim onları değiştirmez.
+- Kök ENV şablonu ve Compose, MFA anahtarı için güncellenmiştir (Alper onayıyla).
   Gerçek MFA anahtarını işletici hazırlamalıdır. Canlı V3/rebuild ve dev ADMIN enrollment
   ayrıca izin gerektirir. DB/migration/HTTP entegrasyon testleri Docker ile doğrulanmalıdır.
