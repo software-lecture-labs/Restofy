@@ -32,6 +32,9 @@
 # 2. AI AGENTS & AI DEVELOPMENT TOOLS
 # ============================================================
 
+**/AGENTS.md
+**/CLAUDE.md
+
 **/.agents/
 **/.claude/
 **/.codex/
