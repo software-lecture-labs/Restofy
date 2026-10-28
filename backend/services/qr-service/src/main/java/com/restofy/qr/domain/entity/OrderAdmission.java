@@ -5,12 +5,15 @@ import com.restofy.qr.domain.enums.OrderAdmissionStatus;
 import com.restofy.qr.domain.exception.OrderAdmissionConflictException;
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 
 @Entity
 @Table(name = "order_admissions")
 public class OrderAdmission {
+    public static final Duration MAX_RESERVATION_WINDOW = Duration.ofMinutes(1);
+
     @Id private UUID id;
     @Column(name = "restaurant_id", nullable = false, updatable = false) private UUID restaurantId;
     @Column(name = "table_session_id", nullable = false, updatable = false) private UUID tableSessionId;
@@ -40,7 +43,7 @@ public class OrderAdmission {
         requestDigest = digest;
         requestedAt = IdleWindow.storedTime(Objects.requireNonNull(now));
         expiresAt = IdleWindow.storedTime(Objects.requireNonNull(deadline));
-        if (!expiresAt.isAfter(requestedAt) || expiresAt.isAfter(requestedAt.plusSeconds(60))) {
+        if (!expiresAt.isAfter(requestedAt) || expiresAt.isAfter(requestedAt.plus(MAX_RESERVATION_WINDOW))) {
             throw new IllegalArgumentException("Invalid admission deadline.");
         }
         // The admission ID is never reused. Version 1 fences this immutable command.

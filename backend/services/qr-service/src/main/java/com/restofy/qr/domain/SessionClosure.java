@@ -37,6 +37,7 @@ public final class SessionClosure {
 
     /** Current terminal view, not an immutable event ACK or downstream delivery receipt. */
     public record Result(UUID sessionId, UUID tableId, TableSessionStatus status, long version,
-                         Instant closingAt, Instant closedAt, UUID closedByUserId, TableOperationalStatus tableStatus, long tableVersion) { }
+                         Instant closingAt, Instant closedAt, UUID closedByUserId,
+                         TableOperationalStatus tableStatus, long tableVersion) { }
     public record Prepared(Staff staff, Snapshot snapshot, Result alreadyClosed) { }
 }

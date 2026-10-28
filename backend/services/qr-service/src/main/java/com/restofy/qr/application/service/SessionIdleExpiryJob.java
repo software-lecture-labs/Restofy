@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class SessionIdleExpiryJob {
     private static final Logger LOG = LoggerFactory.getLogger(SessionIdleExpiryJob.class);
     private static final int BATCH_SIZE = 100;
+    private static final long SWEEP_DELAY_MILLIS = 60_000;
     private final TableSessionRepository sessions;
     private final SessionIdleExpiryService expiry;
     private final Clock clock;
@@ -30,7 +31,7 @@ public class SessionIdleExpiryJob {
     public record BatchResult(int candidates, int changed, int unknownOrders, int ordersPresent, int failed) {
     }
 
-    @Scheduled(initialDelay = 60_000, fixedDelay = 60_000)
+    @Scheduled(initialDelay = SWEEP_DELAY_MILLIS, fixedDelay = SWEEP_DELAY_MILLIS)
     public synchronized BatchResult runOnce() {
         var batch = sessions.findIdleCandidates(TableSessionStatus.OPEN, GuestSessionStatus.ACTIVE,
                 IdleWindow.storedTime(clock.instant()), after, PageRequest.of(0, BATCH_SIZE));
@@ -56,7 +57,8 @@ public class SessionIdleExpiryJob {
         // Keyset continuation prevents a full first batch of UNKNOWN rows from
         // starving later candidates. A restart simply scans again, idempotently.
         after = batch.size() == BATCH_SIZE ? batch.getLast().getId() : null;
-        LOG.debug("Idle sweep candidates={}, changed={}, unknown={}, present={}, failed={}", batch.size(), changed, unknown, present, failed);
+        LOG.debug("Idle sweep candidates={}, changed={}, unknown={}, present={}, failed={}",
+                batch.size(), changed, unknown, present, failed);
         return new BatchResult(batch.size(), changed, unknown, present, failed);
     }
 }

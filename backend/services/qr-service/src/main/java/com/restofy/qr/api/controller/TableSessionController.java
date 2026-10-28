@@ -23,7 +23,13 @@ public class TableSessionController {
 
     @PostMapping("/open")
     @Operation(summary = "Create a distinct guest in the table's new or existing main session",
-            description = "Only qrToken is accepted. Every accepted scan creates a guest (201), including the first. Guest token is returned once; only its digest is stored. Scan renews the main idle deadline, not existing guests. Admission and verified business/financial outcomes determine main and owner idle protection; response orderProtected flags distinguish it from baseline idle timestamps. Complete safe cancellation coverage can restart idle windows. COMPLETED does not close the table; terminal/closing main is never revived. HTTP stays closed; real Order/Payment/Auth/browser integration is pending.")
+            description = "Only qrToken is accepted. Every accepted scan creates a guest (201), including the first. Guest " +
+                    "token is returned once; only its digest is stored. Scan renews the main idle deadline, not existing " +
+                    "guests. Admission and verified business/financial outcomes determine main and owner idle " +
+                    "protection; response orderProtected flags distinguish it from baseline idle timestamps. Complete " +
+                    "safe cancellation coverage can restart idle windows. COMPLETED does not close the table; " +
+                    "terminal/closing main is never revived. HTTP stays closed; real Order/Payment/Auth/browser " +
+                    "integration is pending.")
     public ResponseEntity<OpenedGuestSessionResponse> open(@Valid @RequestBody ValidateQrCodeRequest request) {
         var result = service.open(request.qrToken());
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(result);

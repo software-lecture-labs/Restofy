@@ -25,7 +25,8 @@ public class QrValidationController {
 
     @PostMapping
     @Operation(summary = "Resolve an active QR credential to its server-owned restaurant and table",
-            description = "Body contains only qrToken. Returns a lookup snapshot, never staff/guest authorization. Invalid/unavailable QR: 404. HTTP remains fail closed.")
+            description = "Body contains only qrToken. Returns a lookup snapshot, never staff/guest authorization. " +
+                    "Invalid/unavailable QR: 404. HTTP remains fail closed.")
     public ResponseEntity<ValidatedQrCodeResponse> validate(@Valid @RequestBody ValidateQrCodeRequest request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(service.validate(request.qrToken()));

@@ -29,7 +29,8 @@ public class QrCodeReadController {
 
     @GetMapping
     @Operation(summary = "List QR metadata for a table in the verified restaurant",
-            description = "Use after reload or a lost creation/rotation response. Newest first; page 0..10000, size 1..100. No tokens or storage payloads.")
+            description = "Use after reload or a lost creation/rotation response. Newest first; page 0..10000, size 1..100. No " +
+                    "tokens or storage payloads.")
     public ResponseEntity<QrCodePageResponse> list(@PathVariable UUID tableId,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(queries.list(tableId, page, size));

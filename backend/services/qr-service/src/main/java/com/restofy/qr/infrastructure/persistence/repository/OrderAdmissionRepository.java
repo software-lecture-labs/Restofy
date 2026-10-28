@@ -13,7 +13,8 @@ import org.springframework.data.jpa.repository.Query;
 public interface OrderAdmissionRepository extends JpaRepository<OrderAdmission, UUID> {
     Optional<OrderAdmission> findByRestaurantIdAndGuestSessionIdAndIdempotencyKey(UUID restaurantId, UUID guestSessionId, String key);
     Optional<OrderAdmission> findByRestaurantIdAndId(UUID restaurantId, UUID id);
-    List<OrderAdmission> findByRestaurantIdAndTableSessionIdAndStatusIn(UUID restaurantId, UUID sessionId, Collection<OrderAdmissionStatus> statuses);
+    List<OrderAdmission> findByRestaurantIdAndTableSessionIdAndStatusIn(UUID restaurantId, UUID sessionId,
+                                                                     Collection<OrderAdmissionStatus> statuses);
 
     @Query("select distinct a.guestSessionId from OrderAdmission a where a.restaurantId=:restaurantId and a.tableSessionId=:sessionId "
             + "and a.status=com.restofy.qr.domain.enums.OrderAdmissionStatus.CONFIRMED and a.confirmedAt<=:now "

@@ -18,12 +18,16 @@ public class CancellationIdleCoordinator {
     private final OrderBusinessStateRepository states;
     private final GuestSessionRepository guests;
 
-    public CancellationIdleCoordinator(OrderAdmissionRepository admissions, OrderBusinessStateRepository states, GuestSessionRepository guests) {
-        this.admissions = admissions; this.states = states; this.guests = guests;
+    public CancellationIdleCoordinator(OrderAdmissionRepository admissions, OrderBusinessStateRepository states,
+                                       GuestSessionRepository guests) {
+        this.admissions = admissions;
+        this.states = states;
+        this.guests = guests;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void reconcile(GuestSessionContextReader.LockedSession parent, SessionOrderProtection.Snapshot before, Evidence evidence, Instant now) {
+    public void reconcile(GuestSessionContextReader.LockedSession parent, SessionOrderProtection.Snapshot before,
+                          Evidence evidence, Instant now) {
         var scope = evidence.scope();
         if (!scope.complete()) { return; }
         var main = parent.main();
@@ -32,7 +36,8 @@ public class CancellationIdleCoordinator {
         var byId = states.findByRestaurantIdAndTableSessionId(main.getRestaurantId(), main.getId()).stream()
                 .collect(Collectors.toMap(OrderBusinessState::getAdmissionId, state -> state));
         verifyScope(main, current, byId, scope);
-        var confirmed = current.stream().filter(a -> a.getStatus() == OrderAdmissionStatus.CONFIRMED).map(a -> byId.get(a.getId())).toList();
+        var confirmed = current.stream().filter(a -> a.getStatus() == OrderAdmissionStatus.CONFIRMED)
+                .map(a -> byId.get(a.getId())).toList();
         var pendingOwners = current.stream().filter(a -> a.getStatus() == OrderAdmissionStatus.PENDING)
                 .map(OrderAdmission::getGuestSessionId).collect(Collectors.toSet());
         if (!pendingOwners.isEmpty()) {
@@ -62,7 +67,8 @@ public class CancellationIdleCoordinator {
                 actual.put(admission.getId(), state.getSourceSequence());
             }
         }
-        if (scope.revision() <= main.getOrderScopeRevision() || !scope.confirmedSequences().equals(actual) || !scope.pendingIds().equals(pending)) {
+        if (scope.revision() <= main.getOrderScopeRevision() || !scope.confirmedSequences().equals(actual)
+                || !scope.pendingIds().equals(pending)) {
             throw new OrderOutcomeConflictException();
         }
     }
@@ -77,7 +83,9 @@ public class CancellationIdleCoordinator {
             boolean eligible = !pendingOwners.contains(entry.getKey()) && owned.stream().allMatch(OrderBusinessState::clearCancellation);
             if (eligible && owned.stream().anyMatch(state -> state.getIdleReleasedAt() == null)) {
                 var guest = activeById.get(entry.getKey());
-                if (guest != null && canRestart) { guest.restartIdleAfterCancellation(lastCancellation(owned), now, before.protectsGuest(guest.getId())); }
+                if (guest != null && canRestart) {
+                    guest.restartIdleAfterCancellation(lastCancellation(owned), now, before.protectsGuest(guest.getId()));
+                }
                 owned.forEach(state -> state.releaseIdle(now));
                 released = true;
             }
@@ -94,6 +102,7 @@ public class CancellationIdleCoordinator {
     }
 
     private static Instant lastCancellation(List<OrderBusinessState> states) {
-        return states.stream().map(OrderBusinessState::getCancelledAt).max(Instant::compareTo).orElseThrow(OrderOutcomeConflictException::new);
+        return states.stream().map(OrderBusinessState::getCancelledAt).max(Instant::compareTo)
+                .orElseThrow(OrderOutcomeConflictException::new);
     }
 }

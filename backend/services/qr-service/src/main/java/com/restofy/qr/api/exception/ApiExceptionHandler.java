@@ -1,6 +1,8 @@
 package com.restofy.qr.api.exception;
 
 import com.restofy.qr.domain.exception.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.*;
@@ -13,12 +15,15 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+    private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler({QrImageUnavailableException.class, SessionClosureUnavailableException.class})
     ProblemDetail unavailable(RuntimeException exception) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
     }
 
-    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class, InvalidQrCodeException.class, InvalidGuestSessionException.class})
+    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class,
+            InvalidQrCodeException.class, InvalidGuestSessionException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage());
     }
@@ -28,7 +33,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "The operation conflicts with the current data. Reload and retry.");
     }
 
-    @ExceptionHandler({QrCodeConflictException.class, TableSessionConflictException.class, OrderAdmissionConflictException.class, OrderOutcomeConflictException.class, SessionClosureConflictException.class})
+    @ExceptionHandler({QrCodeConflictException.class, TableSessionConflictException.class, OrderAdmissionConflictException.class,
+            OrderOutcomeConflictException.class, SessionClosureConflictException.class})
     ProblemDetail qrConflict(RuntimeException exception) {
         return problem(HttpStatus.CONFLICT, exception.getMessage());
     }
@@ -50,6 +56,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ProblemDetail unexpected(Exception exception) {
+        // Exception messages, causes and stack traces can contain credentials or SQL.
+        LOG.error("event=QR_UNEXPECTED_ERROR type={}", exception.getClass().getName());
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "The request could not be completed.");
     }
 

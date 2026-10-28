@@ -19,7 +19,9 @@ public class OrderBusinessEvent {
     @Column(name = "source_sequence", nullable = false, updatable = false) private long sourceSequence;
     @Column(name = "payload_digest", nullable = false, updatable = false, length = 64) private String payloadDigest;
     @Enumerated(EnumType.STRING) @Column(nullable = false, updatable = false, length = 30) private OrderBusinessStatus status;
-    @Enumerated(EnumType.STRING) @Column(name = "financial_outcome", nullable = false, updatable = false, length = 32) private FinancialOutcome financialOutcome;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "financial_outcome", nullable = false, updatable = false, length = 32)
+    private FinancialOutcome financialOutcome;
     @Column(name = "reconciliation_required", nullable = false, updatable = false) private boolean reconciliationRequired;
     @Column(name = "applied_version", nullable = false, updatable = false) private long appliedVersion;
     @Column(name = "occurred_at", nullable = false, updatable = false) private Instant occurredAt;

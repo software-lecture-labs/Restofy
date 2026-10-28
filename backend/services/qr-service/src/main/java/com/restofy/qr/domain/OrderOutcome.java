@@ -15,8 +15,12 @@ public final class OrderOutcome {
     public record Command(UUID restaurantId, UUID admissionId, UUID eventId, long sequence, long expectedVersion,
                           OrderBusinessStatus status, Instant occurredAt, UUID evidenceId) {
         public Command {
-            Objects.requireNonNull(restaurantId); Objects.requireNonNull(admissionId); Objects.requireNonNull(eventId);
-            Objects.requireNonNull(status); Objects.requireNonNull(occurredAt); Objects.requireNonNull(evidenceId);
+            Objects.requireNonNull(restaurantId);
+            Objects.requireNonNull(admissionId);
+            Objects.requireNonNull(eventId);
+            Objects.requireNonNull(status);
+            Objects.requireNonNull(occurredAt);
+            Objects.requireNonNull(evidenceId);
             if (sequence < 1 || expectedVersion < 0) { throw new IllegalArgumentException("Invalid outcome revision."); }
         }
     }
@@ -26,7 +30,8 @@ public final class OrderOutcome {
      */
     public record Scope(long revision, Map<UUID, Long> confirmedSequences, Set<UUID> pendingIds, boolean complete) {
         public Scope {
-            confirmedSequences = Map.copyOf(confirmedSequences); pendingIds = Set.copyOf(pendingIds);
+            confirmedSequences = Map.copyOf(confirmedSequences);
+            pendingIds = Set.copyOf(pendingIds);
             if (revision < 0 || (complete && revision == 0) || confirmedSequences.values().stream().anyMatch(value -> value < 0)) {
                 throw new IllegalArgumentException("Invalid outcome scope.");
             }
@@ -36,8 +41,11 @@ public final class OrderOutcome {
 
     public record Evidence(UUID verifiedRestaurantId, UUID orderId, Command command, FinancialOutcome finance, Scope scope) {
         public Evidence {
-            Objects.requireNonNull(verifiedRestaurantId); Objects.requireNonNull(orderId); Objects.requireNonNull(command);
-            Objects.requireNonNull(finance); Objects.requireNonNull(scope);
+            Objects.requireNonNull(verifiedRestaurantId);
+            Objects.requireNonNull(orderId);
+            Objects.requireNonNull(command);
+            Objects.requireNonNull(finance);
+            Objects.requireNonNull(scope);
         }
         public String digest() {
             String confirmed = scope.confirmedSequences().entrySet().stream().sorted(Map.Entry.comparingByKey())
@@ -48,8 +56,11 @@ public final class OrderOutcome {
                     command.status().name(), command.occurredAt().toString(), command.evidenceId().toString(),
                     verifiedRestaurantId.toString(), orderId.toString(), finance.name(), Long.toString(scope.revision()),
                     Boolean.toString(scope.complete()), confirmed, pending);
-            try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8))); }
-            catch (NoSuchAlgorithmException exception) { throw new IllegalStateException("SHA-256 is unavailable.", exception); }
+            try {
+                return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
+            } catch (NoSuchAlgorithmException exception) {
+                throw new IllegalStateException("SHA-256 is unavailable.", exception);
+            }
         }
     }
 

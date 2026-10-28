@@ -1,5 +1,7 @@
 package com.restofy.qr.api.controller;
 
+import com.restofy.qr.domain.SessionClosure.Result;
+
 import com.restofy.qr.api.dto.request.SessionLifecycleRequest;
 import com.restofy.qr.api.dto.response.SessionLifecycleResponse;
 import com.restofy.qr.application.service.TableSessionClosureService;
@@ -19,19 +21,27 @@ public class TableSessionLifecycleController {
 
     @PostMapping("/close")
     @Operation(summary = "Close a settled or safely cancelled session with staff approval",
-            description = "Body version is the current main session version. Full verified Order/Payment coverage is required, including no pending admissions or uncertain funds. Payment alone never closes. Main CLOSED, active guests ENDED and table CLEANING commit atomically. Same closed target replay returns the current view without new effects. No client tenant/role/payment claims are trusted; HTTP remains closed.")
-    public ResponseEntity<SessionLifecycleResponse> close(@PathVariable UUID sessionId, @Valid @RequestBody SessionLifecycleRequest request) {
+            description = "Body version is the current main session version. Full verified Order/Payment coverage is required, " +
+                    "including no pending admissions or uncertain funds. Payment alone never closes. Main CLOSED, active " +
+                    "guests ENDED and table CLEANING commit atomically. Same closed target replay returns the current " +
+                    "view without new effects. No client tenant/role/payment claims are trusted; HTTP remains closed.")
+    public ResponseEntity<SessionLifecycleResponse> close(@PathVariable UUID sessionId,
+                                                          @Valid @RequestBody SessionLifecycleRequest request) {
         return response(service.close(sessionId, request.version()));
     }
 
     @PostMapping("/cleaned")
     @Operation(summary = "Mark a closed session's table cleaned and available",
-            description = "Body version is the current TABLE version. Verified same-restaurant WAITER/ADMIN approval, CLOSED main and no later/live session are required. CLEANING becomes AVAILABLE; an already available target is a no-op. Stale mutation returns 409. This does not reopen old guests or alter isActive. HTTP remains closed.")
-    public ResponseEntity<SessionLifecycleResponse> cleaned(@PathVariable UUID sessionId, @Valid @RequestBody SessionLifecycleRequest request) {
+            description = "Body version is the current TABLE version. Verified same-restaurant WAITER/ADMIN approval, CLOSED " +
+                    "main and no later/live session are required. CLEANING becomes AVAILABLE; an already available " +
+                    "target is a no-op. Stale mutation returns 409. This does not reopen old guests or alter isActive. " +
+                    "HTTP remains closed.")
+    public ResponseEntity<SessionLifecycleResponse> cleaned(@PathVariable UUID sessionId,
+                                                            @Valid @RequestBody SessionLifecycleRequest request) {
         return response(service.cleaned(sessionId, request.version()));
     }
 
-    private static ResponseEntity<SessionLifecycleResponse> response(com.restofy.qr.domain.SessionClosure.Result result) {
+    private static ResponseEntity<SessionLifecycleResponse> response(Result result) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(SessionLifecycleResponse.from(result));
     }
 }

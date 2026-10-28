@@ -42,9 +42,7 @@ public class QrCodeQueryService {
 
     public QrCodePageResponse list(UUID tableId, int page, int size) {
         UUID restaurantId = access.requireRestaurantId();
-        if (page < 0 || page > 10000 || size < 1 || size > 100) {
-            throw new IllegalArgumentException("Page must be 0..10000 and size must be 1..100.");
-        }
+        PageLimits.validate(page, size);
         tables.findByRestaurantIdAndId(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
         var result = codes.findByRestaurantIdAndTableId(restaurantId, tableId,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "issuedAt", "id")));

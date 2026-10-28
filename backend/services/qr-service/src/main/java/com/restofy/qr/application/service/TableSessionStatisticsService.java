@@ -12,6 +12,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -24,8 +26,9 @@ public class TableSessionStatisticsService {
     private final Clock clock;
     private final SessionOrderProtection protection;
 
-    public TableSessionStatisticsService(TableManagementAccess access, DiningTableRepository tables, TableSessionRepository sessions,
-                                          GuestSessionRepository guests, QrScanEventRepository scans, Clock clock, SessionOrderProtection protection) {
+    public TableSessionStatisticsService(TableManagementAccess access, DiningTableRepository tables,
+                                          TableSessionRepository sessions, GuestSessionRepository guests,
+                                          QrScanEventRepository scans, Clock clock, SessionOrderProtection protection) {
         this.access = access;
         this.tables = tables;
         this.sessions = sessions;
@@ -35,12 +38,12 @@ public class TableSessionStatisticsService {
         this.protection = protection;
     }
 
-    @Transactional
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, propagation = Propagation.REQUIRES_NEW)
     public TableSessionStatisticsResponse get(UUID tableId) {
         UUID restaurantId = access.requireRestaurantId();
-        // The scan writer uses this same parent lock, so no partial guest/event
-        // transaction can be observed between the three aggregate queries.
-        var table = tables.findForQrManagement(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
+        // All aggregates share one PostgreSQL MVCC snapshot without blocking writers.
+        // A separate transaction preserves this guarantee even inside a caller's transaction.
+        var table = tables.findByRestaurantIdAndId(restaurantId, tableId).orElseThrow(TableNotFoundException::new);
         var now = clock.instant();
         var live = sessions.findByRestaurantIdAndTableIdAndStatusIn(restaurantId, tableId,
                 List.of(TableSessionStatus.OPEN, TableSessionStatus.CLOSING));
@@ -52,8 +55,10 @@ public class TableSessionStatisticsService {
         // Stored timestamptz values have microsecond precision. Floor the cutoff
         // so JDBC cannot round a just-before-expiry Instant up to the expiry itself.
         var held = protection.snapshot(restaurantId, main.getId(), now);
-        long active = table.isActive() && table.getOperationalStatus() == TableOperationalStatus.OCCUPIED && main.isOpenAt(now, held.protectsMain())
-                ? guests.countUsable(restaurantId, main.getId(), GuestSessionStatus.ACTIVE, now.truncatedTo(ChronoUnit.MICROS), held.confirmedGuests()) : 0;
+        boolean usable = table.isActive() && table.getOperationalStatus() == TableOperationalStatus.OCCUPIED
+                && main.isOpenAt(now, held.protectsMain());
+        long active = usable ? guests.countUsable(restaurantId, main.getId(), GuestSessionStatus.ACTIVE,
+                now.truncatedTo(ChronoUnit.MICROS), held.confirmedGuests()) : 0;
         return new TableSessionStatisticsResponse(restaurantId, tableId, main.getId(), main.getStatus(), active,
                 scans.countByRestaurantIdAndTableSessionId(restaurantId, main.getId()), tableScans, now);
     }

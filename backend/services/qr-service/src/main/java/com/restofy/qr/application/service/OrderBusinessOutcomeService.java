@@ -27,8 +27,13 @@ public class OrderBusinessOutcomeService {
     public OrderBusinessOutcomeService(OrderOutcomeAccess access, OrderAdmissionRepository admissions, OrderBusinessStateRepository states,
                                         OrderBusinessEventRepository events, GuestSessionContextReader contexts,
                                         SessionOrderProtection protection, CancellationIdleCoordinator cancellation) {
-        this.access = access; this.admissions = admissions; this.states = states; this.events = events;
-        this.contexts = contexts; this.protection = protection; this.cancellation = cancellation;
+        this.access = access;
+        this.admissions = admissions;
+        this.states = states;
+        this.events = events;
+        this.contexts = contexts;
+        this.protection = protection;
+        this.cancellation = cancellation;
     }
 
     @Transactional
@@ -36,9 +41,11 @@ public class OrderBusinessOutcomeService {
         // Validate source evidence before acquiring a database row lock. The
         // default adapter rejects; no request claims or remote calls under lock.
         var evidence = requireEvidence(command);
-        var sessionId = admissions.locateSessionId(command.restaurantId(), command.admissionId()).orElseThrow(InvalidGuestSessionException::new);
+        var sessionId = admissions.locateSessionId(command.restaurantId(), command.admissionId())
+                .orElseThrow(InvalidGuestSessionException::new);
         var parent = contexts.lockSession(command.restaurantId(), sessionId);
-        var admission = admissions.findByRestaurantIdAndId(command.restaurantId(), command.admissionId()).orElseThrow(InvalidGuestSessionException::new);
+        var admission = admissions.findByRestaurantIdAndId(command.restaurantId(), command.admissionId())
+                .orElseThrow(InvalidGuestSessionException::new);
         if (!admission.getOrderId().equals(evidence.orderId()) || admission.getStatus() != OrderAdmissionStatus.CONFIRMED) {
             throw new OrderOutcomeConflictException();
         }
@@ -50,7 +57,8 @@ public class OrderBusinessOutcomeService {
         // establish a baseline, and sequence/version checks still apply.
         var state = states.findByRestaurantIdAndAdmissionId(command.restaurantId(), admission.getId())
                 .orElseGet(() -> states.saveAndFlush(new OrderBusinessState(admission)));
-        state.apply(command.status(), evidence.finance(), command.sequence(), command.expectedVersion(), command.occurredAt(), parent.checkedAt());
+        state.apply(command.status(), evidence.finance(), command.sequence(), command.expectedVersion(),
+                command.occurredAt(), parent.checkedAt());
         parent.main().invalidateOrderScope();
         cancellation.reconcile(parent, before, evidence, parent.checkedAt());
         states.flush();
@@ -65,10 +73,14 @@ public class OrderBusinessOutcomeService {
     @Transactional
     public View inspect(Command command) {
         var evidence = requireEvidence(command);
-        var sessionId = admissions.locateSessionId(command.restaurantId(), command.admissionId()).orElseThrow(InvalidGuestSessionException::new);
+        var sessionId = admissions.locateSessionId(command.restaurantId(), command.admissionId())
+                .orElseThrow(InvalidGuestSessionException::new);
         contexts.lockSession(command.restaurantId(), sessionId);
-        var admission = admissions.findByRestaurantIdAndId(command.restaurantId(), command.admissionId()).orElseThrow(InvalidGuestSessionException::new);
-        if (!admission.getOrderId().equals(evidence.orderId()) || admission.getStatus() != OrderAdmissionStatus.CONFIRMED) { throw new OrderOutcomeConflictException(); }
+        var admission = admissions.findByRestaurantIdAndId(command.restaurantId(), command.admissionId())
+                .orElseThrow(InvalidGuestSessionException::new);
+        if (!admission.getOrderId().equals(evidence.orderId()) || admission.getStatus() != OrderAdmissionStatus.CONFIRMED) {
+            throw new OrderOutcomeConflictException();
+        }
         var receipt = events.findByRestaurantIdAndEventId(command.restaurantId(), command.eventId())
                 .map(event -> event.replay(command.admissionId(), evidence.digest())).orElse(null);
         return states.findByRestaurantIdAndAdmissionId(command.restaurantId(), command.admissionId())

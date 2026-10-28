@@ -34,7 +34,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 import static org.assertj.core.api.Assertions.*;
-import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -279,21 +278,66 @@ class ScanStatisticsPostgresIntegrationTests {
     }
 
     @Test
-    void statisticsWaitsForTheScanCommitAndNeverObservesAPartialGuestEvent() throws Exception {
+    void statisticsDoesNotWaitForAnUncommittedScanAndNeverObservesAPartialGuestEvent() throws Exception {
         var code = create("1");
         UUID tableId = code.tableId();
         try (var executor = Executors.newSingleThreadExecutor()) {
-            Future<TableSessionStatisticsResponse> result = new TransactionTemplate(transactions).execute(transaction -> {
+            new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
                 opening.open(code.qrToken());
                 var future = executor.submit(() -> statistics.get(tableId));
-                await().atMost(Duration.ofSeconds(10)).until(() -> Boolean.TRUE.equals(jdbc.queryForObject(
-                        "select exists(select 1 from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like '%dining_tables%' and pid<>pg_backend_pid())", Boolean.class)));
-                return future;
+                try {
+                    // The writer still holds its row lock. Readers see the entire previous commit.
+                    var counts = future.get(10, TimeUnit.SECONDS);
+                    assertThat(counts.liveSessionId()).isNull();
+                    assertThat(counts.activeGuestCount()).isZero();
+                    assertThat(counts.sessionAcceptedScanCount()).isZero();
+                    assertThat(counts.tableAcceptedScanCount()).isZero();
+                } catch (Exception exception) {
+                    throw new AssertionError("Statistics must complete while the scan transaction remains open.", exception);
+                }
             });
-            assertThat(result).isNotNull();
-            var counts = result.get(15, TimeUnit.SECONDS);
+            var counts = statistics.get(tableId);
             assertThat(counts.activeGuestCount()).isEqualTo(1);
+            assertThat(counts.sessionAcceptedScanCount()).isEqualTo(1);
             assertThat(counts.tableAcceptedScanCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void statisticsKeepsOneSnapshotWhenAScanCommitsBetweenItsQueriesEvenInsideACallerTransaction() throws Exception {
+        var code = create("1");
+        var now = code.issuedAt().plusSeconds(1).truncatedTo(ChronoUnit.MICROS);
+        var reader = new AtomicReference<Thread>();
+        var firstQueryCompleted = new CountDownLatch(1);
+        var writerCommitted = new CountDownLatch(1);
+        when(clock.instant()).thenAnswer(invocation -> {
+            if (Thread.currentThread() == reader.get()) {
+                firstQueryCompleted.countDown();
+                assertThat(writerCommitted.await(10, TimeUnit.SECONDS)).isTrue();
+            }
+            return now;
+        });
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var future = executor.submit(() -> new TransactionTemplate(transactions).execute(transaction -> {
+                reader.set(Thread.currentThread());
+                return statistics.get(code.tableId());
+            }));
+            try {
+                assertThat(firstQueryCompleted.await(10, TimeUnit.SECONDS)).isTrue();
+                opening.open(code.qrToken());
+            } finally {
+                writerCommitted.countDown();
+            }
+            var before = future.get(15, TimeUnit.SECONDS);
+            assertThat(before.liveSessionId()).isNull();
+            assertThat(before.activeGuestCount()).isZero();
+            assertThat(before.sessionAcceptedScanCount()).isZero();
+            assertThat(before.tableAcceptedScanCount()).isZero();
+            var after = statistics.get(code.tableId());
+            assertThat(after.liveSessionId()).isNotNull();
+            assertThat(after.activeGuestCount()).isEqualTo(1);
+            assertThat(after.sessionAcceptedScanCount()).isEqualTo(1);
+            assertThat(after.tableAcceptedScanCount()).isEqualTo(1);
         }
     }
 

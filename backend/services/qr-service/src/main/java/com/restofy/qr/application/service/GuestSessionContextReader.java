@@ -26,7 +26,11 @@ public class GuestSessionContextReader {
 
     public GuestSessionContextReader(GuestSessionRepository guests, TableSessionRepository sessions,
                                       DiningTableRepository tables, GuestTokenCodec tokens, Clock clock) {
-        this.guests = guests; this.sessions = sessions; this.tables = tables; this.tokens = tokens; this.clock = clock;
+        this.guests = guests;
+        this.sessions = sessions;
+        this.tables = tables;
+        this.tokens = tokens;
+        this.clock = clock;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

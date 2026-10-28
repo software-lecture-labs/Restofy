@@ -13,7 +13,8 @@ public class SessionOrderProtection {
     private final OrderAdmissionRepository admissions;
     public SessionOrderProtection(OrderAdmissionRepository admissions) { this.admissions = admissions; }
 
-    // Caller holds the parent table lock: this snapshot is not a reusable permit.
+    // Mutations require the parent table lock; statistics use a read-only repeatable-read snapshot.
+    // This view is never a reusable order or activity permit.
     public Snapshot snapshot(UUID restaurantId, UUID sessionId, Instant now) {
         var cutoff = IdleWindow.storedTime(now);
         return new Snapshot(Set.copyOf(admissions.findProtectedGuestIds(restaurantId, sessionId, cutoff)),

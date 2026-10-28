@@ -82,7 +82,8 @@ public class SessionIdleExpiryService {
         return new ExpiryResult(outcome, false, 0);
     }
 
-    private ExpiryResult expireOtherGuests(UUID restaurantId, UUID sessionId, Instant activity, Instant now, SessionOrderProtection.Snapshot held) {
+    private ExpiryResult expireOtherGuests(UUID restaurantId, UUID sessionId, Instant activity, Instant now,
+                                           SessionOrderProtection.Snapshot held) {
         var active = guests.findByRestaurantIdAndTableSessionIdAndStatus(restaurantId, sessionId, GuestSessionStatus.ACTIVE);
         if (inconsistent(active, activity, now)) { return unchanged(Outcome.INCONSISTENT); }
         int expired = 0;

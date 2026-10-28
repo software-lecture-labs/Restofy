@@ -19,7 +19,8 @@ public interface GuestSessionRepository extends JpaRepository<GuestSession, UUID
     long countUsable(UUID restaurantId, UUID tableSessionId, GuestSessionStatus status, Instant now, Set<UUID> protectedIds);
 
     // Only immutable IDs before locking; do not cache mutable guest/parent state here.
-    @Query("select g.id as id, g.restaurantId as restaurantId, g.tableSessionId as tableSessionId from GuestSession g where g.tokenDigest = :digest")
+    @Query("select g.id as id, g.restaurantId as restaurantId, g.tableSessionId as tableSessionId from " +
+            "GuestSession g where g.tokenDigest = :digest")
     Optional<GuestLocation> locateByDigest(String digest);
 
     Optional<GuestSession> findByRestaurantIdAndTableSessionIdAndId(UUID restaurantId, UUID tableSessionId, UUID id);

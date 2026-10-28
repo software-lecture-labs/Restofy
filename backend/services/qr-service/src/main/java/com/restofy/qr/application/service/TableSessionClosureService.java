@@ -12,7 +12,8 @@ public class TableSessionClosureService {
     private final SessionClosureTransactions transactions;
     private final SessionClosureEvidenceAccess evidence;
     public TableSessionClosureService(SessionClosureTransactions transactions, SessionClosureEvidenceAccess evidence) {
-        this.transactions = transactions; this.evidence = evidence;
+        this.transactions = transactions;
+        this.evidence = evidence;
     }
 
     // Never hold a caller's DB lock/transaction across future source verification.

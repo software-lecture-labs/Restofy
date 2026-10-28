@@ -21,7 +21,9 @@ public class TableSessionStatisticsController {
 
     @GetMapping("/{id}/session-statistics")
     @Operation(summary = "Get live guest and recorded accepted-scan counts for a verified restaurant table",
-            description = "Counts are not unique physical people. Active guests must be usable with an OPEN main and active OCCUPIED table. Scan totals cover recorded accepted events since V28, not unrecorded earlier history. Rejected requests are excluded. No guest credentials are exposed; HTTP remains closed.")
+            description = "Counts are not unique physical people. Active guests must be usable with an OPEN main and active " +
+                    "OCCUPIED table. Scan totals cover recorded accepted events since V28, not unrecorded earlier " +
+                    "history. Rejected requests are excluded. No guest credentials are exposed; HTTP remains closed.")
     public ResponseEntity<TableSessionStatisticsResponse> get(@PathVariable UUID id) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.get(id));
     }

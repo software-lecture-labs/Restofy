@@ -28,17 +28,26 @@ public class OrderAdmissionService {
     private final SessionOrderProtection protection;
     private final OrderBusinessStateRepository businessStates;
 
-    public OrderAdmissionService(OrderAdmissionAccess access, OrderAdmissionRepository admissions, GuestSessionRepository guests,
-                                  GuestSessionValidationService validation, GuestSessionContextReader contexts, SessionOrderProtection protection, OrderBusinessStateRepository businessStates) {
-        this.access = access; this.admissions = admissions;
-        this.guests = guests; this.validation = validation; this.contexts = contexts; this.protection = protection; this.businessStates = businessStates;
+    public OrderAdmissionService(OrderAdmissionAccess access, OrderAdmissionRepository admissions,
+                                 GuestSessionRepository guests, GuestSessionValidationService validation,
+                                 GuestSessionContextReader contexts, SessionOrderProtection protection,
+                                 OrderBusinessStateRepository businessStates) {
+        this.access = access;
+        this.admissions = admissions;
+        this.guests = guests;
+        this.validation = validation;
+        this.contexts = contexts;
+        this.protection = protection;
+        this.businessStates = businessStates;
     }
 
     public record Reservation(UUID restaurantId, UUID tableSessionId, UUID guestSessionId, UUID orderId,
                                String idempotencyKey, String requestDigest, String guestToken) {
         public Reservation {
-            Objects.requireNonNull(restaurantId); Objects.requireNonNull(tableSessionId);
-            Objects.requireNonNull(guestSessionId); Objects.requireNonNull(orderId);
+            Objects.requireNonNull(restaurantId);
+            Objects.requireNonNull(tableSessionId);
+            Objects.requireNonNull(guestSessionId);
+            Objects.requireNonNull(orderId);
             OrderAdmission.validatePayload(idempotencyKey, requestDigest);
         }
         @Override public String toString() { return "Reservation[credential and command redacted]"; }
@@ -48,7 +57,9 @@ public class OrderAdmissionService {
     public record Decision(UUID restaurantId, UUID admissionId, UUID orderId, String requestDigest,
                             long fencingVersion, long expectedVersion, Instant occurredAt) {
         public Decision {
-            Objects.requireNonNull(restaurantId); Objects.requireNonNull(admissionId); Objects.requireNonNull(orderId);
+            Objects.requireNonNull(restaurantId);
+            Objects.requireNonNull(admissionId);
+            Objects.requireNonNull(orderId);
             Objects.requireNonNull(occurredAt);
             if (requestDigest == null || !requestDigest.matches("[0-9a-f]{64}") || fencingVersion < 1 || expectedVersion < 0) {
                 throw new IllegalArgumentException("Invalid admission decision.");
@@ -63,9 +74,11 @@ public class OrderAdmissionService {
     @Transactional
     public Result reserve(Reservation request) {
         requireScope(request.restaurantId());
-        var identity = contexts.lockIdentity(request.guestToken(), request.restaurantId(), request.tableSessionId(), request.guestSessionId());
+        var identity = contexts.lockIdentity(request.guestToken(), request.restaurantId(),
+                request.tableSessionId(), request.guestSessionId());
         var guest = identity.guest();
-        var previous = admissions.findByRestaurantIdAndGuestSessionIdAndIdempotencyKey(request.restaurantId(), request.guestSessionId(), request.idempotencyKey());
+        var previous = admissions.findByRestaurantIdAndGuestSessionIdAndIdempotencyKey(request.restaurantId(),
+                request.guestSessionId(), request.idempotencyKey());
         if (previous.isPresent()) {
             var saved = previous.orElseThrow();
             saved.matchCommand(request.orderId(), request.requestDigest(), saved.getFencingVersion());
@@ -75,11 +88,16 @@ public class OrderAdmissionService {
         var main = identity.parent().main();
         var held = protection.snapshot(request.restaurantId(), main.getId(), context.checkedAt());
         Instant now = IdleWindow.storedTime(context.checkedAt());
-        Instant deadline = now.plusSeconds(60);
-        if (!held.protectsMain() && main.getIdleExpiresAt() != null && main.getIdleExpiresAt().isBefore(deadline)) { deadline = main.getIdleExpiresAt(); }
-        if (!held.protectsGuest(guest.getId()) && guest.getExpiresAt() != null && guest.getExpiresAt().isBefore(deadline)) { deadline = guest.getExpiresAt(); }
+        Instant deadline = now.plus(OrderAdmission.MAX_RESERVATION_WINDOW);
+        if (!held.protectsMain() && main.getIdleExpiresAt() != null && main.getIdleExpiresAt().isBefore(deadline)) {
+            deadline = main.getIdleExpiresAt();
+        }
+        if (!held.protectsGuest(guest.getId()) && guest.getExpiresAt() != null && guest.getExpiresAt().isBefore(deadline)) {
+            deadline = guest.getExpiresAt();
+        }
         main.invalidateOrderScope();
-        return result(admissions.saveAndFlush(new OrderAdmission(guest, request.orderId(), request.idempotencyKey(), request.requestDigest(), now, deadline)));
+        return result(admissions.saveAndFlush(new OrderAdmission(guest, request.orderId(), request.idempotencyKey(),
+                request.requestDigest(), now, deadline)));
     }
 
     @Transactional
@@ -90,16 +108,20 @@ public class OrderAdmissionService {
 
     private Result decide(Decision decision, boolean accepted) {
         requireScope(decision.restaurantId());
-        UUID sessionId = admissions.locateSessionId(decision.restaurantId(), decision.admissionId()).orElseThrow(InvalidGuestSessionException::new);
+        UUID sessionId = admissions.locateSessionId(decision.restaurantId(), decision.admissionId())
+                .orElseThrow(InvalidGuestSessionException::new);
         var parent = contexts.lockSession(decision.restaurantId(), sessionId);
-        var admission = admissions.findByRestaurantIdAndId(decision.restaurantId(), decision.admissionId()).orElseThrow(InvalidGuestSessionException::new);
+        var admission = admissions.findByRestaurantIdAndId(decision.restaurantId(), decision.admissionId())
+                .orElseThrow(InvalidGuestSessionException::new);
         admission.matchCommand(decision.orderId(), decision.requestDigest(), decision.fencingVersion());
         if (admission.getStatus() == OrderAdmissionStatus.PENDING) {
             var main = parent.main();
             var guest = guests.findByRestaurantIdAndTableSessionIdAndId(decision.restaurantId(), sessionId, admission.getGuestSessionId())
                     .orElseThrow(InvalidGuestSessionException::new);
             if ((main.getStatus() != TableSessionStatus.OPEN && main.getStatus() != TableSessionStatus.CLOSING)
-                    || guest.getStatus() != GuestSessionStatus.ACTIVE || guest.getEndedAt() != null) { throw new OrderAdmissionConflictException(); }
+                    || guest.getStatus() != GuestSessionStatus.ACTIVE || guest.getEndedAt() != null) {
+                throw new OrderAdmissionConflictException();
+            }
         }
         var previousStatus = admission.getStatus();
         admission.decide(accepted, decision.expectedVersion(), decision.occurredAt(), parent.checkedAt());

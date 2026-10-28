@@ -58,9 +58,7 @@ public class TableManagementService {
     public TablePageResponse list(Boolean active, TableOperationalStatus status, int page, int size,
                                    String sort, String direction) {
         UUID restaurantId = access.requireRestaurantId();
-        if (page < 0 || page > 10000 || size < 1 || size > 100) {
-            throw new IllegalArgumentException("Page must be 0..10000 and size must be 1..100.");
-        }
+        PageLimits.validate(page, size);
         String property = switch (sort) {
             case "tableNumber", "createdAt", "updatedAt" -> sort;
             default -> throw new IllegalArgumentException("Unsupported sort field.");

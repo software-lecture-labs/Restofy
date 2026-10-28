@@ -6,6 +6,7 @@ import com.restofy.qr.domain.enums.*;
 import com.restofy.qr.domain.exception.SessionClosureConflictException;
 import com.restofy.qr.infrastructure.persistence.repository.*;
 import com.restofy.qr.infrastructure.security.SessionLifecycleAccess;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -21,10 +22,15 @@ public class SessionClosureTransactions {
     private final OrderBusinessStateRepository states;
     private final SessionLifecycleAccess access;
 
-    public SessionClosureTransactions(GuestSessionContextReader contexts, TableSessionRepository sessions, GuestSessionRepository guests,
-                                      OrderAdmissionRepository admissions, OrderBusinessStateRepository states, SessionLifecycleAccess access) {
-        this.contexts = contexts; this.sessions = sessions; this.guests = guests;
-        this.admissions = admissions; this.states = states; this.access = access;
+    public SessionClosureTransactions(GuestSessionContextReader contexts, TableSessionRepository sessions,
+                                      GuestSessionRepository guests, OrderAdmissionRepository admissions,
+                                      OrderBusinessStateRepository states, SessionLifecycleAccess access) {
+        this.contexts = contexts;
+        this.sessions = sessions;
+        this.guests = guests;
+        this.admissions = admissions;
+        this.states = states;
+        this.access = access;
     }
 
     @Transactional
@@ -49,7 +55,8 @@ public class SessionClosureTransactions {
         if (evidence == null || !expected.equals(current) || !evidence.matches(staff, current, parent.checkedAt())) {
             throw new SessionClosureConflictException();
         }
-        var active = guests.findByRestaurantIdAndTableSessionIdAndStatus(staff.restaurantId(), parent.main().getId(), GuestSessionStatus.ACTIVE);
+        var active = guests.findByRestaurantIdAndTableSessionIdAndStatus(staff.restaurantId(), parent.main().getId(),
+                GuestSessionStatus.ACTIVE);
         parent.main().beginClosingAt(parent.checkedAt());
         active.forEach(guest -> guest.endWithMainAt(parent.checkedAt()));
         parent.main().closeAt(parent.checkedAt(), staff.userId());
@@ -68,7 +75,9 @@ public class SessionClosureTransactions {
                 || sessions.hasOtherSessionOpenedSince(staff.restaurantId(), main.getTableId(), main.getId(), main.getClosedAt())) {
             throw new SessionClosureConflictException();
         }
-        if (parent.table().getOperationalStatus() == TableOperationalStatus.AVAILABLE && parent.table().isActive()) { return result(parent); }
+        if (parent.table().getOperationalStatus() == TableOperationalStatus.AVAILABLE && parent.table().isActive()) {
+            return result(parent);
+        }
         parent.table().requireVersion(expectedTableVersion);
         parent.table().finishCleaning();
         sessions.flush();
@@ -79,20 +88,24 @@ public class SessionClosureTransactions {
         var main = parent.main();
         var projections = states.findByRestaurantIdAndTableSessionId(main.getRestaurantId(), main.getId()).stream()
                 .collect(Collectors.toMap(OrderBusinessState::getAdmissionId, state -> state));
-        var rows = admissions.findByRestaurantIdAndTableSessionIdAndStatusIn(main.getRestaurantId(), main.getId(), List.of(OrderAdmissionStatus.values()));
+        var rows = admissions.findByRestaurantIdAndTableSessionIdAndStatusIn(main.getRestaurantId(), main.getId(),
+                List.of(OrderAdmissionStatus.values()));
         var facts = new HashMap<UUID, Admission>();
         for (var row : rows) {
             var state = projections.get(row.getId());
             requireFinalOutcome(row, state, parent.checkedAt());
-            var projection = state == null ? null : new Projection(state.getStatus(), state.getFinancialOutcome(), state.getSourceSequence(), state.getVersion());
+            var projection = state == null ? null : new Projection(state.getStatus(), state.getFinancialOutcome(),
+                    state.getSourceSequence(), state.getVersion());
             facts.put(row.getId(), new Admission(row.getOrderId(), row.getStatus(), row.getVersion(), projection));
         }
         return new Snapshot(new Parent(main.getRestaurantId(), main.getId(), main.getTableId(), main.getVersion(),
                 parent.table().getVersion(), main.getOrderScopeRevision()), facts);
     }
 
-    private static void requireFinalOutcome(OrderAdmission row, OrderBusinessState state, java.time.Instant now) {
-        if (row.getRequestedAt().isAfter(now) || row.getStatus() == OrderAdmissionStatus.PENDING) { throw new SessionClosureConflictException(); }
+    private static void requireFinalOutcome(OrderAdmission row, OrderBusinessState state, Instant now) {
+        if (row.getRequestedAt().isAfter(now) || row.getStatus() == OrderAdmissionStatus.PENDING) {
+            throw new SessionClosureConflictException();
+        }
         if (row.getStatus() == OrderAdmissionStatus.REJECTED) {
             if (state != null || row.getRejectedAt().isAfter(now)) { throw new SessionClosureConflictException(); }
             return;

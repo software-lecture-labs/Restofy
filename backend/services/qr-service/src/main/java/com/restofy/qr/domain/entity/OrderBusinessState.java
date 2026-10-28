@@ -17,7 +17,9 @@ public class OrderBusinessState {
     @Column(name = "guest_session_id", nullable = false, updatable = false) private UUID guestSessionId;
     @Column(name = "order_id", nullable = false, updatable = false) private UUID orderId;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 30) private OrderBusinessStatus status;
-    @Enumerated(EnumType.STRING) @Column(name = "financial_outcome", nullable = false, length = 32) private FinancialOutcome financialOutcome;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "financial_outcome", nullable = false, length = 32)
+    private FinancialOutcome financialOutcome;
     @Column(name = "accepted_at", nullable = false, updatable = false) private Instant acceptedAt;
     @Column(name = "last_event_at", nullable = false) private Instant lastEventAt;
     @Column(name = "cancelled_at") private Instant cancelledAt;
@@ -36,7 +38,8 @@ public class OrderBusinessState {
         status = OrderBusinessStatus.ORDER_PLACED; financialOutcome = FinancialOutcome.UNVERIFIED;
     }
 
-    public void apply(OrderBusinessStatus target, FinancialOutcome finance, long sequence, long expectedVersion, Instant occurredAt, Instant now) {
+    public void apply(OrderBusinessStatus target, FinancialOutcome finance, long sequence, long expectedVersion,
+                      Instant occurredAt, Instant now) {
         Objects.requireNonNull(target); Objects.requireNonNull(finance); Objects.requireNonNull(occurredAt); Objects.requireNonNull(now);
         if (sequence != sourceSequence + 1 || expectedVersion != version || occurredAt.isBefore(lastEventAt) || occurredAt.isAfter(now)) {
             throw new OrderOutcomeConflictException();
