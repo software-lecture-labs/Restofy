@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -15,8 +16,8 @@ import java.util.UUID;
 public record AddCartItemRequest(
         @NotNull UUID productId,
         @NotNull @Min(1) Integer quantity,
-        @Size(max = 50) List<@NotNull UUID> removedIngredientIds,
-        @Size(max = 50) List<@NotNull @Valid ExtraSelectionRequest> extras,
-        @Size(max = 300) String note,
+        @Size(max = InputLimits.MAX_SELECTIONS) List<@NotNull UUID> removedIngredientIds,
+        @Size(max = InputLimits.MAX_SELECTIONS) List<@NotNull @Valid ExtraSelectionRequest> extras,
+        @Size(max = InputLimits.MAX_TEXT_LENGTH) String note,
         @Min(0) Long expectedCartVersion) {
 }

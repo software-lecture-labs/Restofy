@@ -1,5 +1,6 @@
 package com.restofy.order.domain.entity;
 
+import com.restofy.order.domain.pricing.MoneyConverter;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -16,6 +17,7 @@ import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,6 +30,9 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CartItem {
+
+    /** Options of several lines are loaded together, this many lines per query. */
+    private static final int OPTION_FETCH_BATCH_SIZE = 50;
 
     @Id
     private UUID id;
@@ -73,7 +78,7 @@ public class CartItem {
     private Instant updatedAt;
 
     @OneToMany(mappedBy = "cartItem", cascade = CascadeType.ALL, orphanRemoval = true)
-    @BatchSize(size = 50)
+    @BatchSize(size = OPTION_FETCH_BATCH_SIZE)
     private Set<CartItemOption> options = new LinkedHashSet<>();
 
     public CartItem(Cart cart, UUID productId, int quantity, String selectionKey, String note,
@@ -87,7 +92,7 @@ public class CartItem {
         this.selectionKey = selectionKey;
         this.note = note;
         this.productNameSnapshot = productNameSnapshot;
-        this.currency = currency;
+        this.currency = MoneyConverter.normalizeCurrency(currency);
         this.unitGrossMinorSnapshot = unitGrossMinorSnapshot;
         this.taxRateBpsSnapshot = taxRateBpsSnapshot;
         this.priceVersionSnapshot = priceVersionSnapshot;
@@ -115,7 +120,7 @@ public class CartItem {
     }
 
     /** Re-reads the unit price of every paid extra from the validated selection (same options, current prices). */
-    public void refreshOptionPrices(java.util.Map<UUID, Long> unitPriceDeltaByOptionId) {
+    public void refreshOptionPrices(Map<UUID, Long> unitPriceDeltaByOptionId) {
         for (CartItemOption stored : options) {
             Long current = unitPriceDeltaByOptionId.get(stored.getOptionId());
             if (current != null) {

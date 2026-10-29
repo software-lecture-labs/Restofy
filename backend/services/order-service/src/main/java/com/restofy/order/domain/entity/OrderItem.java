@@ -1,5 +1,6 @@
 package com.restofy.order.domain.entity;
 
+import com.restofy.order.domain.pricing.MoneyConverter;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -28,6 +29,9 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class OrderItem {
+
+    /** Options of several lines are loaded together, this many lines per query. */
+    private static final int OPTION_FETCH_BATCH_SIZE = 50;
 
     @Id
     private UUID id;
@@ -83,7 +87,7 @@ public class OrderItem {
     private Instant createdAt;
 
     @OneToMany(mappedBy = "orderItem", cascade = CascadeType.ALL)
-    @BatchSize(size = 50)
+    @BatchSize(size = OPTION_FETCH_BATCH_SIZE)
     private Set<OrderItemOption> options = new LinkedHashSet<>();
 
     public OrderItem(Order order, int lineNo, UUID productId, String productNameSnapshot, int orderedQuantity, String currency,
@@ -97,7 +101,7 @@ public class OrderItem {
         this.productNameSnapshot = productNameSnapshot;
         this.orderedQuantity = orderedQuantity;
         this.cancelledQuantity = 0;
-        this.currency = currency;
+        this.currency = MoneyConverter.normalizeCurrency(currency);
         this.unitGrossMinor = unitGrossMinor;
         this.taxRateBps = taxRateBps;
         this.lineGrossMinor = lineGrossMinor;

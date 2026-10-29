@@ -20,8 +20,6 @@ import java.util.UUID;
 public record OrderListQuery(UUID tableSessionId, UUID tableId, OrderView view, PaymentStatus paymentStatus,
                              int page, int limit, Sort.Direction direction) {
 
-    public static final int DEFAULT_LIMIT = 20;
-    public static final int MAX_LIMIT = 100;
 
     /** Parses and validates the raw query parameters; a bad value is a 422 with the offending parameter named. */
     public static OrderListQuery of(UUID tableSessionId, UUID tableId, String view, String paymentStatus,
@@ -40,9 +38,9 @@ public record OrderListQuery(UUID tableSessionId, UUID tableId, OrderView view, 
         if (parsedPage < 0) {
             throw invalid("page", "must not be negative");
         }
-        int parsedLimit = limit == null ? DEFAULT_LIMIT : limit;
-        if (parsedLimit < 1 || parsedLimit > MAX_LIMIT) {
-            throw invalid("limit", "must be between 1 and " + MAX_LIMIT);
+        int parsedLimit = limit == null ? PageLimits.DEFAULT_LIMIT : limit;
+        if (parsedLimit < 1 || parsedLimit > PageLimits.MAX_LIMIT) {
+            throw invalid("limit", "must be between 1 and " + PageLimits.MAX_LIMIT);
         }
         Sort.Direction direction = Sort.Direction.DESC;
         if (sort != null) {

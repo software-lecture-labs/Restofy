@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -16,9 +17,9 @@ import java.util.UUID;
  */
 public record CancelOrderRequest(
         Boolean cancelAll,
-        @Size(max = 50) List<@Valid Item> items,
-        @Size(max = 10) List<@NotNull @Size(max = 40) String> reasonCodes,
-        @Size(max = 300) String reasonText) {
+        @Size(max = InputLimits.MAX_SELECTIONS) List<@Valid Item> items,
+        @Size(max = InputLimits.MAX_REASON_CODES) List<@NotNull @Size(max = InputLimits.MAX_REASON_CODE_LENGTH) String> reasonCodes,
+        @Size(max = InputLimits.MAX_TEXT_LENGTH) String reasonText) {
 
     /** One order line and how many of its still-active units to cancel. */
     public record Item(@NotNull UUID orderItemId, @NotNull Integer quantity) {

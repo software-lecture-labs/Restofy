@@ -7,10 +7,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import javax.sql.DataSource;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,7 +39,8 @@ class OrderCancellationsMigrationTests {
     }
 
     private void drop(String schema) throws Exception {
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
         }
     }
@@ -77,7 +81,8 @@ class OrderCancellationsMigrationTests {
         String schema = "cancel_audit_" + UUID.randomUUID().toString().replace("-", "");
         try {
             flyway(schema).migrate();
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 // every query below names the schema: the pooled connection's search_path is never changed
 
                 assertEquals("uuid", one(statement, "SELECT data_type FROM information_schema.columns WHERE table_schema = '"
@@ -129,7 +134,8 @@ class OrderCancellationsMigrationTests {
         String schema = "cancel_clean_" + UUID.randomUUID().toString().replace("-", "");
         try {
             flyway(schema).migrate();
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 // no constraint or function of the schema speaks of the old "<SERVICE>_SERVICE" role or "service:" ids
                 assertEquals("0", one(statement, "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid ="
                         + " c.connamespace WHERE n.nspname = '" + schema + "' AND (pg_get_constraintdef(c.oid) LIKE"
@@ -139,16 +145,16 @@ class OrderCancellationsMigrationTests {
             drop(schema);
         }
         String v50 = new String(getClass().getResourceAsStream("/db/migration/V50__create_order_cancellations.sql")
-                .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                .readAllBytes(), StandardCharsets.UTF_8);
         assertFalse(v50.contains("KITCHEN_SERVICE") || v50.contains("service:KITCHEN"), "the old mapping is not in V50");
         // every migration file of the service is in the Order range: no number was borrowed from anybody
-        java.io.File directory = new java.io.File(getClass().getResource("/db/migration/V50__create_order_cancellations.sql")
+        File directory = new File(getClass().getResource("/db/migration/V50__create_order_cancellations.sql")
                 .toURI()).getParentFile();
         List<String> numbers = new ArrayList<>();
-        for (java.io.File file : directory.listFiles((dir, name) -> name.endsWith(".sql"))) {
+        for (File file : directory.listFiles((dir, name) -> name.endsWith(".sql"))) {
             numbers.add(file.getName().substring(1, file.getName().indexOf("__")));
         }
-        java.util.Collections.sort(numbers);
+        Collections.sort(numbers);
         assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), numbers);
     }
 }

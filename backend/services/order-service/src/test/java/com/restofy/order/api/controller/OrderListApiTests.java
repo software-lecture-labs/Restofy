@@ -4,17 +4,20 @@ import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -118,7 +121,7 @@ class OrderListApiTests extends AbstractCartApiTest {
     @Test
     void identityHintsInHeadersChangeNothing() throws Exception {
         placeSaladOrder(A1);
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(LIST)
+        mvc.perform(MockMvcRequestBuilders.get(LIST)
                         .header("Authorization", guest(A2)).header("X-Guest-Session-Id", DevFixtures.GUEST_A1.toString())
                         .header("X-Restaurant-Id", DevFixtures.RESTAURANT_A.toString()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalItems").value(0));
@@ -198,7 +201,7 @@ class OrderListApiTests extends AbstractCartApiTest {
         UUID completed = insertA1("COMPLETED", "PAID", t.plusSeconds(5));
         UUID cancelled = insertA1("CANCELLED", "CANCELLED", t.plusSeconds(6));
 
-        assertEquals(Set.of(received, preparing, ready, served).stream().map(UUID::toString).collect(java.util.stream.Collectors.toSet()),
+        assertEquals(Set.of(received, preparing, ready, served).stream().map(UUID::toString).collect(Collectors.toSet()),
                 new HashSet<>(ids(list(guest(A1), "?view=active"))));
         assertEquals(List.of(completed.toString()), ids(list(guest(A1), "?view=completed")));
         assertEquals(List.of(cancelled.toString()), ids(list(guest(A1), "?view=cancelled")));
@@ -251,7 +254,7 @@ class OrderListApiTests extends AbstractCartApiTest {
         assertEquals(newestFirst, walked);
 
         List<String> oldestFirst = new ArrayList<>(newestFirst);
-        java.util.Collections.reverse(oldestFirst);
+        Collections.reverse(oldestFirst);
         List<String> ascending = new ArrayList<>();
         for (int page = 0; page < 3; page++) {
             ascending.addAll(ids(list(guest(A1), "?limit=2&sort=placedAt,asc&page=" + page)));

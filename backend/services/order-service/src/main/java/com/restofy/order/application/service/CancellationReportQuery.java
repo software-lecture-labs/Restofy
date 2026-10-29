@@ -22,8 +22,8 @@ public record CancellationReportQuery(Instant from, Instant to, CancellationReas
                                       CancellationScope scope, CancellationStatus status, boolean overdueOnly,
                                       boolean oldestFirst, int page, int limit) {
 
-    public static final int DEFAULT_LIMIT = 20;
-    public static final int MAX_LIMIT = 100;
+    /** A date without a time ("2026-10-01") has this many characters; anything longer is read as a UTC instant. */
+    private static final int ISO_DATE_LENGTH = "2026-10-01".length();
 
     public static CancellationReportQuery of(String from, String to, String reasonCode, String scope, String status,
                                              Boolean overdue, String sort, Integer page, Integer limit) {
@@ -55,9 +55,9 @@ public record CancellationReportQuery(Instant from, Instant to, CancellationReas
         if (parsedPage < 0) {
             throw invalid("page", "must not be negative");
         }
-        int parsedLimit = limit == null ? DEFAULT_LIMIT : limit;
-        if (parsedLimit < 1 || parsedLimit > MAX_LIMIT) {
-            throw invalid("limit", "must be between 1 and " + MAX_LIMIT);
+        int parsedLimit = limit == null ? PageLimits.DEFAULT_LIMIT : limit;
+        if (parsedLimit < 1 || parsedLimit > PageLimits.MAX_LIMIT) {
+            throw invalid("limit", "must be between 1 and " + PageLimits.MAX_LIMIT);
         }
         return new CancellationReportQuery(parsedFrom, parsedTo, parsedReason, parsedScope, parsedStatus, overdueOnly,
                 oldestFirst, parsedPage, parsedLimit);
@@ -91,7 +91,7 @@ public record CancellationReportQuery(Instant from, Instant to, CancellationReas
         }
         String trimmed = value.trim();
         try {
-            return trimmed.length() <= 10 ? LocalDate.parse(trimmed).atStartOfDay(ZoneOffset.UTC).toInstant()
+            return trimmed.length() <= ISO_DATE_LENGTH ? LocalDate.parse(trimmed).atStartOfDay(ZoneOffset.UTC).toInstant()
                     : Instant.parse(trimmed);
         } catch (DateTimeParseException _) {
             throw invalid(parameter, "must be an ISO-8601 date (2026-10-01) or UTC instant (2026-10-01T00:00:00Z)");

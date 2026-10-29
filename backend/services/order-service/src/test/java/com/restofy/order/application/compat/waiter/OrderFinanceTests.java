@@ -2,10 +2,12 @@ package com.restofy.order.application.compat.waiter;
 
 import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.entity.OrderItem;
+import com.restofy.order.domain.enums.PaymentStatus;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static com.restofy.order.application.compat.waiter.CompatFixtures.NOW;
 import static com.restofy.order.application.compat.waiter.CompatFixtures.item;
@@ -53,8 +55,8 @@ class OrderFinanceTests {
     void whatTheOrderIsWorthAndWhatIsStillOwedAreDifferentForAPaidOrder() {
         Order order = order("TRY", new long[]{9_000, 3}, new long[]{25_000, 1});
         // paid in full: the debt is settled (0) but the order is still worth its total
-        order.changePaymentStatus(com.restofy.order.domain.enums.PaymentStatus.PENDING, NOW, NOW);
-        order.changePaymentStatus(com.restofy.order.domain.enums.PaymentStatus.PAID, NOW, NOW);
+        order.changePaymentStatus(PaymentStatus.PENDING, NOW, NOW);
+        order.changePaymentStatus(PaymentStatus.PAID, NOW, NOW);
         item(order, 1).applyCancellation(1);
         order.applyCancellation(0, false, NOW);
         var applied = row(order, "APPLIED", "STAFF", "u", "WAITER", 25_000, 25_000, 0);
@@ -95,10 +97,10 @@ class OrderFinanceTests {
 
     @Test
     void lineTotalsThatDoNotAddUpToTheOriginalTotalAreRefused() {
-        Order inconsistent = new Order(java.util.UUID.randomUUID(), "ORD-1", CompatFixtures.RESTAURANT,
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
-                java.util.UUID.randomUUID(), "TRY", 10_000, 0, 10_000, null, Instant.now());
-        inconsistent.addItem(new OrderItem(inconsistent, 1, java.util.UUID.randomUUID(), "x", 1, "TRY", 9_000, 0, 9_000,
+        Order inconsistent = new Order(UUID.randomUUID(), "ORD-1", CompatFixtures.RESTAURANT,
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "TRY", 10_000, 0, 10_000, null, Instant.now());
+        inconsistent.addItem(new OrderItem(inconsistent, 1, UUID.randomUUID(), "x", 1, "TRY", 9_000, 0, 9_000,
                 9_000, 0, null, null, Instant.now()));
         assertThrows(IllegalStateException.class, () -> OrderFinance.compute(inconsistent, List.of(), 0));
     }

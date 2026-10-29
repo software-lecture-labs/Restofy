@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -164,7 +165,7 @@ class CartCustomizationApiTests extends AbstractCartApiTest {
 
     @Test
     void tooManySelectionsAreRejected() throws Exception {
-        List<UUID> manyRemoved = java.util.stream.IntStream.range(0, 51).mapToObj(i -> UUID.randomUUID()).toList();
+        List<UUID> manyRemoved = IntStream.range(0, 51).mapToObj(i -> UUID.randomUUID()).toList();
         addItem(A1, product(DevFixtures.BURGER, 1, manyRemoved, List.of()))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));

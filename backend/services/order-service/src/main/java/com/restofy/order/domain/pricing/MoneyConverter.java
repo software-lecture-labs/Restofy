@@ -3,6 +3,7 @@ package com.restofy.order.domain.pricing;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Currency;
+import java.util.Locale;
 
 /**
  * The only place where external decimal values (for example the Menu Service's {@code numeric(19,4)} prices and
@@ -15,7 +16,38 @@ import java.util.Currency;
  */
 public final class MoneyConverter {
 
+    /** Basis points in one whole: a tax rate of 100% is 10,000 bps. */
+    public static final int BPS_BASE = 10_000;
+
     private MoneyConverter() {
+    }
+
+    /**
+     * The one definition of a currency this service can charge in: an ISO 4217 code that has a minor unit. Surrounding
+     * whitespace and letter case are normalized ({@code " try "} becomes {@code "TRY"}); nothing else is guessed. A
+     * code that is unknown or not a real payment currency (the ISO placeholders {@code XXX} "no currency", {@code XTS}
+     * "testing", metals and fund units have no minor unit) is refused, and it is never replaced by a default such as
+     * TRY. Every money-bearing entity and conversion in this service goes through this rule.
+     *
+     * @return the canonical upper-case code
+     * @throws IllegalArgumentException if the code is null, blank, unknown or has no minor unit
+     */
+    public static String normalizeCurrency(String currencyCode) {
+        if (currencyCode == null || currencyCode.isBlank()) {
+            throw new IllegalArgumentException("currency is required");
+        }
+        String canonical = currencyCode.strip().toUpperCase(Locale.ROOT);
+        fractionDigits(canonical);
+        return canonical;
+    }
+
+    /** True if {@link #normalizeCurrency(String)} accepts the code exactly as it is, i.e. it is already canonical. */
+    public static boolean isCanonicalCurrency(String currencyCode) {
+        try {
+            return normalizeCurrency(currencyCode).equals(currencyCode);
+        } catch (IllegalArgumentException _) {
+            return false;
+        }
     }
 
     /**
@@ -33,7 +65,7 @@ public final class MoneyConverter {
         BigDecimal scaled;
         try {
             scaled = majorAmount.setScale(digits, RoundingMode.UNNECESSARY);
-        } catch (ArithmeticException lossy) {
+        } catch (ArithmeticException _) {
             throw new IllegalArgumentException("amount has more decimals than " + currencyCode + " allows (" + digits
                     + "); it is not rounded silently");
         }
@@ -74,10 +106,10 @@ public final class MoneyConverter {
         BigDecimal bps;
         try {
             bps = percent.movePointRight(2).setScale(0, RoundingMode.UNNECESSARY);
-        } catch (ArithmeticException lossy) {
+        } catch (ArithmeticException _) {
             throw new IllegalArgumentException("tax rate has more precision than basis points; not rounded silently");
         }
-        if (bps.signum() < 0 || bps.compareTo(BigDecimal.valueOf(10_000)) > 0) {
+        if (bps.signum() < 0 || bps.compareTo(BigDecimal.valueOf(BPS_BASE)) > 0) {
             throw new IllegalArgumentException("tax rate must be within 0..100 percent");
         }
         return bps.intValueExact();
@@ -90,7 +122,7 @@ public final class MoneyConverter {
                 throw new IllegalArgumentException("currency has no minor unit: " + currencyCode);
             }
             return digits;
-        } catch (IllegalArgumentException | NullPointerException unknown) {
+        } catch (IllegalArgumentException | NullPointerException _) {
             throw new IllegalArgumentException("unknown currency: " + currencyCode);
         }
     }

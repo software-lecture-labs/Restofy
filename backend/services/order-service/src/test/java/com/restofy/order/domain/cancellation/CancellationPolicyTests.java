@@ -8,6 +8,8 @@ import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -63,7 +65,7 @@ class CancellationPolicyTests {
     @Test
     void d02IsExactlyTheThreeStatesAndNoPaymentStateOpensThem() {
         assertEquals(CancellationPolicy.CLOSED_FOR_CANCELLATION,
-                java.util.Set.of(FulfillmentStatus.READY, FulfillmentStatus.SERVED, FulfillmentStatus.COMPLETED));
+                Set.of(FulfillmentStatus.READY, FulfillmentStatus.SERVED, FulfillmentStatus.COMPLETED));
         for (Requester requester : Requester.values()) {
             for (FulfillmentStatus status : CancellationPolicy.CLOSED_FOR_CANCELLATION) {
                 for (PaymentStatus payment : PaymentStatus.values()) {

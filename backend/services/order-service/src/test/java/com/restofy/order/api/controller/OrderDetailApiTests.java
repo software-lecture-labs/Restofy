@@ -2,8 +2,12 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.application.port.ProductSnapshot;
+import com.restofy.order.application.port.StaffActor;
+import com.restofy.order.domain.enums.StaffRole;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -36,7 +40,7 @@ class OrderDetailApiTests extends AbstractCartApiTest {
         UUID orderId = customizedOrder(A1);
         getWith(guest(A1), "/api/v1/orders/" + orderId)
                 .andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store")))
                 .andExpect(jsonPath("$.orderId").value(orderId.toString()))
                 .andExpect(jsonPath("$.orderNo").value("ORD-000001"))
                 .andExpect(jsonPath("$.tableId").value(DevFixtures.TABLE_A1.toString()))
@@ -72,7 +76,7 @@ class OrderDetailApiTests extends AbstractCartApiTest {
         UUID orderId = customizedOrder(A1);
         String before = getWith(guest(A1), "/api/v1/orders/" + orderId).andReturn().getResponse().getContentAsString();
 
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), "Renamed", true, true, "TRY",
                 99_900L, 2_000, burger.options()));
         menu.remove(DevFixtures.RESTAURANT_A, DevFixtures.SALAD);
@@ -100,7 +104,7 @@ class OrderDetailApiTests extends AbstractCartApiTest {
     @Test
     void knowingOrIdentityHintsDoNotHelp() throws Exception {
         UUID orderId = customizedOrder(A1);
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                         .get("/api/v1/orders/" + orderId).param("guestSessionId", DevFixtures.GUEST_A1.toString())
                         .header("Authorization", guest(A2)).header("X-Guest-Session-Id", DevFixtures.GUEST_A1.toString())
                         .header("X-Restaurant-Id", DevFixtures.RESTAURANT_A.toString()))
@@ -162,8 +166,8 @@ class OrderDetailApiTests extends AbstractCartApiTest {
         getWith(staff(DevFixtures.STAFF_KITCHEN_A), "/api/v1/orders/" + orderId).andExpect(status().isOk());
         getWith(staff(DevFixtures.STAFF_KITCHEN_A), "/api/v1/orders/" + UUID.randomUUID())
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
-        auth.register("kitchen-of-b", new com.restofy.order.application.port.StaffActor(UUID.randomUUID(),
-                DevFixtures.RESTAURANT_B, com.restofy.order.domain.enums.StaffRole.KITCHEN));
+        auth.register("kitchen-of-b", new StaffActor(UUID.randomUUID(),
+                DevFixtures.RESTAURANT_B, StaffRole.KITCHEN));
         getWith(staff("kitchen-of-b"), "/api/v1/orders/" + orderId).andExpect(status().isNotFound());
     }
 
@@ -171,8 +175,8 @@ class OrderDetailApiTests extends AbstractCartApiTest {
     void aRoleChangeAtTheAuthServiceTakesEffectOnTheNextRequest() throws Exception {
         UUID orderId = customizedOrder(A1);
         getWith(staff(DevFixtures.STAFF_WAITER_A), "/api/v1/orders/" + orderId).andExpect(status().isOk());
-        auth.register(DevFixtures.STAFF_WAITER_A, new com.restofy.order.application.port.StaffActor(
-                DevFixtures.USER_WAITER_A, DevFixtures.RESTAURANT_A, com.restofy.order.domain.enums.StaffRole.KITCHEN));
+        auth.register(DevFixtures.STAFF_WAITER_A, new StaffActor(
+                DevFixtures.USER_WAITER_A, DevFixtures.RESTAURANT_A, StaffRole.KITCHEN));
         // the same credential, now a KITCHEN role at the Auth Service: the reduced view, no payment or amounts
         getWith(staff(DevFixtures.STAFF_WAITER_A), "/api/v1/orders/" + orderId).andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentStatus").doesNotExist());

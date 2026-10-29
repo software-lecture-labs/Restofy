@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -227,8 +228,8 @@ class CartIdempotencyApiTests extends AbstractCartApiTest {
         var row = jdbc.queryForMap("SELECT request_digest, status, created_at, expires_at FROM idempotency_records");
         assertEquals(64, row.get("request_digest").toString().length());
         assertEquals("COMPLETED", row.get("status"));
-        Instant created = ((java.sql.Timestamp) row.get("created_at")).toInstant();
-        Instant expires = ((java.sql.Timestamp) row.get("expires_at")).toInstant();
+        Instant created = ((Timestamp) row.get("created_at")).toInstant();
+        Instant expires = ((Timestamp) row.get("expires_at")).toInstant();
         assertEquals(Duration.ofHours(24), Duration.between(created, expires), "cart additions are kept 24 hours");
 
         List<String> columns = jdbc.queryForList("SELECT column_name FROM information_schema.columns"

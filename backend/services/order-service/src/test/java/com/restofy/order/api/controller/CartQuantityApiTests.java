@@ -2,6 +2,7 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,7 +66,7 @@ class CartQuantityApiTests extends AbstractCartApiTest {
 
         for (String raw : List.of("{\"quantity\": 1.5}", "{\"quantity\": \"3\"}", "{\"quantity\": 99999999999999}",
                 "{\"quantity\": 2147483648}", "{\"quantity\": null}", "{}")) {
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            mvc.perform(MockMvcRequestBuilders
                             .patch(CART + "/items/" + lineId).header("Authorization", "Bearer " + A1)
                             .contentType("application/json").content(raw))
                     .andExpect(result -> assertTrue(
@@ -135,7 +136,7 @@ class CartQuantityApiTests extends AbstractCartApiTest {
         addItem(A1, Map.of("productId", DevFixtures.SALAD, "quantity", 1, "expectedCartVersion", version + 7))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CART_VERSION_CONFLICT"));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                         .delete(CART + "/items/" + lineId + "?expectedCartVersion=" + (version + 7))
                         .header("Authorization", "Bearer " + A1))
                 .andExpect(status().isConflict());

@@ -143,7 +143,8 @@ public class OrderController {
                     + "priceFingerprint of the cart view the guest reviewed, bound to the cart version and every live price) and "
                     + "acknowledgePriceChanges=true: otherwise 409 PRICE_CHANGED with the changed components (details.priceChanges), "
                     + "details.currentPriceFingerprint and details.currentTotalMinor, and nothing is written (the cart, its version "
-                    + "and the Idempotency-Key stay untouched). When no price changed neither field is needed. Repeating a finished request with the same key and body "
+                    + "and the Idempotency-Key stay untouched). When no price changed neither field is needed. "
+                    + "Repeating a finished request with the same key and body "
                     + "returns the same order (header Idempotent-Replayed: true). The order number (ORD-000001) is a "
                     + "display identifier only and never grants access.")
     @SecurityRequirement(name = "guestSession")

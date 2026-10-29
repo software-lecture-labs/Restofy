@@ -3,6 +3,7 @@ package com.restofy.order.api.controller;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,14 +49,14 @@ class OrderCancellationRollbackApiTests extends AbstractCancellationApiTest {
         String key = newKey();
         blockEvent("OrderCancelled");
         try {
-            cancel(guest(A1), orderId, key, Map.of("cancelAll", true, "reasonCodes", java.util.List.of("OTHER")))
+            cancel(guest(A1), orderId, key, Map.of("cancelAll", true, "reasonCodes", List.of("OTHER")))
                     .andExpect(result -> assertTrue(result.getResponse().getStatus() >= 400));
             assertNothingChanged(orderId, "RECEIVED", "NOT_REQUESTED", SALAD_DUE, outboxBefore);
         } finally {
             unblockEvent();
         }
         // the fault is gone: the very same request now succeeds
-        cancel(guest(A1), orderId, key, Map.of("cancelAll", true, "reasonCodes", java.util.List.of("OTHER")))
+        cancel(guest(A1), orderId, key, Map.of("cancelAll", true, "reasonCodes", List.of("OTHER")))
                 .andExpect(status().isCreated());
         assertEquals("CANCELLED", fulfillmentOf(orderId));
         assertEquals(1, cancellationCount(orderId));

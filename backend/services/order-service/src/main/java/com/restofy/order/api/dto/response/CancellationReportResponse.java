@@ -15,11 +15,19 @@ import java.util.UUID;
 public record CancellationReportResponse(List<Item> items, int page, int limit, long totalItems, int totalPages,
                                          Summary summary) {
 
+    public CancellationReportResponse {
+        items = ResponseCollections.copyOf(items);
+    }
+
     public record Item(UUID cancellationId, UUID orderId, String orderNo, UUID tableId, String scope, String status,
                        boolean kitchenConfirmationRequired, String decisionSource, CancellationResponse.Actor requestedBy,
                        Instant requestedAt, Instant decidedAt, String rejectionCode, long unitsInRequest,
                        List<Reason> reasons, boolean reasonPending, CancellationResponse.Amounts amounts,
                        Long pendingAgeSeconds, boolean overdue) {
+
+        public Item {
+            reasons = ResponseCollections.copyOf(reasons);
+        }
     }
 
     public record Reason(String source, String code, String text) {
@@ -28,6 +36,12 @@ public record CancellationReportResponse(List<Item> items, int page, int limit, 
     /** {@code byReason} counts cancellations (not reasons) per catalog code; a cancellation may have several. */
     public record Summary(long totalCount, Map<String, Long> byStatus, List<Totals> totals, List<ReasonCount> byReason,
                           long withoutReasonCount, Pending pending) {
+
+        public Summary {
+            byStatus = ResponseCollections.copyOf(byStatus);
+            totals = ResponseCollections.copyOf(totals);
+            byReason = ResponseCollections.copyOf(byReason);
+        }
     }
 
     /**

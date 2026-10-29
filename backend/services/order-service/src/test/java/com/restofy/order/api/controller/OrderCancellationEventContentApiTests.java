@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -202,7 +203,7 @@ class OrderCancellationEventContentApiTests extends AbstractCancellationApiTest 
         int events = count("outbox_events");
 
         // the message memory (90 days) forgets the event; the decision itself is final and is never applied twice
-        jdbc.update("UPDATE inbox_events SET received_at = ?", java.sql.Timestamp.from(Instant.now().minus(120, ChronoUnit.DAYS)));
+        jdbc.update("UPDATE inbox_events SET received_at = ?", Timestamp.from(Instant.now().minus(120, ChronoUnit.DAYS)));
         assertEquals(1, retention.purgeProcessedInboxEvents());
         kitchenDecision(service(KITCHEN_CREDENTIAL), body).andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("IGNORED_STALE"))

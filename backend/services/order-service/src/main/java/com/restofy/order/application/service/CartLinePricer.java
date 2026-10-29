@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -64,10 +65,10 @@ public class CartLinePricer {
         if (live.price().unitGrossMinor() != item.getUnitGrossMinorSnapshot()) {
             return true;
         }
-        if (!java.util.Objects.equals(live.product().taxRateBps(), item.getTaxRateBpsSnapshot())) {
+        if (!Objects.equals(live.product().taxRateBps(), item.getTaxRateBpsSnapshot())) {
             return true;
         }
-        if (!java.util.Objects.equals(live.product().priceVersion(), item.getPriceVersionSnapshot())) {
+        if (!Objects.equals(live.product().priceVersion(), item.getPriceVersionSnapshot())) {
             return true;
         }
         for (CartItemOption stored : item.getOptions()) {
@@ -108,12 +109,12 @@ public class CartLinePricer {
                     .ifPresent(o -> changes.add(new PriceChange(item.getId(), item.getProductId(), "EXTRA_PRICE",
                             o.optionId(), o.name(), stored.getUnitPriceDeltaMinorSnapshot(), o.unitPriceDeltaMinor())));
         }
-        if (!java.util.Objects.equals(live.product().taxRateBps(), item.getTaxRateBpsSnapshot())) {
+        if (!Objects.equals(live.product().taxRateBps(), item.getTaxRateBpsSnapshot())) {
             changes.add(new PriceChange(item.getId(), item.getProductId(), "TAX_RATE", null, live.product().name(),
                     item.getTaxRateBpsSnapshot() == null ? null : item.getTaxRateBpsSnapshot().longValue(),
                     live.product().taxRateBps() == null ? null : live.product().taxRateBps().longValue()));
         }
-        if (!java.util.Objects.equals(live.product().priceVersion(), item.getPriceVersionSnapshot())) {
+        if (!Objects.equals(live.product().priceVersion(), item.getPriceVersionSnapshot())) {
             changes.add(new PriceChange(item.getId(), item.getProductId(), "PRICE_VERSION", null,
                     live.product().priceVersion(), null, null));
         }
@@ -161,7 +162,7 @@ public class CartLinePricer {
             long unitGross = PriceCalculator.unitGross(product.basePriceGrossMinor(), extrasDelta);
             LinePrice price = PriceCalculator.priceLine(unitGross, item.getQuantity(), product.taxRateBps());
             return Evaluation.priced(new PricedLine(price, product, List.copyOf(options)));
-        } catch (ArithmeticException overflow) {
+        } catch (ArithmeticException _) {
             return Evaluation.failed(ErrorCode.VALIDATION_ERROR, "The line amount exceeds the allowed limit");
         }
     }

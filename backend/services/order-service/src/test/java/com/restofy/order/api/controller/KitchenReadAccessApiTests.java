@@ -4,9 +4,14 @@ import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.domain.enums.StaffRole;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,7 +29,7 @@ class KitchenReadAccessApiTests extends AbstractOrderStatusApiTest {
 
     /** A burger with a removed ingredient, two cheese extras and a note: everything the kitchen needs to see. */
     private UUID customisedOrder() throws Exception {
-        addItem(A1, java.util.Map.of("productId", DevFixtures.BURGER, "quantity", 2,
+        addItem(A1, Map.of("productId", DevFixtures.BURGER, "quantity", 2,
                 "removedIngredientIds", List.of(DevFixtures.OPT_ONION),
                 "extras", List.of(extra(DevFixtures.OPT_CHEESE, 2)), "note", "well done")).andExpect(status().isOk());
         String body = placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isCreated()).andReturn()
@@ -86,10 +91,10 @@ class KitchenReadAccessApiTests extends AbstractOrderStatusApiTest {
 
         // the kitchen follows the preparation: new, preparing, ready; the cancelled view is open to it as well
         advanceTo(first, "PREPARING");
-        java.util.Set<String> statuses = new java.util.HashSet<>();
+        Set<String> statuses = new HashSet<>();
         body(getWith(KITCHEN, "/api/v1/orders?view=active")).path("items")
                 .forEach(item -> statuses.add(item.path("fulfillmentStatus").asString()));
-        assertEquals(java.util.Set.of("PREPARING", "RECEIVED"), statuses);
+        assertEquals(Set.of("PREPARING", "RECEIVED"), statuses);
         jdbc.update("UPDATE orders SET fulfillment_status = 'CANCELLED' WHERE id = ?", second);
         assertEquals(1, body(getWith(KITCHEN, "/api/v1/orders?view=cancelled")).path("totalItems").asInt());
 
@@ -123,11 +128,11 @@ class KitchenReadAccessApiTests extends AbstractOrderStatusApiTest {
         patchStatus(KITCHEN, orderId, "SERVED").andExpect(status().isForbidden());
         patchStatus(KITCHEN, orderId, "COMPLETED").andExpect(status().isForbidden());
         patchStatus(KITCHEN, orderId, "CANCELLED").andExpect(status().isConflict());
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/orders")
+        mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
                         .header("Authorization", KITCHEN).contentType("application/json")
                         .content("{\"expectedCartVersion\":1,\"expectedTotalMinor\":1}"))
                 .andExpect(status().isForbidden());
-        paymentEvent(KITCHEN, paymentBody(UUID.randomUUID(), orderId, "PAID", 1L, "TRY", java.time.Instant.now()))
+        paymentEvent(KITCHEN, paymentBody(UUID.randomUUID(), orderId, "PAID", 1L, "TRY", Instant.now()))
                 .andExpect(status().isForbidden());
         assertEquals("NOT_REQUESTED", paymentOf(orderId));
         assertEquals("RECEIVED", fulfillmentOf(orderId));

@@ -65,7 +65,7 @@ public final class DevFixtures {
     }
 
     /** 250.00 TRY, 10% VAT: onion/pickle removable, bun standard (not removable), cheese/bacon paid extras. */
-    public static ProductSnapshot burger() {
+    public static ProductSnapshot burgerSnapshot() {
         return new ProductSnapshot(BURGER, "Dev Burger", true, true, "TRY", 25_000L, 1_000, List.of(
                 new ProductOption(OPT_ONION, "Onion", OptionType.INCLUDED, 0L, 0, 1, true),
                 new ProductOption(OPT_PICKLE, "Pickle", OptionType.INCLUDED, 0L, 0, 1, true),
@@ -75,7 +75,7 @@ public final class DevFixtures {
     }
 
     /** 90.00 TRY, 20% VAT, no options. */
-    public static ProductSnapshot salad() {
+    public static ProductSnapshot saladSnapshot() {
         return new ProductSnapshot(SALAD, "Dev Salad", true, true, "TRY", 9_000L, 2_000, List.of());
     }
 }

@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -21,7 +22,7 @@ import jakarta.validation.constraints.Size;
 public record CheckoutRequest(
         @NotNull @Min(0) Long expectedCartVersion,
         @NotNull @Min(0) Long expectedTotalMinor,
-        @Size(max = 300) String note,
+        @Size(max = InputLimits.MAX_TEXT_LENGTH) String note,
         @Pattern(regexp = "[0-9a-f]{64}", message = "must be a 64 character lowercase hex digest")
         String expectedPriceFingerprint,
         Boolean acknowledgePriceChanges) {

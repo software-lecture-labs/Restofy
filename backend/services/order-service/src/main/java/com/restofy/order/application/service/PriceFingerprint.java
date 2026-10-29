@@ -5,11 +5,7 @@ import com.restofy.order.application.service.CartLinePricer.PricedOption;
 import com.restofy.order.domain.entity.Cart;
 import com.restofy.order.domain.entity.CartItem;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,7 +38,7 @@ public final class PriceFingerprint {
                 .append('|').append(currency);
         lines.stream().sorted(Comparator.comparing((Line l) -> l.item().getCreatedAt())
                 .thenComparing(l -> l.item().getId())).forEach(line -> append(canonical, line));
-        return sha256(canonical.toString());
+        return IdempotencyKeys.sha256(canonical.toString());
     }
 
     private static void append(StringBuilder canonical, Line line) {
@@ -60,14 +56,5 @@ public final class PriceFingerprint {
                         .thenComparing(PricedOption::action))
                 .forEach(o -> canonical.append(":O:").append(o.optionId()).append('/').append(o.action()).append('/')
                         .append(o.quantity()).append('/').append(o.unitPriceDeltaMinor()));
-    }
-
-    private static String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required by the JVM specification", e);
-        }
     }
 }

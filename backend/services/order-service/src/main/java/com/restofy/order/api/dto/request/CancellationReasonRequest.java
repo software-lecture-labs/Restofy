@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -10,6 +11,6 @@ import java.util.List;
  * needed; the rules are those of the customer's reason (catalog codes, each once, and/or plain text).
  */
 public record CancellationReasonRequest(
-        @Size(max = 10) List<@NotNull @Size(max = 40) String> reasonCodes,
-        @Size(max = 300) String reasonText) {
+        @Size(max = InputLimits.MAX_REASON_CODES) List<@NotNull @Size(max = InputLimits.MAX_REASON_CODE_LENGTH) String> reasonCodes,
+        @Size(max = InputLimits.MAX_TEXT_LENGTH) String reasonText) {
 }

@@ -9,13 +9,9 @@ import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +24,8 @@ import java.util.UUID;
  */
 @Component
 public class CartSelectionResolver {
+
+    private static final String INGREDIENT_ID = "ingredientId";
 
     public record ExtraChoice(UUID optionId, int quantity) {
     }
@@ -47,11 +45,11 @@ public class CartSelectionResolver {
             ProductOption option = lookup(catalogOptions, optionId);
             if (!seenRemoved.add(optionId)) {
                 throw new BusinessException(ErrorCode.DUPLICATE_OPTION,
-                        "The same ingredient cannot be removed twice", Map.of("ingredientId", optionId));
+                        "The same ingredient cannot be removed twice", Map.of(INGREDIENT_ID, optionId));
             }
             if (option.type() != OptionType.INCLUDED || !option.removable()) {
                 throw new BusinessException(ErrorCode.OPTION_NOT_REMOVABLE,
-                        "This ingredient cannot be removed from the product", Map.of("ingredientId", optionId));
+                        "This ingredient cannot be removed from the product", Map.of(INGREDIENT_ID, optionId));
             }
             resolved.add(new ResolvedOption(optionId, SelectionAction.REMOVE, 1, option.name(), 0L));
         }
@@ -62,26 +60,26 @@ public class CartSelectionResolver {
             ProductOption option = lookup(catalogOptions, choice.optionId());
             if (!seenExtras.add(choice.optionId())) {
                 throw new BusinessException(ErrorCode.DUPLICATE_OPTION,
-                        "The same extra can only be selected once", Map.of("ingredientId", choice.optionId()));
+                        "The same extra can only be selected once", Map.of(INGREDIENT_ID, choice.optionId()));
             }
             if (seenRemoved.contains(choice.optionId())) {
                 throw new BusinessException(ErrorCode.CONFLICTING_OPTION,
-                        "An ingredient cannot be both removed and added", Map.of("ingredientId", choice.optionId()));
+                        "An ingredient cannot be both removed and added", Map.of(INGREDIENT_ID, choice.optionId()));
             }
             if (option.type() != OptionType.ADD || !option.active()) {
                 throw new BusinessException(ErrorCode.OPTION_NOT_EXTRA,
-                        "This ingredient cannot be added as an extra", Map.of("ingredientId", choice.optionId()));
+                        "This ingredient cannot be added as an extra", Map.of(INGREDIENT_ID, choice.optionId()));
             }
             int minimum = Math.max(1, option.minQuantity());
             if (choice.quantity() < minimum || choice.quantity() > option.maxQuantity()) {
                 throw new BusinessException(ErrorCode.OPTION_QUANTITY_INVALID,
                         "Extra quantity must be between " + minimum + " and " + option.maxQuantity(),
-                        Map.of("ingredientId", choice.optionId()));
+                        Map.of(INGREDIENT_ID, choice.optionId()));
             }
             try {
                 extrasDelta = Math.addExact(extrasDelta,
                         Math.multiplyExact(option.priceDeltaMinor(), (long) choice.quantity()));
-            } catch (ArithmeticException overflow) {
+            } catch (ArithmeticException _) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Selected extras exceed the allowed amount");
             }
             resolved.add(new ResolvedOption(choice.optionId(), SelectionAction.ADD, choice.quantity(),
@@ -96,7 +94,7 @@ public class CartSelectionResolver {
         ProductOption option = catalogOptions.get(optionId);
         if (option == null) {
             throw new BusinessException(ErrorCode.UNKNOWN_OPTION,
-                    "The ingredient does not belong to this product", Map.of("ingredientId", optionId));
+                    "The ingredient does not belong to this product", Map.of(INGREDIENT_ID, optionId));
         }
         return option;
     }
@@ -126,12 +124,6 @@ public class CartSelectionResolver {
                     .append(':').append(option.quantity());
         }
         canonical.append("|note:").append(note == null ? "" : note);
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required by the JVM specification", e);
-        }
+        return IdempotencyKeys.sha256(canonical.toString());
     }
 }

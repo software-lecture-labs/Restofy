@@ -4,7 +4,9 @@ import com.restofy.order.domain.enums.CancellationReasonCode;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -101,12 +103,12 @@ class OrderCancellationReasonApiTests extends AbstractCancellationApiTest {
         cancel(guest(A1), orderId, newKey(), cancelAllWith(List.of("OTHER", "OTHER"), null))
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         List<String> eleven = Arrays.stream(CancellationReasonCode.values()).map(Enum::name).toList();
-        List<String> tooMany = new java.util.ArrayList<>(eleven);
+        List<String> tooMany = new ArrayList<>(eleven);
         tooMany.addAll(eleven);
         cancel(guest(A1), orderId, newKey(), cancelAllWith(tooMany, null)).andExpect(status().isUnprocessableContent());
         // a null element in the list
         cancel(guest(A1), orderId, newKey(), Map.of("cancelAll", true, "reasonCodes",
-                java.util.Collections.singletonList(null))).andExpect(status().isUnprocessableContent());
+                Collections.singletonList(null))).andExpect(status().isUnprocessableContent());
         assertEquals(0, count("order_cancellations"));
     }
 

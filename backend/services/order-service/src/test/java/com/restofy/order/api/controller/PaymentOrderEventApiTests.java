@@ -1,13 +1,15 @@
 package com.restofy.order.api.controller;
 
-import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import com.restofy.order.application.service.DataRetentionService;
+import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +72,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         paymentEvent(staff(DevFixtures.STAFF_WAITER_A), body).andExpect(status().isForbidden());
         paymentEvent(service(KITCHEN_CREDENTIAL), body).andExpect(status().isForbidden());
         // header hints open nothing
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(PAYMENT_EVENTS)
+        mvc.perform(MockMvcRequestBuilders.post(PAYMENT_EVENTS)
                         .contentType("application/json").content(toJson(body)).header("X-Service", "PAYMENT")
                         .header("X-Payment-Status", "PAID"))
                 .andExpect(status().isUnauthorized());
@@ -85,7 +87,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         UUID orderId = placeSaladOrder(A1);
         for (String credential : new String[]{guest(A1), staff(DevFixtures.STAFF_ADMIN_A),
                 staff(DevFixtures.STAFF_WAITER_A), staff(DevFixtures.STAFF_KITCHEN_A)}) {
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            mvc.perform(MockMvcRequestBuilders
                             .patch("/api/v1/orders/" + orderId + "/payment-status").header("Authorization", credential)
                             .contentType("application/json").content("{\"status\":\"PAID\"}"))
                     .andExpect(status().isForbidden());
@@ -122,7 +124,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         assertEquals(pendingEvent.toString(), jdbc.queryForObject("SELECT source_event_id::text FROM"
                 + " order_status_history WHERE order_id = ? AND to_status = 'PENDING' AND state_axis = 'PAYMENT'",
                 String.class, orderId));
-        assertNotNull(jdbc.queryForObject("SELECT payment_event_at FROM orders WHERE id = ?", java.sql.Timestamp.class,
+        assertNotNull(jdbc.queryForObject("SELECT payment_event_at FROM orders WHERE id = ?", Timestamp.class,
                 orderId));
         assertEquals(2, inboxRows());
         assertEquals(0L, jdbc.queryForObject("SELECT current_due_minor FROM orders WHERE id = ?", Long.class,
@@ -651,7 +653,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         assertEquals("PAID", paymentOf(orderId));
         assertEquals(0L, jdbc.queryForObject("SELECT current_due_minor FROM orders WHERE id = ?", Long.class, orderId));
         // the stored event time never moves backwards
-        assertTrue(jdbc.queryForObject("SELECT payment_event_at FROM orders WHERE id = ?", java.sql.Timestamp.class,
+        assertTrue(jdbc.queryForObject("SELECT payment_event_at FROM orders WHERE id = ?", Timestamp.class,
                 orderId).toInstant().isAfter(Instant.now().minusSeconds(150)));
 
         // two events with exactly the same timestamp are ordered by the state machine, not refused

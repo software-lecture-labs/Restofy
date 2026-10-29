@@ -56,8 +56,8 @@ public class InMemoryMenuCatalogAdapter implements MenuCatalogPort {
     /** Restores the default fixtures. */
     public final void reset() {
         catalogByRestaurant.clear();
-        put(DevFixtures.RESTAURANT_A, DevFixtures.burger());
-        put(DevFixtures.RESTAURANT_A, DevFixtures.salad());
-        put(DevFixtures.RESTAURANT_B, DevFixtures.salad());
+        put(DevFixtures.RESTAURANT_A, DevFixtures.burgerSnapshot());
+        put(DevFixtures.RESTAURANT_A, DevFixtures.saladSnapshot());
+        put(DevFixtures.RESTAURANT_B, DevFixtures.saladSnapshot());
     }
 }

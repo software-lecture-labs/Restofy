@@ -6,11 +6,13 @@ import com.restofy.order.application.port.ServiceIdentityPort;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -42,7 +44,7 @@ class ServiceAuthFailClosedApiTests {
     @MockitoBean
     private QrSessionPort qr;
 
-    private org.springframework.test.web.servlet.ResultActions call(String authorization) throws Exception {
+    private ResultActions call(String authorization) throws Exception {
         var request = post(PATH).contentType("application/json").content(BODY);
         if (authorization != null) {
             request.header("Authorization", authorization);
@@ -93,12 +95,12 @@ class ServiceAuthFailClosedApiTests {
         verify(services).resolveService("svc-credential");
         verifyNoInteractions(auth, qr);
 
-        org.mockito.Mockito.clearInvocations(services, auth, qr);
+        Mockito.clearInvocations(services, auth, qr);
         call("Staff staff-credential").andReturn();
         verify(auth).resolveStaff("staff-credential");
         verifyNoInteractions(services, qr);
 
-        org.mockito.Mockito.clearInvocations(services, auth, qr);
+        Mockito.clearInvocations(services, auth, qr);
         call("Bearer guest-token").andReturn();
         verify(qr).validateGuestSession("guest-token");
         verifyNoInteractions(services, auth);

@@ -5,6 +5,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -118,7 +120,7 @@ public class PaymentCaptureStore {
                 Timestamp.from(createdAt)) == 1;
     }
 
-    private static Capture map(java.sql.ResultSet rs) throws java.sql.SQLException {
+    private static Capture map(ResultSet rs) throws SQLException {
         return new Capture(rs.getObject("capture_id", UUID.class), rs.getObject("restaurant_id", UUID.class),
                 rs.getObject("order_id", UUID.class), rs.getObject("payment_attempt_id", UUID.class),
                 rs.getLong("amount_minor"), rs.getString("currency"), rs.getString("status"),

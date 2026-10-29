@@ -2,12 +2,21 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 
+import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,16 +37,16 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
     private static final String WAITER = staff(DevFixtures.STAFF_WAITER_A);
     private static final String ADMIN = staff(DevFixtures.STAFF_ADMIN_A);
 
-    private org.springframework.test.web.servlet.ResultActions kitchenAsks(String authorization, Object body)
+    private ResultActions kitchenAsks(String authorization, Object body)
             throws Exception {
-        var request = post(PATH).contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(toJson(body));
+        var request = post(PATH).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
         if (authorization != null) {
-            request.header(org.springframework.http.HttpHeaders.AUTHORIZATION, authorization);
+            request.header(HttpHeaders.AUTHORIZATION, authorization);
         }
         return mvc.perform(request);
     }
 
-    private org.springframework.test.web.servlet.ResultActions kitchenAsks(Object body) throws Exception {
+    private ResultActions kitchenAsks(Object body) throws Exception {
         return kitchenAsks(service(KITCHEN_CREDENTIAL), body);
     }
 
@@ -190,7 +199,7 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
         assertEquals("SYSTEM", row.get("decided_by_type"));
         assertEquals(null, row.get("decided_by_id"));
         assertEquals("KITCHEN", row.get("decision_source"), "decided on the basis of the Kitchen's own request");
-        assertFalse(((java.sql.Timestamp) row.get("decided_at")).before((java.sql.Timestamp) row.get("requested_at")),
+        assertFalse(((Timestamp) row.get("decided_at")).before((Timestamp) row.get("requested_at")),
                 "the decision is never earlier than the request");
         // the receipt of the request is remembered apart from the decision
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE source = 'KITCHEN' AND event_id = ?"
@@ -264,9 +273,9 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
     void theKitchensRequestAndAPaymentRacingLeaveAConsistentOrder() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         pay(orderId, "PENDING", 10).andExpect(status().isOk());
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var pool = Executors.newFixedThreadPool(2);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
+            var start = new CountDownLatch(1);
             var kitchen = pool.submit(() -> {
                 start.await();
                 return kitchenAsks(askAll(UUID.randomUUID(), orderId, outOfStock(), null)).andReturn().getResponse()
@@ -277,8 +286,8 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
                 return pay(orderId, "PAID", 1).andReturn().getResponse().getStatus();
             });
             start.countDown();
-            assertEquals(200, kitchen.get(30, java.util.concurrent.TimeUnit.SECONDS));
-            assertEquals(200, payment.get(30, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(200, kitchen.get(30, TimeUnit.SECONDS));
+            assertEquals(200, payment.get(30, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
         }
@@ -459,10 +468,10 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
     void concurrentRedeliveriesCreateOneCancellation() throws Exception {
         UUID orderId = placeMixedOrder(A1);
         var body = askItems(UUID.randomUUID(), orderId, lineOf(orderId, DevFixtures.SALAD), 1, outOfStock(), null);
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        var pool = Executors.newFixedThreadPool(4);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
-            List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+            var start = new CountDownLatch(1);
+            List<Future<Integer>> results = new ArrayList<>();
             for (int i = 0; i < 4; i++) {
                 results.add(pool.submit(() -> {
                     start.await();
@@ -471,7 +480,7 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
             }
             start.countDown();
             for (var result : results) {
-                assertEquals(200, result.get(30, java.util.concurrent.TimeUnit.SECONDS));
+                assertEquals(200, result.get(30, TimeUnit.SECONDS));
             }
         } finally {
             pool.shutdownNow();
@@ -484,10 +493,10 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
     @Test
     void theKitchensRequestAndTheCustomersCancellationRacingCancelTheOrderOnce() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
-        List<Integer> statuses = new java.util.ArrayList<>();
+        var pool = Executors.newFixedThreadPool(2);
+        List<Integer> statuses = new ArrayList<>();
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
+            var start = new CountDownLatch(1);
             var kitchen = pool.submit(() -> {
                 start.await();
                 return kitchenAsks(askAll(UUID.randomUUID(), orderId, outOfStock(), null)).andReturn().getResponse()
@@ -498,8 +507,8 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
                 return cancelAll(guest(A1), orderId).andReturn().getResponse().getStatus();
             });
             start.countDown();
-            statuses.add(kitchen.get(30, java.util.concurrent.TimeUnit.SECONDS));
-            statuses.add(customer.get(30, java.util.concurrent.TimeUnit.SECONDS));
+            statuses.add(kitchen.get(30, TimeUnit.SECONDS));
+            statuses.add(customer.get(30, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
         }

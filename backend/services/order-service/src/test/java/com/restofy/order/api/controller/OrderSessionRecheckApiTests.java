@@ -9,6 +9,7 @@ import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -17,8 +18,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,9 +74,9 @@ class OrderSessionRecheckApiTests {
     private ResultActions order() throws Exception {
         var cart = mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
                 .andReturn().getResponse().getContentAsString();
-        var node = new tools.jackson.databind.json.JsonMapper().readTree(cart);
+        var node = new JsonMapper().readTree(cart);
         return mvc.perform(post("/api/v1/orders").header("Authorization", "Bearer " + TOKEN)
-                .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType("application/json")
                 .content("{\"expectedCartVersion\": " + node.path("version").asLong()
                         + ", \"expectedTotalMinor\": " + node.path("totals").path("grossMinor").asLong() + "}"));
@@ -124,7 +128,7 @@ class OrderSessionRecheckApiTests {
     @Test
     void rejectedRequestsDoNotBotherTheQrServiceAgain() throws Exception {
         mvc.perform(post("/api/v1/orders").header("Authorization", "Bearer " + TOKEN)
-                        .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"expectedCartVersion\": 0, \"expectedTotalMinor\": 1}"))
                 .andExpect(status().isConflict());
@@ -140,10 +144,10 @@ class OrderSessionRecheckApiTests {
      */
     @Test
     void knownLimitation_aSessionClosedAfterTheRecheckButBeforeTheCommitStillGetsItsOrder() throws Exception {
-        java.util.concurrent.atomic.AtomicReference<SessionState> stateAtQr =
-                new java.util.concurrent.atomic.AtomicReference<>(SessionState.ACTIVE);
+        AtomicReference<SessionState> stateAtQr =
+                new AtomicReference<>(SessionState.ACTIVE);
         when(qr.currentSessionState(any(), any(), any())).thenAnswer(call -> Optional.of(stateAtQr.get()));
-        org.mockito.Mockito.doAnswer(call -> {
+        Mockito.doAnswer(call -> {
             stateAtQr.set(SessionState.CLOSED);   // the waiter closes the table while the checkout transaction runs
             return call.callRealMethod();
         }).when(orderMapper).toPlacedEvent(any(), any(), any(), any());
@@ -153,7 +157,7 @@ class OrderSessionRecheckApiTests {
                 "documented gap: no cross-service atomicity without QR fencing");
 
         // from now on the closed session is seen and nothing further can be ordered
-        org.mockito.Mockito.reset(orderMapper);
+        Mockito.reset(orderMapper);
         mvc.perform(post("/api/v1/carts/current/items").header("Authorization", "Bearer " + TOKEN)
                         .contentType("application/json")
                         .content("{\"productId\": \"" + DevFixtures.SALAD + "\", \"quantity\": 1}"))

@@ -3,6 +3,7 @@ package com.restofy.order.api.controller;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessException;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -96,7 +97,7 @@ class OrderFulfillmentApiTests extends AbstractOrderStatusApiTest {
         // a service credential is not staff authority either
         patchStatus(service(KITCHEN_CREDENTIAL), orderId, "PREPARING").andExpect(status().isForbidden());
         // identity hints in headers are not an authority
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                         .patch("/api/v1/orders/" + orderId + "/fulfillment-status")
                         .contentType("application/json").content("{\"status\":\"PREPARING\"}")
                         .header("X-Role", "KITCHEN").header("X-User-Id", DevFixtures.USER_KITCHEN_A.toString())
@@ -254,7 +255,7 @@ class OrderFulfillmentApiTests extends AbstractOrderStatusApiTest {
                 .andExpect(status().isBadRequest());
         patchStatus(KITCHEN, orderId, Map.of("status", "PREPARING", "actorId", UUID.randomUUID()))
                 .andExpect(status().isBadRequest());
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                         .patch("/api/v1/orders/not-a-uuid/fulfillment-status").header("Authorization", KITCHEN)
                         .contentType("application/json").content("{\"status\":\"PREPARING\"}"))
                 .andExpect(status().isBadRequest());

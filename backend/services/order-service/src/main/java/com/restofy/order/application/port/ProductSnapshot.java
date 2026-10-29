@@ -1,5 +1,7 @@
 package com.restofy.order.application.port;
 
+import com.restofy.order.domain.pricing.MoneyConverter;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -26,23 +28,27 @@ public record ProductSnapshot(UUID productId, String name, boolean published, bo
     /** Upper bound for any single catalog amount; keeps line/total arithmetic far from long overflow. */
     public static final long MAX_AMOUNT_MINOR = 1_000_000_000_000L;
     public static final int MAX_OPTION_QUANTITY = 1_000;
+    public static final int MAX_PRODUCT_NAME_LENGTH = 200;
+    public static final int MAX_OPTION_NAME_LENGTH = 150;
+    public static final int MAX_PRICE_VERSION_LENGTH = 64;
 
     public ProductSnapshot {
         Objects.requireNonNull(productId, "productId");
-        if (name == null || name.isBlank() || name.length() > 200) {
-            throw new IllegalArgumentException("product name must be 1..200 characters");
+        if (name == null || name.isBlank() || name.length() > MAX_PRODUCT_NAME_LENGTH) {
+            throw new IllegalArgumentException("product name must be 1.." + MAX_PRODUCT_NAME_LENGTH + " characters");
         }
-        if (currency == null || !currency.matches("[A-Z]{3}")) {
-            throw new IllegalArgumentException("currency must be an ISO 4217 code");
+        if (!MoneyConverter.isCanonicalCurrency(currency)) {
+            throw new IllegalArgumentException("currency must be a supported upper-case ISO 4217 code");
         }
         if (basePriceGrossMinor < 0 || basePriceGrossMinor > MAX_AMOUNT_MINOR) {
             throw new IllegalArgumentException("price must be within 0.." + MAX_AMOUNT_MINOR);
         }
-        if (taxRateBps != null && (taxRateBps < 0 || taxRateBps > 10_000)) {
-            throw new IllegalArgumentException("taxRateBps must be within 0..10000");
+        if (taxRateBps != null && (taxRateBps < 0 || taxRateBps > MoneyConverter.BPS_BASE)) {
+            throw new IllegalArgumentException("taxRateBps must be within 0.." + MoneyConverter.BPS_BASE);
         }
-        if (priceVersion != null && (priceVersion.isBlank() || priceVersion.length() > 64)) {
-            throw new IllegalArgumentException("priceVersion must be 1..64 characters when present");
+        if (priceVersion != null && (priceVersion.isBlank() || priceVersion.length() > MAX_PRICE_VERSION_LENGTH)) {
+            throw new IllegalArgumentException(
+                    "priceVersion must be 1.." + MAX_PRICE_VERSION_LENGTH + " characters when present");
         }
         options = options == null ? List.of() : List.copyOf(options);
     }
@@ -61,8 +67,8 @@ public record ProductSnapshot(UUID productId, String name, boolean published, bo
         public ProductOption {
             Objects.requireNonNull(optionId, "optionId");
             Objects.requireNonNull(type, "type");
-            if (name == null || name.isBlank() || name.length() > 150) {
-                throw new IllegalArgumentException("option name must be 1..150 characters");
+            if (name == null || name.isBlank() || name.length() > MAX_OPTION_NAME_LENGTH) {
+                throw new IllegalArgumentException("option name must be 1.." + MAX_OPTION_NAME_LENGTH + " characters");
             }
             if (priceDeltaMinor < 0 || priceDeltaMinor > MAX_AMOUNT_MINOR) {
                 throw new IllegalArgumentException("option price delta must be within 0.." + MAX_AMOUNT_MINOR);

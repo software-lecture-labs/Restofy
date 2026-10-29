@@ -1,8 +1,10 @@
 package com.restofy.order.infrastructure.config;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 
 import java.time.Duration;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -11,8 +13,8 @@ class MessagingRetentionPropertiesTests {
 
     @Test
     void theApplicationPropertiesFileCarriesTheInitialPolicy() throws Exception {
-        var properties = new java.util.Properties();
-        try (var input = new org.springframework.core.io.ClassPathResource("application.properties").getInputStream()) {
+        var properties = new Properties();
+        try (var input = new ClassPathResource("application.properties").getInputStream()) {
             properties.load(input);
         }
         assertEquals("P90D", properties.getProperty("restofy.messaging.inbox-retention"));

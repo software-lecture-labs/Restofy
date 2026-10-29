@@ -20,6 +20,7 @@ import com.restofy.order.infrastructure.config.CartProperties;
 import com.restofy.order.infrastructure.config.IdempotencyProperties;
 import com.restofy.order.infrastructure.persistence.IdempotencyStore;
 import com.restofy.order.infrastructure.persistence.repository.CartRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Cart use cases for a QR guest. Remote catalog calls happen outside DB transactions; each mutation runs in
@@ -98,26 +100,13 @@ public class CartService {
             }
         }
 
-        ProductSnapshot product = catalog.findProducts(context.restaurantId(), Set.of(request.productId()))
-                .get(request.productId());
-        if (product == null) {
-            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND, "The product does not exist");
-        }
-        if (!product.sellable()) {
-            throw new BusinessException(ErrorCode.PRODUCT_UNAVAILABLE, "The product is currently not available");
-        }
+        ProductSnapshot product = sellableProduct(context, request.productId());
         List<ExtraChoice> extras = request.extras() == null ? List.of() : request.extras().stream()
                 .map((ExtraSelectionRequest extra) -> new ExtraChoice(extra.ingredientId(), extra.quantity()))
                 .toList();
         ResolvedSelection selection = selections.resolve(product, request.removedIngredientIds(), extras,
                 request.note());
-        long unitGross;
-        try {
-            unitGross = PriceCalculator.unitGross(product.basePriceGrossMinor(), selection.extrasUnitDeltaMinor());
-            PriceCalculator.priceLine(unitGross, request.quantity(), product.taxRateBps());
-        } catch (ArithmeticException overflow) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "The line amount exceeds the allowed limit");
-        }
+        long unitGross = unitGrossOf(product, selection, request.quantity());
 
         Boolean alreadyClaimed = writeTx.execute(status -> {
             Cart cart = lockOrCreateCart(context);
@@ -125,41 +114,11 @@ public class CartService {
             // The cart lock serializes this guest's requests, so a concurrent twin has already committed (or not
             // started) by the time we claim. A failure further down rolls the claim back with everything else.
             if (key != null && !idempotency.tryClaim(context.restaurantId(), actor, IdempotencyKeys.CART_ITEM, key,
-                    digest, cart.getId(), 200, now, now.plus(retention.cartItemRetention()))) {
+                    digest, cart.getId(), HttpStatus.OK.value(), now, now.plus(retention.cartItemRetention()))) {
                 return true;
             }
             requireExpectedVersion(cart, request.expectedCartVersion());
-
-            if (cart.getItems().isEmpty()) {
-                cart.useCurrency(product.currency());
-            } else if (!product.currency().equals(cart.getCurrency())) {
-                throw new BusinessException(ErrorCode.CURRENCY_MISMATCH,
-                        "The product currency does not match the cart currency");
-            }
-
-            Optional<CartItem> existing = cart.findItem(product.productId(), selection.selectionKey());
-            if (existing.isPresent()) {
-                CartItem item = existing.get();
-                int merged = item.getQuantity() + request.quantity();
-                requireQuantityWithinLimit(merged);
-                item.changeQuantity(merged, now);
-                item.refreshSnapshot(product.name(), unitGross, product.taxRateBps(), product.priceVersion(), now);
-                item.refreshOptionPrices(selection.options().stream().collect(java.util.stream.Collectors.toMap(
-                        ResolvedOption::optionId, ResolvedOption::unitPriceDeltaMinor)));
-            } else {
-                if (cart.getItems().size() >= limits.maxLines()) {
-                    throw new BusinessException(ErrorCode.CART_ITEM_LIMIT_EXCEEDED,
-                            "The cart cannot contain more than " + limits.maxLines() + " different lines");
-                }
-                CartItem item = new CartItem(cart, product.productId(), request.quantity(),
-                        selection.selectionKey(), selection.note(), product.name(), product.currency(),
-                        unitGross, product.taxRateBps(), product.priceVersion(), now);
-                for (ResolvedOption option : selection.options()) {
-                    item.addOption(new CartItemOption(item, option.optionId(), option.action(), option.quantity(),
-                            option.name(), option.unitPriceDeltaMinor()));
-                }
-                cart.addItem(item);
-            }
+            putLine(cart, product, selection, unitGross, request.quantity(), now);
             cart.touch(now);
             return false;
         });
@@ -170,6 +129,66 @@ public class CartService {
             return replay(context, winner, digest);
         }
         return new CartMutation(view(context), false);
+    }
+
+    /** The catalog's current view of a product that exists and may be sold right now, or the matching refusal. */
+    private ProductSnapshot sellableProduct(GuestSessionContext context, UUID productId) {
+        ProductSnapshot product = catalog.findProducts(context.restaurantId(), Set.of(productId)).get(productId);
+        if (product == null) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND, "The product does not exist");
+        }
+        if (!product.sellable()) {
+            throw new BusinessException(ErrorCode.PRODUCT_UNAVAILABLE, "The product is currently not available");
+        }
+        return product;
+    }
+
+    /** The unit price including extras; refuses a line whose amount would not fit the money arithmetic. */
+    private static long unitGrossOf(ProductSnapshot product, ResolvedSelection selection, int quantity) {
+        try {
+            long unitGross = PriceCalculator.unitGross(product.basePriceGrossMinor(), selection.extrasUnitDeltaMinor());
+            PriceCalculator.priceLine(unitGross, quantity, product.taxRateBps());
+            return unitGross;
+        } catch (ArithmeticException _) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "The line amount exceeds the allowed limit");
+        }
+    }
+
+    /**
+     * Adds the validated selection to the locked cart: the first line fixes the cart's currency, a later product must
+     * use it; an identical selection merges into its line (and refreshes the validated prices), a new one is a new line.
+     */
+    private void putLine(Cart cart, ProductSnapshot product, ResolvedSelection selection, long unitGross, int quantity,
+                         Instant now) {
+        if (cart.getItems().isEmpty()) {
+            cart.useCurrency(product.currency());
+        } else if (!product.currency().equals(cart.getCurrency())) {
+            throw new BusinessException(ErrorCode.CURRENCY_MISMATCH,
+                    "The product currency does not match the cart currency");
+        }
+
+        Optional<CartItem> existing = cart.findItem(product.productId(), selection.selectionKey());
+        if (existing.isPresent()) {
+            CartItem item = existing.get();
+            int merged = item.getQuantity() + quantity;
+            requireQuantityWithinLimit(merged);
+            item.changeQuantity(merged, now);
+            item.refreshSnapshot(product.name(), unitGross, product.taxRateBps(), product.priceVersion(), now);
+            item.refreshOptionPrices(selection.options().stream().collect(Collectors.toMap(
+                    ResolvedOption::optionId, ResolvedOption::unitPriceDeltaMinor)));
+            return;
+        }
+        if (cart.getItems().size() >= limits.maxLines()) {
+            throw new BusinessException(ErrorCode.CART_ITEM_LIMIT_EXCEEDED,
+                    "The cart cannot contain more than " + limits.maxLines() + " different lines");
+        }
+        CartItem item = new CartItem(cart, product.productId(), quantity, selection.selectionKey(), selection.note(),
+                product.name(), product.currency(), unitGross, product.taxRateBps(), product.priceVersion(), now);
+        for (ResolvedOption option : selection.options()) {
+            item.addOption(new CartItemOption(item, option.optionId(), option.action(), option.quantity(),
+                    option.name(), option.unitPriceDeltaMinor()));
+        }
+        cart.addItem(item);
     }
 
     /**
@@ -193,10 +212,10 @@ public class CartService {
 
     private static String canonical(AddCartItemRequest request, String note) {
         String removed = request.removedIngredientIds() == null ? "" : request.removedIngredientIds().stream()
-                .map(UUID::toString).sorted().collect(java.util.stream.Collectors.joining(","));
+                .map(UUID::toString).sorted().collect(Collectors.joining(","));
         String extras = request.extras() == null ? "" : request.extras().stream()
                 .sorted(Comparator.comparing((ExtraSelectionRequest e) -> e.ingredientId().toString()))
-                .map(e -> e.ingredientId() + ":" + e.quantity()).collect(java.util.stream.Collectors.joining(","));
+                .map(e -> e.ingredientId() + ":" + e.quantity()).collect(Collectors.joining(","));
         return "v1|" + request.productId() + "|" + request.quantity() + "|" + removed + "|" + extras + "|"
                 + (note == null ? "" : note) + "|" + (request.expectedCartVersion() == null ? ""
                 : request.expectedCartVersion());
@@ -251,7 +270,7 @@ public class CartService {
                 carts.findActiveWithItems(context.restaurantId(), context.guestSessionId()));
         Map<UUID, ProductSnapshot> products = cart.filter(found -> !found.getItems().isEmpty())
                 .map(found -> catalog.findProducts(context.restaurantId(), found.getItems().stream()
-                        .map(CartItem::getProductId).collect(java.util.stream.Collectors.toSet())))
+                        .map(CartItem::getProductId).collect(Collectors.toSet())))
                 .orElse(Map.of());
         return mapper.toResponse(context, cart, products);
     }

@@ -3,10 +3,20 @@ package com.restofy.order.api.controller;
 import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,13 +31,13 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
     private static final String ADMIN = staff(DevFixtures.STAFF_ADMIN_A);
     private static final String KITCHEN = staff(DevFixtures.STAFF_KITCHEN_A);
 
-    private org.springframework.test.web.servlet.ResultActions completeReason(String authorization, UUID orderId,
+    private ResultActions completeReason(String authorization, UUID orderId,
                                                                                UUID cancellationId, Object body)
             throws Exception {
         var request = patch("/api/v1/orders/" + orderId + "/cancellations/" + cancellationId + "/reason")
-                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(toJson(body));
+                .contentType(MediaType.APPLICATION_JSON).content(toJson(body));
         if (authorization != null) {
-            request.header(org.springframework.http.HttpHeaders.AUTHORIZATION, authorization);
+            request.header(HttpHeaders.AUTHORIZATION, authorization);
         }
         return mvc.perform(request);
     }
@@ -100,7 +110,7 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CANCELLATION_REASON_ALREADY_SET"));
         assertEquals(1, count("order_cancellation_reasons"));
         assertEquals(null, jdbc.queryForObject("SELECT staff_reason_added_at FROM order_cancellations WHERE id = ?",
-                java.sql.Timestamp.class, cancellationId));
+                Timestamp.class, cancellationId));
     }
 
     @Test
@@ -210,13 +220,13 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
                 .andExpect(status().isConflict());
         // a Kitchen's own request, whose reason is mandatory
         UUID byKitchen = placeMixedOrder(A1);
-        var ask = new java.util.HashMap<String, Object>();
+        var ask = new HashMap<String, Object>();
         ask.put("eventId", UUID.randomUUID());
         ask.put("restaurantId", DevFixtures.RESTAURANT_A);
         ask.put("orderId", byKitchen);
         ask.put("cancelAll", true);
         ask.put("reasonCodes", List.of("ITEM_UNAVAILABLE"));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                         .post("/api/v1/internal/order-events/kitchen-cancellation-request")
                         .contentType("application/json").content(toJson(ask))
                         .header("Authorization", service(KITCHEN_CREDENTIAL))).andExpect(status().isOk());
@@ -240,14 +250,14 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
         // the Kitchen claims it acts for the administrator and for the waiter; that is information, not identity
         for (UUID claimed : List.of(DevFixtures.USER_ADMIN_A, DevFixtures.USER_WAITER_A)) {
             UUID orderId = placeSaladOrder(A1);
-            var ask = new java.util.HashMap<String, Object>();
+            var ask = new HashMap<String, Object>();
             ask.put("eventId", UUID.randomUUID());
             ask.put("restaurantId", DevFixtures.RESTAURANT_A);
             ask.put("orderId", orderId);
             ask.put("cancelAll", true);
             ask.put("reasonCodes", List.of("ITEM_UNAVAILABLE"));
             ask.put("requestedByStaffId", claimed);
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            mvc.perform(MockMvcRequestBuilders
                             .post("/api/v1/internal/order-events/kitchen-cancellation-request")
                             .contentType("application/json").content(toJson(ask))
                             .header("Authorization", service(KITCHEN_CREDENTIAL))).andExpect(status().isOk());
@@ -298,9 +308,9 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
     void anAdminAndAWaiterCompletingAtOnceLeaveExactlyOne() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         UUID cancellationId = cancelledWithoutReason(orderId);
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var pool = Executors.newFixedThreadPool(2);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
+            var start = new CountDownLatch(1);
             var admin = pool.submit(() -> {
                 start.await();
                 return completeReason(ADMIN, orderId, cancellationId, Map.of("reasonText", "from the admin"))
@@ -312,8 +322,8 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
                         .andReturn().getResponse().getStatus();
             });
             start.countDown();
-            List<Integer> statuses = new java.util.ArrayList<>(List.of(admin.get(30, java.util.concurrent.TimeUnit.SECONDS),
-                    waiter.get(30, java.util.concurrent.TimeUnit.SECONDS)));
+            List<Integer> statuses = new ArrayList<>(List.of(admin.get(30, TimeUnit.SECONDS),
+                    waiter.get(30, TimeUnit.SECONDS)));
             statuses.sort(Integer::compare);
             assertEquals(List.of(200, 409), statuses);
         } finally {
@@ -327,9 +337,9 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
         UUID orderId = placeSaladOrder(A1);
         UUID cancellationId = cancelledWithoutReason(orderId);
         String second = staff(registerSecondWaiter());
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var pool = Executors.newFixedThreadPool(2);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
+            var start = new CountDownLatch(1);
             var one = pool.submit(() -> {
                 start.await();
                 return completeReason(WAITER, orderId, cancellationId, Map.of("reasonText", "from the first waiter"))
@@ -341,8 +351,8 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
                         .andReturn().getResponse().getStatus();
             });
             start.countDown();
-            List<Integer> statuses = new java.util.ArrayList<>(List.of(one.get(30, java.util.concurrent.TimeUnit.SECONDS),
-                    two.get(30, java.util.concurrent.TimeUnit.SECONDS)));
+            List<Integer> statuses = new ArrayList<>(List.of(one.get(30, TimeUnit.SECONDS),
+                    two.get(30, TimeUnit.SECONDS)));
             statuses.sort(Integer::compare);
             assertEquals(List.of(200, 409), statuses);
         } finally {

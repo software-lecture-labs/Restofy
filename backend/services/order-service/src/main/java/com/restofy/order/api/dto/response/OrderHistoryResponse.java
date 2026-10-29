@@ -10,6 +10,10 @@ import java.util.UUID;
  */
 public record OrderHistoryResponse(UUID orderId, List<Entry> entries) {
 
+    public OrderHistoryResponse {
+        entries = ResponseCollections.copyOf(entries);
+    }
+
     public record Entry(String axis, String fromStatus, String toStatus, String actorType, String actorRole,
                         String actorId, String source, String reason, Instant occurredAt) {
     }

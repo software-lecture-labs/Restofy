@@ -9,6 +9,7 @@ import com.restofy.order.infrastructure.persistence.CancellationStore.ReasonRow;
 import com.restofy.order.infrastructure.persistence.CancellationStore.Row;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.UUID;
 
 /** Plain objects for the pure unit tests of the Waiter compatibility projection. */
@@ -37,7 +38,7 @@ final class CompatFixtures {
     }
 
     static OrderItem item(Order order, int index) {
-        return order.getItems().stream().sorted(java.util.Comparator.comparingInt(OrderItem::getLineNo))
+        return order.getItems().stream().sorted(Comparator.comparingInt(OrderItem::getLineNo))
                 .toList().get(index);
     }
 

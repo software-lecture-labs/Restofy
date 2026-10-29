@@ -4,6 +4,7 @@ import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.application.port.ProductSnapshot;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import java.util.concurrent.Future;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -89,7 +91,7 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
                 .andExpect(jsonPath("$.details.productId").value(DevFixtures.SALAD.toString()));
 
         menu.reset();
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), burger.name(), true, false,
                 "TRY", burger.basePriceGrossMinor(), burger.taxRateBps(), burger.options()));
         placeOrder(A1, newKey(), body).andExpect(status().isConflict())
@@ -156,7 +158,7 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
         for (String foreign : new String[]{"\"restaurantId\": \"" + UUID.randomUUID() + "\"",
                 "\"tableId\": \"" + UUID.randomUUID() + "\"", "\"tableSessionId\": \"" + UUID.randomUUID() + "\"",
                 "\"cartId\": \"" + UUID.randomUUID() + "\"", "\"totalMinor\": 1", "\"items\": []"}) {
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/orders")
+            mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
                             .header("Authorization", "Bearer " + A1).header("Idempotency-Key", newKey())
                             .contentType("application/json")
                             .content("{\"expectedCartVersion\": 1, \"expectedTotalMinor\": 5, " + foreign + "}"))
@@ -282,7 +284,7 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
                 .andReturn().getResponse().getContentAsString()).path("orderId").asString();
         String second = json.readTree(placeOrder(A2, key, confirmedCheckout(A2)).andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString()).path("orderId").asString();
-        assertTrue(!first.equals(second));
+        assertNotEquals(first, second);
         assertEquals(2, count("orders"));
     }
 

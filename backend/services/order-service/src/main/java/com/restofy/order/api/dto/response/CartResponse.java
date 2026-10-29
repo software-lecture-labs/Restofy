@@ -19,6 +19,11 @@ public record CartResponse(UUID cartId, long version, String currency, boolean s
                            List<CartItemResponse> items, Totals totals, boolean estimate,
                            String priceFingerprint) {
 
+    /** The response owns an unmodifiable copy of {@code items}; later changes to the caller's list never show here. */
+    public CartResponse {
+        items = ResponseCollections.copyOf(items);
+    }
+
     public record Totals(long grossMinor, Long netMinor, Long vatMinor) {
     }
 
@@ -27,6 +32,11 @@ public record CartResponse(UUID cartId, long version, String currency, boolean s
                                    String note, boolean available, boolean priceChanged,
                                    Long unitGrossMinor, Long lineGrossMinor, Integer taxRateBps,
                                    Long lineNetMinor, Long lineVatMinor) {
+
+        public CartItemResponse {
+            removedIngredients = ResponseCollections.copyOf(removedIngredients);
+            extras = ResponseCollections.copyOf(extras);
+        }
     }
 
     public record RemovedIngredient(UUID ingredientId, String name) {

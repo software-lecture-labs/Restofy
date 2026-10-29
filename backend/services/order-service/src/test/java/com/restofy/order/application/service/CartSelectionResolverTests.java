@@ -10,6 +10,7 @@ import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,10 +25,10 @@ class CartSelectionResolverTests {
     private static final UUID INACTIVE_INGREDIENT = UUID.fromString("00000000-0000-4000-8000-00000000c0f2");
 
     private final CartSelectionResolver resolver = new CartSelectionResolver();
-    private final ProductSnapshot burger = withInactiveOptions(DevFixtures.burger());
+    private final ProductSnapshot burger = withInactiveOptions(DevFixtures.burgerSnapshot());
 
     private static ProductSnapshot withInactiveOptions(ProductSnapshot base) {
-        var options = new java.util.ArrayList<>(base.options());
+        var options = new ArrayList<>(base.options());
         options.add(new ProductOption(INACTIVE_EXTRA, "Retired extra", OptionType.ADD, 100L, 0, 1, false));
         options.add(new ProductOption(INACTIVE_INGREDIENT, "Retired ingredient", OptionType.INCLUDED, 0L, 0, 1, false));
         return new ProductSnapshot(base.productId(), base.name(), true, true, base.currency(),

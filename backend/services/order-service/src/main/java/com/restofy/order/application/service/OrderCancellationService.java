@@ -32,6 +32,7 @@ import com.restofy.order.infrastructure.persistence.IdempotencyStore;
 import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,7 +68,7 @@ import java.util.stream.Collectors;
 public class OrderCancellationService {
 
     static final String OPERATION = "CANCEL_ORDER";
-    private static final int CREATED = 201;
+    private static final int CREATED = HttpStatus.CREATED.value();
     private static final String PARAMETER = "parameter";
 
     public record Outcome(CancellationResponse cancellation, boolean replayed) {

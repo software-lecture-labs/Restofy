@@ -2,6 +2,7 @@ package com.restofy.order.domain.entity;
 
 import com.restofy.order.domain.enums.FulfillmentStatus;
 import com.restofy.order.domain.enums.PaymentStatus;
+import com.restofy.order.domain.pricing.MoneyConverter;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -110,7 +111,7 @@ public class Order {
         this.guestSessionId = guestSessionId;
         this.fulfillmentStatus = FulfillmentStatus.RECEIVED;
         this.paymentStatus = PaymentStatus.NOT_REQUESTED;
-        this.currency = currency;
+        this.currency = MoneyConverter.normalizeCurrency(currency);
         this.initialNetMinor = netMinor;
         this.initialVatMinor = vatMinor;
         this.initialGrossMinor = grossMinor;

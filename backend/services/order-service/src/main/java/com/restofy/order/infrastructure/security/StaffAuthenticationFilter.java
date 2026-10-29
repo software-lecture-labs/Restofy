@@ -26,7 +26,6 @@ import java.util.Optional;
 public class StaffAuthenticationFilter extends OncePerRequestFilter {
 
     static final String SCHEME = "Staff ";
-    private static final int MAX_CREDENTIAL_LENGTH = 512;
 
     private final AuthContextPort authContext;
     private final ApiErrorWriter errors;
@@ -50,7 +49,7 @@ public class StaffAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String credential = request.getHeader(HttpHeaders.AUTHORIZATION).substring(SCHEME.length()).trim();
-        if (credential.isEmpty() || credential.length() > MAX_CREDENTIAL_LENGTH) {
+        if (credential.isEmpty() || credential.length() > SecurityLimits.MAX_CREDENTIAL_LENGTH) {
             reject(response);
             return;
         }

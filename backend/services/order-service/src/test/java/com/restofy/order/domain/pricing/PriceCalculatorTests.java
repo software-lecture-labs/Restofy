@@ -5,6 +5,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -97,7 +100,7 @@ class PriceCalculatorTests {
     void orderTotalsAreTheExactSumOfTheRoundedLines() {
         LinePrice burgers = PriceCalculator.priceLine(34_000L, 3, 1_000);  // gross 102000 net 92727 vat 9273
         LinePrice salads = PriceCalculator.priceLine(9_000L, 2, 2_000);    // gross 18000  net 15000 vat 3000
-        PriceCalculator.OrderAmounts total = PriceCalculator.totalOf(java.util.List.of(burgers, salads));
+        PriceCalculator.OrderAmounts total = PriceCalculator.totalOf(List.of(burgers, salads));
 
         assertEquals(92_727L, burgers.lineNetMinor());
         assertEquals(120_000L, total.grossMinor());
@@ -109,7 +112,7 @@ class PriceCalculatorTests {
     @Test
     void rounding_per_line_is_not_the_same_as_rounding_the_sum_and_the_policy_is_per_line() {
         // three lines of 5 minor units at 10%: each net rounds 4.545 -> 5 (vat 0); a rounded sum would give 14 / 1
-        java.util.List<LinePrice> lines = java.util.List.of(PriceCalculator.priceLine(5, 1, 1_000),
+        List<LinePrice> lines = List.of(PriceCalculator.priceLine(5, 1, 1_000),
                 PriceCalculator.priceLine(5, 1, 1_000), PriceCalculator.priceLine(5, 1, 1_000));
         PriceCalculator.OrderAmounts total = PriceCalculator.totalOf(lines);
         assertEquals(15L, total.netMinor());
@@ -119,27 +122,29 @@ class PriceCalculatorTests {
 
     @Test
     void emptyOrdersTotalZero() {
-        PriceCalculator.OrderAmounts total = PriceCalculator.totalOf(java.util.List.of());
+        PriceCalculator.OrderAmounts total = PriceCalculator.totalOf(List.of());
         assertEquals(0L, total.grossMinor() + total.netMinor() + total.vatMinor());
     }
 
     @Test
     void totalingRefusesLinesWithUnknownTax() {
         LinePrice unknown = PriceCalculator.priceLine(1_000L, 1, null);
-        assertThrows(IllegalArgumentException.class, () -> PriceCalculator.totalOf(java.util.List.of(unknown)));
+        List<LinePrice> lines = List.of(unknown);
+        assertThrows(IllegalArgumentException.class, () -> PriceCalculator.totalOf(lines));
     }
 
     @Test
     void totalingDetectsOverflowInsteadOfWrappingAround() {
         LinePrice huge = new LinePrice(1, Long.MAX_VALUE - 1, Long.MAX_VALUE - 2, 1L);
-        assertThrows(ArithmeticException.class, () -> PriceCalculator.totalOf(java.util.List.of(huge, huge)));
+        List<LinePrice> lines = List.of(huge, huge);
+        assertThrows(ArithmeticException.class, () -> PriceCalculator.totalOf(lines));
     }
 
     @Test
     void invariantHoldsForOrdersMadeOfManyMixedLines() {
         int[] rates = {0, 100, 800, 1_000, 1_800, 2_000};
         for (int seed = 1; seed <= 500; seed++) {
-            java.util.List<LinePrice> lines = new java.util.ArrayList<>();
+            List<LinePrice> lines = new ArrayList<>();
             for (int i = 0; i < 1 + seed % 6; i++) {
                 lines.add(PriceCalculator.priceLine(37L * seed + 11L * i, 1 + (seed + i) % 9, rates[(seed + i) % rates.length]));
             }

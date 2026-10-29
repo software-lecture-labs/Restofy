@@ -4,9 +4,14 @@ import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -507,10 +512,10 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
     @Test
     void twoConcurrentCancellationsOfTheWholeOrderCancelItOnce() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var pool = Executors.newFixedThreadPool(2);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
-            List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+            var start = new CountDownLatch(1);
+            List<Future<Integer>> results = new ArrayList<>();
             for (String caller : List.of(guest(A1), WAITER)) {
                 results.add(pool.submit(() -> {
                     start.await();
@@ -518,9 +523,9 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
                 }));
             }
             start.countDown();
-            List<Integer> statuses = new java.util.ArrayList<>();
+            List<Integer> statuses = new ArrayList<>();
             for (var result : results) {
-                statuses.add(result.get(30, java.util.concurrent.TimeUnit.SECONDS));
+                statuses.add(result.get(30, TimeUnit.SECONDS));
             }
             statuses.sort(Integer::compare);
             assertEquals(List.of(201, 409), statuses);
@@ -538,10 +543,10 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
         UUID orderId = placeMixedOrder(A1);
         String key = newKey();
         Map<String, Object> body = cancelItems(lineOf(orderId, DevFixtures.SALAD), 1);
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        var pool = Executors.newFixedThreadPool(4);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
-            List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+            var start = new CountDownLatch(1);
+            List<Future<Integer>> results = new ArrayList<>();
             for (int i = 0; i < 4; i++) {
                 results.add(pool.submit(() -> {
                     start.await();
@@ -550,7 +555,7 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
             }
             start.countDown();
             for (var result : results) {
-                assertEquals(201, result.get(30, java.util.concurrent.TimeUnit.SECONDS));
+                assertEquals(201, result.get(30, TimeUnit.SECONDS));
             }
         } finally {
             pool.shutdownNow();
@@ -564,9 +569,9 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
     void aPaymentAndACancellationRacingLeaveAConsistentOrder() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         pay(orderId, "PENDING", 10).andExpect(status().isOk());
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var pool = Executors.newFixedThreadPool(2);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
+            var start = new CountDownLatch(1);
             var paid = pool.submit(() -> {
                 start.await();
                 return pay(orderId, "PAID", 1).andReturn().getResponse().getStatus();
@@ -576,8 +581,8 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
                 return cancelAll(WAITER, orderId).andReturn().getResponse().getStatus();
             });
             start.countDown();
-            assertEquals(200, paid.get(30, java.util.concurrent.TimeUnit.SECONDS));
-            assertEquals(201, cancelled.get(30, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(200, paid.get(30, TimeUnit.SECONDS));
+            assertEquals(201, cancelled.get(30, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
         }

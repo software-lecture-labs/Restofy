@@ -18,10 +18,10 @@ import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.entity.OrderItem;
 import com.restofy.order.domain.entity.OrderItemOption;
 import com.restofy.order.domain.event.EventDestination;
-import com.restofy.order.domain.history.ChangeActor;
 import com.restofy.order.domain.event.OrderPlacedEvent;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
+import com.restofy.order.domain.history.ChangeActor;
 import com.restofy.order.domain.pricing.PriceCalculator;
 import com.restofy.order.domain.pricing.PriceCalculator.OrderAmounts;
 import com.restofy.order.infrastructure.config.CorrelationIdFilter;
@@ -34,24 +34,21 @@ import com.restofy.order.infrastructure.persistence.repository.CartRepository;
 import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -67,8 +64,7 @@ import java.util.stream.Collectors;
 public class OrderCheckoutService {
 
     static final String OPERATION = "CREATE_ORDER";
-    private static final Pattern KEY_FORMAT = Pattern.compile("[A-Za-z0-9._:-]{8,120}");
-    private static final int CREATED = 201;
+    private static final int CREATED = HttpStatus.CREATED.value();
 
     public record CheckoutResult(OrderResponse order, boolean replayed) {
     }
@@ -120,7 +116,7 @@ public class OrderCheckoutService {
     }
 
     public CheckoutResult checkout(GuestSessionContext guest, String idempotencyKey, CheckoutRequest request) {
-        String key = requireValidKey(idempotencyKey);
+        String key = IdempotencyKeys.require(idempotencyKey);
         String note = CartSelectionResolver.normalizeNote(request.note());
         String digest = digest(request, note);
         String actor = "guest:" + guest.guestSessionId();
@@ -228,7 +224,7 @@ public class OrderCheckoutService {
         try {
             OrderAmounts amounts = PriceCalculator.totalOf(items.stream().map(i -> i.line().price()).toList());
             return new Prepared(items, amounts, products);
-        } catch (ArithmeticException overflow) {
+        } catch (ArithmeticException _) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "The order amount exceeds the allowed limit");
         }
     }
@@ -237,7 +233,7 @@ public class OrderCheckoutService {
     private Order place(GuestSessionContext guest, String key, String digest, String actor, UUID orderId,
                         CheckoutRequest request, String note, Prepared prepared, String correlationId) {
         // PostgreSQL stores microseconds; truncating here keeps the first response identical to every replay.
-        Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (!idempotency.tryClaim(guest.restaurantId(), actor, OPERATION, key, digest, orderId, CREATED, now,
                 now.plus(retention.checkoutRetention()))) {
             return null;
@@ -259,7 +255,8 @@ public class OrderCheckoutService {
         int lineNo = 0;
         for (PricedItem priced : prepared.items()) {
             var price = priced.line().price();
-            OrderItem line = new OrderItem(order, ++lineNo, priced.item().getProductId(), priced.line().product().name(),
+            OrderItem line = new OrderItem(order, ++lineNo, priced.item().getProductId(),
+                    priced.line().product().name(),
                     priced.item().getQuantity(), cart.getCurrency(), price.unitGrossMinor(),
                     priced.line().product().taxRateBps(), price.lineGrossMinor(), price.lineNetMinor(),
                     price.lineVatMinor(), priced.line().product().priceVersion(), priced.item().getNote(), now);
@@ -272,11 +269,12 @@ public class OrderCheckoutService {
         cart.checkOut(now);
         orders.saveAndFlush(order);
         // The timeline starts with the order itself: one initial row per independent status axis.
-        history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(), OrderStatusHistoryStore.Axis.FULFILLMENT, null,
-                order.getFulfillmentStatus().name(), ChangeActor.guest(guest.guestSessionId()), "CHECKOUT", null,
-                null, now, correlationId));
-        history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(), OrderStatusHistoryStore.Axis.PAYMENT, null,
-                order.getPaymentStatus().name(), ChangeActor.system(), "CHECKOUT", null, null, now, correlationId));
+        history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(),
+                OrderStatusHistoryStore.Axis.FULFILLMENT, null, order.getFulfillmentStatus().name(),
+                ChangeActor.guest(guest.guestSessionId()), "CHECKOUT", null, null, now, correlationId));
+        history.append(new OrderStatusHistoryStore.Change(order.getRestaurantId(), order.getId(),
+                OrderStatusHistoryStore.Axis.PAYMENT, null, order.getPaymentStatus().name(), ChangeActor.system(),
+                "CHECKOUT", null, null, now, correlationId));
 
         UUID eventId = UUID.randomUUID();
         OrderPlacedEvent event = orderMapper.toPlacedEvent(order, eventId, correlationId, now);
@@ -326,14 +324,6 @@ public class OrderCheckoutService {
         }
     }
 
-    private static String requireValidKey(String key) {
-        if (key == null || !KEY_FORMAT.matcher(key).matches()) {
-            throw new BusinessException(ErrorCode.INVALID_IDEMPOTENCY_KEY,
-                    "An Idempotency-Key header of 8-120 characters (letters, digits, . _ : -) is required");
-        }
-        return key;
-    }
-
     private static String digest(CheckoutRequest request, String note) {
         // Without a fingerprint the canonical form is exactly the original one, so retries recorded before the
         // fingerprint existed still match; with one, a different fingerprint is a different request.
@@ -341,11 +331,6 @@ public class OrderCheckoutService {
                 + (note == null ? "" : note)
                 + (request.expectedPriceFingerprint() == null ? "" : "|fp:" + request.expectedPriceFingerprint())
                 + (Boolean.TRUE.equals(request.acknowledgePriceChanges()) ? "|ack" : "");
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required by the JVM specification", e);
-        }
+        return IdempotencyKeys.sha256(canonical);
     }
 }

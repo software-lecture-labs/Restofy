@@ -82,7 +82,7 @@ class CartAddRemoveApiTests extends AbstractCartApiTest {
 
     @Test
     void unpublishedOrUnavailableProductsCannotBeAdded() throws Exception {
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), burger.name(), true, false,
                 burger.currency(), burger.basePriceGrossMinor(), burger.taxRateBps(), burger.options()));
         addItem(A1, product(DevFixtures.BURGER, 1))

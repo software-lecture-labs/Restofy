@@ -20,11 +20,17 @@ import java.util.UUID;
  * are then absent from the JSON.
  */
 public record OrderDetailResponse(UUID orderId, String orderNo, UUID tableId, UUID tableSessionId,
-                                  String fulfillmentStatus, @JsonInclude(JsonInclude.Include.NON_NULL) String paymentStatus,
-                                  @JsonInclude(JsonInclude.Include.NON_NULL) String currency, @JsonInclude(JsonInclude.Include.NON_NULL) OrderResponse.Amounts amounts,
+                                  String fulfillmentStatus,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL) String paymentStatus,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL) String currency,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL) OrderResponse.Amounts amounts,
                                   @JsonInclude(JsonInclude.Include.NON_NULL) Long currentDueMinor,
                                   @JsonInclude(JsonInclude.Include.NON_NULL) Long cancelledGrossMinor,
                                   @JsonInclude(JsonInclude.Include.NON_NULL) Long activeGrossMinor,
                                   List<OrderResponse.OrderItemResponse> items, String note, Instant placedAt,
                                   Instant updatedAt, long version) {
+
+    public OrderDetailResponse {
+        items = ResponseCollections.copyOf(items);
+    }
 }

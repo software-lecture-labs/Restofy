@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.math.BigDecimal;
+import java.util.Currency;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -75,7 +76,7 @@ class MoneyConverterTests {
     void convertsMinorUnitsToTheCurrencysOwnScaleWithoutAnyRounding(long minor, String currency, String expected) {
         BigDecimal major = MoneyConverter.toMajor(minor, currency);
         assertEquals(expected, major.toPlainString());
-        assertEquals(java.util.Currency.getInstance(currency).getDefaultFractionDigits(), major.scale());
+        assertEquals(Currency.getInstance(currency).getDefaultFractionDigits(), major.scale());
     }
 
     @Test

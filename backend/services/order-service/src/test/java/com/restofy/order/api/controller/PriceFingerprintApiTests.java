@@ -1,5 +1,6 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.ProductSnapshot;
 import com.restofy.order.application.port.ProductSnapshot.OptionType;
 import com.restofy.order.application.port.ProductSnapshot.ProductOption;
@@ -10,6 +11,7 @@ import tools.jackson.databind.JsonNode;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -29,7 +31,7 @@ class PriceFingerprintApiTests extends AbstractCartApiTest {
     private static final String A2 = DevFixtures.TOKEN_A2;
 
     private void publishBurger(long base, long cheese, int taxBps, String version) {
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         List<ProductOption> options = burger.options().stream()
                 .map(o -> o.optionId().equals(DevFixtures.OPT_CHEESE)
                         ? new ProductOption(o.optionId(), o.name(), OptionType.ADD, cheese, 0, 2, true) : o).toList();
@@ -91,7 +93,7 @@ class PriceFingerprintApiTests extends AbstractCartApiTest {
         seen[2] = cart(A1).path("priceFingerprint").asString();
         publishBurger(25_000L, 2_500L, 1_000, "v9");   // catalog price version only
         seen[3] = cart(A1).path("priceFingerprint").asString();
-        assertEquals(4, java.util.Set.of(seen).size());
+        assertEquals(4, Set.of(seen).size());
         for (String changed : seen) {
             assertNotEquals(base, changed);
         }
@@ -235,7 +237,7 @@ class PriceFingerprintApiTests extends AbstractCartApiTest {
         addItem(A1, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
         Map<String, Object> honest = confirmation(cart(A1));
         placeOrder("not-a-known-token", newKey(), honest).andExpect(status().isUnauthorized());
-        qr.register(A1, DevFixtures.guestA1(com.restofy.order.application.port.GuestSessionContext.SessionState.CLOSED));
+        qr.register(A1, DevFixtures.guestA1(GuestSessionContext.SessionState.CLOSED));
         placeOrder(A1, newKey(), honest).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
         assertEquals(0, count("orders"));

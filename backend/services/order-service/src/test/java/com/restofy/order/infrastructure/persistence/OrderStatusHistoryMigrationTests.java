@@ -37,7 +37,8 @@ class OrderStatusHistoryMigrationTests {
 
             UUID restaurant = UUID.randomUUID();
             UUID order = UUID.randomUUID();
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("SET search_path TO " + schema);
                 statement.execute("INSERT INTO orders (id, restaurant_id, order_no, cart_id, table_id, table_session_id,"
                         + " guest_session_id, fulfillment_status, payment_status, currency, initial_net_minor,"
@@ -49,7 +50,8 @@ class OrderStatusHistoryMigrationTests {
 
             flyway(schema, "latest").migrate();
 
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("SET search_path TO " + schema);
                 try (ResultSet rows = statement.executeQuery("SELECT state_axis, from_status, to_status, actor_type, source"
                         + " FROM order_status_history WHERE order_id = '" + order + "' ORDER BY state_axis")) {
@@ -66,7 +68,8 @@ class OrderStatusHistoryMigrationTests {
                 }
             }
         } finally {
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
             }
         }
@@ -77,7 +80,8 @@ class OrderStatusHistoryMigrationTests {
         String schema = "history_scratch_" + UUID.randomUUID().toString().replace("-", "");
         try {
             flyway(schema, "latest").migrate();
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("SET search_path TO " + schema);
                 try (ResultSet rows = statement.executeQuery("SELECT count(*) FROM order_status_history")) {
                     rows.next();
@@ -85,7 +89,8 @@ class OrderStatusHistoryMigrationTests {
                 }
             }
         } finally {
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
             }
         }

@@ -3,7 +3,9 @@ package com.restofy.order.api.controller;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapter;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,7 +44,7 @@ class KitchenOrderEventApiTests extends AbstractOrderStatusApiTest {
         kitchenEvent(service(InMemoryServiceIdentityAdapter.PAYMENT_CREDENTIAL), body)
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
         // identity hints in headers open nothing
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(KITCHEN_EVENTS)
+        mvc.perform(MockMvcRequestBuilders.post(KITCHEN_EVENTS)
                         .contentType("application/json").content(toJson(body)).header("X-Service", "KITCHEN")
                         .header("X-Role", "KITCHEN"))
                 .andExpect(status().isUnauthorized());
@@ -64,7 +66,7 @@ class KitchenOrderEventApiTests extends AbstractOrderStatusApiTest {
     void theKitchenServiceCannotUseThePaymentPathAndPaymentCannotUseTheKitchenPath() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         paymentEvent(service(KITCHEN_CREDENTIAL), paymentBody(UUID.randomUUID(), orderId, "PENDING", SALAD_DUE, "TRY",
-                java.time.Instant.now())).andExpect(status().isForbidden());
+                Instant.now())).andExpect(status().isForbidden());
         kitchenEvent(service(InMemoryServiceIdentityAdapter.PAYMENT_CREDENTIAL),
                 kitchenBody(UUID.randomUUID(), RESTAURANT, orderId, "PREPARING")).andExpect(status().isForbidden());
         assertEquals("NOT_REQUESTED", paymentOf(orderId));

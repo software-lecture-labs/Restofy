@@ -26,6 +26,11 @@ public record CancellationResponse(UUID cancellationId, UUID orderId, String ord
                                    Instant decidedAt, Actor requestedBy, Actor decidedBy, Rejection rejection,
                                    OrderState order) {
 
+    public CancellationResponse {
+        items = ResponseCollections.copyOf(items);
+        reasons = ResponseCollections.copyOf(reasons);
+    }
+
     public record Item(UUID orderItemId, UUID productId, String name, int quantity, long unitGrossMinor,
                        long grossMinor, long netMinor, long vatMinor) {
     }

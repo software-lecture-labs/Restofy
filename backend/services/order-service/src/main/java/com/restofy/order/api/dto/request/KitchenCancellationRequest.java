@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -21,7 +22,8 @@ import java.util.UUID;
  */
 public record KitchenCancellationRequest(
         @NotNull UUID eventId, @NotNull UUID restaurantId, @NotNull UUID orderId, Boolean cancelAll,
-        @Size(max = 50) List<CancelOrderRequest.@Valid Item> items,
-        @NotEmpty @Size(max = 10) List<@NotNull @Size(max = 40) String> reasonCodes,
-        @Size(max = 300) String reasonText, UUID requestedByStaffId) {
+        @Size(max = InputLimits.MAX_SELECTIONS) List<CancelOrderRequest.@Valid Item> items,
+        @NotEmpty @Size(max = InputLimits.MAX_REASON_CODES)
+        List<@NotNull @Size(max = InputLimits.MAX_REASON_CODE_LENGTH) String> reasonCodes,
+        @Size(max = InputLimits.MAX_TEXT_LENGTH) String reasonText, UUID requestedByStaffId) {
 }

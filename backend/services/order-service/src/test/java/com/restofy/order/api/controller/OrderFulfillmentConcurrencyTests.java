@@ -2,7 +2,10 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -46,7 +49,7 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
         }
     }
 
-    private int[] result(org.springframework.test.web.servlet.ResultActions actions) throws Exception {
+    private int[] result(ResultActions actions) throws Exception {
         var response = actions.andReturn().getResponse();
         String body = response.getContentAsString();
         // second slot: 1 if the call reported a real change / APPLIED, 0 otherwise
@@ -130,9 +133,9 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
     @Test
     void thePaymentEventDeliveredManyTimesAtOnceIsAppliedExactlyOnce() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        pay(orderId, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(orderId, "PENDING", 120).andExpect(MockMvcResultMatchers
                 .status().isOk());
-        var body = paymentBody(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY", java.time.Instant.now()
+        var body = paymentBody(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY", Instant.now()
                 .minusSeconds(60));
         List<Callable<int[]>> calls = new ArrayList<>();
         for (int i = 0; i < THREADS; i++) {
@@ -151,12 +154,12 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
     @Test
     void aPaidAndAFailedEventRacingOnAPendingPaymentLeaveExactlyOneOutcome() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        pay(orderId, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(orderId, "PENDING", 120).andExpect(MockMvcResultMatchers
                 .status().isOk());
         var paid = paymentBody(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY",
-                java.time.Instant.now().minusSeconds(60));
+                Instant.now().minusSeconds(60));
         var failed = paymentBody(UUID.randomUUID(), orderId, "FAILED", null, null,
-                java.time.Instant.now().minusSeconds(61));
+                Instant.now().minusSeconds(61));
         List<int[]> results = race(List.of(
                 () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), paid)),
                 () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), failed))));
@@ -171,13 +174,13 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
     @Test
     void twoDifferentCollectionsRacingForOnePendingPaymentApplyExactlyOne() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        pay(orderId, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(orderId, "PENDING", 120).andExpect(MockMvcResultMatchers
                 .status().isOk());
         UUID attempt = attemptOf(orderId);
         List<Callable<int[]>> calls = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
             var body = paymentBodyWith(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY",
-                    java.time.Instant.now().minusSeconds(60), attempt, UUID.randomUUID());
+                    Instant.now().minusSeconds(60), attempt, UUID.randomUUID());
             calls.add(() -> result(paymentEvent(service(PAYMENT_CREDENTIAL), body)));
         }
         List<int[]> results = race(calls);
@@ -195,15 +198,15 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
     void oneCollectionRacingForTwoOrdersSettlesExactlyOneOfThem() throws Exception {
         UUID first = placeSaladOrder(A1);
         UUID second = placeSaladOrder(DevFixtures.TOKEN_A2);
-        pay(first, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(first, "PENDING", 120).andExpect(MockMvcResultMatchers
                 .status().isOk());
-        pay(second, "PENDING", 120).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(second, "PENDING", 120).andExpect(MockMvcResultMatchers
                 .status().isOk());
         UUID capture = UUID.randomUUID();
         var forFirst = paymentBodyWith(UUID.randomUUID(), first, "PAID", SALAD_DUE, "TRY",
-                java.time.Instant.now().minusSeconds(60), attemptOf(first), capture);
+                Instant.now().minusSeconds(60), attemptOf(first), capture);
         var forSecond = paymentBodyWith(UUID.randomUUID(), second, "PAID", SALAD_DUE, "TRY",
-                java.time.Instant.now().minusSeconds(60), attemptOf(second), capture);
+                Instant.now().minusSeconds(60), attemptOf(second), capture);
         List<int[]> results = race(List.of(
                 () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), forFirst)),
                 () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), forSecond))));
@@ -227,9 +230,9 @@ class OrderFulfillmentConcurrencyTests extends AbstractOrderStatusApiTest {
             UUID attempt = UUID.randomUUID();
             UUID capture = UUID.randomUUID();
             var pending = paymentBodyWith(UUID.randomUUID(), orderId, "PENDING", SALAD_DUE, "TRY",
-                    java.time.Instant.now().minusSeconds(60), attempt, null);
+                    Instant.now().minusSeconds(60), attempt, null);
             var paid = paymentBodyWith(UUID.randomUUID(), orderId, "PAID", SALAD_DUE, "TRY",
-                    java.time.Instant.now().minusSeconds(50), attempt, capture);
+                    Instant.now().minusSeconds(50), attempt, capture);
             List<int[]> results = race(List.of(
                     () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), pending)),
                     () -> result(paymentEvent(service(PAYMENT_CREDENTIAL), paid))));

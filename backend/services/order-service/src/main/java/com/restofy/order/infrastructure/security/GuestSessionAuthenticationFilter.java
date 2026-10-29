@@ -25,7 +25,6 @@ import java.util.Optional;
 public class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final int MAX_TOKEN_LENGTH = 512;
 
     private final QrSessionPort qrSessions;
     private final ApiErrorWriter errors;
@@ -57,7 +56,7 @@ public class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         String token = header.substring(BEARER_PREFIX.length()).trim();
-        if (token.isEmpty() || token.length() > MAX_TOKEN_LENGTH) {
+        if (token.isEmpty() || token.length() > SecurityLimits.MAX_CREDENTIAL_LENGTH) {
             reject(response);
             return;
         }

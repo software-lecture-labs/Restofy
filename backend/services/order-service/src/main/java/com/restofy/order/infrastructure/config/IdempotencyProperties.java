@@ -24,6 +24,8 @@ public record IdempotencyProperties(
         @DefaultValue("500") int cleanupBatchSize,
         @DefaultValue("P30D") Duration expiredCartRetention) {
 
+    static final int MAX_CLEANUP_BATCH_SIZE = 10_000;
+
     public IdempotencyProperties {
         requirePositive(cartItemRetention, "cart-item-retention");
         requirePositive(checkoutRetention, "checkout-retention");
@@ -31,8 +33,9 @@ public record IdempotencyProperties(
         requirePositive(cleanupInterval, "cleanup-interval");
         requirePositive(cleanupInitialDelay, "cleanup-initial-delay");
         requirePositive(expiredCartRetention, "expired-cart-retention");
-        if (cleanupBatchSize < 1 || cleanupBatchSize > 10_000) {
-            throw new IllegalArgumentException("restofy.idempotency.cleanup-batch-size must be within 1..10000");
+        if (cleanupBatchSize < 1 || cleanupBatchSize > MAX_CLEANUP_BATCH_SIZE) {
+            throw new IllegalArgumentException(
+                    "restofy.idempotency.cleanup-batch-size must be within 1.." + MAX_CLEANUP_BATCH_SIZE);
         }
     }
 

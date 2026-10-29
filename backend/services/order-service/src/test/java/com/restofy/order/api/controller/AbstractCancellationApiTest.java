@@ -7,6 +7,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +67,7 @@ abstract class AbstractCancellationApiTest extends AbstractOrderStatusApiTest {
     }
 
     protected static Map<String, Object> cancelItems(Object... lineAndQuantity) {
-        List<Map<String, Object>> items = new java.util.ArrayList<>();
+        List<Map<String, Object>> items = new ArrayList<>();
         for (int i = 0; i < lineAndQuantity.length; i += 2) {
             items.add(Map.of("orderItemId", lineAndQuantity[i], "quantity", lineAndQuantity[i + 1]));
         }

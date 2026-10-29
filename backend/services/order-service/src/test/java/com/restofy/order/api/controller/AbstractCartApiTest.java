@@ -1,5 +1,6 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import com.restofy.order.infrastructure.client.mock.InMemoryAuthContextAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryMenuCatalogAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryQrSessionAdapter;
@@ -13,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
@@ -112,13 +114,13 @@ abstract class AbstractCartApiTest {
     }
 
     /** A guest fills the cart with one salad and orders it; returns the new order id. */
-    protected java.util.UUID placeSaladOrder(String guestToken) throws Exception {
-        addItem(guestToken, product(com.restofy.order.infrastructure.client.mock.DevFixtures.SALAD, 1))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+    protected UUID placeSaladOrder(String guestToken) throws Exception {
+        addItem(guestToken, product(DevFixtures.SALAD, 1))
+                .andExpect(MockMvcResultMatchers.status().isOk());
         String body = placeOrder(guestToken, newKey(), confirmedCheckout(guestToken))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated())
+                .andExpect(MockMvcResultMatchers.status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return java.util.UUID.fromString(json.readTree(body).path("orderId").asString());
+        return UUID.fromString(json.readTree(body).path("orderId").asString());
     }
 
     protected static String newKey() {

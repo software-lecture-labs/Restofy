@@ -5,6 +5,7 @@ import com.restofy.order.application.port.ProductSnapshot.OptionType;
 import com.restofy.order.application.port.ProductSnapshot.ProductOption;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -21,7 +22,7 @@ class OrderPricingApiTests extends AbstractCartApiTest {
     private static final String A1 = DevFixtures.TOKEN_A1;
 
     private void republishBurger(long basePrice, long cheesePrice, int taxBps) {
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         List<ProductOption> options = burger.options().stream()
                 .map(o -> o.optionId().equals(DevFixtures.OPT_CHEESE)
                         ? new ProductOption(o.optionId(), o.name(), OptionType.ADD, cheesePrice, 0, 2, true) : o)
@@ -168,7 +169,7 @@ class OrderPricingApiTests extends AbstractCartApiTest {
         for (String field : new String[]{"\"unitPrice\": 1", "\"amounts\": {\"grossMinor\": 1}",
                 "\"taxRateBps\": 0", "\"items\": [{\"productId\": \"" + DevFixtures.BURGER + "\", \"price\": 1}]",
                 "\"currency\": \"USD\""}) {
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/orders")
+            mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
                             .header("Authorization", "Bearer " + A1).header("Idempotency-Key", newKey())
                             .contentType("application/json")
                             .content("{\"expectedCartVersion\": " + real.get("expectedCartVersion")
@@ -190,11 +191,12 @@ class OrderPricingApiTests extends AbstractCartApiTest {
                 .andReturn().getResponse().getContentAsString());
         var before = jdbc.queryForList("SELECT product_name_snapshot, unit_gross_minor, tax_rate_bps, line_gross_minor,"
                 + " line_net_minor, line_vat_minor FROM order_items");
-        var optionsBefore = jdbc.queryForList("SELECT name_snapshot, unit_price_delta_minor FROM order_item_options ORDER BY name_snapshot");
+        var optionsBefore = jdbc.queryForList(
+                "SELECT name_snapshot, unit_price_delta_minor FROM order_item_options ORDER BY name_snapshot");
 
         // price, tax, names and the whole product change, then the product is deleted
         republishBurger(99_900L, 9_900L, 2_000);
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), "Renamed Burger", true, true, "TRY",
                 99_900L, 2_000, List.of(new ProductOption(DevFixtures.OPT_CHEESE, "Renamed cheese", OptionType.ADD,
                 9_900L, 0, 2, true))));
@@ -215,7 +217,7 @@ class OrderPricingApiTests extends AbstractCartApiTest {
     @Test
     void theOrderSnapshotUsesLiveCatalogNamesNotStaleCartValues() throws Exception {
         addItem(A1, product(DevFixtures.BURGER, 1, List.of(DevFixtures.OPT_ONION), List.of())).andExpect(status().isOk());
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         List<ProductOption> renamed = burger.options().stream()
                 .map(o -> o.optionId().equals(DevFixtures.OPT_ONION)
                         ? new ProductOption(o.optionId(), "Red onion", o.type(), 0L, 0, 1, true) : o).toList();
@@ -240,7 +242,7 @@ class OrderPricingApiTests extends AbstractCartApiTest {
     // ---- component-level reconciliation: changes that leave the total untouched ---------------------------------------
 
     private void publishBurger(long base, long cheese, int taxBps, String version) {
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         List<ProductOption> options = burger.options().stream()
                 .map(o -> o.optionId().equals(DevFixtures.OPT_CHEESE)
                         ? new ProductOption(o.optionId(), o.name(), OptionType.ADD, cheese, 0, 2, true) : o).toList();

@@ -2,6 +2,7 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.application.service.DataRetentionService;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
@@ -158,7 +159,7 @@ class OrderCancellationPendingVisibilityApiTests extends AbstractCancellationApi
         getWith(ADMIN, REPORT + "?status=APPLIED").andExpect(jsonPath("$.items[0].pendingAgeSeconds").doesNotExist())
                 .andExpect(jsonPath("$.items[0].overdue").value(false))
                 .andExpect(jsonPath("$.summary.pending.overdueCount").value(0));
-        org.junit.jupiter.api.Assertions.assertNotNull(fresh.cancellationId());
+        Assertions.assertNotNull(fresh.cancellationId());
     }
 
     @Test

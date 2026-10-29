@@ -135,7 +135,8 @@ class OrderPersistenceIntegrationTests {
     void idempotencyKeyIsUniquePerActorAndOperation() {
         UUID restaurant = UUID.randomUUID();
         String insert = "INSERT INTO idempotency_records (id, restaurant_id, actor_scope, operation, idempotency_key,"
-                + " request_digest, resource_id, response_status, created_at, expires_at) VALUES (?, ?, ?, 'CREATE_ORDER', 'key-1', 'd', ?, 201, now(), now() + interval '1 day')";
+                + " request_digest, resource_id, response_status, created_at, expires_at)"
+                + " VALUES (?, ?, ?, 'CREATE_ORDER', 'key-1', 'd', ?, 201, now(), now() + interval '1 day')";
         jdbc.update(insert, UUID.randomUUID(), restaurant, "guest:a", UUID.randomUUID());
         jdbc.update(insert, UUID.randomUUID(), restaurant, "guest:b", UUID.randomUUID());
         assertThrows(DataIntegrityViolationException.class,

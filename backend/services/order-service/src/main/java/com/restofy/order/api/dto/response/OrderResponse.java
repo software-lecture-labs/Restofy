@@ -11,6 +11,10 @@ public record OrderResponse(UUID orderId, String orderNo, UUID tableSessionId, S
                             String paymentStatus, String currency, Amounts amounts, List<OrderItemResponse> items,
                             String note, Instant placedAt) {
 
+    public OrderResponse {
+        items = ResponseCollections.copyOf(items);
+    }
+
     public record Amounts(long netMinor, long vatMinor, long grossMinor) {
     }
 
@@ -25,7 +29,14 @@ public record OrderResponse(UUID orderId, String orderNo, UUID tableSessionId, S
                                     List<CartResponse.RemovedIngredient> removedIngredients,
                                     List<CartResponse.ExtraIngredient> extras, String note,
                                     @JsonInclude(JsonInclude.Include.NON_NULL) Long unitGrossMinor,
-                                    @JsonInclude(JsonInclude.Include.NON_NULL) Integer taxRateBps, @JsonInclude(JsonInclude.Include.NON_NULL) Long lineGrossMinor,
-                                    @JsonInclude(JsonInclude.Include.NON_NULL) Long lineNetMinor, @JsonInclude(JsonInclude.Include.NON_NULL) Long lineVatMinor) {
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Integer taxRateBps,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Long lineGrossMinor,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Long lineNetMinor,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) Long lineVatMinor) {
+
+        public OrderItemResponse {
+            removedIngredients = ResponseCollections.copyOf(removedIngredients);
+            extras = ResponseCollections.copyOf(extras);
+        }
     }
 }

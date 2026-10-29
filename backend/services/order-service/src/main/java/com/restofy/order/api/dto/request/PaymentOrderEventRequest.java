@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -24,8 +25,10 @@ import java.util.UUID;
  * amount. The Order Service never takes an amount, status or reference from a client, only from this verified service.
  */
 public record PaymentOrderEventRequest(@NotNull UUID eventId, @NotNull UUID restaurantId, @NotNull UUID orderId,
-                                       @NotBlank @Size(max = 30) String paymentStatus,
+                                       @NotBlank @Size(max = InputLimits.MAX_STATUS_NAME_LENGTH) String paymentStatus,
                                        @NotNull UUID paymentAttemptId, UUID captureId,
-                                       @PositiveOrZero Long amountMinor, @Size(min = 3, max = 3) String currency,
+                                       @PositiveOrZero Long amountMinor,
+                                       @Size(min = InputLimits.CURRENCY_CODE_LENGTH,
+                                               max = InputLimits.CURRENCY_CODE_LENGTH) String currency,
                                        @NotNull Instant occurredAt) {
 }

@@ -4,6 +4,7 @@ import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.util.List;
 import java.util.Map;
@@ -92,7 +93,7 @@ class OrderSessionBindingApiTests extends AbstractCartApiTest {
     void identityFieldsInTheBodyCannotRedirectTheOrder() throws Exception {
         addItem(A1, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
         Map<String, Object> body = confirmedCheckout(A1);
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/orders")
+        mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
                         .header("Authorization", "Bearer " + A1).header("Idempotency-Key", newKey())
                         .header("X-Restaurant-Id", DevFixtures.RESTAURANT_B.toString())
                         .contentType("application/json")

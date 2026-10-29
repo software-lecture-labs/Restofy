@@ -5,7 +5,9 @@ import com.restofy.order.application.compat.waiter.WaiterCompat.WaiterCancellati
 import com.restofy.order.application.compat.waiter.WaiterMapper.CancellationData;
 import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.enums.SelectionAction;
+import com.restofy.order.infrastructure.persistence.CancellationStore;
 import com.restofy.order.infrastructure.persistence.CancellationStore.Row;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -24,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WaiterMapperTests {
 
-    private static List<CancellationData> one(Row row, List<com.restofy.order.infrastructure.persistence.CancellationStore.ReasonRow> reasons) {
+    private static List<CancellationData> one(Row row, List<CancellationStore.ReasonRow> reasons) {
         return List.of(new CancellationData(row, List.of(itemRow(UUID.randomUUID(), 2)), reasons));
     }
 
@@ -82,7 +84,7 @@ class WaiterMapperTests {
     @Test
     void aCurrencyWithoutAUsableMinorUnitFailsInsteadOfGuessing() {
         var finance = new OrderFinance.Breakdown("XXX", 100, 0, 100, 0, 100, 0, 0);
-        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> WaiterMapper.money(finance));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> WaiterMapper.money(finance));
     }
 
     // ---- who asked ----------------------------------------------------------------------------------------------------
@@ -174,7 +176,7 @@ class WaiterMapperTests {
         assertEquals(null, result.cancellations().get(0).decidedAt());
         assertEquals(WaiterCancellationStatus.REQUESTED, result.cancellations().get(0).status());
         assertEquals(WaiterCancellationStatus.REJECTED, other.cancellations().get(0).status());
-        org.junit.jupiter.api.Assertions.assertNotNull(other.cancellations().get(0).decidedAt());
+        Assertions.assertNotNull(other.cancellations().get(0).decidedAt());
     }
 
     // ---- reasons -------------------------------------------------------------------------------------------------------

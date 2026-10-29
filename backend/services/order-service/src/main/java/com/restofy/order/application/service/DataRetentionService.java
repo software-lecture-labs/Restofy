@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.function.IntUnaryOperator;
 
 /**
  * Removes expired idempotency records, long-dead EXPIRED carts, old processed inbox events and fully delivered
@@ -95,7 +96,7 @@ public class DataRetentionService {
         return inBatches(batchSize -> messaging.purgeDeliveredOutbox(olderThan, batchSize));
     }
 
-    private int inBatches(java.util.function.IntUnaryOperator purgeOneBatch) {
+    private int inBatches(IntUnaryOperator purgeOneBatch) {
         int total = 0;
         for (int batch = 0; batch < MAX_BATCHES_PER_RUN; batch++) {
             int deleted = purgeOneBatch.applyAsInt(properties.cleanupBatchSize());

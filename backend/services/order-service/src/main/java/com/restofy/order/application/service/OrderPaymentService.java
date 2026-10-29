@@ -8,7 +8,6 @@ import com.restofy.order.domain.enums.FulfillmentStatus;
 import com.restofy.order.domain.enums.PaymentStatus;
 import com.restofy.order.domain.enums.ServiceName;
 import com.restofy.order.domain.event.EventDestination;
-import com.restofy.order.domain.event.OrderPaymentReconciliationRequiredEvent;
 import com.restofy.order.domain.event.OrderPaymentStatusChangedEvent;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
@@ -35,6 +34,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -226,15 +226,15 @@ public class OrderPaymentService {
      * Records the capture in the given status. Empty when this transaction claimed the id; otherwise another claimed it
      * first (concurrently) and the answer is what that capture means for this order.
      */
-    private java.util.Optional<Decision> claimed(Order order, PaymentOrderEventRequest event, String status,
+    private Optional<Decision> claimed(Order order, PaymentOrderEventRequest event, String status,
                                                  String reason, Instant eventAt, Instant now) {
         Capture row = new Capture(event.captureId(), order.getRestaurantId(), order.getId(), event.paymentAttemptId(),
                 event.amountMinor(), event.currency().toUpperCase(Locale.ROOT), status, reason, event.eventId(),
                 eventAt);
         if (captures.claim(row, now)) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
-        return java.util.Optional.of(onKnownCapture(order, event, captures.find(event.captureId()).orElseThrow(), now));
+        return Optional.of(onKnownCapture(order, event, captures.find(event.captureId()).orElseThrow(), now));
     }
 
     private Decision notApplied(Order order, PaymentOrderEventRequest event, String reason, Instant eventAt, Instant now) {

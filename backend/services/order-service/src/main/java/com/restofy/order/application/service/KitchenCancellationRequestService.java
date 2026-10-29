@@ -28,6 +28,7 @@ import com.restofy.order.infrastructure.persistence.InboxStore;
 import com.restofy.order.infrastructure.persistence.repository.OrderRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +36,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,7 +74,7 @@ public class KitchenCancellationRequestService {
     private static final String SCOPE = "service:" + KITCHEN;
     private static final String PARAMETER = "parameter";
     private static final String SERVICE = "SERVICE";
-    private static final int OK = 200;
+    private static final int OK = HttpStatus.OK.value();
 
     private record RequestTiming(Instant receivedAt, Instant decidedAt) {
     }
@@ -256,7 +258,7 @@ public class KitchenCancellationRequestService {
 
     private static String digest(KitchenCancellationRequest request, boolean cancelAll, List<Selection> selections,
                                  CancellationReasons.Parsed reasons) {
-        String items = selections.stream().sorted(java.util.Comparator.comparing(Selection::orderItemId))
+        String items = selections.stream().sorted(Comparator.comparing(Selection::orderItemId))
                 .map(s -> s.orderItemId() + ":" + s.quantity()).collect(Collectors.joining(","));
         String codes = reasons.codes().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
         return IdempotencyKeys.sha256("v1|kitchen|" + request.orderId() + "|" + (cancelAll ? "all" : items) + "|" + codes

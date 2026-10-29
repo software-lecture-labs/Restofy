@@ -1,5 +1,6 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,7 +36,7 @@ class LoggingHygieneApiTests extends AbstractCartApiTest {
         placeOrder(a1, key, body).andExpect(status().isCreated());
         placeOrder(a1, key, body).andExpect(status().isCreated());
         // closed session
-        qr.register(a1, DevFixtures.guestA1(com.restofy.order.application.port.GuestSessionContext.SessionState.CLOSED));
+        qr.register(a1, DevFixtures.guestA1(GuestSessionContext.SessionState.CLOSED));
         addItem(a1, Map.of("productId", DevFixtures.SALAD, "quantity", 1)).andExpect(status().isConflict());
 
         String logs = output.getAll();

@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,7 +70,8 @@ class PaymentCapturesMigrationTests {
             UUID captureLate = UUID.randomUUID();
             UUID captureSecond = UUID.randomUUID();
             UUID paidMessage = UUID.randomUUID();
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("SET search_path TO " + schema);
                 insertOrder(statement, restaurant, paidOrder, "ORD-000001", "PAID");
                 insertOrder(statement, restaurant, cancelledOrder, "ORD-000002", "NOT_REQUESTED");
@@ -101,7 +104,8 @@ class PaymentCapturesMigrationTests {
 
             flyway(schema, "latest").migrate();
 
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("SET search_path TO " + schema);
                 try (ResultSet rows = statement.executeQuery("SELECT capture_id, order_id, payment_attempt_id,"
                         + " amount_minor, currency, status, not_applied_reason, source_event_id FROM payment_captures"
@@ -127,11 +131,11 @@ class PaymentCapturesMigrationTests {
                 }
                 try (ResultSet rows = statement.executeQuery("SELECT reason, order_id FROM payment_reconciliation_cases"
                         + " ORDER BY reason")) {
-                    java.util.List<String> reasons = new java.util.ArrayList<>();
+                    List<String> reasons = new ArrayList<>();
                     while (rows.next()) {
                         reasons.add(rows.getString("reason"));
                     }
-                    assertEquals(java.util.List.of("CAPTURE_USED_ON_OTHER_ORDER", "ORDER_CANCELLED", "SECOND_CAPTURE"),
+                    assertEquals(List.of("CAPTURE_USED_ON_OTHER_ORDER", "ORDER_CANCELLED", "SECOND_CAPTURE"),
                             reasons);
                 }
                 // nothing old was touched
@@ -140,7 +144,8 @@ class PaymentCapturesMigrationTests {
                 assertEquals(1, count(statement, "inbox_events WHERE event_type = 'PaymentCaptureApplied'"));
             }
         } finally {
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
             }
         }
@@ -151,7 +156,8 @@ class PaymentCapturesMigrationTests {
         String schema = "captures_scratch_" + UUID.randomUUID().toString().replace("-", "");
         try {
             flyway(schema, "latest").migrate();
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("SET search_path TO " + schema);
                 assertEquals(0, count(statement, "payment_captures"));
                 assertEquals(0, count(statement, "payment_reconciliation_cases"));
@@ -162,7 +168,8 @@ class PaymentCapturesMigrationTests {
                 }
             }
         } finally {
-            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
                 statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
             }
         }

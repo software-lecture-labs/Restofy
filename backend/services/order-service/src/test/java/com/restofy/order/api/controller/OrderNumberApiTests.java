@@ -10,6 +10,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -57,7 +59,7 @@ class OrderNumberApiTests extends AbstractCartApiTest {
     void orderIdAndOrderNumberAreDistinctIdentifiers() throws Exception {
         JsonNode first = order(DevFixtures.TOKEN_A1);
         JsonNode second = order(DevFixtures.TOKEN_A1);
-        assertTrue(!first.path("orderId").asString().equals(second.path("orderId").asString()));
+        assertNotEquals(first.path("orderId").asString(), second.path("orderId").asString());
         UUID.fromString(first.path("orderId").asString());   // machine id is a UUID
         assertTrue(first.path("orderNo").asString().matches("ORD-\\d{6,}")); // display id is not
     }
@@ -90,7 +92,7 @@ class OrderNumberApiTests extends AbstractCartApiTest {
             }));
         }
         start.countDown();
-        Set<String> numbers = new java.util.HashSet<>();
+        Set<String> numbers = new HashSet<>();
         for (Future<String> result : results) {
             assertTrue(numbers.add(result.get()), "order numbers must be unique");
         }
@@ -197,7 +199,7 @@ class OrderNumberApiTests extends AbstractCartApiTest {
             }));
         }
         start.countDown();
-        Set<String> numbers = new java.util.HashSet<>();
+        Set<String> numbers = new HashSet<>();
         for (Future<String> result : results) {
             numbers.add(result.get());
         }

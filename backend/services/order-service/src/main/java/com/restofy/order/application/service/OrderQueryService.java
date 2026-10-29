@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -124,7 +125,7 @@ public class OrderQueryService {
                 .map(order -> toListSummary(order, units.getOrDefault(order.getId(), 0L), kitchen))
                 .toList();
         return new OrderListResponse(items, page.getNumber(), page.getSize(), page.getTotalElements(),
-                page.getTotalPages(), query.view().name().toLowerCase(java.util.Locale.ROOT));
+                page.getTotalPages(), query.view().name().toLowerCase(Locale.ROOT));
     }
 
     private static OrderListResponse.Summary toListSummary(Order order, long units, boolean kitchen) {

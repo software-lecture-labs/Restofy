@@ -1,5 +1,6 @@
 package com.restofy.order.api.dto.request;
 
+import com.restofy.order.domain.InputLimits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -16,5 +17,5 @@ public record KitchenCancellationDecisionRequest(
         @NotNull UUID eventId, @NotNull UUID restaurantId, @NotNull UUID orderId, @NotNull UUID cancellationId,
         @NotBlank @Pattern(regexp = "APPROVED|REJECTED") String decision,
         @Pattern(regexp = "[A-Z][A-Z0-9_]{2,39}") String rejectionCode,
-        @Size(max = 300) String rejectionNote) {
+        @Size(max = InputLimits.MAX_TEXT_LENGTH) String rejectionNote) {
 }

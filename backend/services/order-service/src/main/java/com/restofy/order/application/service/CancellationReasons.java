@@ -1,10 +1,12 @@
 package com.restofy.order.application.service;
 
+import com.restofy.order.domain.InputLimits;
 import com.restofy.order.domain.enums.CancellationReasonCode;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -13,12 +15,12 @@ import java.util.Set;
 /**
  * Validates the optional reason of a cancellation: any number of catalog codes (each at most once) and/or a short plain
  * text. Nothing is required; "no reason" is a valid answer. A code is an identifier and must match exactly; the text is
- * untrusted user input, so it is stripped of surrounding whitespace, limited and must not contain control characters. It is stored and returned as
- * plain text and is never interpreted.
+ * untrusted user input, so it is stripped of surrounding whitespace, limited and must not contain control characters.
+ * It is stored and returned as plain text and is never interpreted.
  */
 final class CancellationReasons {
 
-    static final int MAX_TEXT_LENGTH = 300;
+    static final int MAX_TEXT_LENGTH = InputLimits.MAX_TEXT_LENGTH;
     private static final String PARAMETER = "parameter";
 
     /** The validated reason: catalog codes in the order given, and the free text (null when none). */
@@ -68,6 +70,6 @@ final class CancellationReasons {
     }
 
     private static String catalog() {
-        return String.join(", ", java.util.Arrays.stream(CancellationReasonCode.values()).map(Enum::name).toList());
+        return String.join(", ", Arrays.stream(CancellationReasonCode.values()).map(Enum::name).toList());
     }
 }

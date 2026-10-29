@@ -3,6 +3,7 @@ package com.restofy.order.application.compat.waiter;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -79,8 +80,8 @@ public final class WaiterCompat {
             if (codes > 1 || texts > 1) {
                 return Optional.empty();
             }
-            String code = reasons.stream().map(WaiterReason::code).filter(java.util.Objects::nonNull).findFirst().orElse(null);
-            String text = reasons.stream().map(WaiterReason::text).filter(java.util.Objects::nonNull).findFirst().orElse(null);
+            String code = reasons.stream().map(WaiterReason::code).filter(Objects::nonNull).findFirst().orElse(null);
+            String text = reasons.stream().map(WaiterReason::text).filter(Objects::nonNull).findFirst().orElse(null);
             return Optional.of(new LegacyCancellationView(id, source, status, code, text, requestedAt, decidedAt, items));
         }
     }

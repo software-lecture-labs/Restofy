@@ -3,6 +3,7 @@ package com.restofy.order.api.controller;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.util.UUID;
 
@@ -111,7 +112,7 @@ class CartIsolationApiTests extends AbstractCartApiTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
         mvc.perform(authorized(get(CART + "/items/not-a-uuid"), A1)).andExpect(status().isMethodNotAllowed());
-        mvc.perform(authorized(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(authorized(MockMvcRequestBuilders
                         .delete(CART + "/items/not-a-uuid"), A1))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));

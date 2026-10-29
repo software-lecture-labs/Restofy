@@ -24,7 +24,8 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 
     public static final String HEADER = "X-Correlation-Id";
     public static final String MDC_KEY = "correlationId";
-    private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
+    private static final int MAX_ID_LENGTH = 64;
+    private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9._-]{1," + MAX_ID_LENGTH + "}");
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

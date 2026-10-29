@@ -1,12 +1,17 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.application.service.DataRetentionService;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -139,7 +144,7 @@ class OrderCancellationReportApiTests extends AbstractCancellationApiTest {
                 staffRequest = candidate;
             }
         }
-        org.junit.jupiter.api.Assertions.assertNotNull(staffRequest, "the cancelled paid order is in the report");
+        Assertions.assertNotNull(staffRequest, "the cancelled paid order is in the report");
         assertEquals("STAFF", staffRequest.path("requestedBy").path("type").asString());
         assertEquals("WAITER", staffRequest.path("requestedBy").path("role").asString());
         assertEquals(DevFixtures.USER_WAITER_A.toString(), staffRequest.path("requestedBy").path("id").asString());
@@ -192,7 +197,7 @@ class OrderCancellationReportApiTests extends AbstractCancellationApiTest {
         getWith(ADMIN, url("from=" + now.minus(2, ChronoUnit.DAYS).toString().substring(0, 10)))
                 .andExpect(jsonPath("$.totalItems").value(5));
         // from is inclusive, to is exclusive
-        String firstRequest = jdbc.queryForObject("SELECT min(requested_at) FROM order_cancellations", java.sql.Timestamp.class)
+        String firstRequest = jdbc.queryForObject("SELECT min(requested_at) FROM order_cancellations", Timestamp.class)
                 .toInstant().toString();
         getWith(ADMIN, url("from=" + firstRequest)).andExpect(jsonPath("$.totalItems").value(5));
         getWith(ADMIN, url("to=" + firstRequest)).andExpect(jsonPath("$.totalItems").value(0));
@@ -227,7 +232,7 @@ class OrderCancellationReportApiTests extends AbstractCancellationApiTest {
         }
         assertEquals(5, seen.size());
         List<String> newestFirst = new ArrayList<>(times);
-        newestFirst.sort(java.util.Comparator.reverseOrder());
+        newestFirst.sort(Comparator.reverseOrder());
         assertEquals(newestFirst, times, "newest first");
         getWith(ADMIN, url("limit=2&page=9")).andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.totalItems").value(5));
@@ -240,7 +245,7 @@ class OrderCancellationReportApiTests extends AbstractCancellationApiTest {
         fiveCancellations();
         // every event of every order is delivered long ago and then cleaned up
         jdbc.update("UPDATE outbox_deliveries SET status = 'DELIVERED', attempt_count = 1, delivered_at = ?",
-                java.sql.Timestamp.from(Instant.now().minus(60, ChronoUnit.DAYS)));
+                Timestamp.from(Instant.now().minus(60, ChronoUnit.DAYS)));
 
         int removed = retention.purgeDeliveredOutboxEvents();
 
@@ -253,6 +258,6 @@ class OrderCancellationReportApiTests extends AbstractCancellationApiTest {
         assertEquals(5, count("order_cancellations"));
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.restofy.order.application.service.DataRetentionService retention;
+    @Autowired
+    private DataRetentionService retention;
 }

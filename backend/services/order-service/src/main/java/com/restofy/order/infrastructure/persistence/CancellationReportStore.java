@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.restofy.order.infrastructure.persistence.JdbcTimestamps.timestamp;
+
 /**
  * Read model of the cancellation report. Always scoped to one restaurant; every filter value is bound as a parameter and
  * the SQL text is constant, including optional filters and sorting. Reads only: the records are written by the cancellation use case.
@@ -158,10 +160,6 @@ public class CancellationReportStore {
                 .addValue(STATUS, filter.status(), Types.VARCHAR)
                 .addValue("overdueBefore", timestamp(filter.overdueBefore()), Types.TIMESTAMP)
                 .addValue("reasonCode", filter.reasonCode(), Types.VARCHAR);
-    }
-
-    private static Timestamp timestamp(Instant instant) {
-        return instant == null ? null : Timestamp.from(instant);
     }
 
     private static Line line(ResultSet rs) throws SQLException {

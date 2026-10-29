@@ -81,7 +81,7 @@ class CartViewAndClearApiTests extends AbstractCartApiTest {
         addItem(A1, product(DevFixtures.BURGER, 2)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].priceChanged").value(false));
 
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), burger.name(), true, true,
                 "TRY", 30_000L, 1_000, burger.options()));
 
@@ -99,7 +99,7 @@ class CartViewAndClearApiTests extends AbstractCartApiTest {
         addItem(A1, product(DevFixtures.BURGER, 1, List.of(), List.of(extra(DevFixtures.OPT_CHEESE, 1))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].unitGrossMinor").value(27_500));
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         List<ProductOption> options = burger.options().stream()
                 .map(o -> o.optionId().equals(DevFixtures.OPT_CHEESE)
                         ? new ProductOption(o.optionId(), o.name(), OptionType.ADD, 5_000L, 0, 2, true) : o).toList();
@@ -140,7 +140,7 @@ class CartViewAndClearApiTests extends AbstractCartApiTest {
                 .andExpect(jsonPath("$.totals.grossMinor").value(9_000));
 
         // sold out is also unavailable; the line stays visible so the guest can remove it
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), burger.name(), true, false,
                 "TRY", burger.basePriceGrossMinor(), burger.taxRateBps(), burger.options()));
         getCart(A1).andExpect(jsonPath("$.items[0].available").value(false));
@@ -150,7 +150,7 @@ class CartViewAndClearApiTests extends AbstractCartApiTest {
     void lineWithAnIngredientThatWasRetiredBecomesUnavailable() throws Exception {
         addItem(A1, product(DevFixtures.BURGER, 1, List.of(DevFixtures.OPT_ONION),
                 List.of(extra(DevFixtures.OPT_CHEESE, 1)))).andExpect(status().isOk());
-        ProductSnapshot burger = DevFixtures.burger();
+        ProductSnapshot burger = DevFixtures.burgerSnapshot();
         List<ProductOption> options = burger.options().stream()
                 .map(o -> o.optionId().equals(DevFixtures.OPT_CHEESE)
                         ? new ProductOption(o.optionId(), o.name(), OptionType.ADD, 2_500L, 0, 2, false) : o).toList();

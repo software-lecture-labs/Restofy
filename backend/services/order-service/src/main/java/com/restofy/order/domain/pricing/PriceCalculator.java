@@ -1,5 +1,7 @@
 package com.restofy.order.domain.pricing;
 
+import java.util.List;
+
 /**
  * Single money engine for the Order Service. Amounts are integer minor units; prices are tax-inclusive.
  * Rounding policy (fixed): per line, VAT-exclusive net = ROUND_HALF_UP(gross * 10000 / (10000 + rateBps)),
@@ -7,7 +9,7 @@ package com.restofy.order.domain.pricing;
  */
 public final class PriceCalculator {
 
-    private static final long BPS_BASE = 10_000L;
+    private static final long BPS_BASE = MoneyConverter.BPS_BASE;
 
     private PriceCalculator() {
     }
@@ -43,7 +45,7 @@ public final class PriceCalculator {
      * @throws IllegalArgumentException if a line has no tax split (an order may not be priced with unknown tax)
      * @throws ArithmeticException      if a total does not fit into a long
      */
-    public static OrderAmounts totalOf(java.util.List<LinePrice> lines) {
+    public static OrderAmounts totalOf(List<LinePrice> lines) {
         long net = 0L;
         long vat = 0L;
         long gross = 0L;

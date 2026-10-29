@@ -4,12 +4,16 @@ import com.restofy.order.application.service.DataRetentionService;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.support.JdbcTransactionManager;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -73,14 +77,14 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
         UUID orderId = placeSaladOrder(A1);
         UUID eventId = UUID.randomUUID();
         kitchenEvent(service(KITCHEN_CREDENTIAL), kitchenBody(eventId, DevFixtures.RESTAURANT_A, orderId, "PREPARING"))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+                .andExpect(MockMvcResultMatchers.status().isOk());
         inbox(orderId, daysAgo(120));            // an ancient row elsewhere must not matter
         int historyRows = fulfillmentHistory(orderId).size();
 
         retention.runAll();
 
         kitchenEvent(service(KITCHEN_CREDENTIAL), kitchenBody(eventId, DevFixtures.RESTAURANT_A, orderId, "PREPARING"))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .andExpect(MockMvcResultMatchers
                         .jsonPath("$.duplicate").value(true));
         assertEquals(historyRows, fulfillmentHistory(orderId).size(), "history is never cleaned");
         assertEquals(1, count("orders"));
@@ -122,7 +126,7 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
     void theRealBusinessEventsAreNeverTreatedAsDelivered() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         advanceTo(orderId, "READY");
-        pay(orderId, "PENDING", 100).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(orderId, "PENDING", 100).andExpect(MockMvcResultMatchers
                 .status().isOk());
         int events = count("outbox_events");
         jdbc.update("UPDATE outbox_events SET occurred_at = ?", Timestamp.from(daysAgo(500)));
@@ -150,12 +154,12 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
     void anAlreadyLockedRowIsSkippedNotWaitedFor() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         UUID eventId = outbox(orderId, daysAgo(60), daysAgo(40), "DELIVERED");
-        var tx = new org.springframework.transaction.support.TransactionTemplate(
-                new org.springframework.jdbc.support.JdbcTransactionManager(jdbc.getDataSource()));
+        var tx = new TransactionTemplate(
+                new JdbcTransactionManager(jdbc.getDataSource()));
         Integer deletedWhileLocked = tx.execute(status -> {
             jdbc.queryForList("SELECT id FROM outbox_events WHERE id = ? FOR UPDATE", UUID.class, eventId);
             // another connection (the purge runs in its own transaction) must skip the locked row, not block
-            return java.util.concurrent.CompletableFuture.supplyAsync(retention::purgeDeliveredOutboxEvents).join();
+            return CompletableFuture.supplyAsync(retention::purgeDeliveredOutboxEvents).join();
         });
         assertEquals(0, deletedWhileLocked);
         assertEquals(1, retention.purgeDeliveredOutboxEvents(), "once it is free it is removed");
@@ -163,15 +167,15 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
     @Test
     void financialRecordsSurviveTheOrdinaryCleanupForEver() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        pay(orderId, "PENDING", 100).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(orderId, "PENDING", 100).andExpect(MockMvcResultMatchers
                 .status().isOk());
-        pay(orderId, "PAID", 60).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        pay(orderId, "PAID", 60).andExpect(MockMvcResultMatchers
                 .status().isOk());
         UUID firstCapture = captureOf(orderId);
         // a second collection: a reconciliation case (capture row + case row + outbox event)
         UUID secondCapture = UUID.randomUUID();
         payWith(orderId, "PAID", 30, attemptOf(orderId), secondCapture)
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+                .andExpect(MockMvcResultMatchers.status().isOk());
         // make everything ancient and mark every outbox delivery as delivered long ago
         jdbc.update("UPDATE inbox_events SET received_at = now() - interval '500 days'");
         jdbc.update("UPDATE outbox_events SET occurred_at = now() - interval '500 days'");
@@ -190,10 +194,10 @@ class MessagingRetentionApiTests extends AbstractOrderStatusApiTest {
 
         // every old message arrives again: no second financial effect and no second alert
         payWith(orderId, "PAID", 20, attemptOf(orderId), firstCapture)
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.outcome")
+                .andExpect(MockMvcResultMatchers.jsonPath("$.outcome")
                         .value("IGNORED_STALE"));
         payWith(orderId, "PAID", 10, attemptOf(orderId), secondCapture)
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .andExpect(MockMvcResultMatchers
                         .jsonPath("$.reconciliationRequired").value(true));
         assertEquals(1, count("payment_reconciliation_cases"));
         assertEquals(3, paymentHistory(orderId).size());

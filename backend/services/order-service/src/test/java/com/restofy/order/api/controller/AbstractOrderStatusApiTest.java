@@ -7,6 +7,7 @@ import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapt
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -60,9 +62,9 @@ abstract class AbstractOrderStatusApiTest extends AbstractCartApiTest {
     // The test acts as the Payment Service: one current attempt per order (a PENDING after a FAILED/CANCELLED starts a new
     // one) and one capture per order (re-sending PAID is the same money). Tests that need other references use
     // paymentBodyWith.
-    private final Map<UUID, UUID> attempts = new java.util.concurrent.ConcurrentHashMap<>();
-    private final Map<UUID, UUID> captures = new java.util.concurrent.ConcurrentHashMap<>();
-    private final Map<UUID, String> lastPaymentStatus = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<UUID, UUID> attempts = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> captures = new ConcurrentHashMap<>();
+    private final Map<UUID, String> lastPaymentStatus = new ConcurrentHashMap<>();
 
     protected UUID attemptOf(UUID orderId) {
         return attempts.computeIfAbsent(orderId, id -> UUID.randomUUID());
@@ -142,7 +144,7 @@ abstract class AbstractOrderStatusApiTest extends AbstractCartApiTest {
                 default -> DevFixtures.STAFF_WAITER_A;
             };
             patchStatus(staff(credential), orderId, step)
-                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+                    .andExpect(MockMvcResultMatchers.status().isOk());
             if (step.equals(target)) {
                 return;
             }

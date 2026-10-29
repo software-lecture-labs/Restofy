@@ -1,5 +1,6 @@
 package com.restofy.order.api;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -106,7 +107,7 @@ class OpenApiDocumentationTests {
         JsonNode request = paths.path("/api/v1/internal/order-events/kitchen-cancellation-request").path("post");
         JsonNode answer = paths.path("/api/v1/internal/order-events/kitchen-cancellation").path("post");
         assertTrue(request.has("operationId") && answer.has("operationId"));
-        org.junit.jupiter.api.Assertions.assertNotEquals(request.path("operationId").asString(),
+        Assertions.assertNotEquals(request.path("operationId").asString(),
                 answer.path("operationId").asString());
         for (JsonNode operation : new JsonNode[]{request, answer}) {
             String security = operation.path("security").toString();

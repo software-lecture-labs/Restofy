@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -280,9 +283,9 @@ class OrderCancellationDecisionApiTests extends AbstractCancellationApiTest {
     @Test
     void anApprovalRacingTheKitchensReadyLeavesAConsistentOrder() throws Exception {
         Waiting waiting = waitingRequest(Map.of("cancelAll", true));
-        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var pool = Executors.newFixedThreadPool(2);
         try {
-            var start = new java.util.concurrent.CountDownLatch(1);
+            var start = new CountDownLatch(1);
             var decision = pool.submit(() -> {
                 start.await();
                 return kitchenDecides(waiting.orderId(), waiting.cancellationId(), "APPROVED", null).andReturn()
@@ -293,8 +296,8 @@ class OrderCancellationDecisionApiTests extends AbstractCancellationApiTest {
                 return kitchenEventFor(waiting.orderId(), "READY").andReturn().getResponse().getStatus();
             });
             start.countDown();
-            assertEquals(200, decision.get(30, java.util.concurrent.TimeUnit.SECONDS));
-            assertEquals(200, ready.get(30, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(200, decision.get(30, TimeUnit.SECONDS));
+            assertEquals(200, ready.get(30, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
         }

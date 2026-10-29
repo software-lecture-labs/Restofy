@@ -13,9 +13,16 @@ import java.util.UUID;
 public record OrderListResponse(List<Summary> items, int page, int limit, long totalItems, int totalPages,
                                 String view) {
 
+    public OrderListResponse {
+        items = ResponseCollections.copyOf(items);
+    }
+
     /** The payment and amount fields are absent only in the KITCHEN view; unitCount counts the still-active units. */
     public record Summary(UUID orderId, String orderNo, UUID tableId, UUID tableSessionId, String fulfillmentStatus,
-                          @JsonInclude(JsonInclude.Include.NON_NULL) String paymentStatus, @JsonInclude(JsonInclude.Include.NON_NULL) String currency, @JsonInclude(JsonInclude.Include.NON_NULL) Long grossMinor,
-                          @JsonInclude(JsonInclude.Include.NON_NULL) Long currentDueMinor, long unitCount, Instant placedAt) {
+                          @JsonInclude(JsonInclude.Include.NON_NULL) String paymentStatus,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) String currency,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) Long grossMinor,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) Long currentDueMinor, long unitCount,
+                          Instant placedAt) {
     }
 }

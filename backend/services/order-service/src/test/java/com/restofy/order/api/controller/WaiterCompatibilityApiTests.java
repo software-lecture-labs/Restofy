@@ -7,15 +7,19 @@ import com.restofy.order.application.compat.waiter.WaiterCompat.WaiterItem;
 import com.restofy.order.application.compat.waiter.WaiterCompat.WaiterOrderCompat;
 import com.restofy.order.application.compat.waiter.WaiterCompatibilityService;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Spliterators;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -45,7 +49,7 @@ class WaiterCompatibilityApiTests extends AbstractCancellationApiTest {
         return compat.forOrder(DevFixtures.RESTAURANT_A, orderId).orElseThrow();
     }
 
-    private static String plain(java.math.BigDecimal value) {
+    private static String plain(BigDecimal value) {
         return value.toPlainString();
     }
 
@@ -179,7 +183,7 @@ class WaiterCompatibilityApiTests extends AbstractCancellationApiTest {
         kitchenDecides(orderId, first, "REJECTED", "KITCHEN_DECLINED").andExpect(status().isOk());
         WaiterOrderCompat rejected = projection(orderId);
         assertEquals(WaiterCancellationStatus.REJECTED, only(rejected).status());
-        org.junit.jupiter.api.Assertions.assertNotNull(only(rejected).decidedAt());
+        Assertions.assertNotNull(only(rejected).decidedAt());
         assertEquals("0.00", plain(rejected.money().cancelledGrossTotal()));
         assertEquals(0, line(rejected, "Dev Salad").cancelledQuantity());
 
@@ -296,13 +300,13 @@ class WaiterCompatibilityApiTests extends AbstractCancellationApiTest {
     void aReasonCompletedLaterKeepsItsAuthorAndTheRequesterDoesNotChange() throws Exception {
         UUID byWaiter = placeSaladOrder(A1);
         UUID waiterCancellation = requestIdOf(cancelAll(guest(A1), byWaiter).andExpect(status().isCreated()));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                 .patch("/api/v1/orders/" + byWaiter + "/cancellations/" + waiterCancellation + "/reason")
                 .contentType(MediaType.APPLICATION_JSON).content(toJson(Map.of("reasonCodes", List.of("WAIT_TOO_LONG"))))
                 .header("Authorization", WAITER)).andExpect(status().isOk());
         UUID byAdmin = placeSaladOrder(A1);
         UUID adminCancellation = requestIdOf(cancelAll(guest(A1), byAdmin).andExpect(status().isCreated()));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+        mvc.perform(MockMvcRequestBuilders
                 .patch("/api/v1/orders/" + byAdmin + "/cancellations/" + adminCancellation + "/reason")
                 .contentType(MediaType.APPLICATION_JSON).content(toJson(Map.of("reasonText", "called the guest")))
                 .header("Authorization", ADMIN)).andExpect(status().isOk());
@@ -376,7 +380,7 @@ class WaiterCompatibilityApiTests extends AbstractCancellationApiTest {
     }
 
     private static Set<String> names(JsonNode node) {
-        return StreamSupport.stream(java.util.Spliterators.spliteratorUnknownSize(node.propertyNames().iterator(), 0), false)
+        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(node.propertyNames().iterator(), 0), false)
                 .collect(Collectors.toSet());
     }
 

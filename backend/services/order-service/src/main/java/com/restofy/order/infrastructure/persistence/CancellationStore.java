@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.restofy.order.infrastructure.persistence.JdbcTimestamps.timestamp;
+
 /**
  * Persistence of order cancellations (V50). Writes must run in the business transaction ({@code MANDATORY}) and the
  * database enforces the rules that must hold whatever the code does: one open request per order, a decision made once,
@@ -107,7 +109,8 @@ public class CancellationStore {
         jdbc.update("""
                 INSERT INTO order_cancellations (
                     id, restaurant_id, order_id, scope, status, requested_by_type, requested_by_id, requested_by_role,
-                    reported_staff_id, requested_at, kitchen_confirmation_required, fulfillment_status_at_request, payment_status_at_request,
+                    reported_staff_id, requested_at, kitchen_confirmation_required, fulfillment_status_at_request,
+                    payment_status_at_request,
                     decision_source, decided_by_type, decided_by_id, decided_by_role, decided_at, rejection_code,
                     rejection_note, currency, previous_due_minor, cancelled_gross_minor, cancelled_net_minor,
                     cancelled_vat_minor, new_due_minor, collected_minor, refund_required_minor, refunded_minor,
@@ -115,12 +118,12 @@ public class CancellationStore {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 r.id(), r.restaurantId(), r.orderId(), r.scope(), r.status(), r.requestedByType(), r.requestedById(),
-                r.requestedByRole(), r.reportedStaffId(), ts(r.requestedAt()), r.kitchenConfirmationRequired(), r.fulfillmentStatusAtRequest(),
-                r.paymentStatusAtRequest(), r.decisionSource(), r.decidedByType(), r.decidedById(), r.decidedByRole(),
-                ts(r.decidedAt()), r.rejectionCode(), r.rejectionNote(), r.currency(), r.previousDueMinor(),
-                r.cancelledGrossMinor(), r.cancelledNetMinor(), r.cancelledVatMinor(), r.newDueMinor(),
-                r.collectedMinor(), r.refundRequiredMinor(), r.refundedMinor(), ts(r.staffReasonAddedAt()),
-                r.staffReasonAddedBy(), r.version(), ts(r.createdAt()), ts(r.createdAt()));
+                r.requestedByRole(), r.reportedStaffId(), timestamp(r.requestedAt()), r.kitchenConfirmationRequired(),
+                r.fulfillmentStatusAtRequest(), r.paymentStatusAtRequest(), r.decisionSource(), r.decidedByType(),
+                r.decidedById(), r.decidedByRole(), timestamp(r.decidedAt()), r.rejectionCode(), r.rejectionNote(),
+                r.currency(), r.previousDueMinor(), r.cancelledGrossMinor(), r.cancelledNetMinor(), r.cancelledVatMinor(), r.newDueMinor(),
+                r.collectedMinor(), r.refundRequiredMinor(), r.refundedMinor(), timestamp(r.staffReasonAddedAt()),
+                r.staffReasonAddedBy(), r.version(), timestamp(r.createdAt()), timestamp(r.createdAt()));
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -145,7 +148,7 @@ public class CancellationStore {
                                                             reason_text, added_by_type, added_by_id, added_by_role, added_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, UUID.randomUUID(), restaurantId, cancellationId, reason.source(), reason.code(), reason.text(),
-                    reason.addedByType(), reason.addedById(), reason.addedByRole(), ts(reason.addedAt()));
+                    reason.addedByType(), reason.addedById(), reason.addedByRole(), timestamp(reason.addedAt()));
         }
     }
 
@@ -161,8 +164,8 @@ public class CancellationStore {
                     decided_by_id = ?, decided_by_role = ?, decided_at = ?, previous_due_minor = ?, new_due_minor = ?,
                     collected_minor = ?, refund_required_minor = ?, version = version + 1, updated_at = ?
                 WHERE id = ? AND status = 'REQUESTED'
-                """, actor.source(), actor.type(), actor.id(), actor.role(), ts(actor.decidedAt()), previousDueMinor,
-                newDueMinor, collectedMinor, refundRequiredMinor, ts(actor.decidedAt()), id), id);
+                """, actor.source(), actor.type(), actor.id(), actor.role(), timestamp(actor.decidedAt()), previousDueMinor,
+                newDueMinor, collectedMinor, refundRequiredMinor, timestamp(actor.decidedAt()), id), id);
     }
 
     /** REQUESTED becomes REJECTED, once. Nothing was cancelled, so the cancelled amounts are zero and the due is as it was. */
@@ -176,8 +179,8 @@ public class CancellationStore {
                     cancelled_vat_minor = 0, collected_minor = ?, refund_required_minor = 0, version = version + 1,
                     updated_at = ?
                 WHERE id = ? AND status = 'REQUESTED'
-                """, actor.source(), actor.type(), actor.id(), actor.role(), ts(actor.decidedAt()), rejectionCode,
-                rejectionNote, currentDueMinor, currentDueMinor, collectedMinor, ts(actor.decidedAt()), id), id);
+                """, actor.source(), actor.type(), actor.id(), actor.role(), timestamp(actor.decidedAt()), rejectionCode,
+                rejectionNote, currentDueMinor, currentDueMinor, collectedMinor, timestamp(actor.decidedAt()), id), id);
     }
 
     /** A waiter completes the reason of a cancellation, once. */
@@ -187,17 +190,13 @@ public class CancellationStore {
                 UPDATE order_cancellations SET staff_reason_added_at = ?, staff_reason_added_by = ?,
                     version = version + 1, updated_at = ?
                 WHERE id = ? AND staff_reason_added_at IS NULL
-                """, ts(at), staffUserId, ts(at), id), id);
+                """, timestamp(at), staffUserId, timestamp(at), id), id);
     }
 
     private static void requireOne(int updated, UUID id) {
         if (updated != 1) {
             throw new IllegalStateException("cancellation " + id + " was not in the expected state");
         }
-    }
-
-    private static Timestamp ts(Instant instant) {
-        return instant == null ? null : Timestamp.from(instant);
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
