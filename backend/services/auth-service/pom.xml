@@ -19,6 +19,12 @@
     <jackson-bom.version>3.1.7</jackson-bom.version>
   </properties>
   <dependencies>
+    <dependency>
+      <groupId>com.restofy</groupId>
+      <artifactId>restofy-test-support</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <!-- Environment Variables -->
     <dependency>
       <groupId>io.github.cdimascio</groupId>

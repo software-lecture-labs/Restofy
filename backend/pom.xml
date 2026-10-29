@@ -131,6 +131,7 @@
 
     <!-- Microservices -->
     <modules>
+        <module>libs/test-support</module>
         <module>services/admin-service</module>
         <module>services/api-gateway</module>
         <module>services/auth-service</module>
