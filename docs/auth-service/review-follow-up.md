@@ -35,7 +35,9 @@ Kontrol tarihi: 29 Ekim 2026. Bu dosya uzak yorum/issue işlemi yapmaz.
 - **#10 (açık):** Gateway arkasında güvenilir gerçek peer adresi. Auth/Gateway/proxy sözleşmesi ve sahte forwarded header testleri gerekir. Mevcut getRemoteAddr güvenilir son hopu gösterir; gerçek kullanıcı IP'si olduğu iddia edilmez.
 - **#9 (açık):** Tek rate-limit stratejisi; bellek/DB/Gateway/Redis seçimi bu teslimde yapılmadı.
 - **#5–#8 (kapalı/not_planned):** GitHub statüsü teknik ihtiyacın giderildiği anlamına gelmez. Yeniden açma/yazışma kullanıcı kararıdır.
-- Staff CRUD, personel alıcı dizini, key rotation/JWKS, kayıp MFA prosedürü, gerçek SMTP ve guest taşıması ayrı kapsamdır.
+- Staff yönetimi ve personel alıcı dizini yerel Auth tesliminde [uygulandı](staff-directory-api.md).
+  Notification için ayrı public key güveni vardır; bu, mevcut Auth→Mail anahtar paylaşımı #6'yı çözmez.
+- Key rotation/JWKS, kayıp MFA prosedürü, gerçek SMTP ve guest taşıması ayrı kapsamdır.
 - Diğer servisler mock ile bağımsız geliştirilebilir. [Issue #4](https://github.com/software-lecture-labs/Restofy/issues/4) tartışmasındaki bu yaklaşım, production'da mock kimlik kabulü anlamına gelmez.
 
 Her değişiklik için yeni test sonucu esas alınır. Eski PR test sayısı veya Sonar sonucu bu teslimin doğrulaması olarak kullanılmaz.

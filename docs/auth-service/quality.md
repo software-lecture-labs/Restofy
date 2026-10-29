@@ -46,4 +46,13 @@ Geçici mini projede aynı sabit plugin/engine ve gerçek kural dosyalarıyla ma
 
 Auth test toplamı, ArchUnit, coverage ve tam pre-push sonucu [status.md](status.md) içindedir. Tam pre-push başarısızsa yalnız Auth verify başarılı diye SAFE TO COMMIT denmez.
 
+Windows Türkçe klasör yolunda JaCoCo için son yerel koşuda `jacoco.destFile` ve `jacoco.dataFile`
+aynı, önceden mevcut olmayan ASCII geçici dosyaya CLI üzerinden yönlendirildi; aynı verify raporu üretti.
+Bu parametreler test/kalite kurallarını atlamaz ve CI dosyasını değiştirmez.
+
+```powershell
+$coverageFile = Join-Path $env:TEMP ('restofy-auth-' + [guid]::NewGuid().ToString('N') + '.exec')
+mvn -B -ntp -f backend/pom.xml -pl services/auth-service -am "-Djacoco.destFile=$coverageFile" "-Djacoco.dataFile=$coverageFile" clean verify
+```
+
 Resmî kaynaklar: [Maven PMD](https://maven.apache.org/plugins/maven-pmd-plugin/), [Checkstyle](https://checkstyle.org/), [Maven Checkstyle](https://maven.apache.org/plugins/maven-checkstyle-plugin/).

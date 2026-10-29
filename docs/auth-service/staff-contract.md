@@ -1,6 +1,7 @@
 # staff-v1 — mevcut personel sözleşmesi
 
-Bu sözleşme mevcut Auth üretimini tarif eder; tüketici uygulaması her servisin sahibindedir. API /api/v1/auth altında csrf, login, refresh, logout, session, activity, mfa/*, password-reset/* yollarını korur. Yeni endpoint, ENV veya migration yoktur.
+Bu sözleşme mevcut Auth üretimini tarif eder; tüketici uygulaması her servisin sahibindedir. API /api/v1/auth altında csrf, login, refresh, logout, session, activity, mfa/*, password-reset/* yollarını korur.
+Ek personel yönetimi ve dar Notification sorgusu [ayrı API sözleşmesinde](staff-directory-api.md) uygulanmıştır; mevcut JWT/cookie biçimi ve migration'lar değişmedi.
 
 ## Personel JWTsi
 
@@ -34,6 +35,7 @@ Refresh tek kullanımlık; ilk kullanımdan sonraki 10 sn tekrar 200 fakat yeni 
 - Guest: QRın alanı; masa/guest tokenı staff JWT olarak kullanılamaz. Guest taşıma/revoke sözleşmesi tamamen uygulanmış değildir.
 - Auth→Mail mevcut sözleşmesi: [Mail sayfası](mail-service/README.md). Bearer + aud=restofy-mail + scope=password-reset:send; genel Service şemasıyla aynı değildir.
 - Genel servis JWT önerisi: her çağıran kendi anahtarıyla RS256, Authorization: Service, iss/sub çağıran servis, aud hedef, en çok 60 sn, replay/endpoint izin matrisi. Bu modelin tüm servislerde uygulandığı iddia edilmez.
+- Bu modelin Notification→Auth salt-okunur alıcı sorgusu bu teslimde uygulanmıştır; yalnız bu çağıran/izin tanınır. Diğer servislerde uygulanmış olduğu iddia edilmez.
 - Saga iş komutları kaynak servisler arasında kalır. Kimlik doğrulama ve dağıtık transaction/telafi farklı sorumluluklardır.
 
 ## Uyumluluk ve kanıt

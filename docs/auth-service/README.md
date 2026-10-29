@@ -13,13 +13,14 @@ Auth personel kimliğini üretir; servisler JWTyi yerelde doğrular. Auth diğer
 | [qr-service](qr-service/README.md) | Alper | MEVCUT QR-01..04 domain/HTTP sınırları; EKSİK güven adapterları |
 | [waiter-service](waiter-service/README.md) | Umut | EKSİK AuthenticatedStaff üreticisi; gerçek downstream bağlantıları tamamlanmamış |
 | [mail-service](mail-service/README.md) | Kerem | MEVCUT Auth→Mail iç gönderim; genel servis modeliyle UYUMSUZ ayrıntılar |
-| [admin-service](admin-service/README.md) | Umut | İSKELET; çalışan business API/adapter yok |
-| [notification-service](notification-service/README.md) | Hamza | İSKELET; çalışan business API/adapter yok |
+| [admin-service](admin-service/README.md) | Umut | Servis İSKELET; Auth personel yönetimi HAZIR |
+| [notification-service](notification-service/README.md) | Hamza | Servis İSKELET; Auth aktif alıcı sorgusu HAZIR |
 | [payment-service](payment-service/README.md) | Alper | İSKELET; çalışan business API/adapter yok |
 | [rating-service](rating-service/README.md) | Nisa | İSKELET; çalışan business API/adapter yok |
 | [timer-service](timer-service/README.md) | Merve | İSKELET; çalışan business API/adapter yok |
 
 - [Personel sözleşmesi ve uyumluluk](staff-contract.md)
+- [Hazır personel yönetimi ve Notification alıcı API'si](staff-directory-api.md)
 - [Frontend bağlantısı ve marka renkleri](frontend/README.md)
 - [14 dalın SHA kaydı](branch-snapshot.md)
 - [Hocanın PR yorumları ve ayrı işler](review-follow-up.md)
@@ -28,4 +29,6 @@ Auth personel kimliğini üretir; servisler JWTyi yerelde doğrular. Auth diğer
 
 MEVCUT kod varlığıdır; EKSİK uygulanmamıştır; UYUMSUZ sözleşme farkıdır; ÖNERİ ekipçe uygulanacak karardır; DOĞRULANMADI çalıştırılmamış davranıştır. Bu paket diğer servislerin tamamlandığını veya productiona hazır olduğunu iddia etmez.
 
-Mevcut ihtiyaçlar çoğunlukla consumer adapterlarıdır; Autha yeni introspection veya varsayımsal Saga uçları eklenmedi. Staff CRUD/personel dizini, guest browser taşıması ve servis anahtar ayrımı ayrıca kapsamlanmalıdır.
+Personel yönetimi ve Notification alıcı API'si Auth'ta uygulandı; bağlantı ayrıntıları yukarıdaki sözleşmededir.
+Diğer ihtiyaçlar çoğunlukla consumer adapterlarıdır; introspection veya varsayımsal Saga uçları eklenmedi.
+Guest browser taşıması, çok restoranlı üyelik ve mevcut Auth→Mail anahtar ayrımı ayrı kapsamdır.

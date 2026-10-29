@@ -5,7 +5,8 @@ Durum: **İSKELET; çalışan business API/adapter yok**. İnceleme: 29 Ekim 202
 
 ## Mevcut sınır
 
-Restoran ayarları/yönetim iskeleti. Personel hesap yönetimi Auth sorumluluğudur; mevcut Authta staff CRUD HTTP API yok. Yeni personel yönetimi kapsamı/DTO/izin matrisi ekip kararı gerektirir.
+Restoran ayarları/yönetim iskeleti. Personel hesap yönetimi Auth sorumluluğudur; yerel Auth tesliminde
+liste/tekil okuma/oluşturma/güncelleme/pasifleştirme hazırdır. [Kesin API, DTO ve izinler](../staff-directory-api.md).
 
 ## Sağladığımız ve beklediğimiz
 
@@ -13,7 +14,8 @@ Auth personel kimliğini [staff-v1](../staff-contract.md) ile sağlar. Servis ge
 
 ## Client / olay / Saga
 
-Admin UI → veri sahibi servis APIleri; Auth DBsine doğrudan erişim yok.
+Admin UI → `/api/v1/auth/staff` ve `/{id}`; cookie + tamamlanmış ADMIN MFA + POST Origin/CSRF.
+Auth DBsine doğrudan erişim yok. Admin servisine personel verisinin ikinci yazarı eklenmez.
 
 ## Yetki ve hata davranışı
 
@@ -23,7 +25,8 @@ Personel sözleşmesinde geçersiz kimlik 401, yetersiz rol 403; dependency 503/
 
 ## Kabul ve sorumlu
 
-Uygulama geldiğinde geçerli/yanlış rol/tenant, MFA ve service token karışıklığı, eksik CSRF ve downstream kesinti testleri. Bu turda çalışma zamanı DOĞRULANMADI.
+Auth tarafı StaffDirectoryHttpTests ile doğrulandı; Admin UI/servisinin gerçek bağlantısı DOĞRULANMADI.
+Umut, version/409 ve pasifleştirme davranışını UI'da bağlar; parola hiçbir loga/store'a yazılmaz.
 
 Tüketici adapterı servis sahibinin; Auth üretici sözleşmesi Kerem'in sorumluluğudur. Başka servisin kodu bu teslimde değiştirilmedi.
 

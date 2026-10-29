@@ -2,6 +2,8 @@
 
 Güncel servisler arası sözleşme, bağlantı beklentileri, CI ve doğrulama kaydı:
 [Auth entegrasyon paketi](../../../docs/auth-service/README.md).
+Hazır personel yönetimi ve Notification alıcı uçlarının DTO/yetki/anahtar sözleşmesi:
+[Personel API'si](../../../docs/auth-service/staff-directory-api.md).
 
 AUTH-01; tek restoran kurulumu ve personel başına tek rol için personel/parola altyapısıdır.
 AUTH-02 aşağıdaki HTTP oturum sözleşmesini ekler. AUTH-03 ADMIN MFA sözleşmesi aşağıda açıklanmıştır.

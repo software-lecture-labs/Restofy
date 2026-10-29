@@ -2,35 +2,45 @@
 
 **UYGULANDI:** Auth PMD/Checkstyle + GitHub CI dosyası, bağımsız JWT tüketici testleri,
 14 dalın SHA kaydı, 12 servis entegrasyon sayfası, frontend/renk paleti ve hoca yorumları takibi.
-Yeni business endpoint, migration, ENV veya ortak altyapı değişikliği yok.
+Ek teslim: **ADMIN personel yönetimi ve Notification aktif alıcı sorgusu**; [kesin API sözleşmesi](staff-directory-api.md).
+Yeni uçlar Auth içindedir; mevcut migration, ortak ENV/Compose/Gateway veya diğer servis kodu değiştirilmedi.
+Notification için opsiyonel public-key ayarı eklendi; gerçek anahtar veya ortam ayarı yazılmadı.
 
 ## Doğrulama
 
 | Kontrol | Sonuç |
 |---|---|
 | Başlangıç Auth verify | 277 test başarılı |
-| Son Auth verify | **284 test; 0 başarısız, 0 hata, 0 atlama; BUILD SUCCESS** |
+| Son Auth verify | **306 test; 0 başarısız, 0 hata, 0 atlama; BUILD SUCCESS** |
 | Yeni bağımsız tüketici testi | 7 başarılı; JCA RSA doğrulaması, MFA ayrımı, imza, boyut, expiry ve revoke gecikmesi |
+| Personel / alıcı / servis JWT / audit / reset | **22 yeni test başarılı**; HTTP, rol/MFA/CSRF, iptal, stale/duplicate/no-op, eşzamanlı ADMIN, ayrı anahtar, reset iptali/kimlik yarışı |
 | ArchUnit | 1 test gerçekten çalıştı; başarılı |
 | Checkstyle / PMD | **0 / 0 ihlal**; üretim ve test kaynakları dahil |
-| JaCoCo line coverage | **%97,02**; 79 sınıf, sınıf eşleşme uyarısı yok; aşağıdaki Windows notuna bak |
+| JaCoCo line coverage | **%97,19**; 94 sınıf analiz edildi, sınıf eşleşme uyarısı yok; rapor aynı son verify koşusunda üretildi |
 | Kalite kapısı negatif/pozitif kanıtı | İhlalli main/test örneğinde her araç exit 1 ve 2 bulgu; temiz örnekte exit 0 ve 0 bulgu |
 | Workflow YAML | Ayrıştırıldı; tetikler, read izni, SHA sabitleme ve always-artifact kontrol edildi |
 | GitHub CI çalışması | **DOĞRULANMADI**; push/workflow dispatch yapılmadı |
 | Gerçek servisler arası E2E / frontend Auth | **DOĞRULANMADI**; diğer servis adapterları bu teslimde uygulanmadı |
 
-**Windows coverage notu:** Bu ortamda native Cp1254/Türkçe klasör adı nedeniyle JaCoCo agent verisi
-`JAVA PROJESÝ` adlı yanlış karakterli kardeş yola yazıldı. Verify test/analizleri geçti ancak rapor
-adımı veri dosyasını bulamayarak atlandı. Aynı son test koşusunun 02:59:47 tarihli gerçek exec verisi
-beklenen Auth target yoluna kopyalanıp `jacoco:report` ayrıca çalıştırıldı; rapor %97,02 verdi.
-Bu, normal Windows verify'ın coverage üretim sorununun kalıcı düzeltildiği iddiası değildir.
-Yanlış karakterli klasördeki üretilmiş test kalıntıları otomatik silinmedi. Ana repo veya migration değişmedi.
+**Windows coverage notu:** Önceki koşularda native Cp1254/Türkçe klasör adı nedeniyle JaCoCo verisi
+yanlış karakterli kardeş yola yazılıyordu. Son 306 testlik koşuda yalnız CLI'da `jacoco.destFile` ve
+`jacoco.dataFile` aynı, tek koşuya özel ASCII geçici dosyaya yönlendirildi. Auth verify gerçek veriyi
+kendisi okuyup raporu üretti; önceki exec dosyaları birleştirilmedi/kopyalanmadı. Bu bir yerel komut
+workaround'ıdır; varsayılan Windows yol davranışının kalıcı düzeltildiği iddia edilmez.
+Eski üretilmiş test kalıntıları otomatik silinmedi. Linux CI komutu değişmedi.
 
-Yerel kanıtlar (Git dışı): `tmp/auth-quality/direct-auth-verify.log`, `verified-summary.json`,
-`coverage-path-recovery.json`, `coverage-report.log`, `gate-proof.json`, `probe/*`.
+Yerel kanıtlar (Git dışı): `tmp/auth-quality/auth-delivery-release.log`, `auth-delivery-release-exit.txt`,
+`delivery-verified-summary.json`, `delivery-coverage-path.txt`; önceki kalite kapısı kanıtları `gate-proof.json`, `probe/*`.
+İlk ek HTTP koşusunda çift Origin'in ilk değerine güvenildiği görüldü; belirsiz Origin artık 403 ile reddedilir.
+İlk geniş koşudaki iki import sırası bulgusu giderildi; yukarıdaki son koşu tamamıyla başarılıdır.
+Son incelemede eski e-posta/reset yetkisi açığı üç testle düzeltmeden önce **3 FAIL / 0 ERROR** olarak
+kanıtlandı, düzeltmeyle **3 PASS** oldu; son tam koşuda rollback kontrolüyle birlikte geçti.
+Kod bekleyen/doğrulanmış reset yetkilerini hesap değişiminde iptal eder ve reset isteğinde kilit sonrası
+güncel e-postayı tekrar denetler. Kanıt: `delivery-reset-red.log`, `delivery-reset-green.log`.
 
 ## Tam pre-push: NOT SAFE TO COMMIT
 
+Bu bölüm önceki kalite turunun tam repo koşusudur; ek personel/alıcı tesliminde yalnız Auth kapısı yeniden çalıştırıldı.
 İlk tam koşu **9/14 PASS**, exit 1. Auth'taki altı uzun test satırı backend kapısını durdurdu;
 satırlar düzeltildi ve son Auth verify/analizleri ayrıca başarılı çalıştırıldı. Tam koşu yeniden
 yeşil tamamlanmış gibi raporlanmaz; diğer backend modüllerinin o koşudaki devamı SKIPPED kaldı.
@@ -54,16 +64,22 @@ yeşil tamamlanmış gibi raporlanmaz; diğer backend modüllerinin o koşudaki 
 | Menu / Merve | CurrentActorProvider; personel/public/Kitchen servis kimliği ayrımı |
 | QR / Alper | Yönetim/kapanış staff adapterı; Order/Payment kanıtları ve guest browser taşıması ayrı sözleşmeler |
 | Waiter / Umut | AuthenticatedStaff üreticisi, cookie CSRF, Order/QR gerçek bağlantıları |
-| Auth/Mail / Kerem | Mevcut sözleşme/test hazır; gerçek SMTP ve ayrı servis anahtarı sonraki iş |
-| Ortak ekip | #10 proxy peer adresi, #9 limiter stratejisi; staff CRUD/alıcı dizini ve guest politikası için ayrıca kapsam |
+| Admin UI / Umut | Hazır Auth personel API'sine bağlanmak; version/409, MFA ve CSRF davranışını uygulamak |
+| Notification / Hamza | Hazır Auth alıcı sorgusuna kendi RS256 signer/client'ıyla bağlanmak; yalnız public key'i Auth'a tanıtmak |
+| Auth/Mail / Kerem | Bildirilen personel/kimlik/alıcı uçları hazır; gerçek SMTP ve mevcut Auth→Mail anahtar ayrımı sonraki iş |
+| Ortak ekip | #10 proxy peer adresi, #9 limiter stratejisi; çok restoranlı üyelik, key rotation ve guest politikası ayrı işler |
 
-Diğer serviste gereken adapter için Auth'a varsayımsal endpoint eklenmedi. Ayrıntılar [ana indekste](README.md).
+Diğer servislerin client/Saga işleri Auth içine taşınmadı. Auth'a somut personel yönetimi/alıcı ihtiyacı eklendi;
+Order/Kitchen/Menu/QR/Waiter için hazır JWT sözleşmesi korunur. Ayrıntılar [ana indekste](README.md).
 Hocanın ayrı işleri ve güncel issue durumları [inceleme takibinde](review-follow-up.md).
 
 ## Yerel commitler ve sınır
 
 - `4cf9a1c` — kalite/stil kuralları ve Auth CI.
 - `d54ec55` — bağımsız JWT tüketici testleri.
-- Bu raporu içeren doküman commit'i: `docs(auth): servis entegrasyon planlarını ve doğrulama raporunu ekle`.
+- `cd304d5` — ilk servis entegrasyon planları ve doğrulama raporu.
+- `3f3a00b` — personel yönetimi, güvenli hesap/reset değişimi ve audit.
+- `117e117` — Notification için ayrı servis kimliği ve alıcı sorgusu.
+- Bu ek teslimin doküman commit'i: `docs(auth): hazır personel ve alıcı sözleşmelerini kaydet`.
 
 **Push, PR, issue, yorum, merge, deploy veya uzak ayar değişikliği yapılmadı.**
