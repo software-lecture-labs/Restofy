@@ -24,6 +24,7 @@ Auth personel kimliğini üretir; servisler JWTyi yerelde doğrular. Auth diğer
 - [Frontend bağlantısı ve marka renkleri](frontend/README.md)
 - [14 dalın SHA kaydı](branch-snapshot.md)
 - [Hocanın PR yorumları ve ayrı işler](review-follow-up.md)
+- [Hocanın 20 mesajının güncel kodla karşılaştırması](teacher-review-audit.md)
 - [Kalite kapısı](quality.md)
 - [Doğrulama ve teslim durumu](status.md)
 - [Bağımsız son inceleme ve gerçek client durumu](delivery-review.md)

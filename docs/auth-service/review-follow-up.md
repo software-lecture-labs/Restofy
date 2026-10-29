@@ -2,6 +2,7 @@
 
 Kaynak: [hocanın PR #2 yorumları](https://github.com/software-lecture-labs/Restofy/pull/2).
 Kontrol tarihi: 29 Ekim 2026. Bu dosya uzak yorum/issue işlemi yapmaz.
+20 mesajın tamamı ve son kodda tekrarlanan stil örnekleri [güncel denetimde](teacher-review-audit.md) kayıtlıdır.
 
 | Hocanın maddesi | Mevcut karşılık / bu teslimin yaklaşımı | Kanıt veya kalan iş |
 |---|---|---|
@@ -21,7 +22,7 @@ Kontrol tarihi: 29 Ekim 2026. Bu dosya uzak yorum/issue işlemi yapmaz.
 | String durum değerleri | PasswordResetStatus/MailJobStatus enumları | Mevcut constraint eşleşme testleri |
 | Test DB initializer kopyası | Ayrı servis korumaları korundu | #7 kapalı/not_planned; ortak Maven modülü kapsam dışı |
 | BCrypt algoritma geçişi | Cost 12 ve eski hash biçimi korundu | #5 kapalı/not_planned; mevcut hashleri bozan geçiş yapılmadı |
-| Tek satır çok ifade, import, uzun satır | Kalıcı Checkstyle + PMD; üretim/test kaynakları | 140 karakter, OneStatementPerLine, import sırası, FQN ve seçili PMD kuralları |
+| Tek satır çok ifade, import, uzun satır | KISMEN: kalıcı Auth Checkstyle + PMD var; tam adları tümüyle yasaklamıyor | Yeni StaffDirectoryHttpTests'te FQN sürüyor; Mail testlerinde 23 uzun satır var; ayrıntılar güncel denetimde |
 | JPA/JdbcTemplate standardı | Atomik SQL ile CRUD mevcut ayrım korunur | #8 kapalı/not_planned; ekip standardı ayrı iş |
 | README ENV/Compose yanlış ifadesi | Önceki 9e0fd4c düzeltmesi korunur | Auth README'ye yalnız bu entegrasyon paketinin girişi eklendi |
 | ADR referansı var, dosya yok | ADR-AUTH-001/002 zaten takipli; içerik korunur | Doküman bağlantıları dosya varlığıyla kontrol edilir |
