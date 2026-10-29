@@ -2,6 +2,9 @@ package com.restofy.mail;
 
 import java.time.Instant;
 import java.util.*;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import com.icegreen.greenmail.util.*;
 import com.restofy.mail.api.dto.request.PasswordResetMailRequest;
 import com.restofy.mail.infrastructure.client.SmtpMailSender;
@@ -10,8 +13,10 @@ import com.restofy.mail.support.MailTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.springframework.mock.env.MockEnvironment;
+import org.slf4j.LoggerFactory;
 import org.springframework.mail.MailSendException;
+import org.springframework.mock.env.MockEnvironment;
+
 import static org.assertj.core.api.Assertions.*;
 
 class SmtpMailSenderTests {
@@ -26,7 +31,7 @@ class SmtpMailSenderTests {
     }
     @ParameterizedTest @CsvSource({"tr,ADMIN_PASSWORD_RESET","en,ADMIN_PASSWORD_RESET","tr,PASSWORD_CHANGED","en,PASSWORD_CHANGED"})
     void rendersBothLanguagesAsTextAndHtmlThroughRealFakeSmtp(String locale,String template) throws Exception {
-        ((ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger("com.icegreen.greenmail")).setLevel(ch.qos.logback.classic.Level.OFF);
+        ((Logger)LoggerFactory.getLogger("com.icegreen.greenmail")).setLevel(Level.OFF);
         GreenMail smtp=new GreenMail(new ServerSetup(0,"127.0.0.1",ServerSetup.PROTOCOL_SMTP)); smtp.start();
         try {
             var env=environment(smtp.getSmtp().getPort(),"NONE"); var settings=new MailSettings(env);
@@ -48,7 +53,8 @@ class SmtpMailSenderTests {
         try {
             var env=environment(smtp.getSmtp().getPort(),"STARTTLS");var settings=new MailSettings(env);
             var sender=new SmtpMailSender(new SmtpConfiguration().mailSender(env,settings),settings);
-            var request=new PasswordResetMailRequest(UUID.randomUUID(),"PASSWORD_CHANGED","a@example.test","en",null,null,Instant.now().plusSeconds(100));
+            var request=new PasswordResetMailRequest(UUID.randomUUID(),"PASSWORD_CHANGED","a@example.test","en",null,null,Instant
+                    .now().plusSeconds(100));
             assertThatThrownBy(()->sender.send(request))
                     .isInstanceOf(MailSendException.class);
             assertThat(smtp.getReceivedMessages()).isEmpty();
@@ -56,8 +62,12 @@ class SmtpMailSenderTests {
     }
     @Test void productionRejectsPlaintextAndMalformedKeysWithoutLeakingValues() {
         var env=environment(25,"NONE");env.setActiveProfiles("prod");
-        assertThatThrownBy(()->new MailSettings(env)).hasMessage("Invalid or missing Mail configuration").hasNoCause();
+        assertThatThrownBy(()->new MailSettings(env))
+                .hasMessage("Invalid or missing MAIL_SMTP_TLS_MODE: expected STARTTLS or SMTPS (NONE only in local development)")
+                .hasNoCause();
         env.withProperty("restofy.mail.tls-mode","SMTPS").withProperty("restofy.mail.public-key","invalid");
-        assertThatThrownBy(()->new MailSettings(env)).hasMessage("Invalid or missing Mail configuration").hasNoCause();
+        assertThatThrownBy(()->new MailSettings(env))
+                .hasMessage("Invalid or missing MAIL_AUTH_PUBLIC_KEY: expected a Base64 X.509 RSA public key of at least 2048 bits")
+                .hasNoCause();
     }
 }
