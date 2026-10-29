@@ -6,6 +6,8 @@ on:
       - 'backend/**'
       - 'pre-push/**'
       - 'lib/**'
+      - 'ops/qr/**'
+      - 'docker-compose.yml'
       - '.github/workflows/backend-verify.yml'
   pull_request:
     branches: [dev]
@@ -13,6 +15,8 @@ on:
       - 'backend/**'
       - 'pre-push/**'
       - 'lib/**'
+      - 'ops/qr/**'
+      - 'docker-compose.yml'
       - '.github/workflows/backend-verify.yml'
   workflow_dispatch:
 
@@ -24,6 +28,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  qr-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test QR key initialization and isolated Compose interpolation
+        run: node --test ops/qr/*.test.mjs
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25

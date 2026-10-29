@@ -21,6 +21,8 @@ Bu rehber gerçek QR kaynak kodundaki sözleşmeleri açıklar. Başka servisler
 
 **NOT VERIFIED (DOĞRULANMADI):** Gerçek Auth → Gateway → QR → Order → Payment başarı E2E, gerçek mobil kamera ve production işletim hazırlığı. Testlerdeki restoran/personel/Order/Payment mock'ları gerçek entegrasyon kanıtı değildir.
 
+**Review sonrası mimari not:** V29/V30 admission ve finansal güvenlik projeksiyonunun kapsamı Order/Payment sahipleriyle ortak karar beklemektedir. Alternatifler ve açık sorular [ADR-QR-001](../ADR/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) içinde kayıtlıdır. Bu ADR henüz kabul edilmedi; mevcut iş kodu bu review düzeltmesinde değiştirilmedi. Aşağıdaki iç sözleşmeler nihai ekip uzlaşması olarak okunmamalıdır.
+
 HTTP'de health dışında **denyAll** vardır. Auth servisini başlatmak, `SWAGGER_ENABLED=true` yapmak veya restoran/rol header'ı göndermek erişimi açmaz. Erişim açılması, mevcut güven sınırlarının gerçek kaynaklarla tamamlanmasını ve negatif yetki testlerini gerektirir.
 
 Normatif kaynaklar: [güvenlik](../SECURITY.md), [gereksinimler](../requirements.md), [mimari](../architecture.md), [veri modeli](../database.md), [ER](../er-diagram.md), [yerleşim](../folder-structure.md), [migration aralıkları](../decisions/migrations.md), [web kuralları](../web-rules.md). Eski analizlerin tarihli mevcut durum tespitleri güncel QR kodunun yerine geçmez.
@@ -241,6 +243,7 @@ Açık ürün/teknik konular: D-01/D-02 gerçek ödeme/iade ve kısmi/READY ipta
 ## 9. ENV, migration ve işletim
 
 - `QR_PAYLOAD_ENCRYPTION_KEY`: Base64 32 byte AES anahtarı; gerçek değer Git/log/sohbet dışında. Yeniden başlatmada değiştirilmez. Kaybolursa eski şifreli QR içeriği çözülemez. Rotation/keyring/migration akışı bu teslimde yoktur.
+- İlk kurulum yardımcısı `ops/qr/qr-key.mjs`; komutlar, profil/aktif `.env` eşitlemesi ve hata kodları [QR anahtar üretimi](qr-key-uretimi.md) içinde açıklanır. Compose anahtarın boş aktarımına izin verir; QR uygulaması boş/geçersiz anahtarla başlamaz. Diğer servislerin zorunlu ayarları ayrıca gereklidir.
 - `QR_PUBLIC_ENTRY_URL`: Boşsa image/download 503. Dolu adres sınırlı HTTPS URL; userinfo/query/fragment yok; loopback HTTP yalnız dev/test ve prod yokken. Görsel payload **`entryUrl#token=<qrToken>`**. Fragment sunucu HTTP isteğine gitmez; müşteri sayfasının bunu güvenli okuması henüz uygulanmadı. Gerçek üretim domain'i belirlenmeli; mevcut dev ayarı production kararı değildir.
 - `.env.example` alanları gerçek sır içermez. Yeni ENV değişikliği, Compose aktarımı, ağ veya dependency ayrı onay gerektirir; bu rehber ENV'yi değiştirmedi.
 - V21 dining_tables; V22 qr_codes; V23 rotate; V24 INACTIVE; V25 optional expiresAt; V26 main; V27 guest; V28 accepted scan; V29 admission; V30 business projection/event. Testcontainers testleri bu şemayı PostgreSQL 17 üzerinde kurar ve validate eder; gerçek DEV veritabanının uygulanmış sürümü ayrıca kendi Flyway history'sinden kontrol edilmelidir. **Aralık dolu; V31 Payment'a ait.** Uygulanmış SQL değişmez; yeni şema için ekipten yeni aralık kararı gerekir. Hibernate update/create, Flyway clean/repair veya volume reset çözüm olarak kullanılmaz.
@@ -250,6 +253,8 @@ Açık ürün/teknik konular: D-01/D-02 gerçek ödeme/iade ve kısmi/READY ipta
 ## 10. Auth entegrasyonuna başlarken
 
 Auth ekibinin [PR #2](https://github.com/software-lecture-labs/Restofy/pull/2) teslimi referanstır; `dev` birleştirildikten sonra **gerçek güncel Auth kodu ve sözleşmesi yeniden okunmalıdır**. Auth'ın kendi testlerinin geçmesi QR yetkilendirmesinin çalıştığını kanıtlamaz.
+
+Plan, mevcut QR PR'ının dev merge'inden sonra Auth'ı küçük PR'larla bağlamaktır. Endpoint başına zorunlu tek PR yerine ortak yetki/iş akışı bazında gruplama reviewer'a sorulacaktır; ilk öneri masa listeleme/detay ve `TableManagementAccess` doğrulamasıdır. Guest güvenliği ve hız sınırı tamamlanana kadar müşteri tarama endpoint'leri kapalı kalır. Bu, onaylanmış yeni bir erişim matrisi veya tamamlanmış Auth entegrasyonu değildir.
 
 1. Auth'ın personel oturumu ve JWT/cookie sözleşmesini QR/Gateway sınırlarıyla karşılaştırın. İmza algoritması, issuer, audience, süre, token türü ve auth/MFA durumu kaynakta tanımlandığı biçimde doğrulanmalı. Auth'ın private signing key'i QR'a kopyalanmamalı; QR payload AES anahtarı personel JWT anahtarı değildir. Anahtar dağıtımı/yenilemesi ve servis kimliği için yeni güven tasarımı ayrıca onaylanmalıdır.
 2. `TableManagementAccess` ve `SessionLifecycleAccess` için güncel aktif restoran üyeliği, işlem izni ve kullanıcı kimliği üreten gerçek adaptörleri geliştirin. Yönetim operasyonlarının izin matrisi kesinleşmeden her personele erişim vermeyin. Kapanış/temizlik aynı restoranın doğrulanmış WAITER/ADMIN yetkisini gerektirir. Sahte `X-Role`/`X-Restaurant-Id` ve varsayılan Spring kullanıcısı yetki kaynağı değildir.
