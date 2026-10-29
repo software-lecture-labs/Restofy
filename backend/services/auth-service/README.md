@@ -1,5 +1,8 @@
 # Auth Service — AUTH-01 / AUTH-02
 
+Güncel servisler arası sözleşme, bağlantı beklentileri, CI ve doğrulama kaydı:
+[Auth entegrasyon paketi](../../../docs/auth-service/README.md).
+
 AUTH-01; tek restoran kurulumu ve personel başına tek rol için personel/parola altyapısıdır.
 AUTH-02 aşağıdaki HTTP oturum sözleşmesini ekler. AUTH-03 ADMIN MFA sözleşmesi aşağıda açıklanmıştır.
 Parola doğrulaması yalnız `PasswordProof` döndürür; `Authentication`, cookie veya token üretmez,
