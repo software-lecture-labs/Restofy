@@ -101,6 +101,21 @@ public class StaffSessionService {
         return grant(session, now, token.getGeneration() + 1);
     }
 
+    /** One statement sees matching user/session state without taking a write lock or changing revocation data. */
+    @Transactional(readOnly = true)
+    public UserSession readSession(Identity identity) {
+        if (identity == null) {
+            throw invalid();
+        }
+        UserSession session = sessions.readIdentity(identity.userId(), identity.sessionId(), identity.role(), identity.state())
+                .orElseThrow(StaffSessionService::invalid);
+        if (!session.isUsable(clock.instant())) {
+            throw invalid();
+        }
+        return session;
+    }
+
+    /** Mutations must revalidate under the identity lock; never replace this with the read snapshot. */
     public UserSession authenticate(Identity identity) {
         StaffUser user = lockUser(identity.userId());
         if (!user.isActive()) {

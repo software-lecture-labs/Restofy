@@ -67,7 +67,7 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             throw new BadCredentialsException("Ambiguous session");
         }
         var identity = jwt.verify(access == null ? pending : access, access == null);
-        sessions.authenticate(identity);
+        sessions.readSession(identity);
         var authorities = access == null ? List.of(new SimpleGrantedAuthority("MFA_PENDING"))
                 : List.of(new SimpleGrantedAuthority("STAFF_SESSION"), new SimpleGrantedAuthority("ROLE_" + identity.role().name()));
         SecurityContextHolder.getContext().setAuthentication(

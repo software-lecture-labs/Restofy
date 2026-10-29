@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.restofy.auth.domain.entity.StaffEmail;
 import com.restofy.auth.domain.entity.StaffUser;
+import com.restofy.auth.domain.entity.UserSession;
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.config.AuthSettings;
@@ -47,14 +48,16 @@ public class StaffDirectoryService {
         this.resets = resets;
     }
 
+    @Transactional(readOnly = true)
     public StaffPage list(Identity actor, int page, int size) {
-        requireAdmin(actor);
+        checkAdmin(sessions.readSession(actor));
         var found = users.findAll(pageRequest(page, size));
         return new StaffPage(found.map(this::view).getContent(), page, size, found.hasNext());
     }
 
+    @Transactional(readOnly = true)
     public StaffView get(Identity actor, UUID id) {
-        requireAdmin(actor);
+        checkAdmin(sessions.readSession(actor));
         return view(find(id));
     }
 
@@ -117,7 +120,10 @@ public class StaffDirectoryService {
     }
 
     private void requireAdmin(Identity actor) {
-        var session = sessions.authenticate(actor);
+        checkAdmin(sessions.authenticate(actor));
+    }
+
+    private static void checkAdmin(UserSession session) {
         if (session.getRoleSnapshot() != StaffRole.ADMIN || session.getAuthState() != SessionAuthState.AUTHENTICATED) {
             throw new AccessDeniedException("Administrator required");
         }

@@ -76,7 +76,7 @@ public class StaffAuthController {
 
     @GetMapping("/session")
     public SessionResponse session(@AuthenticationPrincipal Identity identity) {
-        SessionResponse response = SessionResponse.from(sessions.authenticate(identity));
+        SessionResponse response = SessionResponse.from(sessions.readSession(identity));
         return identity.state() == SessionAuthState.MFA_PENDING
                 ? response.withMfaSetup(mfa.requiresSetup(identity)) : response;
     }
