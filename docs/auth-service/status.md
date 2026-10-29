@@ -21,6 +21,7 @@ Notification için opsiyonel public-key ayarı eklendi; gerçek anahtar veya ort
 | Workflow YAML | Ayrıştırıldı; tetikler, read izni, SHA sabitleme ve always-artifact kontrol edildi |
 | GitHub CI çalışması | **DOĞRULANMADI**; push/workflow dispatch yapılmadı |
 | Gerçek servisler arası E2E / frontend Auth | **DOĞRULANMADI**; diğer servis adapterları bu teslimde uygulanmadı |
+| Bağımsız son inceleme | Yeni doğrulanmış bulgu yok; Admin/Notification güncel dallarında gerçek client yok; [inceleme kaydı](delivery-review.md) |
 
 **Windows coverage notu:** Önceki koşularda native Cp1254/Türkçe klasör adı nedeniyle JaCoCo verisi
 yanlış karakterli kardeş yola yazılıyordu. Son 306 testlik koşuda yalnız CLI'da `jacoco.destFile` ve

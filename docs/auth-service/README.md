@@ -26,6 +26,7 @@ Auth personel kimliğini üretir; servisler JWTyi yerelde doğrular. Auth diğer
 - [Hocanın PR yorumları ve ayrı işler](review-follow-up.md)
 - [Kalite kapısı](quality.md)
 - [Doğrulama ve teslim durumu](status.md)
+- [Bağımsız son inceleme ve gerçek client durumu](delivery-review.md)
 
 MEVCUT kod varlığıdır; EKSİK uygulanmamıştır; UYUMSUZ sözleşme farkıdır; ÖNERİ ekipçe uygulanacak karardır; DOĞRULANMADI çalıştırılmamış davranıştır. Bu paket diğer servislerin tamamlandığını veya productiona hazır olduğunu iddia etmez.
 
