@@ -69,6 +69,12 @@ public class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/recovery-codes/regenerate")
                                 .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
                                         AuthorityAuthorizationManager.hasRole("ADMIN")))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/staff", "/api/v1/auth/staff/**")
+                                .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
+                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/staff", "/api/v1/auth/staff/**")
+                                .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
+                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
                         .anyRequest().denyAll())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())

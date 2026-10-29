@@ -37,14 +37,18 @@ public class PasswordResetRepository {
     }
 
     public void create(UUID id, UUID userId, String cookie, String code, String locale, Instant now) {
-        jdbc.update("UPDATE password_reset_requests SET status = ? WHERE staff_user_id = ? AND status IN (?, ?)",
-                INVALIDATED.name(), userId, CODE_PENDING.name(), CODE_VERIFIED.name());
+        invalidateForUser(userId);
         jdbc.update("""
                 INSERT INTO password_reset_requests
                     (id, staff_user_id, cookie_digest, code_digest, locale, status, created_at, code_expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 id, userId, cookie, code, locale, CODE_PENDING.name(), Timestamp.from(now),
                 Timestamp.from(now.plus(PasswordResetPolicy.CODE_TTL)));
+    }
+
+    public void invalidateForUser(UUID userId) {
+        jdbc.update("UPDATE password_reset_requests SET status = ? WHERE staff_user_id = ? AND status IN (?, ?)",
+                INVALIDATED.name(), userId, CODE_PENDING.name(), CODE_VERIFIED.name());
     }
 
     public void fail(PasswordResetRequest request) {

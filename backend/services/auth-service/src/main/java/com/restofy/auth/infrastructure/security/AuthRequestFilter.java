@@ -33,7 +33,12 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         response.setHeader("Cache-Control", "no-store");
         try {
-            String origin = request.getHeader("Origin");
+            var originHeaders = request.getHeaders("Origin");
+            String origin = originHeaders.hasMoreElements() ? originHeaders.nextElement() : null;
+            if (originHeaders.hasMoreElements()) {
+                AuthProblems.write(response, HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
             boolean safe = Set.of("GET", "HEAD", "OPTIONS", "TRACE").contains(request.getMethod());
             if ((!safe || origin != null) && (origin == null || !settings.origins().contains(origin))) {
                 AuthProblems.write(response, HttpServletResponse.SC_FORBIDDEN);
@@ -45,7 +50,8 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             boolean mfa = "POST".equals(request.getMethod()) && Set.of("/api/v1/auth/mfa/enroll",
                     "/api/v1/auth/mfa/enroll/confirm", "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover",
                     "/api/v1/auth/mfa/recovery-codes/regenerate").contains(path);
-            if (session || activity || mfa) {
+            boolean staff = path.equals("/api/v1/auth/staff") || path.startsWith("/api/v1/auth/staff/");
+            if (session || activity || mfa || staff) {
                 authenticate(request);
             }
             chain.doFilter(request, response);

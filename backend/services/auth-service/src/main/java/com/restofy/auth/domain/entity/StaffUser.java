@@ -59,6 +59,12 @@ public class StaffUser {
         active = false;
     }
 
+    public void updateDetails(String email, StaffRole newRole, boolean enabled) {
+        emailNormalized = StaffEmail.normalize(email);
+        role = Objects.requireNonNull(newRole);
+        active = enabled;
+    }
+
     public void changePassword(String hash, Instant now) {
         if (hash == null || !hash.matches("\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}")) {
             throw new IllegalArgumentException("Invalid staff password hash");

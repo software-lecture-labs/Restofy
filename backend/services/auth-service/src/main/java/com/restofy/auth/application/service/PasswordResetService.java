@@ -73,7 +73,8 @@ public class PasswordResetService {
         var found = users.findByEmailNormalized(email);
         StaffUser user = found.map(value -> lock(value.getId())).orElse(null);
         var state = user == null ? null : mfa.findByStaffUserId(user.getId()).orElse(null);
-        boolean eligible = user != null && user.isActive() && user.getRole() == StaffRole.ADMIN
+        boolean eligible = user != null && email.equals(user.getEmailNormalized())
+                && user.isActive() && user.getRole() == StaffRole.ADMIN
                 && state != null && state.enabled();
         if (!eligible) {
             totp.verify(new byte[TotpVerifier.SECRET_BYTES], factor, Long.MAX_VALUE);
