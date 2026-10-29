@@ -106,17 +106,27 @@ class AuthSecurityTests extends com.restofy.auth.support.AuthSessionTestSupport 
     @RestController
     static class ProbeController {
         @GetMapping("/api/v1/auth/probe")
-        String probe() { return "must not be accessible"; }
+        String probe() {
+            return "must not be accessible";
+        }
     }
 
     @TestConfiguration(proxyBeanMethods = false)
     static class MethodFixtures {
-        @Bean RoleProbe roleProbe() { return new RoleProbe(); }
+        @Bean RoleProbe roleProbe() {
+            return new RoleProbe();
+        }
     }
 
     static class RoleProbe {
-        @PreAuthorize("hasRole('ADMIN')") public String admin() { return "admin"; }
-        @PreAuthorize("hasRole('WAITER')") public String waiter() { return "waiter"; }
-        @PreAuthorize("hasRole('KITCHEN')") public String kitchen() { return "kitchen"; }
+        @PreAuthorize("hasRole('ADMIN')") public String admin() {
+            return "admin";
+        }
+        @PreAuthorize("hasRole('WAITER')") public String waiter() {
+            return "waiter";
+        }
+        @PreAuthorize("hasRole('KITCHEN')") public String kitchen() {
+            return "kitchen";
+        }
     }
 }

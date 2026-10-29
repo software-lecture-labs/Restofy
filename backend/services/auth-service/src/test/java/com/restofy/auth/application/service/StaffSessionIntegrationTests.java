@@ -134,7 +134,8 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     @ParameterizedTest
     @EnumSource(StaffRole.class)
     void enforcesRoleSpecificIdleBoundaryWithoutRefreshActivity(StaffRole role) {
-        StaffUser user = users.saveAndFlush(new StaffUser(role.name().toLowerCase(java.util.Locale.ROOT) + "@example.org", passwords.hash(PASSWORD), role));
+        StaffUser user = users.saveAndFlush(new StaffUser(role.name().toLowerCase(java.util.Locale.ROOT) + "@example.org", passwords
+                .hash(PASSWORD), role));
         var grant = service.login(user.getEmailNormalized(), PASSWORD, null);
         if (role == StaffRole.ADMIN) {
             assertThat(grant.refresh()).isNull();
@@ -230,7 +231,8 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     @Test
     void databaseRejectsInvalidHashGenerationAndDuplicateLiveRefresh() {
         var grant = login();
-        String sql = "INSERT INTO refresh_tokens(id,session_id,token_hash,created_at,expires_at,generation) VALUES (?,?,?,now(),now()+interval '1 day',?)";
+        String sql = "INSERT INTO refresh_tokens(id,session_id,token_hash,"
+                + "created_at,expires_at,generation) VALUES (?,?,?,now(),now()+interval '1 day',?)";
         UUID rowId = UUID.randomUUID();
         UUID sessionId = grant.session().getId();
         UUID unknownSessionId = UUID.randomUUID();
@@ -293,15 +295,23 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     @Test
     void refreshCannotSurviveConcurrentDisable() throws Exception {
         var grant = login();
-        race(() -> refreshOutcome(grant.refresh()), () -> { service.deactivate(waiter.getId()); return true; });
+        race(() -> refreshOutcome(grant.refresh()), () -> { service.deactivate(waiter.getId());
+        return true;
+        });
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertRefreshRejected(grant);
     }
 
     @Test
     void loginCannotSurviveConcurrentDisable() throws Exception {
-        race(() -> { try { login(); return true; } catch (BadCredentialsException _) { return false; } },
-                () -> { service.deactivate(waiter.getId()); return true; });
+        race(() -> { try { login();
+        return true;
+        } catch (BadCredentialsException _) {
+            return false;
+        } },
+                () -> { service.deactivate(waiter.getId());
+                return true;
+                });
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThatThrownBy(this::login).isInstanceOf(BadCredentialsException.class);
     }
@@ -332,18 +342,29 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> service.activity(identity)).isInstanceOf(expected);
     }
 
-    private StaffSessionService.Grant login() { return service.login("waiter@example.com", PASSWORD, "Test browser"); }
+    private StaffSessionService.Grant login() {
+
+        return service.login("waiter@example.com", PASSWORD, "Test browser");
+    }
     private boolean refreshIssuedCredentials(String raw) {
         return !service.refresh(raw).concurrentReplay();
     }
     private boolean refreshOutcome(String raw) {
-        try { service.refresh(raw); return true; } catch (BadCredentialsException _) { return false; }
+        try { service.refresh(raw);
+        return true;
+        } catch (BadCredentialsException _) {
+            return false;
+        }
     }
     private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var left = executor.submit(() -> { start.await(); return first.call(); });
-            var right = executor.submit(() -> { start.await(); return second.call(); });
+            var left = executor.submit(() -> { start.await();
+            return first.call();
+            });
+            var right = executor.submit(() -> { start.await();
+            return second.call();
+            });
             start.countDown();
             return List.of(left.get(30, TimeUnit.SECONDS), right.get(30, TimeUnit.SECONDS));
         }
@@ -351,6 +372,8 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class TimeConfiguration {
-        @Bean @Primary MutableAuthClock testClock() { return new MutableAuthClock(); }
+        @Bean @Primary MutableAuthClock testClock() {
+            return new MutableAuthClock();
+        }
     }
 }

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE module PUBLIC "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<module name="Checker">
+  <property name="charset" value="UTF-8"/>
+  <module name="LineLength">
+    <property name="max" value="140"/>
+    <property name="ignorePattern" value="^(package|import) .*"/>
+  </module>
+  <module name="TreeWalker">
+    <module name="OneStatementPerLine"/>
+    <module name="RedundantImport"/>
+    <module name="UnusedImports"/>
+    <module name="AvoidStarImport">
+      <!-- Existing AssertJ/Mockito test DSLs use static wildcard imports. -->
+      <property name="allowStaticMemberImports" value="true"/>
+    </module>
+    <module name="CustomImportOrder">
+      <property name="customImportOrderRules" value="STANDARD_JAVA_PACKAGE###THIRD_PARTY_PACKAGE###STATIC"/>
+      <property name="standardPackageRegExp" value="^(java|javax)\."/>
+      <property name="sortImportsInGroupAlphabetically" value="true"/>
+      <property name="separateLineBetweenGroups" value="true"/>
+    </module>
+  </module>
+</module>

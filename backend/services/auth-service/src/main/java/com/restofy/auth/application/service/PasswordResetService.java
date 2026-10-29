@@ -3,14 +3,23 @@ package com.restofy.auth.application.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
-import com.restofy.auth.domain.entity.*;
+
+import com.restofy.auth.domain.entity.PasswordResetRequest;
+import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.enums.PasswordResetStatus;
 import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.domain.policy.PasswordResetPolicy;
 import com.restofy.auth.infrastructure.client.MailClient;
 import com.restofy.auth.infrastructure.client.MailClient.Message;
-import com.restofy.auth.infrastructure.persistence.repository.*;
-import com.restofy.auth.infrastructure.security.*;
+import com.restofy.auth.infrastructure.persistence.repository.PasswordResetRepository;
+import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
+import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
+import com.restofy.auth.infrastructure.security.LoginRateLimiter;
+import com.restofy.auth.infrastructure.security.MfaUnavailableException;
+import com.restofy.auth.infrastructure.security.PasswordResetCodes;
+import com.restofy.auth.infrastructure.security.PasswordResetLimiter;
+import com.restofy.auth.infrastructure.security.StaffPasswords;
+import com.restofy.auth.infrastructure.security.TotpVerifier;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -168,8 +177,12 @@ public class PasswordResetService {
 
     private static void audit(String event, UUID userId) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() { LOG.info("reset_event={} user_id={}", event, userId); }
+            @Override public void afterCommit() {
+                LOG.info("reset_event={} user_id={}", event, userId);
+            }
         });
     }
-    private static BadCredentialsException invalid() { return new BadCredentialsException("Invalid recovery proof"); }
+    private static BadCredentialsException invalid() {
+        return new BadCredentialsException("Invalid recovery proof");
+    }
 }

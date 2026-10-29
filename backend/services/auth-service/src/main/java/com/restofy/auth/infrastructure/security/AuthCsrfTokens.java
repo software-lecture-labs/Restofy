@@ -1,13 +1,12 @@
 package com.restofy.auth.infrastructure.security;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
-
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 

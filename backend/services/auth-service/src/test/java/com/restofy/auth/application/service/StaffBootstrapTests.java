@@ -40,7 +40,9 @@ class StaffBootstrapTests {
     private Map<String, StaffUser> stored;
 
     @BeforeAll
-    static void passwordFixture() { passwords = new StaffPasswords(); }
+    static void passwordFixture() {
+        passwords = new StaffPasswords();
+    }
 
     @BeforeEach
     void setup() {
@@ -50,7 +52,8 @@ class StaffBootstrapTests {
         properties = new StaffBootstrapProperties();
         stored = new HashMap<>();
         when(users.findByEmailNormalized(anyString())).thenAnswer(call -> Optional.ofNullable(stored.get(call.getArgument(0))));
-        when(users.existsByRole(StaffRole.ADMIN)).thenAnswer(call -> stored.values().stream().anyMatch(user -> user.getRole() == StaffRole.ADMIN));
+        when(users.existsByRole(StaffRole.ADMIN)).thenAnswer(call -> stored.values().stream().anyMatch(user -> user
+                .getRole() == StaffRole.ADMIN));
         when(users.saveAndFlush(any(StaffUser.class))).thenAnswer(call -> {
             StaffUser user = call.getArgument(0);
             stored.put(user.getEmailNormalized(), user);

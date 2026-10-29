@@ -2,11 +2,12 @@ package com.restofy.auth.application.service;
 
 import java.time.Clock;
 import java.util.List;
+
 import com.restofy.auth.domain.entity.MfaRecoveryCode;
-import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.enums.SessionAuthState;
-import com.restofy.auth.infrastructure.persistence.repository.*;
-import com.restofy.auth.infrastructure.security.*;
+import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
+import com.restofy.auth.infrastructure.security.MfaAttemptLimiter;
+import com.restofy.auth.infrastructure.security.MfaAuditLogger;
 import com.restofy.auth.infrastructure.security.MfaAuditLogger.Event;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
 import org.springframework.security.access.AccessDeniedException;
@@ -83,12 +84,18 @@ public class MfaVerificationService {
             factors.requireEnabled(mfaState);
             var user = users.findById(identity.userId()).orElseThrow(MfaVerificationService::invalid);
             passwords.verify(user.getEmailNormalized(), password);
-            if ((totpCode == null) == (recoveryCode == null)) { throw invalid(); }
+            if ((totpCode == null) == (recoveryCode == null)) {
+                throw invalid();
+            }
             Long counter = totpCode == null ? null : factors.verifiedCounter(mfaState, totpCode);
             MfaRecoveryCode matched = recoveryCode == null ? null : factors.findCode(identity.userId(), recoveryCode);
             sessions.revokeOtherSessions(identity);
-            if (counter != null) { factors.advance(mfaState, counter); }
-            else { factors.consume(matched); }
+            if (counter != null) {
+                factors.advance(mfaState, counter);
+            }
+            else {
+                factors.consume(matched);
+            }
             factors.revokeCodes(identity.userId());
             mfaState.clearFailures(clock.instant());
             List<String> generated = factors.newCodes(identity.userId());
@@ -98,12 +105,19 @@ public class MfaVerificationService {
     }
 
     private static void requireState(Identity identity, SessionAuthState state) {
-        if (identity.state() != state) { throw new AccessDeniedException("Invalid MFA scope"); }
+        if (identity.state() != state) {
+            throw new AccessDeniedException("Invalid MFA scope");
+        }
     }
 
-    private static BadCredentialsException invalid() { return new BadCredentialsException("Invalid credentials"); }
+    private static BadCredentialsException invalid() {
+
+        return new BadCredentialsException("Invalid credentials");
+    }
 
     public record Completion(StaffSessionService.Grant grant, List<String> recoveryCodes) {
-        @Override public String toString() { return "MFA completion"; }
+        @Override public String toString() {
+            return "MFA completion";
+        }
     }
 }

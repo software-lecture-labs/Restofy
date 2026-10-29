@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+
 import com.restofy.auth.domain.entity.MfaRecoveryCode;
 import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.policy.MfaPolicy;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class MfaFactors {
+    private static final int SINGLE_UPDATED_ROW = 1;
     /** Stands in for a missing recovery code so every verification compares the same number of 64-char digests. */
     private static final String PLACEHOLDER_DIGEST = "0".repeat(64);
     private final MfaSecretCipher cipher;
@@ -43,13 +45,17 @@ public class MfaFactors {
         byte[] secret = cipher.decrypt(mfaState.getStaffUserId(), mfaState.getEncryptedTotpSecret());
         try {
             long accepted = totp.verify(secret, supplied, mfaState.getLastAcceptedCounter());
-            if (accepted < 0) { throw invalid(); }
+            if (accepted < 0) {
+                throw invalid();
+            }
             return accepted;
-        } finally { Arrays.fill(secret, (byte) 0); }
+        } finally {
+            Arrays.fill(secret, (byte) 0);
+        }
     }
 
     public void advance(StaffMfa mfaState, long counter) {
-        if (records.advance(mfaState.getId(), counter, clock.instant()) != 1) {
+        if (records.advance(mfaState.getId(), counter, clock.instant()) != SINGLE_UPDATED_ROW) {
             throw new IllegalStateException("MFA counter transition failed");
         }
         entityManager.refresh(mfaState);
@@ -62,14 +68,18 @@ public class MfaFactors {
         for (int index = 0; index < MfaPolicy.RECOVERY_CODE_COUNT; index++) {
             MfaRecoveryCode candidate = index < candidates.size() ? candidates.get(index) : null;
             boolean equal = codes.matches(candidate == null ? PLACEHOLDER_DIGEST : candidate.getCodeDigest(), digest);
-            if (equal && candidate != null && candidate.getUsedAt() == null) { matched = candidate; }
+            if (equal && candidate != null && candidate.getUsedAt() == null) {
+                matched = candidate;
+            }
         }
-        if (matched == null) { throw invalid(); }
+        if (matched == null) {
+            throw invalid();
+        }
         return matched;
     }
 
     public void consume(MfaRecoveryCode code) {
-        if (recovery.consume(code.getId(), clock.instant()) != 1) {
+        if (recovery.consume(code.getId(), clock.instant()) != SINGLE_UPDATED_ROW) {
             throw new IllegalStateException("MFA recovery transition failed");
         }
     }
@@ -81,7 +91,10 @@ public class MfaFactors {
         return generated;
     }
 
-    public void revokeCodes(UUID userId) { recovery.revoke(userId, clock.instant()); }
+    public void revokeCodes(UUID userId) {
+
+        recovery.revoke(userId, clock.instant());
+    }
 
     public void requireEnabled(StaffMfa mfaState) {
         if (!mfaState.enabled()) {
@@ -90,5 +103,8 @@ public class MfaFactors {
         }
     }
 
-    private static BadCredentialsException invalid() { return new BadCredentialsException("Invalid credentials"); }
+    private static BadCredentialsException invalid() {
+
+        return new BadCredentialsException("Invalid credentials");
+    }
 }

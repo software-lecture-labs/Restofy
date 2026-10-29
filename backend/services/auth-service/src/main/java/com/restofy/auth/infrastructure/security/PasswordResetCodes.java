@@ -9,6 +9,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+
 import com.restofy.auth.infrastructure.config.SecretStrength;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;

@@ -2,6 +2,7 @@ package com.restofy.auth.api;
 
 import java.util.HashMap;
 import java.util.Map;
+
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.persistence.repository.RefreshTokenRepository;
@@ -23,6 +24,7 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -61,7 +63,8 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         String refresh = jar.get(AuthCookies.REFRESH).getValue();
         assertThat(login.getResponse().getContentAsString()).doesNotContain(access, refresh, PASSWORD);
         assertThat(login.getResponse().getHeaders("Set-Cookie")).anyMatch(value -> value.startsWith(AuthCookies.ACCESS + "=")
-                && value.contains("HttpOnly") && value.contains("Path=/api/v1;") && value.contains("SameSite=Lax") && !value.contains("Domain="));
+                && value.contains("HttpOnly") && value.contains("Path=/api/v1;") && value.contains("SameSite=Lax") && !value.contains(
+                        "Domain="));
         assertThat(login.getResponse().getHeaders("Set-Cookie")).anyMatch(value -> value.startsWith(AuthCookies.REFRESH + "=")
                 && value.contains("Path=/api/v1/auth;") && value.contains("HttpOnly"));
         var before = sessions.findAll().getFirst().getLastActivityAt();
@@ -118,7 +121,8 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     void corsUsesExactOriginsAndCredentials() throws Exception {
         mvc.perform(options("/api/v1/auth/login").header("Origin", ORIGIN).header("Access-Control-Request-Method", "POST")
                 .header("Access-Control-Request-Headers", "Content-Type,X-CSRF-TOKEN")).andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", ORIGIN)).andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+                .andExpect(header().string("Access-Control-Allow-Origin", ORIGIN)).andExpect(header().string(
+                        "Access-Control-Allow-Credentials", "true"));
         mvc.perform(options("/api/v1/auth/login").header("Origin", "http://localhost:5000.attacker.example")
                 .header("Access-Control-Request-Method", "POST")).andExpect(status().isForbidden());
         mvc.perform(options("/api/v1/auth/login").header("Origin", ORIGIN).header("Access-Control-Request-Method", "DELETE"))
@@ -189,7 +193,8 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         users.saveAndFlush(new StaffUser("kitchen@example.com", passwords.hash(PASSWORD), StaffRole.KITCHEN));
         csrf();
         login("kitchen@example.com");
-        mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isOk()).andExpect(jsonPath("$.role").value("KITCHEN"));
+        mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isOk()).andExpect(jsonPath("$.role").value(
+                "KITCHEN"));
     }
 
     private void login(String email) throws Exception {
@@ -197,17 +202,25 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     }
     private void csrf() throws Exception {
         var request = get("/api/v1/auth/csrf").header("Origin", ORIGIN);
-        if (!jar.isEmpty()) { request.cookie(cookies()); }
+        if (!jar.isEmpty()) {
+            request.cookie(cookies());
+        }
         update(mvc.perform(request).andExpect(status().isOk()).andExpect(jsonPath("$.token").isString()).andReturn());
     }
     private MockHttpServletRequestBuilder mutation(String path) {
         return post("/api/v1/auth" + path).header("Origin", ORIGIN).header("X-CSRF-TOKEN", jar.get(AuthCookies.CSRF).getValue())
                 .cookie(cookies()).contentType(MediaType.APPLICATION_JSON);
     }
-    private Cookie[] cookies() { return jar.values().toArray(Cookie[]::new); }
+    private Cookie[] cookies() {
+        return jar.values().toArray(Cookie[]::new);
+    }
     private void update(MvcResult result) {
         for (Cookie cookie : result.getResponse().getCookies()) {
-            if (cookie.getMaxAge() == 0) { jar.remove(cookie.getName()); } else { jar.put(cookie.getName(), cookie); }
+            if (cookie.getMaxAge() == 0) {
+                jar.remove(cookie.getName());
+            } else {
+                jar.put(cookie.getName(), cookie);
+            }
         }
     }
     private static String body(String email, String password) {

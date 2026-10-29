@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.util.Locale;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+
 import org.springframework.stereotype.Component;
 
 /** RFC 6238 time-based one-time passwords (HMAC-SHA1, 30 second steps) plus the RFC 4648 base32 encoding. */

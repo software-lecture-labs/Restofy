@@ -3,25 +3,37 @@ package com.restofy.auth.api;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
-import com.restofy.auth.infrastructure.security.*;
-import com.restofy.auth.support.*;
+import com.restofy.auth.infrastructure.security.AuthCookies;
+import com.restofy.auth.infrastructure.security.MfaSecretCipher;
+import com.restofy.auth.infrastructure.security.StaffPasswords;
+import com.restofy.auth.infrastructure.security.TotpVerifier;
+import com.restofy.auth.support.AuthSessionTestSupport;
+import com.restofy.auth.support.AuthTestDatabaseInitializer;
+import com.restofy.auth.support.MutableAuthClock;
 import jakarta.servlet.http.Cookie;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
-import org.springframework.context.annotation.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.web.servlet.*;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -99,7 +111,13 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
 
     @Test
     void endpointsRejectAnonymousWrongRolesCsrfAndForgedHeaders() throws Exception {
-        for (String path : new String[]{"/mfa/enroll", "/mfa/enroll/confirm", "/mfa/verify", "/mfa/recover", "/mfa/recovery-codes/regenerate"}) {
+        for (String path : new String[]{
+                "/mfa/enroll",
+                "/mfa/enroll/confirm",
+                "/mfa/verify",
+                "/mfa/recover",
+                "/mfa/recovery-codes/regenerate"
+        }) {
             csrf();
             mvc.perform(mutation(path).header("X-Role", "ADMIN").header("X-User-Id", adminId.toString()).content("{}"))
                     .andExpect(status().isUnauthorized());
@@ -109,7 +127,13 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
             users.saveAndFlush(new StaffUser(email, passwords.hash(PASSWORD), role));
             jar.clear();
             login(email);
-            for (String path : new String[]{"/mfa/enroll", "/mfa/enroll/confirm", "/mfa/verify", "/mfa/recover", "/mfa/recovery-codes/regenerate"}) {
+            for (String path : new String[]{
+                    "/mfa/enroll",
+                    "/mfa/enroll/confirm",
+                    "/mfa/verify",
+                    "/mfa/recover",
+                    "/mfa/recovery-codes/regenerate"
+            }) {
                 mvc.perform(mutation(path).header("X-Role", "ADMIN")
                         .content("{\"password\":\"" + PASSWORD + "\",\"totpCode\":\"123456\",\"code\":\"123456\"}"))
                         .andExpect(status().isForbidden());
@@ -117,7 +141,13 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
         }
         jar.clear();
         login("admin@example.com");
-        for (String path : new String[]{"/mfa/enroll", "/mfa/enroll/confirm", "/mfa/verify", "/mfa/recover", "/mfa/recovery-codes/regenerate"}) {
+        for (String path : new String[]{
+                "/mfa/enroll",
+                "/mfa/enroll/confirm",
+                "/mfa/verify",
+                "/mfa/recover",
+                "/mfa/recovery-codes/regenerate"
+        }) {
             mvc.perform(post("/api/v1/auth" + path).cookie(cookies()).header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
                     .content("{}")).andExpect(status().isForbidden());
         }
@@ -130,9 +160,12 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
         login("admin@example.com");
         mvc.perform(mutation("/mfa/enroll")).andExpect(status().isOk());
         mvc.perform(mutation("/mfa/enroll/confirm").content("{\"code\":\"not-an-otp\"}"))
-                .andExpect(status().isBadRequest()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("not-an-otp"))));
+                .andExpect(status().isBadRequest()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers
+                        .containsString("not-an-otp"))));
         String wrong = "000000";
-        if (totp.verify(secret(), wrong, null) >= 0) { wrong = "000001"; }
+        if (totp.verify(secret(), wrong, null) >= 0) {
+            wrong = "000001";
+        }
         for (int index = 0; index < 4; index++) {
             mvc.perform(mutation("/mfa/enroll/confirm").content("{\"code\":\"" + wrong + "\"}"))
                     .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
@@ -151,25 +184,41 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
     }
     private void csrf() throws Exception {
         var request = get("/api/v1/auth/csrf");
-        if (!jar.isEmpty()) { request.cookie(cookies()); }
+        if (!jar.isEmpty()) {
+            request.cookie(cookies());
+        }
         update(mvc.perform(request).andExpect(status().isOk()).andReturn());
     }
-    private Cookie[] cookies() { return jar.values().toArray(Cookie[]::new); }
+    private Cookie[] cookies() {
+        return jar.values().toArray(Cookie[]::new);
+    }
     private MockHttpServletRequestBuilder mutation(String path) {
         var request = post("/api/v1/auth" + path).header("Origin", ORIGIN).cookie(cookies()).contentType(MediaType.APPLICATION_JSON);
-        if (jar.containsKey(AuthCookies.CSRF)) { request.header("X-CSRF-TOKEN", jar.get(AuthCookies.CSRF).getValue()); }
+        if (jar.containsKey(AuthCookies.CSRF)) {
+            request.header("X-CSRF-TOKEN", jar.get(AuthCookies.CSRF).getValue());
+        }
         return request;
     }
     private void update(MvcResult result) {
         for (Cookie cookie : result.getResponse().getCookies()) {
-            if (cookie.getMaxAge() == 0) { jar.remove(cookie.getName()); } else { jar.put(cookie.getName(), cookie); }
+            if (cookie.getMaxAge() == 0) {
+                jar.remove(cookie.getName());
+            } else {
+                jar.put(cookie.getName(), cookie);
+            }
         }
     }
-    private byte[] secret() { return cipher.decrypt(adminId, records.findByStaffUserId(adminId).orElseThrow().getEncryptedTotpSecret()); }
-    private String currentCode() { return totp.code(secret(), clock.instant().getEpochSecond() / 30, 6); }
+    private byte[] secret() {
+        return cipher.decrypt(adminId, records.findByStaffUserId(adminId).orElseThrow().getEncryptedTotpSecret());
+    }
+    private String currentCode() {
+        return totp.code(secret(), clock.instant().getEpochSecond() / 30, 6);
+    }
 
     @TestConfiguration(proxyBeanMethods = false)
     static class TimeConfiguration {
-        @Bean @Primary MutableAuthClock clock() { return new MutableAuthClock(); }
+        @Bean @Primary MutableAuthClock clock() {
+            return new MutableAuthClock();
+        }
     }
 }

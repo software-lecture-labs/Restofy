@@ -3,11 +3,15 @@ package com.restofy.auth.infrastructure.security;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.restofy.auth.api.dto.request.*;
-import com.restofy.auth.api.dto.response.*;
+import com.restofy.auth.api.dto.request.RecoveryRegenerationRequest;
+import com.restofy.auth.api.dto.request.RecoveryRequest;
+import com.restofy.auth.api.dto.request.TotpRequest;
+import com.restofy.auth.api.dto.response.MfaCompletionResponse;
+import com.restofy.auth.api.dto.response.RecoveryCodesResponse;
 import com.restofy.auth.application.service.MfaEnrollmentService.Enrollment;
 import com.restofy.auth.application.service.MfaVerificationService.Completion;
 import com.restofy.auth.support.MutableAuthClock;
@@ -15,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+
 import static org.assertj.core.api.Assertions.*;
 
 class MfaAuditTests {
@@ -43,17 +48,22 @@ class MfaAuditTests {
             TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
             TransactionSynchronizationManager.clearSynchronization();
             assertThat(appender.list).hasSize(1);
-            for (Object value : sensitive) { logger.info("{}", value); }
+            for (Object value : sensitive) {
+                logger.info("{}", value);
+            }
             audit.cipherFailure(user, session);
             assertThat(appender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
                     .doesNotContain(secret, otp, recovery, uri));
             appender.list.clear();
             TransactionSynchronizationManager.initSynchronization();
             audit.publish(MfaAuditLogger.Event.ENROLL_CONFIRMED, user, session);
-            TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCompletion(TransactionSynchronization
+                    .STATUS_ROLLED_BACK));
             assertThat(appender.list).isEmpty();
         } finally {
-            if (TransactionSynchronizationManager.isSynchronizationActive()) { TransactionSynchronizationManager.clearSynchronization(); }
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.clearSynchronization();
+            }
             logger.detachAppender(appender);
             logger.setLevel(previousLevel);
             appender.stop();

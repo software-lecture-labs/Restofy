@@ -8,7 +8,6 @@ import com.restofy.auth.infrastructure.security.MfaUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -19,6 +18,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class AuthExceptionHandler {
@@ -27,16 +27,24 @@ public class AuthExceptionHandler {
     private static final int LOGGED_STACK_FRAMES = 5;
 
     @ExceptionHandler(BadCredentialsException.class)
-    ResponseEntity<ProblemDetail> unauthorized() { return response(HttpStatus.UNAUTHORIZED); }
+    ResponseEntity<ProblemDetail> unauthorized() {
+        return response(HttpStatus.UNAUTHORIZED);
+    }
 
     @ExceptionHandler(AccessDeniedException.class)
-    ResponseEntity<ProblemDetail> forbidden() { return response(HttpStatus.FORBIDDEN); }
+    ResponseEntity<ProblemDetail> forbidden() {
+        return response(HttpStatus.FORBIDDEN);
+    }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
-    ResponseEntity<ProblemDetail> invalid() { return response(HttpStatus.BAD_REQUEST); }
+    ResponseEntity<ProblemDetail> invalid() {
+        return response(HttpStatus.BAD_REQUEST);
+    }
 
     @ExceptionHandler(OptimisticLockingFailureException.class)
-    ResponseEntity<ProblemDetail> conflict() { return response(HttpStatus.CONFLICT); }
+    ResponseEntity<ProblemDetail> conflict() {
+        return response(HttpStatus.CONFLICT);
+    }
 
     @ExceptionHandler(LoginLimitException.class)
     ResponseEntity<ProblemDetail> limited(LoginLimitException exception) {
@@ -55,7 +63,9 @@ public class AuthExceptionHandler {
     }
 
     @ExceptionHandler(MfaUnavailableException.class)
-    ResponseEntity<ProblemDetail> unavailable() { return response(HttpStatus.SERVICE_UNAVAILABLE); }
+    ResponseEntity<ProblemDetail> unavailable() {
+        return response(HttpStatus.SERVICE_UNAVAILABLE);
+    }
 
     @ExceptionHandler(ResponseStatusException.class)
     ResponseEntity<ProblemDetail> status(ResponseStatusException exception) {

@@ -9,6 +9,10 @@ public record RecoveryRegenerationRequest(@NotBlank @Size(max = 72) String passw
         @Pattern(regexp = "\\d{6}") String totpCode,
         @Pattern(regexp = "(?i)([a-z2-7]{20}|[a-z2-7]{4}(-[a-z2-7]{4}){4})") String recoveryCode) {
     @AssertTrue
-    public boolean isSingleFactor() { return (totpCode == null) != (recoveryCode == null); }
-    @Override public String toString() { return "Recovery regeneration request"; }
+    public boolean isSingleFactor() {
+        return (totpCode == null) != (recoveryCode == null);
+    }
+    @Override public String toString() {
+        return "Recovery regeneration request";
+    }
 }

@@ -4,10 +4,16 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
-import com.restofy.auth.domain.entity.*;
-import com.restofy.auth.domain.enums.*;
+
+import com.restofy.auth.domain.entity.MfaRecoveryCode;
+import com.restofy.auth.domain.entity.StaffMfa;
+import com.restofy.auth.domain.entity.StaffUser;
+import com.restofy.auth.domain.entity.UserSession;
+import com.restofy.auth.domain.enums.SessionAuthState;
+import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
-import com.restofy.auth.infrastructure.security.*;
+import com.restofy.auth.infrastructure.security.MfaAttemptLimiter;
+import com.restofy.auth.infrastructure.security.MfaAuditLogger;
 import com.restofy.auth.infrastructure.security.MfaAuditLogger.Event;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
 import com.restofy.auth.support.MutableAuthClock;
@@ -15,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -42,7 +49,8 @@ class MfaVerificationTests {
         mfaState.enroll(new byte[48], sessionId, clock.instant(), clock.instant().plusSeconds(300));
         when(factors.verifiedCounter(any(), anyString())).thenReturn(123L);
         when(factors.newCodes(userId)).thenReturn(List.of("test-only-code"));
-        when(sessions.completeMfa(pending)).thenReturn(new StaffSessionService.Grant(mock(UserSession.class), "test-only-access", "test-only-refresh"));
+        when(sessions.completeMfa(pending)).thenReturn(new StaffSessionService.Grant(mock(UserSession.class), "test-only-access",
+                "test-only-refresh"));
     }
 
     @Test

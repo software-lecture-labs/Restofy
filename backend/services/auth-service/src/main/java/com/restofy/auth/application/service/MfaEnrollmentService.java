@@ -5,18 +5,22 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
+
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.domain.policy.MfaPolicy;
-import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
-import com.restofy.auth.infrastructure.security.*;
+import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
+import com.restofy.auth.infrastructure.security.MfaAttemptLimiter;
+import com.restofy.auth.infrastructure.security.MfaAuditLogger;
 import com.restofy.auth.infrastructure.security.MfaAuditLogger.Event;
+import com.restofy.auth.infrastructure.security.MfaSecretCipher;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
+import com.restofy.auth.infrastructure.security.TotpVerifier;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.http.HttpStatus;
 
 @Service
 public class MfaEnrollmentService {
@@ -60,7 +64,9 @@ public class MfaEnrollmentService {
                 }
             }
             Instant expiry = now.plus(MfaPolicy.ENROLLMENT_TTL);
-            if (expiry.isAfter(session.getAbsoluteExpiresAt())) { expiry = session.getAbsoluteExpiresAt(); }
+            if (expiry.isAfter(session.getAbsoluteExpiresAt())) {
+                expiry = session.getAbsoluteExpiresAt();
+            }
             byte[] secret = totp.newSecret();
             try {
                 mfaState.enroll(cipher.encrypt(identity.userId(), secret), identity.sessionId(), now, expiry);
@@ -70,11 +76,15 @@ public class MfaEnrollmentService {
                 String uri = "otpauth://totp/" + label + "?secret=" + encoded + "&issuer=Restofy&algorithm=SHA1&digits=6&period=30";
                 audit.publish(Event.ENROLL_STARTED, identity.userId(), identity.sessionId());
                 return new Enrollment(encoded, uri, expiry);
-            } finally { Arrays.fill(secret, (byte) 0); }
+            } finally {
+                Arrays.fill(secret, (byte) 0);
+            }
         });
     }
 
     public record Enrollment(String secret, String otpauthUri, Instant expiresAt) {
-        @Override public String toString() { return "MFA enrollment"; }
+        @Override public String toString() {
+            return "MFA enrollment";
+        }
     }
 }

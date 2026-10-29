@@ -2,9 +2,12 @@ package com.restofy.auth.infrastructure.security;
 
 import java.util.Optional;
 import java.util.UUID;
+
 import com.restofy.auth.application.service.StaffSessionService;
-import com.restofy.auth.domain.entity.*;
-import com.restofy.auth.domain.enums.*;
+import com.restofy.auth.domain.entity.StaffMfa;
+import com.restofy.auth.domain.entity.UserSession;
+import com.restofy.auth.domain.enums.SessionAuthState;
+import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
@@ -15,6 +18,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -42,7 +46,8 @@ class MfaAttemptLimiterTests {
         assertThatThrownBy(this::fail).isInstanceOf(LoginLimitException.class);
         java.util.concurrent.atomic.AtomicBoolean invoked = new java.util.concurrent.atomic.AtomicBoolean();
         assertThatThrownBy(() -> limiter.attempt(identity, "127.0.0.1", (mfa, session) -> {
-            invoked.set(true); return true;
+            invoked.set(true);
+            return true;
         })).isInstanceOf(LoginLimitException.class);
         assertThat(invoked).isFalse();
         assertThat(mfaState.getFailedAttempts()).isEqualTo(5);
@@ -76,6 +81,7 @@ class MfaAttemptLimiterTests {
     }
 
     private void fail() {
-        limiter.attempt(identity, "127.0.0.1", (mfa, session) -> { throw new BadCredentialsException("Invalid credentials"); });
+        limiter.attempt(identity, "127.0.0.1", (mfa, session) -> { throw new BadCredentialsException("Invalid credentials");
+        });
     }
 }

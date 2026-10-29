@@ -2,23 +2,29 @@ package com.restofy.auth.application.service;
 
 import java.util.List;
 import java.util.UUID;
+
 import com.restofy.auth.domain.entity.MfaRecoveryCode;
 import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.infrastructure.config.MfaSettings;
-import com.restofy.auth.infrastructure.persistence.repository.*;
-import com.restofy.auth.infrastructure.security.*;
+import com.restofy.auth.infrastructure.persistence.repository.MfaRecoveryCodeRepository;
+import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
+import com.restofy.auth.infrastructure.security.MfaRecoveryCodes;
+import com.restofy.auth.infrastructure.security.MfaSecretCipher;
+import com.restofy.auth.infrastructure.security.TotpVerifier;
 import com.restofy.auth.support.MutableAuthClock;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.authentication.BadCredentialsException;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class MfaFactorsTests {
     private final MutableAuthClock clock = new MutableAuthClock();
     private final MfaSettings settings = new MfaSettings(new MockEnvironment().withProperty("auth.mfa.encryption-key",
-            java.util.Base64.getEncoder().encodeToString("0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets.US_ASCII))));
+            java.util.Base64.getEncoder().encodeToString("0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets
+                    .US_ASCII))));
     private final MfaSecretCipher cipher = new MfaSecretCipher(settings);
     private final TotpVerifier totp = new TotpVerifier(clock);
     private final MfaRecoveryCodes codes = new MfaRecoveryCodes();

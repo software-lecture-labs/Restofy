@@ -1,7 +1,11 @@
 package com.restofy.auth.api.controller;
 
-import com.restofy.auth.api.dto.request.*;
-import com.restofy.auth.api.dto.response.*;
+import com.restofy.auth.api.dto.request.RecoveryRegenerationRequest;
+import com.restofy.auth.api.dto.request.RecoveryRequest;
+import com.restofy.auth.api.dto.request.TotpRequest;
+import com.restofy.auth.api.dto.response.MfaCompletionResponse;
+import com.restofy.auth.api.dto.response.RecoveryCodesResponse;
+import com.restofy.auth.api.dto.response.SessionResponse;
 import com.restofy.auth.application.service.MfaEnrollmentService;
 import com.restofy.auth.application.service.MfaEnrollmentService.Enrollment;
 import com.restofy.auth.application.service.MfaVerificationService;
@@ -14,7 +18,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/auth/mfa")

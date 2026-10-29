@@ -98,7 +98,10 @@ public class PasswordResetLimiter {
     }
 
     /** How many attempts a subject gets inside one window. */
-    private record Budget(String prefix, long windowSeconds, int attempts) { }
+    private record Budget(String prefix, long windowSeconds, int attempts) {
+        }
 
-    private record Bucket(int attempts, Instant expiry) { }
+    private record Bucket(int attempts, Instant expiry) {
+
+        }
 }

@@ -1,21 +1,26 @@
 package com.restofy.auth.api;
 
-import java.util.*;
-import jakarta.servlet.http.Cookie;
+import java.util.UUID;
+
 import com.restofy.auth.infrastructure.client.MailClient;
 import com.restofy.auth.infrastructure.security.AuthCookies;
-import com.restofy.auth.support.*;
-import org.junit.jupiter.api.*;
+import com.restofy.auth.support.AuthSessionTestSupport;
+import com.restofy.auth.support.AuthTestDatabaseInitializer;
+import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.*;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.*;
+import org.springframework.test.web.servlet.MockMvc;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -42,8 +47,10 @@ class PasswordResetHttpTests extends AuthSessionTestSupport {
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("REQUEST_ACCEPTED"))
                 .andExpect(header().string("Cache-Control","no-store")).andReturn();
         var cookie=result.getResponse().getCookie("restofy_reset");
-        assertThat(cookie).isNotNull(); assertThat(cookie.isHttpOnly()).isTrue();
-        assertThat(cookie.getPath()).isEqualTo(ROOT); assertThat(cookie.getValue()).hasSize(43);
+        assertThat(cookie).isNotNull();
+        assertThat(cookie.isHttpOnly()).isTrue();
+        assertThat(cookie.getPath()).isEqualTo(ROOT);
+        assertThat(cookie.getValue()).hasSize(43);
         assertThat(result.getResponse().getContentAsString()).doesNotContain("missing@","123456");
         mvc.perform(postJson("/request","{\"email\":\"missing@example.com\",\"totpCode\":\"123456\"}"))
                 .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"));

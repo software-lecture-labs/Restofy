@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.UUID;
+
 import com.restofy.auth.infrastructure.config.MfaSettings;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -13,6 +14,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
+
 import static org.assertj.core.api.Assertions.*;
 
 class MfaSecurityTests {
@@ -20,7 +22,9 @@ class MfaSecurityTests {
 
     static MfaSettings settings(int offset) {
         byte[] bytes = new byte[32];
-        for (int index = 0; index < bytes.length; index++) { bytes[index] = (byte) (index + offset); }
+        for (int index = 0; index < bytes.length; index++) {
+            bytes[index] = (byte) (index + offset);
+        }
         return new MfaSettings(new MockEnvironment().withProperty("auth.mfa.encryption-key", Base64.getEncoder().encodeToString(bytes)));
     }
 
@@ -88,8 +92,11 @@ class MfaSecurityTests {
     void missingMalformedWeakAndWrongSizedKeysFailWithoutValues() {
         MockEnvironment environment = new MockEnvironment();
         assertThatThrownBy(() -> new MfaSettings(environment)).hasMessageContaining("Invalid or missing AUTH_MFA_ENCRYPTION_KEY");
-        for (String value : new String[]{"invalid-key", Base64.getEncoder().encodeToString(new byte[32]),
-                Base64.getEncoder().encodeToString(new byte[31])}) {
+        for (String value : new String[]{
+                "invalid-key",
+                Base64.getEncoder().encodeToString(new byte[32]),
+                Base64.getEncoder().encodeToString(new byte[31])
+        }) {
             environment.withProperty("auth.mfa.encryption-key", value);
             assertThatThrownBy(() -> new MfaSettings(environment)).isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Invalid or missing AUTH_MFA_ENCRYPTION_KEY").hasNoCause();

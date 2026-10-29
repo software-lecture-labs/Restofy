@@ -2,9 +2,14 @@ package com.restofy.auth.domain.entity;
 
 import java.time.Instant;
 import java.util.UUID;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.restofy.auth.domain.policy.MfaPolicy;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Getter;
 
 @Entity
@@ -26,7 +31,9 @@ public class StaffMfa {
     @Column(nullable = false) private Instant updatedAt;
     @Version private long version;
 
-    protected StaffMfa() { }
+    protected StaffMfa() {
+
+        }
 
     public StaffMfa(UUID userId, Instant now) {
         id = UUID.randomUUID();
@@ -35,7 +42,10 @@ public class StaffMfa {
         updatedAt = now;
     }
 
-    public boolean enabled() { return enabledAt != null; }
+    public boolean enabled() {
+
+        return enabledAt != null;
+    }
 
     public void enroll(byte[] encrypted, UUID sessionId, Instant now, Instant expiry) {
         encryptedTotpSecret = encrypted.clone();

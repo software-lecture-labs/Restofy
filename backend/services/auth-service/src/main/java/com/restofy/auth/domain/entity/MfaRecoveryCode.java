@@ -2,8 +2,12 @@ package com.restofy.auth.domain.entity;
 
 import java.time.Instant;
 import java.util.UUID;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import lombok.Getter;
 
 @Entity
@@ -18,7 +22,9 @@ public class MfaRecoveryCode {
     private Instant usedAt;
     private Instant revokedAt;
 
-    protected MfaRecoveryCode() { }
+    protected MfaRecoveryCode() {
+
+        }
 
     public MfaRecoveryCode(UUID userId, String digest, Instant now) {
         id = UUID.randomUUID();

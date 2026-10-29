@@ -3,6 +3,7 @@ package com.restofy.auth.infrastructure.security;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -18,14 +19,19 @@ public class MfaAuditLogger {
     private static final Logger LOG = LoggerFactory.getLogger(MfaAuditLogger.class);
     private final Clock clock;
 
-    public MfaAuditLogger(Clock clock) { this.clock = clock; }
+    public MfaAuditLogger(Clock clock) {
+
+        this.clock = clock;
+    }
 
     public void publish(Event event, UUID userId, UUID sessionId) {
         Instant occurred = clock.instant();
         Runnable write = () -> LOG.info("mfa_event={} user_id={} session_id={} occurred_at={}", event, userId, sessionId, occurred);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { write.run(); }
+                @Override public void afterCommit() {
+                    write.run();
+                }
             });
         } else {
             write.run();

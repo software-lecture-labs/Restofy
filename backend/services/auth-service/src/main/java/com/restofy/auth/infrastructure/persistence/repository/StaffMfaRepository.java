@@ -1,12 +1,13 @@
 package com.restofy.auth.infrastructure.persistence.repository;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+
 import com.restofy.auth.domain.entity.StaffMfa;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import java.time.Instant;
 
 public interface StaffMfaRepository extends JpaRepository<StaffMfa, UUID> {
     Optional<StaffMfa> findByStaffUserId(UUID userId);

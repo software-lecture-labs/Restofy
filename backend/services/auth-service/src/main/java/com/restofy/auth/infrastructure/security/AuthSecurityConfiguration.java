@@ -2,6 +2,7 @@ package com.restofy.auth.infrastructure.security;
 
 import java.time.Clock;
 import java.util.List;
+
 import com.restofy.auth.api.exception.AuthProblems;
 import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.infrastructure.config.AuthSettings;
@@ -28,12 +29,15 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class AuthSecurityConfiguration {
     private static final String STAFF_SESSION = "STAFF_SESSION";
     @Bean
-    Clock authClock() { return Clock.systemUTC(); }
+    Clock authClock() {
+        return Clock.systemUTC();
+    }
 
     @Bean
     AuthenticationManager authenticationManager() {
         // Prevent Boot's generated user / password from becoming a temporary login path.
-        return authentication -> { throw new BadCredentialsException("HTTP authentication is not available"); };
+        return authentication -> { throw new BadCredentialsException("HTTP authentication is not available");
+        };
     }
 
     @Bean

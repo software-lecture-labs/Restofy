@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
-
 import javax.sql.DataSource;
 
 import org.flywaydb.core.Flyway;
@@ -63,12 +62,14 @@ class AuthTestDatabaseInitializerTests {
                 Arguments.of("Flyway JDBC properties", Map.of("spring.flyway.jdbc-properties.serverName", "never-connect.invalid")),
                 Arguments.of("Hikari JDBC URL", Map.of("spring.datasource.hikari.jdbc-url", REAL_URL)),
                 Arguments.of("Hikari driver", Map.of("spring.datasource.hikari.driver-class-name", "org.postgresql.Driver")),
-                Arguments.of("Hikari datasource class", Map.of("spring.datasource.hikari.data-source-class-name", "org.postgresql.ds.PGSimpleDataSource")),
+                Arguments.of("Hikari datasource class", Map.of("spring.datasource.hikari.data-source-class-name",
+                        "org.postgresql.ds.PGSimpleDataSource")),
                 Arguments.of("Hikari JNDI", Map.of("spring.datasource.hikari.data-source-jndi", "java:comp/env/jdbc/unsafe")),
                 Arguments.of("Hikari datasource", Map.of("spring.datasource.hikari.data-source", "unsafe")),
                 Arguments.of("Hikari user", Map.of("spring.datasource.hikari.username", "test-only-user")),
                 Arguments.of("Hikari password", Map.of("spring.datasource.hikari.password", "test-only-value")),
-                Arguments.of("Hikari datasource properties", Map.of("spring.datasource.hikari.data-source-properties.serverName", "never-connect.invalid")),
+                Arguments.of("Hikari datasource properties", Map.of("spring.datasource.hikari.data-source-properties.serverName",
+                        "never-connect.invalid")),
                 Arguments.of("datasource JNDI", Map.of("spring.datasource.jndi-name", "java:comp/env/jdbc/unsafe")),
                 Arguments.of("alternative datasource type", Map.of("spring.datasource.type", "org.postgresql.ds.PGSimpleDataSource")));
     }

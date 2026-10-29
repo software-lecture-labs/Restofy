@@ -35,8 +35,11 @@ public final class AuthTestDatabaseInitializer
                 "spring.datasource.hikari.data-source",
                 "spring.datasource.hikari.username",
                 "spring.datasource.hikari.password",
-                "spring.flyway.url", "spring.flyway.user", "spring.flyway.password",
-                "spring.flyway.driver-class-name"}) {
+                "spring.flyway.url",
+                "spring.flyway.user",
+                "spring.flyway.password",
+                "spring.flyway.driver-class-name"
+        }) {
             if (value(binder, property) != null) {
                 throw unsafe(property);
             }

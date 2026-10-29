@@ -2,6 +2,7 @@ package com.restofy.auth.infrastructure.security;
 
 import java.time.Instant;
 import java.util.UUID;
+
 import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.entity.UserSession;
@@ -10,6 +11,7 @@ import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
 import com.restofy.auth.support.MutableAuthClock;
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
 
 class MfaStateTests {
@@ -57,7 +59,9 @@ class MfaStateTests {
         encrypted[0] = 1;
         assertThat(mfaState.getEncryptedTotpSecret()[0]).isZero();
         assertThat(mfaState.enabled()).isFalse();
-        for (int index = 0; index < 5; index++) { mfaState.failed(now.plusSeconds(index)); }
+        for (int index = 0; index < 5; index++) {
+            mfaState.failed(now.plusSeconds(index));
+        }
         assertThat(mfaState.getFailedAttempts()).isEqualTo(5);
         assertThat(mfaState.getLockedUntil()).isEqualTo(now.plusSeconds(304));
         mfaState.failed(now.plusSeconds(305));
@@ -78,13 +82,17 @@ class MfaStateTests {
     void peerLimitExpiresAndFloodingNeverRejectsNewPeers() {
         MutableAuthClock clock = new MutableAuthClock();
         MfaPeerLimiter limiter = new MfaPeerLimiter(clock);
-        for (int index = 0; index < MfaPeerLimiter.ATTEMPTS_PER_WINDOW; index++) { limiter.check("127.0.0.1"); }
+        for (int index = 0; index < MfaPeerLimiter.ATTEMPTS_PER_WINDOW; index++) {
+            limiter.check("127.0.0.1");
+        }
         assertThatThrownBy(() -> limiter.check("127.0.0.1")).isInstanceOf(LoginLimitException.class);
         clock.advance(MfaPeerLimiter.WINDOW_SECONDS);
         limiter.check("127.0.0.1");
         limiter.check(null);
         limiter.check("x".repeat(BoundedWindows.MAX_PEER_LENGTH + 1));
-        for (int index = 0; index < BoundedWindows.MAX_TRACKED_KEYS; index++) { limiter.check("test-peer-" + index); }
+        for (int index = 0; index < BoundedWindows.MAX_TRACKED_KEYS; index++) {
+            limiter.check("test-peer-" + index);
+        }
         assertThatCode(() -> limiter.check("honest-peer")).doesNotThrowAnyException();
     }
 }

@@ -3,6 +3,7 @@ package com.restofy.auth.infrastructure.persistence.repository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+
 import com.restofy.auth.domain.entity.MfaRecoveryCode;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

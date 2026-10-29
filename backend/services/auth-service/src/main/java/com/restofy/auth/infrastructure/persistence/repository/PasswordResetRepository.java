@@ -19,6 +19,7 @@ import static com.restofy.auth.domain.enums.PasswordResetStatus.INVALIDATED;
 
 @Repository
 public class PasswordResetRepository {
+    private static final int SINGLE_UPDATED_ROW = 1;
     private final JdbcTemplate jdbc;
 
     public PasswordResetRepository(JdbcTemplate jdbc) {
@@ -71,7 +72,7 @@ public class PasswordResetRepository {
     }
 
     private static void requireOne(int count) {
-        if (count != 1) {
+        if (count != SINGLE_UPDATED_ROW) {
             throw new IllegalStateException("Invalid password reset transition");
         }
     }

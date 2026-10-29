@@ -25,8 +25,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,7 +68,8 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
         assertThat(flyway.info().applied()[2].getVersion().getVersion()).isEqualTo("3");
         assertThat(flyway.info().applied()[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(flyway.info().applied()[0].getVersion().getVersion()).isEqualTo("1");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))
                 .isEqualTo(9);
         StaffUser saved = users.saveAndFlush(new StaffUser(" STAFF@EXAMPLE.COM ", hash, StaffRole.KITCHEN));
         assertThat(saved.getEmailNormalized()).isEqualTo("staff@example.com");
@@ -97,10 +98,15 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
         assertThatThrownBy(() -> insert("staff@example.com", hash, "SUPERADMIN")).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> insert("staff@example.com", TEST_PASSWORD, "ADMIN")).isInstanceOf(DataAccessException.class);
         UUID negativeVersionId = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at,version) VALUES (?,?,?,'ADMIN',now(),now(),-1)",
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO staff_users"
+                        + " (id,email_normalized,password_hash,role,created_at,updated_at,version) VALUES (?,?,?,'ADMIN',now(),now(),-1)",
                 negativeVersionId, "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
         UUID invalidDatesId = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at) VALUES (?,?,?,'ADMIN',now(),now()-interval '1 second')",
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO staff_users"
+                        + " (id,email_normalized,password_hash,role,created_at,updated_at)"
+                        + " VALUES (?,?,?,'ADMIN',now(),now()-interval '1 second')",
                 invalidDatesId, "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
         assertThat(users.count()).isZero();
     }
@@ -149,7 +155,8 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
         assertThat(users.count()).isEqualTo(3);
         var before = jdbc.queryForList("SELECT id,password_hash,is_active,version FROM staff_users ORDER BY email_normalized");
         bootstrap.initialize(properties, new String[]{"test"});
-        assertThat(jdbc.queryForList("SELECT id,password_hash,is_active,version FROM staff_users ORDER BY email_normalized")).isEqualTo(before);
+        assertThat(jdbc.queryForList("SELECT id,password_hash,is_active,version FROM staff_users ORDER BY email_normalized"))
+                .isEqualTo(before);
     }
 
     @Test
@@ -216,8 +223,12 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     private java.util.List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var a = executor.submit(() -> { start.await(); return first.call(); });
-            var b = executor.submit(() -> { start.await(); return second.call(); });
+            var a = executor.submit(() -> { start.await();
+            return first.call();
+            });
+            var b = executor.submit(() -> { start.await();
+            return second.call();
+            });
             start.countDown();
             return java.util.List.of(a.get(30, TimeUnit.SECONDS), b.get(30, TimeUnit.SECONDS));
         }

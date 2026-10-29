@@ -239,6 +239,9 @@ public class StaffSessionService {
             return access == null;
         }
 
-        @Override public String toString() { return "Session grant"; }
+        @Override public String toString() {
+
+            return "Session grant";
+        }
     }
 }

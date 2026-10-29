@@ -3,6 +3,7 @@ package com.restofy.auth.infrastructure.security;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.function.BiFunction;
+
 import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.entity.UserSession;
@@ -39,7 +40,9 @@ public class MfaAttemptLimiter {
             noRollbackFor = {BadCredentialsException.class, LoginLimitException.class})
     public <T> T attempt(Identity identity, String peer, BiFunction<StaffMfa, UserSession, T> operation) {
         peers.check(peer);
-        if (identity.role() != StaffRole.ADMIN) { throw new AccessDeniedException("MFA requires ADMIN"); }
+        if (identity.role() != StaffRole.ADMIN) {
+            throw new AccessDeniedException("MFA requires ADMIN");
+        }
         UserSession session = sessions.authenticate(identity);
         Instant now = clock.instant();
         StaffMfa mfaState = records.findByStaffUserId(identity.userId())
