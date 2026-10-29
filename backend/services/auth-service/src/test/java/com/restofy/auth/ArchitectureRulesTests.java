@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
@@ -19,6 +20,6 @@ class ArchitectureRulesTests {
     static final ArchRule profileChecksLiveOnlyInEnvironmentPolicy = noClasses()
             .that().areNotAssignableTo(EnvironmentPolicy.class)
             .should().callMethod(Environment.class, "getActiveProfiles")
-            .orShould().callMethod(Environment.class, "acceptsProfiles", org.springframework.core.env.Profiles[].class)
+            .orShould().callMethod(Environment.class, "acceptsProfiles", Profiles[].class)
             .because("EnvironmentPolicy is the only place allowed to decide whether this is a development setting");
 }

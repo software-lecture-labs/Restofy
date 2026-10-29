@@ -1,8 +1,12 @@
 package com.restofy.auth.support;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.Base64;
+import java.util.stream.IntStream;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -15,7 +19,7 @@ public abstract class AuthSessionTestSupport {
             KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
             generator.initialize(2048);
             return generator.generateKeyPair();
-        } catch (java.security.GeneralSecurityException exception) {
+        } catch (GeneralSecurityException exception) {
             throw new IllegalStateException(exception);
         }
     }
@@ -23,14 +27,14 @@ public abstract class AuthSessionTestSupport {
     @DynamicPropertySource
     static void sessionProperties(DynamicPropertyRegistry registry) {
         registry.add("auth.reset.hmac-key", () -> Base64.getEncoder().encodeToString(
-                "0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+                "0123456789abcdefghijklmnopqrstuv".getBytes(StandardCharsets.US_ASCII)));
         registry.add("auth.mfa.encryption-key", () -> Base64.getEncoder().encodeToString(
-                "0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+                "0123456789abcdefghijklmnopqrstuv".getBytes(StandardCharsets.US_ASCII)));
         registry.add("auth.session.restaurant-id", () -> "6c54daf0-9340-4a1c-981d-f9acc0261779");
         registry.add("auth.session.private-key", () -> Base64.getEncoder().encodeToString(KEYS.getPrivate().getEncoded()));
         registry.add("auth.session.csrf-secret", () -> Base64.getEncoder().encodeToString(
-                java.util.stream.IntStream.range(1, 33).collect(java.io.ByteArrayOutputStream::new,
-                        java.io.ByteArrayOutputStream::write, (left, right) -> left.writeBytes(right.toByteArray())).toByteArray()));
+                IntStream.range(1, 33).collect(ByteArrayOutputStream::new,
+                        ByteArrayOutputStream::write, (left, right) -> left.writeBytes(right.toByteArray())).toByteArray()));
         registry.add("auth.session.cookie-secure", () -> "false");
         registry.add("auth.session.issuer", () -> "restofy-auth");
         registry.add("auth.session.access-ttl-seconds", () -> "900");

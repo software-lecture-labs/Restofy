@@ -1,6 +1,7 @@
 package com.restofy.mail.api.controller;
 
 import java.util.UUID;
+
 import com.restofy.mail.api.dto.request.PasswordResetMailRequest;
 import com.restofy.mail.application.service.MailJobService;
 import com.restofy.mail.domain.entity.MailJob;

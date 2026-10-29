@@ -2,6 +2,7 @@ package com.restofy.mail.api.dto.request;
 
 import java.time.Instant;
 import java.util.UUID;
+
 import jakarta.validation.constraints.*;
 
 public record PasswordResetMailRequest(@NotNull UUID messageId,

@@ -1,6 +1,7 @@
 package com.restofy.auth.api;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -16,6 +17,7 @@ import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import com.restofy.auth.support.MutableAuthClock;
 import jakarta.servlet.http.Cookie;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -123,7 +125,7 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
                     .andExpect(status().isUnauthorized());
         }
         for (StaffRole role : new StaffRole[]{StaffRole.WAITER, StaffRole.KITCHEN}) {
-            String email = role.name().toLowerCase(java.util.Locale.ROOT) + "@example.com";
+            String email = role.name().toLowerCase(Locale.ROOT) + "@example.com";
             users.saveAndFlush(new StaffUser(email, passwords.hash(PASSWORD), role));
             jar.clear();
             login(email);
@@ -160,7 +162,7 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
         login("admin@example.com");
         mvc.perform(mutation("/mfa/enroll")).andExpect(status().isOk());
         mvc.perform(mutation("/mfa/enroll/confirm").content("{\"code\":\"not-an-otp\"}"))
-                .andExpect(status().isBadRequest()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers
+                .andExpect(status().isBadRequest()).andExpect(content().string(Matchers.not(Matchers
                         .containsString("not-an-otp"))));
         String wrong = "000000";
         if (totp.verify(secret(), wrong, null) >= 0) {

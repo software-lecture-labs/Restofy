@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.UUID;
 
 import com.restofy.auth.infrastructure.config.MfaSettings;
@@ -112,7 +113,7 @@ class MfaSecurityTests {
         UUID user = UUID.randomUUID();
         String digest = codes.digest(user, generated.getFirst());
         assertThat(digest).hasSize(64).isNotEqualTo(generated.getFirst());
-        String normalized = generated.getFirst().replace("-", "").toLowerCase(java.util.Locale.ROOT);
+        String normalized = generated.getFirst().replace("-", "").toLowerCase(Locale.ROOT);
         assertThat(codes.matches(digest, codes.digest(user, normalized))).isTrue();
         assertThat(codes.matches(digest, codes.digest(UUID.randomUUID(), generated.getFirst()))).isFalse();
         assertThat(codes.matches(digest, codes.digest(user, null))).isFalse();

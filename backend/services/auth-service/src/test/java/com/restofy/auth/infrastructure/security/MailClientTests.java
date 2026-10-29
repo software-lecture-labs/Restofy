@@ -1,5 +1,9 @@
 package com.restofy.auth.infrastructure.security;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.security.interfaces.RSAPrivateCrtKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -16,6 +20,7 @@ import com.restofy.auth.infrastructure.config.AuthSettings;
 import com.restofy.auth.support.AuthSessionTestSupport;
 import com.sun.net.httpserver.HttpServer;
 import io.jsonwebtoken.Jwts;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.mock.env.MockEnvironment;
@@ -37,16 +42,16 @@ class MailClientTests {
     @Test void signsDedicatedServiceClaimsAndSendsOnlyAfterCommitOverHttp() throws Exception {
         var keys=AuthSessionTestSupport.generateKeys();
         var settings=mock(AuthSettings.class);
-        when(settings.privateKey()).thenReturn((java.security.interfaces.RSAPrivateCrtKey)keys.getPrivate());
+        when(settings.privateKey()).thenReturn((RSAPrivateCrtKey)keys.getPrivate());
         when(settings.issuer()).thenReturn("restofy-auth");
         UUID id=UUID.randomUUID();
         CountDownLatch received=new CountDownLatch(1);
         List<String> receivedTokens=new CopyOnWriteArrayList<>();
         List<String> bodies=new CopyOnWriteArrayList<>();
-        HttpServer server=HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/internal/api/v1/mail/password-reset-jobs",exchange->{
             receivedTokens.add(exchange.getRequestHeaders().getFirst("Authorization"));
-            bodies.add(new String(exchange.getRequestBody().readAllBytes(),java.nio.charset.StandardCharsets.UTF_8));
+            bodies.add(new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8));
             exchange.sendResponseHeaders(202,-1);
             exchange.close();
             received.countDown();
@@ -67,7 +72,7 @@ class MailClientTests {
             }
             assertThat(received.await(5,TimeUnit.SECONDS)).isTrue();
             assertThat(receivedTokens).hasSize(1);
-            var claims=Jwts.parser().verifyWith((java.security.interfaces.RSAPublicKey)keys.getPublic()).requireAudience("restofy-mail")
+            var claims=Jwts.parser().verifyWith((RSAPublicKey)keys.getPublic()).requireAudience("restofy-mail")
                     .requireIssuer("restofy-auth").require("token_type","service").require("scope","password-reset:send")
                     .build().parseSignedClaims(receivedTokens.getFirst().substring(7)).getPayload();
             assertThat(claims.getSubject()).isEqualTo("auth-service");
@@ -80,10 +85,10 @@ class MailClientTests {
     @Test void timeoutIsNotAutomaticallyRetriedAndExpiredDispatchNeverLeavesProcess() throws Exception {
         var keys=AuthSessionTestSupport.generateKeys();
         var settings=mock(AuthSettings.class);
-        when(settings.privateKey()).thenReturn((java.security.interfaces.RSAPrivateCrtKey)keys.getPrivate());
+        when(settings.privateKey()).thenReturn((RSAPrivateCrtKey)keys.getPrivate());
         when(settings.issuer()).thenReturn("restofy-auth");
         AtomicInteger requests=new AtomicInteger();
-        HttpServer server=HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/internal/api/v1/mail/password-reset-jobs",exchange->{requests.incrementAndGet();
             try {new CountDownLatch(1).await(300,TimeUnit.MILLISECONDS);
             }catch(InterruptedException _){Thread.currentThread()
@@ -103,8 +108,8 @@ class MailClientTests {
                 }
             }finally{TransactionSynchronizationManager.clearSynchronization();
             }
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).until(()->requests.get()==1);
-            org.awaitility.Awaitility.await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(2))
+            Awaitility.await().atMost(Duration.ofSeconds(3)).until(()->requests.get()==1);
+            Awaitility.await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(2))
                     .untilAsserted(() -> assertThat(requests).hasValue(1));
         }finally{server.stop(0);
         }

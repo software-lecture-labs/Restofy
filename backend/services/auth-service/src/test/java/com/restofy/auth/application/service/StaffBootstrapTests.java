@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -181,7 +182,7 @@ class StaffBootstrapTests {
                     var bound = context.getBean(StaffBootstrapProperties.class);
                     assertThat(bound.getDevUsers().isEnabled()).isTrue();
                     assertThat(bound.getDevUsers().getAdmin().getEmail()).isEqualTo("admin@example.com");
-                    context.getBean(org.springframework.boot.ApplicationRunner.class).run(new DefaultApplicationArguments());
+                    context.getBean(ApplicationRunner.class).run(new DefaultApplicationArguments());
                     verify(mockService).initialize(bound, new String[]{"local"});
                 });
     }

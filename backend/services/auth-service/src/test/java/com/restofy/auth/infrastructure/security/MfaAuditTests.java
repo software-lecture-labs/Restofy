@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -38,7 +39,7 @@ class MfaAuditTests {
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);
-        logger.setLevel(ch.qos.logback.classic.Level.INFO);
+        logger.setLevel(Level.INFO);
         MfaAuditLogger audit = new MfaAuditLogger(new MutableAuthClock());
         UUID user = UUID.randomUUID(), session = UUID.randomUUID();
         try {

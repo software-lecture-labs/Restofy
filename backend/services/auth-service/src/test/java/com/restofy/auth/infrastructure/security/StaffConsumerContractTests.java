@@ -2,6 +2,7 @@ package com.restofy.auth.infrastructure.security;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.security.SecureRandom;
 import java.security.Signature;
 import java.time.Instant;
 import java.util.Base64;
@@ -104,7 +105,7 @@ class StaffConsumerContractTests {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("test");
         byte[] csrfSecret = new byte[32];
-        new java.security.SecureRandom().nextBytes(csrfSecret);
+        new SecureRandom().nextBytes(csrfSecret);
         environment.withProperty("auth.session.restaurant-id", RESTAURANT.toString())
                 .withProperty("auth.session.private-key", Base64.getEncoder().encodeToString(KEYS.getPrivate().getEncoded()))
                 .withProperty("auth.session.csrf-secret", Base64.getEncoder().encodeToString(csrfSecret))

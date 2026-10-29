@@ -1,8 +1,10 @@
 package com.restofy.mail.support;
 
+import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.Base64;
+
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -10,7 +12,7 @@ public abstract class MailTestSupport {
     public static final KeyPair KEYS = keys();
     private static KeyPair keys() {
         try { var generator = KeyPairGenerator.getInstance("RSA"); generator.initialize(2048); return generator.generateKeyPair(); }
-        catch (java.security.GeneralSecurityException exception) { throw new IllegalStateException(exception); }
+        catch (GeneralSecurityException exception) { throw new IllegalStateException(exception); }
     }
     @DynamicPropertySource
     static void mailProperties(DynamicPropertyRegistry registry) {

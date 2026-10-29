@@ -1,5 +1,8 @@
 package com.restofy.auth.infrastructure.security;
 
+import com.restofy.auth.application.service.StaffSessionService;
+import com.restofy.auth.infrastructure.config.AuthSettings;
+import com.restofy.auth.support.AuthSessionTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -15,6 +18,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,11 +33,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = AuthSecurityTests.ProbeController.class)
 @Import({AuthSecurityConfiguration.class, AuthSecurityTests.MethodFixtures.class,
-        com.restofy.auth.infrastructure.config.AuthSettings.class, AuthCookies.class,
+        AuthSettings.class, AuthCookies.class,
         AuthCsrfTokens.class, StaffJwtTokens.class})
-class AuthSecurityTests extends com.restofy.auth.support.AuthSessionTestSupport {
-    @org.springframework.test.context.bean.override.mockito.MockitoBean
-    private com.restofy.auth.application.service.StaffSessionService sessions;
+class AuthSecurityTests extends AuthSessionTestSupport {
+    @MockitoBean
+    private StaffSessionService sessions;
     @Autowired private MockMvc mvc;
     @Autowired private RoleProbe roles;
     @Autowired private AuthenticationManager authenticationManager;

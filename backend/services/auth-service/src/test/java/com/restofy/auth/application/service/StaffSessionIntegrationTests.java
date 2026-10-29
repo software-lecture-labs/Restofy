@@ -1,6 +1,8 @@
 package com.restofy.auth.application.service;
 
+import java.sql.Timestamp;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -134,7 +136,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     @ParameterizedTest
     @EnumSource(StaffRole.class)
     void enforcesRoleSpecificIdleBoundaryWithoutRefreshActivity(StaffRole role) {
-        StaffUser user = users.saveAndFlush(new StaffUser(role.name().toLowerCase(java.util.Locale.ROOT) + "@example.org", passwords
+        StaffUser user = users.saveAndFlush(new StaffUser(role.name().toLowerCase(Locale.ROOT) + "@example.org", passwords
                 .hash(PASSWORD), role));
         var grant = service.login(user.getEmailNormalized(), PASSWORD, null);
         if (role == StaffRole.ADMIN) {
@@ -219,7 +221,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     void enforcesAbsoluteDeadlineDespiteRecentActivity() {
         var grant = login();
         jdbc.update("UPDATE user_sessions SET absolute_expires_at = ? WHERE id = ?",
-                java.sql.Timestamp.from(clock.instant().plusSeconds(100)), grant.session().getId());
+                Timestamp.from(clock.instant().plusSeconds(100)), grant.session().getId());
         clock.advance(99);
         service.activity(jwt.verify(grant.access(), false));
         var rotated = service.refresh(grant.refresh());

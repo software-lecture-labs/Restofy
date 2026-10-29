@@ -1,21 +1,30 @@
 package com.restofy.mail;
 
+import java.net.ConnectException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
+
 import com.restofy.mail.api.dto.request.PasswordResetMailRequest;
 import com.restofy.mail.application.service.MailDeliveryWorker;
 import com.restofy.mail.domain.enums.MailJobStatus;
 import com.restofy.mail.infrastructure.client.SmtpMailSender;
 import com.restofy.mail.infrastructure.persistence.repository.MailJobRepository;
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
-import static org.mockito.Mockito.*;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.mail.MailAuthenticationException;
+import org.springframework.mail.MailSendException;
+import org.springframework.test.util.ReflectionTestUtils;
+
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.*;
 
 class MailDeliveryWorkerTests {
     private static int permits(MailDeliveryWorker worker) {
-        return ((java.util.concurrent.Semaphore) org.springframework.test.util.ReflectionTestUtils.getField(worker,"capacity")).availablePermits();
+        return ((Semaphore) ReflectionTestUtils.getField(worker,"capacity")).availablePermits();
     }
     private static PasswordResetMailRequest message(UUID id) {
         return new PasswordResetMailRequest(id,"PASSWORD_CHANGED","admin@example.test","en",null,null,Instant.now().plusSeconds(100));
@@ -26,7 +35,7 @@ class MailDeliveryWorkerTests {
         UUID ok=UUID.randomUUID(), bad=UUID.randomUUID(), skipped=UUID.randomUUID();
         when(jobs.claim(ok)).thenReturn(1); when(jobs.claim(bad)).thenReturn(1); when(jobs.claim(skipped)).thenReturn(0);
         var badMessage=message(bad);
-        doThrow(new org.springframework.mail.MailAuthenticationException("denied")).when(smtp).send(badMessage);
+        doThrow(new MailAuthenticationException("denied")).when(smtp).send(badMessage);
         var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
         try {
             worker.submit(message(ok)); worker.submit(badMessage); worker.submit(message(skipped));
@@ -34,7 +43,7 @@ class MailDeliveryWorkerTests {
                 verify(jobs).finish(ok,1,MailJobStatus.SMTP_ACCEPTED,null);
                 verify(jobs).finish(bad,1,MailJobStatus.FAILED,"PERMANENT");
                 verify(jobs).claim(skipped);
-                org.assertj.core.api.Assertions.assertThat(permits(worker)).isEqualTo(100);
+                Assertions.assertThat(permits(worker)).isEqualTo(100);
             });
         } finally { worker.close(); }
     }
@@ -43,15 +52,15 @@ class MailDeliveryWorkerTests {
         var jobs=mock(MailJobRepository.class); var smtp=mock(SmtpMailSender.class);
         UUID id=UUID.randomUUID();
         when(jobs.claim(id)).thenReturn(1).thenReturn(2);
-        doThrow(new org.springframework.mail.MailSendException("down",new java.net.ConnectException("down"))).doNothing().when(smtp).send(any());
+        doThrow(new MailSendException("down",new ConnectException("down"))).doNothing().when(smtp).send(any());
         var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
         try {
             worker.submit(message(id));
             await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,MailJobStatus.RETRY,"TRANSIENT"));
-            org.assertj.core.api.Assertions.assertThat(permits(worker)).isEqualTo(99);
+            Assertions.assertThat(permits(worker)).isEqualTo(99);
             await().atMost(Duration.ofSeconds(9)).untilAsserted(()->{
                 verify(jobs).finish(id,2,MailJobStatus.SMTP_ACCEPTED,null);
-                org.assertj.core.api.Assertions.assertThat(permits(worker)).isEqualTo(100);
+                Assertions.assertThat(permits(worker)).isEqualTo(100);
             });
         } finally { worker.close(); }
     }
@@ -61,7 +70,7 @@ class MailDeliveryWorkerTests {
         UUID id=UUID.randomUUID();
         var message=new PasswordResetMailRequest(id,"PASSWORD_CHANGED","admin@example.test","en",null,null,Instant.now().plusSeconds(100));
         when(jobs.claim(id)).thenReturn(1);
-        doThrow(new org.springframework.dao.DataAccessResourceFailureException("test",new java.net.ConnectException("test")))
+        doThrow(new DataAccessResourceFailureException("test",new ConnectException("test")))
                 .doNothing().when(jobs).finish(id,1,MailJobStatus.SMTP_ACCEPTED,null);
         var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
         try {

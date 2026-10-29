@@ -2,6 +2,8 @@ package com.restofy.auth.infrastructure.security;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiFunction;
 
 import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.domain.entity.StaffMfa;
@@ -44,7 +46,7 @@ class MfaAttemptLimiterTests {
             assertThatThrownBy(this::fail).isInstanceOf(BadCredentialsException.class);
         }
         assertThatThrownBy(this::fail).isInstanceOf(LoginLimitException.class);
-        java.util.concurrent.atomic.AtomicBoolean invoked = new java.util.concurrent.atomic.AtomicBoolean();
+        AtomicBoolean invoked = new AtomicBoolean();
         assertThatThrownBy(() -> limiter.attempt(identity, "127.0.0.1", (mfa, session) -> {
             invoked.set(true);
             return true;
@@ -75,7 +77,7 @@ class MfaAttemptLimiterTests {
     @Test
     void transactionBoundaryCommits401And429IndependentlyOfCaller() throws Exception {
         Transactional boundary = MfaAttemptLimiter.class.getMethod("attempt", Identity.class, String.class,
-                java.util.function.BiFunction.class).getAnnotation(Transactional.class);
+                BiFunction.class).getAnnotation(Transactional.class);
         assertThat(boundary.propagation()).isEqualTo(Propagation.REQUIRES_NEW);
         assertThat(boundary.noRollbackFor()).contains(BadCredentialsException.class, LoginLimitException.class);
     }

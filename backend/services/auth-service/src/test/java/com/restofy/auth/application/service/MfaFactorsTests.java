@@ -1,5 +1,7 @@
 package com.restofy.auth.application.service;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,7 +25,7 @@ import static org.mockito.Mockito.*;
 class MfaFactorsTests {
     private final MutableAuthClock clock = new MutableAuthClock();
     private final MfaSettings settings = new MfaSettings(new MockEnvironment().withProperty("auth.mfa.encryption-key",
-            java.util.Base64.getEncoder().encodeToString("0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets
+            Base64.getEncoder().encodeToString("0123456789abcdefghijklmnopqrstuv".getBytes(StandardCharsets
                     .US_ASCII))));
     private final MfaSecretCipher cipher = new MfaSecretCipher(settings);
     private final TotpVerifier totp = new TotpVerifier(clock);

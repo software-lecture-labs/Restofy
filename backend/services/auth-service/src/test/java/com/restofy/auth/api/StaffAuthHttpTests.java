@@ -13,6 +13,7 @@ import com.restofy.auth.infrastructure.security.StaffPasswords;
 import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import jakarta.servlet.http.Cookie;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -149,7 +150,7 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         for (String email : new String[]{"staff@example.com", "missing@example.com", "invalid"}) {
             mvc.perform(mutation("/login").content(body(email, "wrong-password"))).andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
-                    .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(email))));
+                    .andExpect(content().string(Matchers.not(Matchers.containsString(email))));
         }
         mvc.perform(mutation("/login").content("{\"email\":\"\",\"password\":\"\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BAD_REQUEST"));

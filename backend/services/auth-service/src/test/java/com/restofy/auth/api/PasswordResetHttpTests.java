@@ -20,6 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -38,7 +39,7 @@ class PasswordResetHttpTests extends AuthSessionTestSupport {
         jdbc.update("DELETE FROM password_reset_limits");
         csrf=mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk()).andReturn().getResponse().getCookie(AuthCookies.CSRF);
     }
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder postJson(String path,String body) {
+    private MockHttpServletRequestBuilder postJson(String path,String body) {
         return post(ROOT+path).header("Origin","http://localhost:5000").cookie(csrf)
                 .header("X-CSRF-TOKEN",csrf.getValue()).contentType(MediaType.APPLICATION_JSON).content(body);
     }

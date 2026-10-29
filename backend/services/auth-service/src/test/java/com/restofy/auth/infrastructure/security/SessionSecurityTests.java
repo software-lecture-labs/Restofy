@@ -1,22 +1,30 @@
 package com.restofy.auth.infrastructure.security;
 
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
+import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.entity.UserSession;
+import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.config.AuthSettings;
 import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.MutableAuthClock;
+import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
@@ -29,7 +37,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class SessionSecurityTests {
     private static final int MIN_DISTINCT_ERROR_VALUE_LENGTH = 3;
-    private static final java.security.KeyPair KEYS = AuthSessionTestSupport.generateKeys();
+    private static final KeyPair KEYS = AuthSessionTestSupport.generateKeys();
     private static final String HASH = new StaffPasswords().hash("Session-test-password-01");
     private static final String PEER = "198.51.100.10";
     private final MutableAuthClock clock = new MutableAuthClock();
@@ -43,7 +51,7 @@ class SessionSecurityTests {
         environment.withProperty("auth.session.restaurant-id", "6c54daf0-9340-4a1c-981d-f9acc0261779")
                 .withProperty("auth.session.private-key", Base64.getEncoder().encodeToString(KEYS.getPrivate().getEncoded()))
                 .withProperty("auth.session.csrf-secret", Base64.getEncoder().encodeToString("Test-only-secret-32-bytes-0123456789"
-                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                        .getBytes(StandardCharsets.UTF_8)))
                 .withProperty("auth.session.cookie-secure", "false").withProperty("auth.session.issuer", "restofy-auth")
                 .withProperty("auth.session.access-ttl-seconds", "900").withProperty("auth.session.refresh-ttl-seconds", "604800")
                 .withProperty("auth.session.allowed-origins", "http://localhost:5000");
@@ -98,7 +106,7 @@ class SessionSecurityTests {
     void acceptsAdminAccessOnlyAfterPromotionAndRejectsPendingForNonAdmin() {
         UserSession admin = new UserSession(new StaffUser("admin@example.com", HASH, StaffRole.ADMIN), clock.instant(), 604800, null);
         String pending = jwt.issue(admin);
-        assertThat(jwt.verify(pending, true).state()).isEqualTo(com.restofy.auth.domain.enums.SessionAuthState.MFA_PENDING);
+        assertThat(jwt.verify(pending, true).state()).isEqualTo(SessionAuthState.MFA_PENDING);
         assertThatThrownBy(() -> jwt.verify(pending, false)).isInstanceOf(BadCredentialsException.class);
         admin.completeMfa(clock.instant(), 604800);
         String access = jwt.issue(admin);
@@ -112,7 +120,7 @@ class SessionSecurityTests {
         clock.advance(900);
         assertThatThrownBy(() -> jwt.verify(valid, false)).isInstanceOf(BadCredentialsException.class);
         clock.reset();
-        for (var claims : java.util.List.of(
+        for (var claims : List.of(
                 builder().notBefore(Date.from(clock.instant().plusSeconds(1))),
                 builder().issuedAt(Date.from(clock.instant().plusSeconds(1))),
                 builder().expiration(Date.from(clock.instant().plusSeconds(901))),
@@ -133,8 +141,8 @@ class SessionSecurityTests {
         }
     }
 
-    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> unsafeSettings() {
-        return java.util.stream.Stream.of(
+    static Stream<Arguments> unsafeSettings() {
+        return Stream.of(
                 arguments("private-key", "AUTH_JWT_PRIVATE_KEY", "invalid-secret"),
                 arguments("restaurant-id", "AUTH_RESTAURANT_ID", "invalid"),
                 arguments("restaurant-id", "AUTH_RESTAURANT_ID", new UUID(0, 0).toString()),
@@ -242,7 +250,7 @@ class SessionSecurityTests {
         assertThatCode(() -> limiter.check("staff@example.com", PEER)).doesNotThrowAnyException();
     }
 
-    private io.jsonwebtoken.JwtBuilder builder() {
+    private JwtBuilder builder() {
         Instant now = clock.instant();
         return Jwts.builder().subject(session.getStaffUserId().toString()).issuer(settings.issuer())
                 .audience().add("restofy-staff-api").and().issuedAt(Date.from(now)).notBefore(Date.from(now))
@@ -252,6 +260,6 @@ class SessionSecurityTests {
     }
 
     private static String sessionDigest(String value) {
-        return com.restofy.auth.application.service.StaffSessionService.digest(value);
+        return StaffSessionService.digest(value);
     }
 }

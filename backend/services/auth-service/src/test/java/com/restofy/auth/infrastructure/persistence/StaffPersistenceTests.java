@@ -1,6 +1,8 @@
 package com.restofy.auth.infrastructure.persistence;
 
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -13,6 +15,7 @@ import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.config.StaffBootstrapProperties;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.security.StaffPasswords;
+import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,8 +24,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -34,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Uses only the Maven test profile's disposable jdbc:tc PostgreSQL database. */
 @SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
 @ContextConfiguration(initializers = AuthTestDatabaseInitializer.class)
-class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupport {
+class StaffPersistenceTests extends AuthSessionTestSupport {
     private static final String TEST_PASSWORD = "Test-only-password-01";
     @Autowired private StaffUserRepository users;
     @Autowired private StaffBootstrapService bootstrap;
@@ -42,14 +47,14 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Flyway flyway;
     @Autowired private PlatformTransactionManager transactionManager;
-    @Autowired private org.springframework.core.env.Environment environment;
+    @Autowired private Environment environment;
     private String hash;
 
     @BeforeEach
     void setup() {
         // Second guard before fixture mutation; the initializer guards startup before Flyway.
         assertThat(environment.getRequiredProperty("spring.datasource.url")).startsWith("jdbc:tc:postgresql:");
-        String url = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<String>)
+        String url = jdbc.execute((ConnectionCallback<String>)
                 connection -> connection.getMetaData().getURL());
         String database = jdbc.queryForObject("SELECT current_database()", String.class);
         assertThat(url).contains("jdbc:postgresql:");
@@ -196,7 +201,7 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     private void insert(String email, String passwordHash, String role) {
         jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at) VALUES (?,?,?,?,?,?)",
                 UUID.randomUUID(), email, passwordHash, role,
-                java.sql.Timestamp.from(Instant.now()), java.sql.Timestamp.from(Instant.now()));
+                Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
     }
 
     private StaffBootstrapProperties initial(String email) {
@@ -214,13 +219,13 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
         dev.getAdmin().setEmail("admin@example.com");
         dev.getWaiter().setEmail("waiter@example.com");
         dev.getKitchen().setEmail("kitchen@example.com");
-        for (var account : java.util.List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen())) {
+        for (var account : List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen())) {
             account.setPassword(TEST_PASSWORD);
         }
         return properties;
     }
 
-    private java.util.List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
+    private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
             var a = executor.submit(() -> { start.await();
@@ -230,7 +235,7 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
             return second.call();
             });
             start.countDown();
-            return java.util.List.of(a.get(30, TimeUnit.SECONDS), b.get(30, TimeUnit.SECONDS));
+            return List.of(a.get(30, TimeUnit.SECONDS), b.get(30, TimeUnit.SECONDS));
         }
     }
 }

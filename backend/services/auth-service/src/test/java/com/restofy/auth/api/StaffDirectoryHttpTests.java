@@ -1,7 +1,9 @@
 package com.restofy.auth.api;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -23,6 +25,7 @@ import com.restofy.auth.infrastructure.security.StaffPasswords;
 import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import jakarta.servlet.http.Cookie;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +37,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -101,7 +105,7 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
                 .andExpect(jsonPath("$.email").value("changed@example.com")).andExpect(jsonPath("$.role").value("WAITER"));
         assertThat(created).doesNotContain(PASSWORD, "$2a$", "refresh", "mfa", "token");
         assertThatThrownBy(() -> auth.login("changed@example.com", PASSWORD, null))
-                .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
+                .isInstanceOf(BadCredentialsException.class);
     }
 
     @Test
@@ -114,9 +118,9 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
         assertThat(sessions.findByStaffUserId(waiter.getId())).allMatch(session -> session.getRevokedAt() != null);
         assertThat(refreshTokens.findBySessionId(grant.session().getId())).allMatch(token -> token.getRevokedAt() != null);
         assertThatThrownBy(() -> auth.authenticate(oldIdentity))
-                .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
+                .isInstanceOf(BadCredentialsException.class);
         assertThatThrownBy(() -> auth.refresh(grant.refresh()))
-                .isInstanceOf(org.springframework.security.authentication.BadCredentialsException.class);
+                .isInstanceOf(BadCredentialsException.class);
         StaffUser changed = users.findById(waiter.getId()).orElseThrow();
         mvc.perform(mutation(ROOT + "/" + waiter.getId(), adminCookies)
                 .content(updateBody(changed.getEmailNormalized(), "KITCHEN", true, changed.getVersion())))
@@ -152,8 +156,8 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
     @Test
     void duplicateEmailStaleVersionSelfMutationAndUnknownIdentityAreSafeErrors() throws Exception {
         mvc.perform(mutation(ROOT, adminCookies).content(createBody(waiter.getEmailNormalized(), "WAITER", PASSWORD)))
-                .andExpect(status().isConflict()).andExpect(content().string(org.hamcrest.Matchers.not(
-                        org.hamcrest.Matchers.containsString(waiter.getEmailNormalized()))));
+                .andExpect(status().isConflict()).andExpect(content().string(Matchers.not(
+                        Matchers.containsString(waiter.getEmailNormalized()))));
         mvc.perform(mutation(ROOT + "/" + waiter.getId(), adminCookies)
                 .content(updateBody(waiter.getEmailNormalized(), "KITCHEN", true, waiter.getVersion() + 1)))
                 .andExpect(status().isConflict());
@@ -217,7 +221,7 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
                 return tryDisable(secondIdentity, admin);
             });
             start.countDown();
-            assertThat(java.util.List.of(first.get(30, TimeUnit.SECONDS), other.get(30, TimeUnit.SECONDS)))
+            assertThat(List.of(first.get(30, TimeUnit.SECONDS), other.get(30, TimeUnit.SECONDS)))
                     .containsExactlyInAnyOrder(true, false);
         }
         assertThat(users.findAll().stream().filter(user -> user.getRole() == StaffRole.ADMIN && user.isActive()).count())
@@ -249,13 +253,13 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
         try {
             directory.update(actor, target.getId(), target.getEmailNormalized(), StaffRole.ADMIN, false, target.getVersion());
             return true;
-        } catch (org.springframework.security.authentication.BadCredentialsException _) {
+        } catch (BadCredentialsException _) {
             return false;
         }
     }
 
     private StaffJwtTokens.Identity identity(Cookie[] cookies) {
-        String access = java.util.Arrays.stream(cookies).filter(cookie -> AuthCookies.ACCESS.equals(cookie.getName()))
+        String access = Arrays.stream(cookies).filter(cookie -> AuthCookies.ACCESS.equals(cookie.getName()))
                 .findFirst().orElseThrow().getValue();
         return jwt.verify(access, false);
     }
@@ -279,7 +283,7 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
     }
 
     private static String csrfValue(Cookie[] cookies) {
-        return java.util.Arrays.stream(cookies).filter(cookie -> AuthCookies.CSRF.equals(cookie.getName()))
+        return Arrays.stream(cookies).filter(cookie -> AuthCookies.CSRF.equals(cookie.getName()))
                 .findFirst().orElseThrow().getValue();
     }
 

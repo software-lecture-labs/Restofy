@@ -1,11 +1,14 @@
 package com.restofy.auth.application.service;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.enums.SessionAuthState;
@@ -23,6 +26,7 @@ import com.restofy.auth.infrastructure.security.TotpVerifier;
 import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import com.restofy.auth.support.MutableAuthClock;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,7 +63,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private MutableAuthClock clock;
     @Autowired private PlatformTransactionManager transactions;
-    @Autowired private javax.sql.DataSource dataSource;
+    @Autowired private DataSource dataSource;
     private UUID adminId;
 
     @BeforeEach
@@ -229,7 +233,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     void upgradesExistingV2PendingSessionWithoutChangingItsIdentityOrExpiry() {
         pending();
         String schema = "mfa_upgrade_" + UUID.randomUUID().toString().replace("-", "");
-        var prior = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+        var prior = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").target("2").cleanDisabled(true).load();
         prior.migrate();
         jdbc.update("INSERT INTO " + schema
@@ -238,10 +242,10 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         jdbc.update("INSERT INTO " + schema + ".user_sessions SELECT * FROM public.user_sessions");
         assertThatThrownBy(() -> jdbc.update("UPDATE " + schema + ".user_sessions SET auth_state = 'AUTHENTICATED'"))
                 .isInstanceOf(DataAccessException.class);
-        var latest = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+        var latest = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
-        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(4);
+        assertThat(Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(4);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions migrated JOIN public.user_sessions original "
@@ -269,7 +273,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     }
     private String wrongCode() {
         for (int candidate = 0; candidate < 100; candidate++) {
-            String code = String.format(java.util.Locale.ROOT, "%06d", candidate);
+            String code = String.format(Locale.ROOT, "%06d", candidate);
             if (totp.verify(secret(), code, null) < 0) {
                 return code;
             }

@@ -1,5 +1,6 @@
 package com.restofy.auth.infrastructure.security;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ class PasswordResetCodesTests {
         MockEnvironment missing=new MockEnvironment();
         assertThatThrownBy(() -> new PasswordResetCodes(missing)).isInstanceOf(IllegalStateException.class);
         PasswordResetCodes codes=new PasswordResetCodes(new MockEnvironment().withProperty("auth.reset.hmac-key",
-                Base64.getEncoder().encodeToString("0123456789abcdefghijklmnopqrstuv".getBytes(java.nio.charset.StandardCharsets
+                Base64.getEncoder().encodeToString("0123456789abcdefghijklmnopqrstuv".getBytes(StandardCharsets
                         .US_ASCII))));
         String digest=codes.digest("code:one","123456");
         assertThat(codes.matches(digest,codes.digest("code:one","123456"))).isTrue();

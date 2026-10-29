@@ -2,6 +2,7 @@ package com.restofy.mail.infrastructure.client;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+
 import com.restofy.mail.api.dto.request.PasswordResetMailRequest;
 import com.restofy.mail.infrastructure.config.MailSettings;
 import jakarta.mail.MessagingException;

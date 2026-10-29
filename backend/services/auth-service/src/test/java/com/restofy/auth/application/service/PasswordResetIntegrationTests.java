@@ -1,5 +1,6 @@
 package com.restofy.auth.application.service;
 
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
@@ -9,9 +10,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import javax.sql.DataSource;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.entity.StaffUser;
+import com.restofy.auth.domain.enums.PasswordResetStatus;
 import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.client.MailClient;
 import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
@@ -26,12 +33,14 @@ import com.restofy.auth.infrastructure.security.TotpVerifier;
 import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import com.restofy.auth.support.MutableAuthClock;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -42,6 +51,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -65,7 +75,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     @Autowired private PasswordResetLimiter limits;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private MutableAuthClock clock;
-    @Autowired private javax.sql.DataSource dataSource;
+    @Autowired private DataSource dataSource;
     @MockitoBean private MailClient mail;
     private StaffUser admin;
     private byte[] secret;
@@ -209,7 +219,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     void invalidOrUnchangedPasswordDoesNotConsumeGrant(String password) {
         String cookie = start();
         String grant = resets.verify(cookie,sent().code());
-        assertThatThrownBy(() -> resets.confirm(grant,password)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> resets.confirm(grant,password)).isInstanceOf(ResponseStatusException.class);
         resets.confirm(grant,NEW);
     }
 
@@ -270,8 +280,8 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test void databaseAndSafeRepresentationsNeverContainRawSecrets() {
-        var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(PasswordResetService.class);
-        var appender=new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        var logger=(Logger)LoggerFactory.getLogger(PasswordResetService.class);
+        var appender=new ListAppender<ILoggingEvent>();
         appender.start();
         logger.addAppender(appender);
         try {
@@ -296,7 +306,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> limits.request("unknown@example.com","peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
         jdbc.update("DELETE FROM password_reset_limits");
         jdbc.update("INSERT INTO password_reset_limits SELECT md5(i::text)||md5(i::text),1,? FROM generate_series(1,10000) i",
-                java.sql.Timestamp.from(clock.instant().plusSeconds(60)));
+                Timestamp.from(clock.instant().plusSeconds(60)));
         assertThatThrownBy(() -> limits.verification("new-peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_limits",Integer.class)).isEqualTo(10000);
         clock.advance(60);
@@ -347,7 +357,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
 
     @Test void concurrentAdmissionNeverExceedsGlobalBucketCapacity() throws Exception {
         jdbc.update("INSERT INTO password_reset_limits SELECT md5(i::text)||md5(i::text),1,? FROM generate_series(1,9999) i",
-                java.sql.Timestamp.from(clock.instant().plusSeconds(60)));
+                Timestamp.from(clock.instant().plusSeconds(60)));
         var pool = Executors.newFixedThreadPool(2);
         try (pool) {
         var ready = new CountDownLatch(2);
@@ -382,18 +392,18 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
 
     @Test void upgradingV3ToV4PreservesExistingPasswordsAndDoesNotInventChangeTime() {
         String schema="reset_upgrade_"+UUID.randomUUID().toString().replace("-","");
-        var old=org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+        var old=Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").target("3").cleanDisabled(true).load();
         old.migrate();
         String hash=passwords.hash(OLD);
         UUID id=UUID.randomUUID();
         jdbc.update("INSERT INTO "+schema+".staff_users (id,email_normalized,password_hash,role,"
                 + "is_active,created_at,updated_at) VALUES (?,'upgrade@example.com',?,'ADMIN',true,now(),now())",id,hash);
-        var latest=org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+        var latest=Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
         assertThat(jdbc.queryForObject("SELECT password_hash FROM "+schema+".staff_users WHERE id=?",String.class,id)).isEqualTo(hash);
-        assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",java.sql.Timestamp.class,
+        assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",Timestamp.class,
                 id)).isNull();
         assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("4");
     }
@@ -405,12 +415,12 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
                 WHERE conrelid = 'password_reset_requests'::regclass AND contype = 'c'
                   AND pg_get_constraintdef(oid) LIKE '%CODE_PENDING%'""", String.class);
         var allowed = new TreeSet<String>();
-        var quoted = java.util.regex.Pattern.compile("'([A-Z_]+)'").matcher(definition);
+        var quoted = Pattern.compile("'([A-Z_]+)'").matcher(definition);
         while (quoted.find()) {
             allowed.add(quoted.group(1));
         }
         var declared = new TreeSet<String>();
-        for (var status : com.restofy.auth.domain.enums.PasswordResetStatus.values()) {
+        for (var status : PasswordResetStatus.values()) {
             declared.add(status.name());
         }
         assertThat(declared).isEqualTo(allowed);
