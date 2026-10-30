@@ -1,0 +1,5 @@
+.wordmark { display: inline-block; font-family: "Arial Rounded MT Bold", "Trebuchet MS", sans-serif; font-size: clamp(2.1rem, 3.7vw, 3.3rem); font-weight: 900; letter-spacing: -.075em; line-height: 1.1; color: var(--text-primary); }
+.wordmark > span > span { display: inline-block; animation: signal-arrive 650ms both; }
+.wordmark .accent { color: var(--brand-primary); }
+@keyframes signal-arrive { from { opacity: .2; filter: blur(5px); transform: translateY(5px); } to { opacity: 1; filter: blur(0); transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .wordmark > span > span { animation: none; } }
