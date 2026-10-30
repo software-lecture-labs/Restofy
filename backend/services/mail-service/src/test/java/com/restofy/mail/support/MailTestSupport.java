@@ -3,6 +3,7 @@ package com.restofy.mail.support;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
 import java.util.Base64;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -10,6 +11,12 @@ import org.springframework.test.context.DynamicPropertySource;
 
 public abstract class MailTestSupport {
     public static final KeyPair KEYS = keys();
+    private static final byte[] PAYLOAD_KEY = payloadKey();
+    private static byte[] payloadKey() {
+        byte[] key = new byte[32];
+        new SecureRandom().nextBytes(key);
+        return key;
+    }
     private static KeyPair keys() {
         try { var generator = KeyPairGenerator.getInstance("RSA"); generator.initialize(2048); return generator.generateKeyPair(); }
         catch (GeneralSecurityException exception) { throw new IllegalStateException(exception); }
@@ -17,6 +24,7 @@ public abstract class MailTestSupport {
     @DynamicPropertySource
     static void mailProperties(DynamicPropertyRegistry registry) {
         registry.add("restofy.mail.public-key", () -> Base64.getEncoder().encodeToString(KEYS.getPublic().getEncoded()));
+        registry.add("restofy.mail.payload-key", () -> Base64.getEncoder().encodeToString(PAYLOAD_KEY));
         registry.add("restofy.mail.issuer", () -> "restofy-auth");
         registry.add("restofy.mail.from", () -> "sender@example.test");
         registry.add("restofy.mail.tls-mode", () -> "NONE");

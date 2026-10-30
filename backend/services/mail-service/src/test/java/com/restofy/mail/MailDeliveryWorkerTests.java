@@ -12,6 +12,7 @@ import com.restofy.mail.application.service.MailDeliveryWorker;
 import com.restofy.mail.domain.enums.MailJobStatus;
 import com.restofy.mail.infrastructure.client.SmtpMailSender;
 import com.restofy.mail.infrastructure.persistence.repository.MailJobRepository;
+import com.restofy.mail.infrastructure.persistence.repository.MailPayloadRepository;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -36,7 +37,7 @@ class MailDeliveryWorkerTests {
         when(jobs.claim(ok)).thenReturn(1); when(jobs.claim(bad)).thenReturn(1); when(jobs.claim(skipped)).thenReturn(0);
         var badMessage=message(bad);
         doThrow(new MailAuthenticationException("denied")).when(smtp).send(badMessage);
-        var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
+        var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC(),mock(MailPayloadRepository.class));
         try {
             worker.submit(message(ok)); worker.submit(badMessage); worker.submit(message(skipped));
             await().atMost(Duration.ofSeconds(3)).untilAsserted(()->{
@@ -53,7 +54,7 @@ class MailDeliveryWorkerTests {
         UUID id=UUID.randomUUID();
         when(jobs.claim(id)).thenReturn(1).thenReturn(2);
         doThrow(new MailSendException("down",new ConnectException("down"))).doNothing().when(smtp).send(any());
-        var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
+        var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC(),mock(MailPayloadRepository.class));
         try {
             worker.submit(message(id));
             await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,MailJobStatus.RETRY,"TRANSIENT"));
@@ -72,7 +73,7 @@ class MailDeliveryWorkerTests {
         when(jobs.claim(id)).thenReturn(1);
         doThrow(new DataAccessResourceFailureException("test",new ConnectException("test")))
                 .doNothing().when(jobs).finish(id,1,MailJobStatus.SMTP_ACCEPTED,null);
-        var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC());
+        var worker=new MailDeliveryWorker(jobs,smtp,Clock.systemUTC(),mock(MailPayloadRepository.class));
         try {
             worker.submit(message);
             await().atMost(Duration.ofSeconds(2)).untilAsserted(()->verify(jobs).finish(id,1,MailJobStatus.SMTP_ACCEPTED,null));

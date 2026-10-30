@@ -39,7 +39,6 @@ class SessionSecurityTests {
     private static final int MIN_DISTINCT_ERROR_VALUE_LENGTH = 3;
     private static final KeyPair KEYS = AuthSessionTestSupport.generateKeys();
     private static final String HASH = new StaffPasswords().hash("Session-test-password-01");
-    private static final String PEER = "198.51.100.10";
     private final MutableAuthClock clock = new MutableAuthClock();
     private AuthSettings settings;
     private StaffJwtTokens jwt;
@@ -233,21 +232,6 @@ class SessionSecurityTests {
         }
         request.setCookies(new Cookie(AuthCookies.ACCESS, "first"), new Cookie(AuthCookies.ACCESS, "second"));
         assertThatThrownBy(() -> AuthCookies.read(request, AuthCookies.ACCESS)).isInstanceOf(BadCredentialsException.class);
-    }
-
-    @Test
-    void loginLimiterNormalizesAccountsAndExpiresWindows() {
-        LoginRateLimiter limiter = new LoginRateLimiter(clock);
-        for (int attempt = 0; attempt < LoginRateLimiter.ATTEMPTS_PER_ACCOUNT_AND_PEER; attempt++) {
-            limiter.check(" STAFF@EXAMPLE.COM ", PEER);
-        }
-        assertThatThrownBy(() -> limiter.check("staff@example.com", PEER))
-                .isInstanceOfSatisfying(LoginRateLimiter.LoginLimitException.class,
-                        exception -> assertThat(exception.retryAfter()).isEqualTo(LoginRateLimiter.WINDOW_SECONDS));
-        limiter.check("other@example.com", PEER);
-        limiter.check(null, PEER);
-        clock.advance(LoginRateLimiter.WINDOW_SECONDS);
-        assertThatCode(() -> limiter.check("staff@example.com", PEER)).doesNotThrowAnyException();
     }
 
     private JwtBuilder builder() {

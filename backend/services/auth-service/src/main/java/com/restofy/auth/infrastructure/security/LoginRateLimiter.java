@@ -1,9 +1,13 @@
 package com.restofy.auth.infrastructure.security;
 
-import java.time.Clock;
+import java.util.List;
 
 import com.restofy.auth.domain.entity.StaffEmail;
+import com.restofy.auth.infrastructure.security.SharedRateLimitStore.Attempt;
+import com.restofy.auth.infrastructure.security.SharedRateLimitStore.Family;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Throttles password logins.
@@ -20,17 +24,19 @@ public class LoginRateLimiter {
     static final long WINDOW_SECONDS = 900;
     private static final String INVALID_ACCOUNT = "invalid";
 
-    private final BoundedWindows windows;
+    private final SharedRateLimitStore store;
 
-    public LoginRateLimiter(Clock clock) {
-        this.windows = new BoundedWindows(clock);
+    public LoginRateLimiter(SharedRateLimitStore store) {
+        this.store = store;
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = LoginLimitException.class)
     public void check(String email, String peer) {
         String account = accountKey(email);
-        rejectWhenLimited(windows.hit("peer:" + account + "|" + BoundedWindows.peerKey(peer),
-                ATTEMPTS_PER_ACCOUNT_AND_PEER, WINDOW_SECONDS));
-        rejectWhenLimited(windows.hit("account:" + account, ATTEMPTS_PER_ACCOUNT, WINDOW_SECONDS));
+        store.check(Family.LOGIN, List.of(
+                new Attempt("peer:" + account + "|" + SharedRateLimitStore.peerKey(peer),
+                        WINDOW_SECONDS, ATTEMPTS_PER_ACCOUNT_AND_PEER),
+                new Attempt("account:" + account, WINDOW_SECONDS, ATTEMPTS_PER_ACCOUNT)));
     }
 
     private static String accountKey(String email) {
@@ -38,12 +44,6 @@ public class LoginRateLimiter {
             return StaffEmail.normalize(email);
         } catch (IllegalArgumentException _) {
             return INVALID_ACCOUNT;
-        }
-    }
-
-    private static void rejectWhenLimited(long retryAfterSeconds) {
-        if (retryAfterSeconds > 0) {
-            throw new LoginLimitException(retryAfterSeconds);
         }
     }
 

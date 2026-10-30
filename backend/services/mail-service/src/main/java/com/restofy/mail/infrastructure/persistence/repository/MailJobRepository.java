@@ -75,9 +75,10 @@ public class MailJobRepository {
         int changed = jdbc.update("""
                 UPDATE mail_jobs
                 SET status = ?, attempt_count = attempt_count + 1, next_attempt_at = NULL
-                WHERE id = ? AND status IN (?, ?) AND attempt_count < ? AND send_before > ?""",
+                WHERE id = ? AND status IN (?, ?) AND attempt_count < ? AND send_before > ?
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= ?)""",
                 SENDING.name(), id, PENDING.name(), RETRY.name(), MailPolicy.MAX_ATTEMPTS,
-                Timestamp.from(clock.instant()));
+                Timestamp.from(clock.instant()), Timestamp.from(clock.instant()));
         if (changed == 0) {
             return 0;
         }
@@ -98,11 +99,13 @@ public class MailJobRepository {
         Timestamp nextAttempt = status == RETRY ? Timestamp.from(clock.instant().plus(MailPolicy.RETRY_DELAY)) : null;
         jdbc.update("UPDATE mail_jobs SET status = ?, error_code = ?, next_attempt_at = ? WHERE id = ? AND status = ?",
                 status.name(), error, nextAttempt, id, SENDING.name());
+        clearTerminalPayloads();
     }
 
     public void rejected(UUID id) {
         jdbc.update("UPDATE mail_jobs SET status = ?, error_code = ? WHERE id = ? AND status IN (?, ?)",
                 FAILED.name(), CAPACITY_ERROR, id, PENDING.name(), RETRY.name());
+        clearTerminalPayloads();
     }
 
     public void expire() {
@@ -117,5 +120,12 @@ public class MailJobRepository {
                 WHERE status IN (?, ?, ?) AND send_before <= ?""",
                 SENDING.name(), UNKNOWN.name(), PAYLOAD_LOST.name(), DEADLINE_ERROR,
                 PENDING.name(), SENDING.name(), RETRY.name(), now);
+        clearTerminalPayloads();
+    }
+    private void clearTerminalPayloads() {
+        jdbc.update("""
+                DELETE FROM mail_delivery_payloads p USING mail_jobs j
+                WHERE p.mail_job_id = j.id AND j.status NOT IN ('PENDING', 'SENDING', 'RETRY')
+                """);
     }
 }

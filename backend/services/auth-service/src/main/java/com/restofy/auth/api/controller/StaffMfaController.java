@@ -12,6 +12,7 @@ import com.restofy.auth.application.service.MfaVerificationService;
 import com.restofy.auth.application.service.StaffSessionService.Grant;
 import com.restofy.auth.infrastructure.security.AuthCookies;
 import com.restofy.auth.infrastructure.security.AuthCsrfTokens;
+import com.restofy.auth.infrastructure.security.ClientAddressResolver;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -30,24 +31,26 @@ public class StaffMfaController {
     private final MfaVerificationService verification;
     private final AuthCookies cookies;
     private final AuthCsrfTokens csrf;
+    private final ClientAddressResolver peers;
 
     public StaffMfaController(MfaEnrollmentService enrollment, MfaVerificationService verification,
-            AuthCookies cookies, AuthCsrfTokens csrf) {
+            AuthCookies cookies, AuthCsrfTokens csrf, ClientAddressResolver peers) {
         this.enrollment = enrollment;
         this.verification = verification;
         this.cookies = cookies;
         this.csrf = csrf;
+        this.peers = peers;
     }
 
     @PostMapping("/enroll")
     public Enrollment enroll(@AuthenticationPrincipal Identity identity, HttpServletRequest request) {
-        return enrollment.start(identity, request.getRemoteAddr());
+        return enrollment.start(identity, peers.resolve(request));
     }
 
     @PostMapping("/enroll/confirm")
     public MfaCompletionResponse confirm(@AuthenticationPrincipal Identity identity, @Valid @RequestBody TotpRequest body,
             HttpServletRequest request, HttpServletResponse response) {
-        var completion = verification.confirm(identity, body.code(), request.getRemoteAddr());
+        var completion = verification.confirm(identity, body.code(), peers.resolve(request));
         write(completion.grant(), request, response);
         return new MfaCompletionResponse(SessionResponse.from(completion.grant().session()), completion.recoveryCodes());
     }
@@ -55,7 +58,7 @@ public class StaffMfaController {
     @PostMapping("/verify")
     public SessionResponse verify(@AuthenticationPrincipal Identity identity, @Valid @RequestBody TotpRequest body,
             HttpServletRequest request, HttpServletResponse response) {
-        Grant grant = verification.verify(identity, body.code(), request.getRemoteAddr()).grant();
+        Grant grant = verification.verify(identity, body.code(), peers.resolve(request)).grant();
         write(grant, request, response);
         return SessionResponse.from(grant.session());
     }
@@ -63,7 +66,7 @@ public class StaffMfaController {
     @PostMapping("/recover")
     public SessionResponse recover(@AuthenticationPrincipal Identity identity, @Valid @RequestBody RecoveryRequest body,
             HttpServletRequest request, HttpServletResponse response) {
-        Grant grant = verification.recover(identity, body.code(), request.getRemoteAddr()).grant();
+        Grant grant = verification.recover(identity, body.code(), peers.resolve(request)).grant();
         write(grant, request, response);
         return SessionResponse.from(grant.session());
     }
@@ -73,7 +76,7 @@ public class StaffMfaController {
     public RecoveryCodesResponse regenerate(@AuthenticationPrincipal Identity identity,
             @Valid @RequestBody RecoveryRegenerationRequest body, HttpServletRequest request) {
         return new RecoveryCodesResponse(verification.regenerate(identity, body.password(), body.totpCode(),
-                body.recoveryCode(), request.getRemoteAddr()));
+                body.recoveryCode(), peers.resolve(request)));
     }
 
     private void write(Grant grant, HttpServletRequest request, HttpServletResponse response) {

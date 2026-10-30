@@ -243,7 +243,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> jdbc.update("UPDATE " + schema + ".user_sessions SET auth_state = 'AUTHENTICATED'"))
                 .isInstanceOf(DataAccessException.class);
         var latest = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
-                .locations("classpath:db/migration").cleanDisabled(true).load();
+                .locations("classpath:db/migration").target("4").cleanDisabled(true).load();
         latest.migrate();
         assertThat(Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(4);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))

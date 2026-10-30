@@ -8,8 +8,6 @@ import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.entity.UserSession;
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.domain.enums.StaffRole;
-import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
-import com.restofy.auth.support.MutableAuthClock;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.*;
@@ -78,21 +76,4 @@ class MfaStateTests {
         assertThat(mfaState.getLockedUntil()).isNull();
     }
 
-    @Test
-    void peerLimitExpiresAndFloodingNeverRejectsNewPeers() {
-        MutableAuthClock clock = new MutableAuthClock();
-        MfaPeerLimiter limiter = new MfaPeerLimiter(clock);
-        for (int index = 0; index < MfaPeerLimiter.ATTEMPTS_PER_WINDOW; index++) {
-            limiter.check("127.0.0.1");
-        }
-        assertThatThrownBy(() -> limiter.check("127.0.0.1")).isInstanceOf(LoginLimitException.class);
-        clock.advance(MfaPeerLimiter.WINDOW_SECONDS);
-        limiter.check("127.0.0.1");
-        limiter.check(null);
-        limiter.check("x".repeat(BoundedWindows.MAX_PEER_LENGTH + 1));
-        for (int index = 0; index < BoundedWindows.MAX_TRACKED_KEYS; index++) {
-            limiter.check("test-peer-" + index);
-        }
-        assertThatCode(() -> limiter.check("honest-peer")).doesNotThrowAnyException();
-    }
 }

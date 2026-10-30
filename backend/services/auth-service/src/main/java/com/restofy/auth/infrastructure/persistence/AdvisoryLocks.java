@@ -15,6 +15,9 @@ public final class AdvisoryLocks {
      * has a hard size bound), which makes reset requests of different users queue behind each other.
      */
     public static final long PASSWORD_RESET_LIMITS = 409_004L;
+    public static final long AUTH_LOGIN_LIMITS = 409_005L;
+    public static final long AUTH_MFA_PEER_LIMITS = 409_006L;
+    public static final long AUTH_MAIL_OUTBOX = 409_007L;
 
     private AdvisoryLocks() {
     }

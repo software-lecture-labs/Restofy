@@ -13,6 +13,7 @@ import com.restofy.mail.domain.enums.MailJobStatus;
 import com.restofy.mail.domain.policy.MailPolicy;
 import com.restofy.mail.infrastructure.client.SmtpMailSender;
 import com.restofy.mail.infrastructure.persistence.repository.MailJobRepository;
+import com.restofy.mail.infrastructure.persistence.repository.MailPayloadRepository;
 import jakarta.annotation.PreDestroy;
 import jakarta.mail.MessagingException;
 import org.slf4j.Logger;
@@ -33,36 +34,38 @@ public class MailDeliveryWorker {
     private final MailJobRepository jobs;
     private final SmtpMailSender smtp;
     private final Clock clock;
+    private final MailPayloadRepository payloads;
 
-    public MailDeliveryWorker(MailJobRepository jobs, SmtpMailSender smtp, Clock clock) {
+    public MailDeliveryWorker(MailJobRepository jobs, SmtpMailSender smtp, Clock clock, MailPayloadRepository payloads) {
         this.jobs = jobs;
         this.smtp = smtp;
         this.clock = clock;
+        this.payloads = payloads;
         executor.setRemoveOnCancelPolicy(true);
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void ready() {
-        long period = MailPolicy.EXPIRY_SWEEP_PERIOD.toSeconds();
+        long period = MailPolicy.RECOVERY_PERIOD.toSeconds();
         executor.scheduleWithFixedDelay(() -> {
             try {
                 jobs.expire();
+                payloads.ready().forEach(this::submit);
             } catch (RuntimeException _) {
-                LOG.warn("mail_event=EXPIRY_FAILED");
+                LOG.warn("mail_event=RECOVERY_FAILED");
             }
         }, 0, period, TimeUnit.SECONDS);
     }
 
     public void submit(PasswordResetMailRequest message) {
         if (!capacity.tryAcquire()) {
-            jobs.rejected(message.messageId());
             return;
         }
         try {
             executor.execute(() -> attempt(message));
         } catch (RejectedExecutionException _) {
             capacity.release();
-            jobs.rejected(message.messageId());
+            // The committed payload will be retried by the recovery sweep.
         }
     }
 

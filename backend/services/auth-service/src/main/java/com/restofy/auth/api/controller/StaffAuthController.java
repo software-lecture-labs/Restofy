@@ -10,6 +10,7 @@ import com.restofy.auth.application.service.StaffSessionService.Grant;
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.infrastructure.security.AuthCookies;
 import com.restofy.auth.infrastructure.security.AuthCsrfTokens;
+import com.restofy.auth.infrastructure.security.ClientAddressResolver;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,14 +34,16 @@ public class StaffAuthController {
     private final AuthCsrfTokens csrf;
     private final LoginRateLimiter limiter;
     private final MfaEnrollmentService mfa;
+    private final ClientAddressResolver peers;
 
     public StaffAuthController(StaffSessionService sessions, AuthCookies cookies, AuthCsrfTokens csrf, LoginRateLimiter limiter,
-            MfaEnrollmentService mfa) {
+            MfaEnrollmentService mfa, ClientAddressResolver peers) {
         this.sessions = sessions;
         this.cookies = cookies;
         this.csrf = csrf;
         this.limiter = limiter;
         this.mfa = mfa;
+        this.peers = peers;
     }
 
     @GetMapping("/csrf")
@@ -51,7 +54,7 @@ public class StaffAuthController {
     @PostMapping("/login")
     public SessionResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest,
             HttpServletResponse response) {
-        limiter.check(request.email(), servletRequest.getRemoteAddr());
+        limiter.check(request.email(), peers.resolve(servletRequest));
         Grant grant = sessions.login(request.email(), request.password(), request.deviceLabel());
         writeGrant(grant, servletRequest, response);
         return SessionResponse.from(grant.session());

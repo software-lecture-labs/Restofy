@@ -14,8 +14,8 @@ public final class MailPolicy {
     /** A job carrying a code that stays valid longer than this is refused. */
     public static final Duration MAX_CODE_VALIDITY = Duration.ofMinutes(15);
     public static final int DELIVERY_THREADS = 2;
-    /** How often overdue jobs are moved to their final state. */
-    public static final Duration EXPIRY_SWEEP_PERIOD = Duration.ofSeconds(30);
+    /** How often committed deliveries are recovered and overdue jobs reconciled. */
+    public static final Duration RECOVERY_PERIOD = Duration.ofSeconds(1);
     /** How many causes are followed when classifying a delivery failure. */
     public static final int MAX_CAUSE_DEPTH = 12;
 

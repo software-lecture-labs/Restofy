@@ -107,7 +107,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     }
     private MailClient.Message sent() {
         var capture = ArgumentCaptor.forClass(MailClient.Message.class);
-        verify(mail, atLeastOnce()).afterCommit(capture.capture());
+        verify(mail, atLeastOnce()).enqueue(capture.capture());
         return capture.getAllValues().stream().filter(value -> value.templateKey().equals("ADMIN_PASSWORD_RESET")).reduce((a,b)->b)
                 .orElseThrow();
     }
@@ -142,7 +142,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> sessions.login(email, OLD, null)).isInstanceOf(BadCredentialsException.class);
         assertThat(sessions.login(admin.getEmailNormalized(), NEW, null).session().getAuthState().name()).isEqualTo("MFA_PENDING");
         assertThatThrownBy(() -> resets.confirm(grant, NEW)).isInstanceOf(BadCredentialsException.class);
-        verify(mail).afterCommit(argThat(value -> value.templateKey().equals("PASSWORD_CHANGED") && value.locale().equals("en")
+        verify(mail).enqueue(argThat(value -> value.templateKey().equals("PASSWORD_CHANGED") && value.locale().equals("en")
                 && value.code() == null));
     }
 
@@ -169,7 +169,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         var message = sent();
         resets.request(admin.getEmailNormalized(), factor(), "en");
         resets.request(admin.getEmailNormalized(), "------", "en");
-        verify(mail, times(1)).afterCommit(any());
+        verify(mail, times(1)).enqueue(any());
         assertThat(resets.verify(cookie,message.code())).isNotBlank();
     }
 
@@ -223,12 +223,16 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         resets.confirm(grant,NEW);
     }
 
-    @Test void notificationFailureDoesNotRollbackPasswordChange() {
+    @Test void enqueueFailureRollsBackPasswordChangeAndRetainsTheVerifiedGrant() {
         String cookie = start();
         String grant = resets.verify(cookie,sent().code());
-        doThrow(new IllegalStateException("test failure")).when(mail).afterCommit(argThat(value -> value.templateKey().equals(
+        doThrow(new IllegalStateException("test failure")).when(mail).enqueue(argThat(value -> value.templateKey().equals(
                 "PASSWORD_CHANGED")));
-        resets.confirm(grant,NEW);
+        assertThatThrownBy(() -> resets.confirm(grant, NEW)).isInstanceOf(IllegalStateException.class);
+        assertThat(passwords.matches(OLD, users.findById(admin.getId()).orElseThrow().getPasswordHash())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT status FROM password_reset_requests", String.class)).isEqualTo("CODE_VERIFIED");
+        doNothing().when(mail).enqueue(any());
+        resets.confirm(grant, NEW);
         assertThat(passwords.matches(NEW, users.findById(admin.getId()).orElseThrow().getPasswordHash())).isTrue();
     }
 
@@ -400,7 +404,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         jdbc.update("INSERT INTO "+schema+".staff_users (id,email_normalized,password_hash,role,"
                 + "is_active,created_at,updated_at) VALUES (?,'upgrade@example.com',?,'ADMIN',true,now(),now())",id,hash);
         var latest=Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
-                .locations("classpath:db/migration").cleanDisabled(true).load();
+                .locations("classpath:db/migration").target("4").cleanDisabled(true).load();
         latest.migrate();
         assertThat(jdbc.queryForObject("SELECT password_hash FROM "+schema+".staff_users WHERE id=?",String.class,id)).isEqualTo(hash);
         assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",Timestamp.class,

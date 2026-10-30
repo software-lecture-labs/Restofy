@@ -8,52 +8,40 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
-import com.restofy.auth.infrastructure.config.AuthSettings;
+import com.restofy.auth.infrastructure.config.AuthMailSettings;
 import com.restofy.auth.infrastructure.config.EnvironmentPolicy;
+import com.restofy.auth.infrastructure.persistence.repository.MailOutboxRepository;
 import io.jsonwebtoken.Jwts;
 import jakarta.annotation.PreDestroy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.core.env.Environment;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClient;
 
 /**
- * Hands password-reset mail commands to the Mail service after the surrounding transaction has committed.
+ * Persists mail commands atomically with Auth state; the relay sends them only after commit.
  *
- * <p>Delivery is best effort: the commands wait in a bounded in-memory queue and are not retried or persisted, so a
- * restart or a Mail outage drops them. The user can simply request a new code; an outbox table would remove this
- * gap at the cost of a migration and a relay job.
+ * <p>The HTTP transport deliberately propagates failures. The durable relay owns bounded retries and preserves
+ * message IDs so a lost acknowledgement never creates a different Mail job.
  */
 @Component
 @PropertySource("classpath:mail-service-contract.properties")
-public class MailClient {
-    private static final Logger LOG = LoggerFactory.getLogger(MailClient.class);
-    private static final int DELIVERY_THREADS = 2;
-    private static final int DELIVERY_QUEUE_CAPACITY = 100;
+public class MailClient implements AutoCloseable {
     private static final int DEFAULT_CONNECT_TIMEOUT_MS = 3_000;
     private static final int DEFAULT_READ_TIMEOUT_MS = 5_000;
 
-    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(DELIVERY_THREADS, DELIVERY_THREADS, 0,
-            TimeUnit.SECONDS, new ArrayBlockingQueue<>(DELIVERY_QUEUE_CAPACITY),
-            Thread.ofPlatform().name("auth-mail-", 0).factory(), new ThreadPoolExecutor.AbortPolicy());
-    private final AuthSettings settings;
+    private final AuthMailSettings settings;
+    private final MailOutboxRepository outbox;
     private final Environment environment;
     private final Clock clock;
     private final HttpClient http;
     private final RestClient client;
 
-    public MailClient(AuthSettings settings, Environment environment, Clock clock) {
+    public MailClient(AuthMailSettings settings, Environment environment, Clock clock, MailOutboxRepository outbox) {
         this.settings = settings;
+        this.outbox = outbox;
         this.environment = environment;
         this.clock = clock;
         URI base = URI.create(environment.getRequiredProperty("auth.reset.mail-url"));
@@ -75,34 +63,17 @@ public class MailClient {
         client = RestClient.builder().baseUrl(base.toString()).requestFactory(factory).build();
     }
 
-    public void afterCommit(Message message) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            throw new IllegalStateException("Mail requires committed state");
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                try {
-                    executor.execute(() -> deliver(message));
-                } catch (RejectedExecutionException _) {
-                    failed(message.messageId());
-                }
-            }
-        });
+    public void enqueue(Message message) {
+        outbox.enqueue(message);
     }
 
-    private void deliver(Message message) {
-        try {
-            if (!clock.instant().isBefore(message.sendBefore())) {
-                failed(message.messageId());
-                return;
-            }
-            client.post().uri(contract("reset-jobs-path"))
-                    .headers(headers -> headers.setBearerAuth(serviceToken(message.messageId())))
-                    .body(message).retrieve().toBodilessEntity();
-        } catch (RuntimeException _) {
-            failed(message.messageId());
+    public void deliver(Message message) {
+        if (!clock.instant().isBefore(message.sendBefore())) {
+            throw new IllegalStateException("Mail command deadline exceeded");
         }
+        client.post().uri(contract("reset-jobs-path"))
+                .headers(headers -> headers.setBearerAuth(serviceToken(message.messageId())))
+                .body(message).retrieve().toBodilessEntity();
     }
 
     public String serviceToken(UUID messageId) {
@@ -119,13 +90,9 @@ public class MailClient {
         return environment.getRequiredProperty("restofy.mail-contract." + key);
     }
 
-    private static void failed(UUID id) {
-        LOG.warn("mail_event=DISPATCH_FAILED message_id={}", id);
-    }
-
     @PreDestroy
+    @Override
     public void close() {
-        executor.shutdownNow();
         http.close();
     }
 

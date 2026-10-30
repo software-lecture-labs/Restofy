@@ -1,25 +1,27 @@
 package com.restofy.auth.infrastructure.security;
 
-import java.time.Clock;
+import java.util.List;
 
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
+import com.restofy.auth.infrastructure.security.SharedRateLimitStore.Attempt;
+import com.restofy.auth.infrastructure.security.SharedRateLimitStore.Family;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 public class MfaPeerLimiter {
     static final int ATTEMPTS_PER_WINDOW = 30;
     static final long WINDOW_SECONDS = 60;
 
-    private final BoundedWindows windows;
+    private final SharedRateLimitStore store;
 
-    public MfaPeerLimiter(Clock clock) {
-        this.windows = new BoundedWindows(clock);
+    public MfaPeerLimiter(SharedRateLimitStore store) {
+        this.store = store;
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = LoginLimitException.class)
     public void check(String peer) {
-        long retryAfter = windows.hit(BoundedWindows.peerKey(peer), ATTEMPTS_PER_WINDOW, WINDOW_SECONDS);
-        if (retryAfter > 0) {
-            throw new LoginLimitException(retryAfter);
-        }
+        store.check(Family.MFA_PEER, List.of(new Attempt(SharedRateLimitStore.peerKey(peer), WINDOW_SECONDS, ATTEMPTS_PER_WINDOW)));
     }
 }

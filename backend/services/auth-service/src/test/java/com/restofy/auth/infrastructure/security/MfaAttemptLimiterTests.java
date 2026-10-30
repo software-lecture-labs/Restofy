@@ -29,7 +29,7 @@ class MfaAttemptLimiterTests {
     private final StaffSessionService sessions = mock(StaffSessionService.class);
     private final StaffMfaRepository records = mock(StaffMfaRepository.class);
     private final MfaAuditLogger audit = mock(MfaAuditLogger.class);
-    private final MfaAttemptLimiter limiter = new MfaAttemptLimiter(sessions, records, new MfaPeerLimiter(clock), audit, clock);
+    private final MfaAccountAttempts limiter = new MfaAccountAttempts(sessions, records, audit, clock);
     private final Identity identity = new Identity(UUID.randomUUID(), UUID.randomUUID(), StaffRole.ADMIN, SessionAuthState.MFA_PENDING);
     private final StaffMfa mfaState = new StaffMfa(identity.userId(), clock.instant());
 
@@ -47,7 +47,7 @@ class MfaAttemptLimiterTests {
         }
         assertThatThrownBy(this::fail).isInstanceOf(LoginLimitException.class);
         AtomicBoolean invoked = new AtomicBoolean();
-        assertThatThrownBy(() -> limiter.attempt(identity, "127.0.0.1", (mfa, session) -> {
+        assertThatThrownBy(() -> limiter.attempt(identity, (mfa, session) -> {
             invoked.set(true);
             return true;
         })).isInstanceOf(LoginLimitException.class);
@@ -55,7 +55,7 @@ class MfaAttemptLimiterTests {
         assertThat(mfaState.getFailedAttempts()).isEqualTo(5);
         verify(records, times(5)).saveAndFlush(mfaState);
         clock.advance(300);
-        boolean allowed = limiter.attempt(identity, "127.0.0.1", (mfa, session) -> true);
+        boolean allowed = limiter.attempt(identity, (mfa, session) -> true);
         assertThat(allowed).isTrue();
         assertThatThrownBy(this::fail).isInstanceOf(BadCredentialsException.class);
         assertThat(mfaState.getFailedAttempts()).isEqualTo(1);
@@ -63,27 +63,27 @@ class MfaAttemptLimiterTests {
 
     @Test
     void unavailableAndForbiddenOperationsAreNotCredentialFailures() {
-        assertThatThrownBy(() -> limiter.attempt(identity, "127.0.0.1", (mfa, session) -> {
+        assertThatThrownBy(() -> limiter.attempt(identity, (mfa, session) -> {
             throw new MfaUnavailableException();
         })).isInstanceOf(MfaUnavailableException.class);
         assertThat(mfaState.getFailedAttempts()).isZero();
         verify(audit).cipherFailure(identity.userId(), identity.sessionId());
         Identity waiter = new Identity(UUID.randomUUID(), UUID.randomUUID(), StaffRole.WAITER, SessionAuthState.AUTHENTICATED);
-        assertThatThrownBy(() -> limiter.attempt(waiter, "127.0.0.1", (mfa, session) -> true))
+        assertThatThrownBy(() -> limiter.attempt(waiter, (mfa, session) -> true))
                 .isInstanceOf(AccessDeniedException.class);
         verify(sessions, never()).authenticate(waiter);
     }
 
     @Test
     void transactionBoundaryCommits401And429IndependentlyOfCaller() throws Exception {
-        Transactional boundary = MfaAttemptLimiter.class.getMethod("attempt", Identity.class, String.class,
+        Transactional boundary = MfaAccountAttempts.class.getMethod("attempt", Identity.class,
                 BiFunction.class).getAnnotation(Transactional.class);
         assertThat(boundary.propagation()).isEqualTo(Propagation.REQUIRES_NEW);
         assertThat(boundary.noRollbackFor()).contains(BadCredentialsException.class, LoginLimitException.class);
     }
 
     private void fail() {
-        limiter.attempt(identity, "127.0.0.1", (mfa, session) -> { throw new BadCredentialsException("Invalid credentials");
+        limiter.attempt(identity, (mfa, session) -> { throw new BadCredentialsException("Invalid credentials");
         });
     }
 }

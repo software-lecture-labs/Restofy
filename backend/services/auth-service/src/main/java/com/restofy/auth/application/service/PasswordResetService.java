@@ -147,11 +147,8 @@ public class PasswordResetService {
     }
 
     private void dispatch(Message message) {
-        try {
-            mail.afterCommit(message);
-        } catch (RuntimeException _) {
-            LOG.warn("reset_event=DISPATCH_FAILED message_id={}", message.messageId());
-        }
+        // A failed enqueue rolls the reset proof back as well; never commit a code that has no durable delivery job.
+        mail.enqueue(message);
     }
 
     private PasswordResetRequest lockedRequest(String cookie) {
