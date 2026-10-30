@@ -220,6 +220,8 @@ erDiagram
     products ||--o{ product_options : "icerik ve ek secenek"
     products ||--o| product_availability : "guncel satis durumu"
     products ||--o{ product_availability_history : "erisim gecmisi"
+    products ||--o{ product_availability_commands : "kitchen komut kaydi"
+    product_availability_commands |o--o| product_availability_history : "komutun neden oldugu gecmis"
 
     categories {
         uuid id PK
@@ -236,6 +238,7 @@ erDiagram
         varchar name
         text image_url
         text description
+        varchar ingredients_text
         numeric base_price
         char currency
         numeric vat_rate
@@ -243,6 +246,7 @@ erDiagram
         numeric weight_grams
         integer calories
         integer estimated_prep_minutes
+        boolean is_active
         boolean is_published
     }
     product_options {
@@ -254,6 +258,7 @@ erDiagram
         numeric price_delta
         integer min_quantity
         integer max_quantity
+        integer sort_order
         boolean is_active
     }
     product_availability {
@@ -276,11 +281,25 @@ erDiagram
         text reason_text
         uuid changed_by_user_id "REF Auth"
         timestamptz changed_at
-        uuid command_id
+        uuid command_id "NULL: ilk kayit ve yonetici degisikligi"
+    }
+    product_availability_commands {
+        uuid restaurant_id PK
+        uuid command_id PK
+        uuid product_id FK
+        varchar source
+        varchar target_status
+        varchar reason_code
+        text reason_text
+        bigint expected_version
+        varchar outcome
+        bigint resulting_version
+        uuid requested_by_user_id "REF Auth"
+        timestamptz created_at
     }
 ```
 
-Satışa sunulan ürün için availability kaydı oluşturulması application transaction'ında zorunlu önerilir. Modelde 0/1, henüz satışa açılmamış ürün taslağına izin verir; availability bulunmaması satış izni sayılmaz. Kitchen kapatma komutunun yazarı Menu'dür. Otomatik restart açılışı yoktur. product_options hammadde stok tablosu değildir.
+Satışa sunulan ürün için availability kaydı oluşturulması application transaction'ında zorunlu önerilir. Modelde 0/1, henüz satışa açılmamış ürün taslağına izin verir; availability bulunmaması satış izni sayılmaz. Kitchen kapatma komutunun yazarı Menu'dür. Otomatik restart açılışı yoktur. product_availability_commands, Kitchen komutunun tekrarını tanımak için kabul edilen her komutu (etkisiz olanlar dahil) restoran + komut kimliğiyle saklar; history satırı yalnız gerçek değişiklikte yazılır ve komutu bileşik FK ile aynı restoran ve ürün içinde adlandırır. product_options hammadde stok tablosu değildir.
 
 ## 7. Order DB
 

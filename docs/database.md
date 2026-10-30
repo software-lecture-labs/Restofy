@@ -133,13 +133,13 @@ Tenant uyumlu parent FK; kendi kendine parent ve kategori döngüsü engellenir.
 
 ### `products`
 
-`id`, `restaurant_id`, `category_id FK`, `name varchar(200)`, `image_url text`, `description text?`, `base_price numeric(19,4)`, `currency char(3)`, `vat_rate numeric(7,4)`, `price_includes_vat boolean`, `weight_grams numeric(12,3)?`, `calories integer?`, `estimated_prep_minutes integer?`, `is_published boolean`, `version`.
+`id`, `restaurant_id`, `category_id FK`, `name varchar(200)`, `image_url text?`, `description text?`, `ingredients_text varchar(1000)?`, `base_price numeric(19,4)`, `currency char(3)`, `vat_rate numeric(7,4)`, `price_includes_vat boolean`, `weight_grams numeric(12,3)?`, `calories integer?`, `estimated_prep_minutes integer?`, `is_active boolean`, `is_published boolean`, `version`.
 
-Fiyat/gramaj/kalori/süre negatif olamaz; opsiyonel alanlar NULL olabilir. Image URL kontrollü storage kaynağıdır. Ürün ortalama puanı Rating projeksiyonundan gelir; elle değiştirilebilir ürün gerçeği değildir. KDV dahil ibaresi fiyatın gerçek vergi modeline uymalıdır.
+Fiyat negatif olamaz; kalori 0–10.000 kcal, gramaj 0'dan büyük ve en çok 10.000 g (en fazla 3 ondalık), hazırlık süresi 0–240 dk (V66 CHECK'leri); opsiyonel alanlar NULL olabilir ve NULL "bilinmiyor" demektir, 0 gerçek bir değerdir. Image URL kontrollü storage kaynağıdır. Ürün ortalama puanı Rating projeksiyonundan gelir; elle değiştirilebilir ürün gerçeği değildir. KDV dahil ibaresi fiyatın gerçek vergi modeline uymalıdır.
 
 ### `product_options`
 
-`id`, `restaurant_id`, `product_id FK`, `name varchar(150)`, `option_type varchar(20)`, `price_delta numeric(19,4)`, `min_quantity integer`, `max_quantity integer`, `is_active boolean`, `version`.
+`id`, `restaurant_id`, `product_id FK`, `name varchar(150)`, `option_type varchar(20)`, `price_delta numeric(19,4)`, `min_quantity integer`, `max_quantity integer`, `sort_order integer`, `is_active boolean`, `version`.
 
 Tür INCLUDED/ADD önerisi: INCLUDED çıkarılabilir temel malzeme, ADD eklenebilir malzeme. Çıkarma yetkisi min_quantity=0 ile modellenebilir; zorunlu içerik çıkarılamaz. V1'de INCLUDED fiyat farkı 0, ADD farkı >=0; `0 <= min_quantity <= max_quantity`. Sipariş seçimi ADD/REMOVE eylemini snapshot'lar. Genel hammadde deposu değildir.
 
@@ -149,11 +149,17 @@ Tür INCLUDED/ADD önerisi: INCLUDED çıkarılabilir temel malzeme, ADD ekleneb
 
 AVAILABLE/OUT_OF_STOCK/TEMPORARILY_CLOSED. Kapalı durumlarda neden zorunlu; her değişiklik geçmişe yazılır. Menu bu kaydın tek yazarıdır; Kitchen yetkili API komutu yollar. Yeniden başlatmada AVAILABLE yapılmaz.
 
+### `product_availability_commands`
+
+`restaurant_id`, `command_id` (birlikte PK), `product_id FK`, `source varchar(20)` (yalnız KITCHEN), `target_status varchar(30)`, `reason_code varchar(40)?`, `reason_text text?`, `expected_version bigint?`, `outcome varchar(20)` (APPLIED/NO_CHANGE), `resulting_version bigint`, `requested_by_user_id uuid REF Auth`, `created_at timestamptz`.
+
+Kitchen availability komutunun kalıcı idempotency kaydıdır: kabul edilen her komut (etkisiz olanlar dahil) restoran + komut kimliğiyle bir kez yazılır. Aynı kimlik aynı içerikle gelirse eski sonuç döner (yeniden uygulanmaz), farklı içerikle gelirse çakışmadır. Reddedilen komut kayıt bırakmaz (aynı işlemde geri alınır). Komut kimliği yetki kanıtı değildir. Ayrıntı: [ADR-MENU-002](decisions/ADR-MENU-002-kitchen-availability-komutlari.md).
+
 ### `product_availability_history`
 
 `id`, `restaurant_id`, `product_id FK`, `from_status varchar(30)`, `to_status varchar(30)`, `reason_code varchar(40)?`, `reason_text text?`, `changed_by_user_id uuid REF`, `changed_at timestamptz`, `command_id uuid`.
 
-`UNIQUE(restaurant_id,command_id)` tekrar kapatma komutunu tekilleştirir. Ürün yayın pasifliğiyle mutfak kapanışı farklı kavramlardır. Geçerli müşteri görünürlüğü kategori/yayın + availability koşullarından türetilir.
+`command_id` boştur (ilk kayıt, yönetici değişikliği) ya da `product_availability_commands`'daki komutu aynı restoran ve ürün içinde adlandırır (bileşik FK); `UNIQUE(restaurant_id,command_id) WHERE command_id IS NOT NULL` bir komutun en çok bir geçmiş satırı yazmasını sağlar. Ürün yayın pasifliğiyle mutfak kapanışı farklı kavramlardır. Geçerli müşteri görünürlüğü kategori/yayın + availability koşullarından türetilir.
 
 ## 7. Order DB — sepet, sipariş ve iptal
 
