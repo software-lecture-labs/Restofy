@@ -92,6 +92,20 @@ class ApiGatewayRoutingTests {
     }
 
     @Test
+    void forwardingMetadataIsReplacedWithTheActualGatewaySocketPeer() throws Exception {
+        String id = UUID.randomUUID().toString();
+        var request = gatewayRequest("/api/v1/auth/csrf", id)
+                .header("X-Forwarded-For", "203.0.113.15, 198.51.100.7")
+                .header("Forwarded", "for=203.0.113.21;proto=https")
+                .header("X-Forwarded-Proto", "https").GET().build();
+        assertResponse(send(request), "auth-service", 200);
+        var received = onlyRequest(id, "auth-service");
+        assertEquals("127.0.0.1", received.header("X-Forwarded-For"));
+        assertNull(received.header("Forwarded"));
+        assertNull(received.header("X-Forwarded-Proto"));
+    }
+
+    @Test
     void productionPropertiesBindExactlyTwelveUniqueMvcRoutesUsingEnvironmentUris() throws Exception {
         var routes = routeProperties.getRoutes();
         assertEquals(12, routes.size());
