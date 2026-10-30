@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * D-13: the order cancellation migration (V50) on a clean, throw-away PostgreSQL schema. The whole chain V41-V50 runs from
+ * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The whole chain V41-V48 runs from
  * nothing, uses no number outside the Order range, passes Flyway's own validation (checksums, ordering) and leaves the
  * audit model in place: SERVICE is a real kind of author next to GUEST and STAFF, the staff member a service claims to act
  * for has a column of its own, and the guards keep both unchangeable.
@@ -66,8 +66,8 @@ class OrderCancellationsMigrationTests {
                 assertTrue(info.getState().isApplied() && info.getState().isResolved(), info.getVersion().toString());
                 versions.add(info.getVersion().toString());
             }
-            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), versions,
-                    "exactly the Order range V41-V50: no extra number was taken");
+            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48"), versions,
+                    "the consolidated chain V41-V48, inside the Order range V41-V50: no extra number was taken");
             assertEquals(0, flyway.info().pending().length);
             flyway.validate();                                  // checksums of every applied file still match
             assertEquals(0, flyway.migrate().migrationsExecuted, "a second run has nothing to do");
@@ -144,17 +144,17 @@ class OrderCancellationsMigrationTests {
         } finally {
             drop(schema);
         }
-        String v50 = new String(getClass().getResourceAsStream("/db/migration/V50__create_order_cancellations.sql")
+        String v47 = new String(getClass().getResourceAsStream("/db/migration/V47__create_order_cancellations.sql")
                 .readAllBytes(), StandardCharsets.UTF_8);
-        assertFalse(v50.contains("KITCHEN_SERVICE") || v50.contains("service:KITCHEN"), "the old mapping is not in V50");
+        assertFalse(v47.contains("KITCHEN_SERVICE") || v47.contains("service:KITCHEN"), "the old mapping is not in V47");
         // every migration file of the service is in the Order range: no number was borrowed from anybody
-        File directory = new File(getClass().getResource("/db/migration/V50__create_order_cancellations.sql")
+        File directory = new File(getClass().getResource("/db/migration/V47__create_order_cancellations.sql")
                 .toURI()).getParentFile();
         List<String> numbers = new ArrayList<>();
         for (File file : directory.listFiles((dir, name) -> name.endsWith(".sql"))) {
             numbers.add(file.getName().substring(1, file.getName().indexOf("__")));
         }
         Collections.sort(numbers);
-        assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), numbers);
+        assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48"), numbers);
     }
 }

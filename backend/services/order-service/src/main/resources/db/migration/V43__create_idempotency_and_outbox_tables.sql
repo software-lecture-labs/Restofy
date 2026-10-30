@@ -11,10 +11,17 @@ CREATE TABLE idempotency_records (
     resource_id      uuid          NOT NULL,
     response_status  integer       NOT NULL,
     created_at       timestamptz   NOT NULL,
+    -- retention: expired COMPLETED records can be purged safely; IN_PROGRESS rows are never purged
+    expires_at       timestamptz   NOT NULL,
+    status           varchar(20)   NOT NULL DEFAULT 'COMPLETED',
     CONSTRAINT pk_idempotency_records PRIMARY KEY (id),
     -- the same key from the same actor for the same operation can only ever be used once
-    CONSTRAINT uq_idempotency_scope_key UNIQUE (restaurant_id, actor_scope, operation, idempotency_key)
+    CONSTRAINT uq_idempotency_scope_key UNIQUE (restaurant_id, actor_scope, operation, idempotency_key),
+    CONSTRAINT ck_idempotency_status CHECK (status IN ('IN_PROGRESS', 'COMPLETED'))
 );
+
+-- the purge job selects COMPLETED rows whose expires_at has passed
+CREATE INDEX ix_idempotency_cleanup ON idempotency_records (status, expires_at);
 
 CREATE TABLE outbox_events (
     id                uuid          NOT NULL,

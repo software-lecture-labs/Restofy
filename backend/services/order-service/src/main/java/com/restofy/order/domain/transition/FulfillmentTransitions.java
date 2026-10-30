@@ -20,7 +20,7 @@ import java.util.Set;
  *   <li>SERVED: WAITER or ADMIN staff (an ADMIN's action is recorded with its actor like any other).</li>
  *   <li>COMPLETED: WAITER or ADMIN staff. It does not require payment; payment is a separate axis.</li>
  * </ul>
- * Guests can never change a status. The same rules are repeated as a guard trigger in the database (V47).
+ * Guests can never change a status. The same rules are repeated as a guard trigger in the database (V45).
  */
 public final class FulfillmentTransitions {
 

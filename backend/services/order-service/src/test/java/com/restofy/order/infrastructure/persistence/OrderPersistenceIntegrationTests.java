@@ -143,7 +143,7 @@ class OrderPersistenceIntegrationTests {
                 () -> jdbc.update(insert, UUID.randomUUID(), restaurant, "guest:a", UUID.randomUUID()));
     }
 
-    // ---- the order snapshot is immutable at the database level (V44 triggers) -----------------------------------------
+    // ---- the order snapshot is immutable at the database level (V42 triggers) -----------------------------------------
 
     private Order persistedOrderWithOneItem() {
         UUID restaurant = UUID.randomUUID();
@@ -184,7 +184,7 @@ class OrderPersistenceIntegrationTests {
                     () -> jdbc.update("UPDATE order_items SET " + column + " WHERE order_id = ?", order.getId()), column);
             assertEquals(true, error.getMessage().contains("immutable"), column + ": " + error.getMessage());
         }
-        // the counter moves only together with an applied cancellation (V50); a hand-made change is refused at commit
+        // the counter moves only together with an applied cancellation (V47); a hand-made change is refused at commit
         UUID orderId = order.getId();
         DataAccessException manual = assertThrows(DataAccessException.class,
                 () -> jdbc.update("UPDATE order_items SET cancelled_quantity = 1 WHERE order_id = ?", orderId));

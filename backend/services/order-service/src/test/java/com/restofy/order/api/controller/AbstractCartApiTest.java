@@ -35,6 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 abstract class AbstractCartApiTest {
 
     protected static final String CART = "/api/v1/carts/current";
+    private static final String CART_ACTIVITY = "CartActivityRecorded";
 
     @Autowired
     protected MockMvc mvc;
@@ -58,6 +59,7 @@ abstract class AbstractCartApiTest {
         jdbc.execute("TRUNCATE order_status_history");
         jdbc.execute("TRUNCATE payment_reconciliation_cases, payment_captures");
         jdbc.execute("TRUNCATE order_cancellation_reasons, order_cancellation_items, order_cancellations");
+        jdbc.execute("TRUNCATE table_session_closures");
         for (String table : new String[]{"inbox_events", "outbox_deliveries", "outbox_events", "idempotency_records",
                 "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);
@@ -127,8 +129,25 @@ abstract class AbstractCartApiTest {
         return UUID.randomUUID().toString();
     }
 
+    /**
+     * Rows of a table. The outbox tables count the BUSINESS events of an order (placed, status, payment, cancellation)
+     * only: every successful cart change also records a CartActivityRecorded notification for the QR Service
+     * (ADR-QR-001 K6), which CartActivityEventApiTests covers on its own. Use {@link #countCartActivityEvents()} for those.
+     */
     protected int count(String table) {
-        return jdbc.queryForObject("SELECT count(*) FROM " + table, Integer.class);
+        String sql = switch (table) {
+            case "outbox_events" ->
+                    "SELECT count(*) FROM outbox_events WHERE event_type <> '" + CART_ACTIVITY + "'";
+            case "outbox_deliveries" -> "SELECT count(*) FROM outbox_deliveries d JOIN outbox_events e"
+                    + " ON e.id = d.event_id WHERE e.event_type <> '" + CART_ACTIVITY + "'";
+            default -> "SELECT count(*) FROM " + table;
+        };
+        return jdbc.queryForObject(sql, Integer.class);
+    }
+
+    protected int countCartActivityEvents() {
+        return jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE event_type = ?", Integer.class,
+                CART_ACTIVITY);
     }
 
     protected ResultActions getCart(String token) throws Exception {

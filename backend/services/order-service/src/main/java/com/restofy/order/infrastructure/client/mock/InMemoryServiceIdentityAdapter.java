@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * MOCK of the service identity verifier, active ONLY in the {@code dev} and {@code test} profiles. It performs no real
- * authentication: it maps two fixed placeholder credentials to the Kitchen and Payment service identities so the
+ * authentication: it maps three fixed placeholder credentials to the Kitchen, Payment and QR service identities so the
  * internal endpoints can be exercised. Any other profile gets
  * {@link com.restofy.order.infrastructure.client.UnavailableServiceIdentityAdapter}.
  */
@@ -25,6 +25,7 @@ public class InMemoryServiceIdentityAdapter implements ServiceIdentityPort {
 
     public static final String KITCHEN_CREDENTIAL = "dev-mock-service-kitchen";
     public static final String PAYMENT_CREDENTIAL = "dev-mock-service-payment";
+    public static final String QR_CREDENTIAL = "dev-mock-service-qr";
 
     private final Map<String, ServiceActor> services = new ConcurrentHashMap<>();
 
@@ -44,5 +45,6 @@ public class InMemoryServiceIdentityAdapter implements ServiceIdentityPort {
         services.clear();
         services.put(KITCHEN_CREDENTIAL, new ServiceActor(ServiceName.KITCHEN));
         services.put(PAYMENT_CREDENTIAL, new ServiceActor(ServiceName.PAYMENT));
+        services.put(QR_CREDENTIAL, new ServiceActor(ServiceName.QR));
     }
 }

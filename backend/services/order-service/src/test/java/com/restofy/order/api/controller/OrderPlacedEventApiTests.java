@@ -42,8 +42,8 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
     void eventDescribesTheOrderForItsConsumers() throws Exception {
         JsonNode order = placeCustomizedOrder("trace-event-1");
 
-        var meta = jdbc.queryForMap("SELECT * FROM outbox_events");
-        JsonNode event = json.readTree(jdbc.queryForObject("SELECT payload::text FROM outbox_events", String.class));
+        var meta = jdbc.queryForMap("SELECT * FROM outbox_events WHERE event_type = 'OrderPlaced'");
+        JsonNode event = json.readTree(jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE event_type = 'OrderPlaced'", String.class));
 
         assertEquals("OrderPlaced", meta.get("event_type"));
         assertEquals(1, meta.get("schema_version"));
@@ -84,11 +84,14 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
     @Test
     void oneDeliveryPerDestinationIsRecordedAndNothingIsClaimedDelivered() throws Exception {
         placeCustomizedOrder("trace-event-2");
-        Set<String> destinations = jdbc.queryForList("SELECT destination FROM outbox_deliveries", String.class)
+        String placed = " FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id"
+                + " WHERE e.event_type = 'OrderPlaced'";
+        Set<String> destinations = jdbc.queryForList("SELECT d.destination" + placed, String.class)
                 .stream().collect(Collectors.toSet());
         assertEquals(Set.of("KITCHEN", "QR", "NOTIFICATION", "WAITER"), destinations);
-        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE status = 'PENDING'"
-                + " AND attempt_count = 0 AND delivered_at IS NULL AND next_attempt_at IS NOT NULL", Integer.class));
+        assertEquals(4, jdbc.queryForObject("SELECT count(*)" + placed + " AND d.status = 'PENDING'"
+                + " AND d.attempt_count = 0 AND d.delivered_at IS NULL AND d.next_attempt_at IS NOT NULL",
+                Integer.class));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE status = 'DELIVERED'",
                 Integer.class), "no dispatcher exists, so nothing may be marked delivered");
     }
@@ -96,7 +99,7 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
     @Test
     void eventNeverContainsCredentialsOrClientSuppliedSecrets() throws Exception {
         placeCustomizedOrder("trace-event-3");
-        String payload = jdbc.queryForObject("SELECT payload::text FROM outbox_events", String.class).toLowerCase();
+        String payload = jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE event_type = 'OrderPlaced'", String.class).toLowerCase();
         for (String forbidden : new String[]{"token", "bearer", "authorization", "password", "secret",
                 A1.toLowerCase(), "idempotency"}) {
             assertFalse(payload.contains(forbidden), "event payload must not contain '" + forbidden + "'");
@@ -112,7 +115,7 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
         placeOrder(A1, key, body).andExpect(status().isCreated());
         assertEquals(1, count("outbox_events"));
         assertEquals(4, count("outbox_deliveries"));
-        assertNotNull(jdbc.queryForObject("SELECT id FROM outbox_events", UUID.class));
+        assertNotNull(jdbc.queryForObject("SELECT id FROM outbox_events WHERE event_type = 'OrderPlaced'", UUID.class));
     }
 
     @Test

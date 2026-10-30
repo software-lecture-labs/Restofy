@@ -86,6 +86,7 @@ public class OrderCheckoutService {
     private final OrderNumberGenerator orderNumbers;
     private final OutboxEventWriter outbox;
     private final OrderStatusHistoryStore history;
+    private final TableSessionClosureService closures;
     private final IdempotencyProperties retention;
     private final Clock clock;
     private final TransactionTemplate writeTx;
@@ -95,7 +96,7 @@ public class OrderCheckoutService {
                                 QrSessionPort qrSessions, CartLinePricer pricer, CartMapper cartMapper,
                                 OrderMapper orderMapper, IdempotencyStore idempotency,
                                 OrderNumberGenerator orderNumbers, OutboxEventWriter outbox, OrderStatusHistoryStore history,
-                                IdempotencyProperties retention, Clock clock,
+                                TableSessionClosureService closures, IdempotencyProperties retention, Clock clock,
                                 PlatformTransactionManager txManager) {
         this.carts = carts;
         this.orders = orders;
@@ -108,6 +109,7 @@ public class OrderCheckoutService {
         this.orderNumbers = orderNumbers;
         this.outbox = outbox;
         this.history = history;
+        this.closures = closures;
         this.retention = retention;
         this.clock = clock;
         this.writeTx = new TransactionTemplate(txManager);
@@ -232,6 +234,10 @@ public class OrderCheckoutService {
     /** Runs inside the write transaction. Returns null when the idempotency key was already claimed. */
     private Order place(GuestSessionContext guest, String key, String digest, String actor, UUID orderId,
                         CheckoutRequest request, String note, Prepared prepared, String correlationId) {
+        // First statement of the transaction (ADR-QR-001 K8): order this checkout against closing the table session. A
+        // closure prepared or completed first refuses the order here, before the idempotency key or anything else is
+        // written; a checkout that got in first is part of the scope the closure then sees.
+        closures.requireOpenForCheckout(guest.restaurantId(), guest.tableSessionId());
         // PostgreSQL stores microseconds; truncating here keeps the first response identical to every replay.
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (!idempotency.tryClaim(guest.restaurantId(), actor, OPERATION, key, digest, orderId, CREATED, now,

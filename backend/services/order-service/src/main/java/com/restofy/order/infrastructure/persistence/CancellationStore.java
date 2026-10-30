@@ -16,7 +16,7 @@ import java.util.UUID;
 import static com.restofy.order.infrastructure.persistence.JdbcTimestamps.timestamp;
 
 /**
- * Persistence of order cancellations (V50). Writes must run in the business transaction ({@code MANDATORY}) and the
+ * Persistence of order cancellations (V47). Writes must run in the business transaction ({@code MANDATORY}) and the
  * database enforces the rules that must hold whatever the code does: one open request per order, a decision made once,
  * append-only lines and reasons, and {@code order_items.cancelled_quantity} equal to the applied cancellations.
  */

@@ -163,7 +163,7 @@ public class Order {
 
     /**
      * Closes the payment axis of an order that was cancelled before any payment attempt (NOT_REQUESTED to CANCELLED, the
-     * move V48 reserves for this). It is not a payment event and claims nothing about money.
+     * move the V45 payment guard reserves for this). It is not a payment event and claims nothing about money.
      */
     public void closePaymentAxis(Instant now) {
         this.paymentStatus = PaymentStatus.CANCELLED;

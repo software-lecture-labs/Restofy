@@ -59,6 +59,7 @@ class OrderSessionRecheckApiTests {
     @BeforeEach
     void prepare() throws Exception {
         jdbc.execute("TRUNCATE order_status_history");
+        jdbc.execute("TRUNCATE table_session_closures");
         for (String table : new String[]{"outbox_deliveries", "outbox_events", "idempotency_records",
                 "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);
@@ -84,7 +85,9 @@ class OrderSessionRecheckApiTests {
 
     private void assertNothingWasOrdered() {
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM orders", Integer.class));
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_events", Integer.class));
+        // adding the item to the cart recorded a cart-activity notification; no BUSINESS event of an order exists
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_events WHERE event_type <> 'CartActivityRecorded'", Integer.class));
         assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM carts", String.class));
     }
 

@@ -12,7 +12,7 @@ import java.util.Set;
  * <pre>
  *   NOT_REQUESTED &gt; PENDING &gt; PAID | FAILED | CANCELLED        FAILED &gt; PENDING (a new attempt)
  * </pre>
- * PAID and CANCELLED are final. The same rules are repeated as a guard trigger in the database (V48).
+ * PAID and CANCELLED are final. The same rules are repeated as a guard trigger in the database (V45).
  */
 public final class PaymentTransitions {
 

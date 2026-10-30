@@ -208,7 +208,7 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
         assertEquals("CHECKED_OUT", jdbc.queryForObject("SELECT status FROM carts", String.class));
         assertEquals(1, count("idempotency_records"));
         assertEquals(1, count("outbox_events"));
-        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE status = 'PENDING'", Integer.class));
+        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id WHERE e.event_type = 'OrderPlaced' AND d.status = 'PENDING'", Integer.class));
 
         // the ordered cart is gone for the guest; the next cart starts empty
         getCart(A1).andExpect(jsonPath("$.items", hasSize(0)));

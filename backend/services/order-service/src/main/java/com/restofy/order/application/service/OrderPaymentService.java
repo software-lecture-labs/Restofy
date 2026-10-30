@@ -48,7 +48,7 @@ import java.util.UUID;
  *
  * <p><b>Identity of a payment.</b> The message id ({@code eventId}) only makes a MESSAGE idempotent and is only
  * remembered for the inbox retention window. What identifies the money is the {@code captureId} of a PAID, and what
- * identifies a try is the {@code paymentAttemptId}. Every collection is recorded in {@code payment_captures} (V49), where
+ * identifies a try is the {@code paymentAttemptId}. Every collection is recorded in {@code payment_captures} (V46), where
  * the DATABASE guarantees that one capture id exists once and that an order is settled by at most one collection, so
  * the same collection can never have a second financial effect, whatever message id it comes under and however long
  * ago the inbox was cleaned. A DIFFERENT collection arriving for an order that is already paid is a possible double

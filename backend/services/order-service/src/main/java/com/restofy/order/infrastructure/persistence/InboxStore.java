@@ -26,9 +26,9 @@ public class InboxStore {
     public static final String RECONCILIATION_EVENT_TYPE = "PaymentPaidNotApplicable";
 
     /**
-     * Provisional capture markers written before V49 introduced {@code payment_captures}. V49 carried what they stood for
-     * into the new tables and nothing writes them any more, but existing rows are kept (never deleted by the ordinary
-     * cleanup) so the earlier data stays intact. The financial records themselves are {@code payment_captures} and
+     * Marker type of an earlier, provisional mechanism that {@code payment_captures} (V46) replaced. Nothing writes it any
+     * more, but rows of this type, if a database ever holds any, are kept (never deleted by the ordinary cleanup) so
+     * nothing earlier is lost. The financial records themselves are {@code payment_captures} and
      * {@code payment_reconciliation_cases}, which no cleanup touches.
      */
     public static final String CAPTURE_APPLIED_TYPE = "PaymentCaptureApplied";

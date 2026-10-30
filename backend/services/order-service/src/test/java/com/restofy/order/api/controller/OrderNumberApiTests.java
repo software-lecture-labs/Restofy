@@ -175,7 +175,7 @@ class OrderNumberApiTests extends AbstractCartApiTest {
     @Test
     void orderNumberIsPartOfTheOutboxEventAndMatchesTheOrder() throws Exception {
         JsonNode order = order(DevFixtures.TOKEN_A1);
-        String payload = jdbc.queryForObject("SELECT payload::text FROM outbox_events", String.class);
+        String payload = jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE event_type = 'OrderPlaced'", String.class);
         JsonNode event = json.readTree(payload);
         assertEquals(order.path("orderNo").asString(), event.path("orderNo").asString());
         assertEquals(order.path("orderId").asString(), event.path("orderId").asString());

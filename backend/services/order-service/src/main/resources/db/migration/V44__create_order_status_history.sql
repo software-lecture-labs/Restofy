@@ -52,14 +52,3 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_order_status_history_append_only
     BEFORE UPDATE OR DELETE ON order_status_history
     FOR EACH ROW EXECUTE FUNCTION order_status_history_append_only();
-
--- Orders placed before this migration get one initial row per axis so every order has a complete timeline.
-INSERT INTO order_status_history (id, restaurant_id, order_id, state_axis, from_status, to_status, actor_type, source,
-                                  occurred_at)
-SELECT gen_random_uuid(), restaurant_id, id, 'FULFILLMENT', NULL, fulfillment_status, 'SYSTEM', 'BACKFILL', placed_at
-FROM orders;
-
-INSERT INTO order_status_history (id, restaurant_id, order_id, state_axis, from_status, to_status, actor_type, source,
-                                  occurred_at)
-SELECT gen_random_uuid(), restaurant_id, id, 'PAYMENT', NULL, payment_status, 'SYSTEM', 'BACKFILL', placed_at
-FROM orders;

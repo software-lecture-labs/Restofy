@@ -73,6 +73,14 @@ public class SecurityConfiguration {
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/payment")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.PAYMENT))
+                        // Table-session closure (ADR-QR-001): only the QR Service, which owns tables and their sessions.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/internal/table-sessions/*/closure-preparations")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/internal/table-sessions/*/closure-preparations/*")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/internal/table-sessions/*/closure-preparations/*/confirmation")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
                         .anyRequest().denyAll())
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),
                         AnonymousAuthenticationFilter.class)

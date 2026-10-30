@@ -1,11 +1,11 @@
--- Order Service ORDER-04 / commit 2 (range V41-V50): order cancellation, the last migration of the range.
+-- Order Service ORDER-04 / commit 2 (range V41-V50): order cancellation.
 --
 -- A cancellation is REQUESTED first and DECIDED later (APPLIED or REJECTED); asking and finalising are different facts.
 -- An immediate cancellation (the kitchen has not started) is requested and applied in the same transaction. A
 -- cancellation that needs the Kitchen's confirmation stays REQUESTED until the trusted Kitchen service answers, so
 -- without that answer (for example in production before the Kitchen integration exists) nothing is ever finalised.
 --
--- The order snapshot is never rewritten: order_items.cancelled_quantity is the only moving part (V44 allows exactly that),
+-- The order snapshot is never rewritten: order_items.cancelled_quantity is the only moving part (the V42 snapshot guard allows exactly that),
 -- and from here on the database itself keeps it equal to the sum of the APPLIED cancellations. Money columns are BIGINT
 -- minor units and keep apart: the original total (orders.initial_*), what is cancelled, the net after cancellation, the
 -- verified amount collected, the remaining debt, the refund the cancellation REQUIRES and the refund that really happened

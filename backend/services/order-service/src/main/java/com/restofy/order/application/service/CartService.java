@@ -13,13 +13,19 @@ import com.restofy.order.application.service.ResolvedSelection.ResolvedOption;
 import com.restofy.order.domain.entity.Cart;
 import com.restofy.order.domain.entity.CartItem;
 import com.restofy.order.domain.entity.CartItemOption;
+import com.restofy.order.domain.event.CartActivityRecordedEvent;
+import com.restofy.order.domain.event.CartActivityRecordedEvent.Activity;
+import com.restofy.order.domain.event.EventDestination;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.domain.pricing.PriceCalculator;
 import com.restofy.order.infrastructure.config.CartProperties;
+import com.restofy.order.infrastructure.config.CorrelationIdFilter;
 import com.restofy.order.infrastructure.config.IdempotencyProperties;
+import com.restofy.order.infrastructure.messaging.OutboxEventWriter;
 import com.restofy.order.infrastructure.persistence.IdempotencyStore;
 import com.restofy.order.infrastructure.persistence.repository.CartRepository;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -50,13 +56,15 @@ public class CartService {
     private final CartProperties limits;
     private final IdempotencyStore idempotency;
     private final IdempotencyProperties retention;
+    private final OutboxEventWriter outbox;
     private final Clock clock;
     private final TransactionTemplate writeTx;
     private final TransactionTemplate readTx;
 
     public CartService(CartRepository carts, MenuCatalogPort catalog, CartSelectionResolver selections,
                        CartMapper mapper, CartProperties limits, IdempotencyStore idempotency,
-                       IdempotencyProperties retention, Clock clock, PlatformTransactionManager txManager) {
+                       IdempotencyProperties retention, OutboxEventWriter outbox, Clock clock,
+                       PlatformTransactionManager txManager) {
         this.carts = carts;
         this.catalog = catalog;
         this.selections = selections;
@@ -64,6 +72,7 @@ public class CartService {
         this.limits = limits;
         this.idempotency = idempotency;
         this.retention = retention;
+        this.outbox = outbox;
         this.clock = clock;
         this.writeTx = new TransactionTemplate(txManager);
         this.readTx = new TransactionTemplate(txManager);
@@ -120,6 +129,7 @@ public class CartService {
             requireExpectedVersion(cart, request.expectedCartVersion());
             putLine(cart, product, selection, unitGross, request.quantity(), now);
             cart.touch(now);
+            recordActivity(context, cart, Activity.ITEM_ADDED, now);
             return false;
         });
         if (Boolean.TRUE.equals(alreadyClaimed)) {
@@ -234,6 +244,7 @@ public class CartService {
                 Instant now = clock.instant();
                 item.changeQuantity(request.quantity(), now);
                 cart.touch(now);
+                recordActivity(context, cart, Activity.ITEM_QUANTITY_CHANGED, now);
             }
         });
         return view(context);
@@ -247,7 +258,9 @@ public class CartService {
             CartItem item = cart.findItem(cartItemId).orElseThrow(CartService::itemNotFound);
             requireExpectedVersion(cart, expectedCartVersion);
             cart.removeItem(item);
-            cart.touch(clock.instant());
+            Instant now = clock.instant();
+            cart.touch(now);
+            recordActivity(context, cart, Activity.ITEM_REMOVED, now);
         });
         return view(context);
     }
@@ -260,9 +273,26 @@ public class CartService {
                 lockExistingCart(context).filter(cart -> !cart.getItems().isEmpty()).ifPresent(cart -> {
                     requireExpectedVersion(cart, expectedCartVersion);
                     cart.clearItems();
-                    cart.touch(clock.instant());
+                    Instant now = clock.instant();
+                    cart.touch(now);
+                    recordActivity(context, cart, Activity.CART_CLEARED, now);
                 }));
         return view(context);
+    }
+
+    /**
+     * Announces a successful cart change to the QR Service in the same transaction as the change (ADR-QR-001 K6): the
+     * event exists if and only if the change was committed. The aggregate version is the one the cart has after this
+     * transaction commits.
+     */
+    private void recordActivity(GuestSessionContext context, Cart cart, Activity activity, Instant now) {
+        UUID eventId = UUID.randomUUID();
+        String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
+        CartActivityRecordedEvent event = new CartActivityRecordedEvent(eventId, CartActivityRecordedEvent.TYPE,
+                CartActivityRecordedEvent.SCHEMA_VERSION, now, correlationId, context.restaurantId(),
+                context.tableSessionId(), context.guestSessionId(), cart.getId(), activity);
+        outbox.write(eventId, context.restaurantId(), "CART", cart.getId(), cart.getVersion() + 1, event.eventType(),
+                event.schemaVersion(), correlationId, event, now, List.of(EventDestination.QR));
     }
 
     private CartResponse view(GuestSessionContext context) {

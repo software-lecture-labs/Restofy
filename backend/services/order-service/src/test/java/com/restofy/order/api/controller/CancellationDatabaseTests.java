@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** V50: what the DATABASE itself guarantees about cancellations, whatever the application code does. */
+/** V47: what the DATABASE itself guarantees about cancellations, whatever the application code does. */
 class CancellationDatabaseTests extends AbstractCancellationApiTest {
 
     private static final String WAITER = staff(DevFixtures.STAFF_WAITER_A);

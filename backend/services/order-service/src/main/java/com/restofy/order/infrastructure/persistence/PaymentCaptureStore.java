@@ -14,7 +14,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The Order Service's local record of the collections the Payment Service reported (see V49). The database, not this
+ * The Order Service's local record of the collections the Payment Service reported (see V46). The database, not this
  * class, guarantees that one capture id exists once ({@code UNIQUE(capture_id)}), that an order is settled by at most one
  * collection, and that a capture is never rewritten. Writes must run in the business transaction ({@code MANDATORY}).
  */

@@ -81,11 +81,6 @@ CREATE TABLE payment_reconciliation_cases (
 
 CREATE INDEX ix_payment_reconciliation_restaurant ON payment_reconciliation_cases (restaurant_id, created_at);
 
--- A PAID message waiting for its PENDING gets its own inbox outcome.
-ALTER TABLE inbox_events DROP CONSTRAINT ck_inbox_events_outcome;
-ALTER TABLE inbox_events ADD CONSTRAINT ck_inbox_events_outcome
-    CHECK (outcome IN ('APPLIED', 'IGNORED_STALE', 'IGNORED_ORDER_CLOSED', 'PENDING_VERIFICATION'));
-
 -- ---- database guards ---------------------------------------------------------------------------------------------
 
 -- A capture is never deleted and never rewritten. The only change it may go through is leaving PENDING_VERIFICATION
@@ -145,61 +140,3 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_payment_reconciliation_cases_append_only
     BEFORE UPDATE OR DELETE ON payment_reconciliation_cases
     FOR EACH ROW EXECUTE FUNCTION payment_reconciliation_cases_append_only();
-
--- ---- compatibility: bring forward what the earlier, provisional mechanism recorded --------------------------------
--- Before this migration a collection was remembered by (1) the references in the PAID history row and (2) an
--- OrderPaymentReconciliationRequired outbox event for money that could not be applied (plus permanent inbox marker rows).
--- Nothing is deleted or rewritten: the history, the outbox and the inbox stay exactly as they are, and the new tables
--- are filled from them, so the old data and the new model agree.
-
--- (1) applied collections, from the permanent PAID history rows
-INSERT INTO payment_captures (id, capture_id, restaurant_id, order_id, payment_attempt_id, amount_minor, currency,
-                              status, source_event_id, occurred_at, received_at, resolved_at)
-SELECT gen_random_uuid(),
-       (regexp_match(h.reason, 'captureId=([0-9a-f-]{36})'))[1]::uuid,
-       h.restaurant_id, h.order_id,
-       (regexp_match(h.reason, 'attemptId=([0-9a-f-]{36})'))[1]::uuid,
-       (regexp_match(h.reason, 'amountMinor=([0-9]+)'))[1]::bigint,
-       (regexp_match(h.reason, 'currency=([A-Z]{3})'))[1],
-       'APPLIED', coalesce(h.source_event_id, gen_random_uuid()), h.occurred_at, h.occurred_at, h.occurred_at
-FROM order_status_history h
-WHERE h.state_axis = 'PAYMENT' AND h.to_status = 'PAID'
-  AND h.reason ~ 'attemptId=[0-9a-f-]{36}' AND h.reason ~ 'captureId=[0-9a-f-]{36}'
-  AND h.reason ~ 'amountMinor=[0-9]+' AND h.reason ~ 'currency=[A-Z]{3}'
-ON CONFLICT (capture_id) DO NOTHING;
-
--- (2) money that could not be applied, from the reconciliation outbox events: first the collection (when it is not
--- already known as another order's), then the case
-INSERT INTO payment_captures (id, capture_id, restaurant_id, order_id, payment_attempt_id, amount_minor, currency,
-                              status, not_applied_reason, source_event_id, occurred_at, received_at, resolved_at)
-SELECT gen_random_uuid(), (e.payload->>'reportedCaptureId')::uuid, e.restaurant_id, e.aggregate_id,
-       (e.payload->>'reportedPaymentAttemptId')::uuid, (e.payload->>'reportedAmountMinor')::bigint,
-       e.payload->>'reportedCurrency', 'NOT_APPLIED', e.payload->>'reason',
-       (e.payload->>'reportedPaymentEventId')::uuid,
-       CASE WHEN jsonb_typeof(e.payload->'reportedOccurredAt') = 'number'
-            THEN to_timestamp((e.payload->>'reportedOccurredAt')::double precision)
-            ELSE (e.payload->>'reportedOccurredAt')::timestamptz END,
-       e.occurred_at, e.occurred_at
-FROM outbox_events e
-WHERE e.event_type = 'OrderPaymentReconciliationRequired'
-  AND e.payload->>'reason' IN ('SECOND_CAPTURE', 'ORDER_CANCELLED', 'PAYMENT_CANCELLED')
-  AND e.payload->>'reportedCaptureId' IS NOT NULL AND e.payload->>'reportedPaymentAttemptId' IS NOT NULL
-ON CONFLICT (capture_id) DO NOTHING;
-
-INSERT INTO payment_reconciliation_cases (id, restaurant_id, order_id, capture_id, payment_attempt_id, reason,
-                                          reported_amount_minor, reported_currency, source_event_id, occurred_at,
-                                          fulfillment_status, payment_status, created_at)
-SELECT gen_random_uuid(), e.restaurant_id, e.aggregate_id, (e.payload->>'reportedCaptureId')::uuid,
-       (e.payload->>'reportedPaymentAttemptId')::uuid, e.payload->>'reason', (e.payload->>'reportedAmountMinor')::bigint,
-       e.payload->>'reportedCurrency', (e.payload->>'reportedPaymentEventId')::uuid,
-       CASE WHEN jsonb_typeof(e.payload->'reportedOccurredAt') = 'number'
-            THEN to_timestamp((e.payload->>'reportedOccurredAt')::double precision)
-            ELSE (e.payload->>'reportedOccurredAt')::timestamptz END,
-       coalesce(e.payload->>'fulfillmentStatus', 'RECEIVED'), coalesce(e.payload->>'paymentStatus', 'NOT_REQUESTED'),
-       e.occurred_at
-FROM outbox_events e
-WHERE e.event_type = 'OrderPaymentReconciliationRequired'
-  AND e.payload->>'reason' IN ('SECOND_CAPTURE', 'CAPTURE_USED_ON_OTHER_ORDER', 'ORDER_CANCELLED', 'PAYMENT_CANCELLED')
-  AND e.payload->>'reportedCaptureId' IS NOT NULL AND e.payload->>'reportedPaymentAttemptId' IS NOT NULL
-  AND EXISTS (SELECT 1 FROM payment_captures c WHERE c.capture_id = (e.payload->>'reportedCaptureId')::uuid)
-ON CONFLICT (order_id, capture_id, reason) DO NOTHING;

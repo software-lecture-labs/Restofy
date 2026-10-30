@@ -100,7 +100,7 @@ class OrderCheckoutRollbackApiTests extends AbstractCartApiTest {
     void placingAnOrderDoesNotDependOnAnyConsumerOfTheEvent() throws Exception {
         addItem(A1, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
         placeOrder(A1, newKey(), confirmedCheckout(A1)).andExpect(status().isCreated());
-        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE status = 'PENDING'", Integer.class));
+        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id WHERE e.event_type = 'OrderPlaced' AND d.status = 'PENDING'", Integer.class));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE attempt_count > 0", Integer.class),
                 "nothing was attempted, so nothing is claimed delivered");
     }
