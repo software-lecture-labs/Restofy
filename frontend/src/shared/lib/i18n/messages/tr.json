@@ -1,4 +1,8 @@
 {
+  "Brand": {
+    "pause": "Restofy yazı animasyonunu duraklat",
+    "resume": "Restofy yazı animasyonunu sürdür"
+  },
   "Login": {
     "staffArea": "Personel girişi",
     "skip": "Giriş formuna geç",

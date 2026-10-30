@@ -78,16 +78,13 @@ export function LoginPage() {
     <main className={styles.page}>
       <a className={styles.skip} href="#login-content">{t("skip")}</a>
       <section className={styles.loginSide} aria-label={t("staffArea")}>
-        <header className={styles.header}>
-          <BrandWordmark />
-          <span className={styles.staffLabel}>{t("staffArea")}</span>
-        </header>
         <div className={styles.formWrap} id="login-content">
-          <div className={styles.eyebrow}><span />{t("eyebrow")}</div>
-          <h1 className={styles.title}>{session ? t(session.status === "MFA_PENDING" ? "mfaTitle" : "successTitle") : t("title")}</h1>
-          <p className={styles.subtitle}>{session
-            ? t(session.status === "MFA_PENDING" ? (session.mfaSetupRequired ? "mfaSetup" : "mfaPending") : "successDescription")
-            : t("description")}</p>
+          <h1 className={styles.brandHeading} aria-label="Restofy"><BrandWordmark /></h1>
+          {session && <>
+            <h2 className={styles.title}>{t(session.status === "MFA_PENDING" ? "mfaTitle" : "successTitle")}</h2>
+            <p className={styles.subtitle}>{t(session.status === "MFA_PENDING"
+              ? (session.mfaSetupRequired ? "mfaSetup" : "mfaPending") : "successDescription")}</p>
+          </>}
           {error && <p className={styles.error} ref={errorElement} tabIndex={-1} role="alert">{error}</p>}
           {session ? (
             <div className={styles.sessionState}>

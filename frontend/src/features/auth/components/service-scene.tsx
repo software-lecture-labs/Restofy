@@ -9,11 +9,6 @@ export function ServiceScene() {
   const [paused, setPaused] = useState(false);
   return (
     <aside className={`${styles.scene} ${paused ? styles.paused : ""}`} aria-label={t("sceneLabel")}>
-      <div className={styles.sceneTop}><span className={styles.sceneDot} />{t("sceneEyebrow")}</div>
-      <div className={styles.sceneCopy}>
-        <h2>{t("sceneTitle")}<br /><span>{t("sceneTitleAccent")}</span></h2>
-        <p>{t("sceneDescription")}</p>
-      </div>
       <div className={styles.artwork} aria-hidden="true">
         <div className={styles.orbit} />
         <svg viewBox="0 0 620 530" fill="none" className={styles.servingArt}>
@@ -57,7 +52,6 @@ export function ServiceScene() {
         </svg>
       </div>
       <div className={styles.sceneBottom}>
-        <span>{t("sceneFooter")}</span>
         <button type="button" className={styles.motionToggle} onClick={() => setPaused(!paused)}
           aria-label={paused ? t("resumeMotion") : t("pauseMotion")} aria-pressed={paused}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

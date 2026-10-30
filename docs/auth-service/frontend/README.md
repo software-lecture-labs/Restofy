@@ -1,6 +1,22 @@
 # Frontend bağlantısı ve mevcut marka paleti
 
 Durum: 30 Ekim 2026 ilk `/login` sayfası uygulandı; landing page henüz yapılmadı.
+Son görsel revizyon: sloganlar ve karşılama metni kaldırıldı; Restofy formun üstünde
+tek başlık oldu. Kullanıcının `Kayıt 2026-10-30 221504.mp4` referansı incelendi:
+harf konumları sabit, dolgu kaybolunca ince kontur kalıyor; harfler farklı zamanlarda yeniden
+yanıyor ve pointer geçişinde kısa titreşim oluşuyor. Önceki kırpma/silinme animasyonu kaldırıldı.
+Bu davranış bağımsız CSS ile uygulanır; tıklayınca tamamen aydınlık ve sabit durur,
+azaltılmış hareket tercihinde animasyon yoktur. Sağ alan metinsiz video alanına sadeleştirildi.
+Bu revizyonda kullanıcı talebiyle test/betik yazılmadı, test/build/lint çalıştırılmadı;
+aşağıdaki test sonuçları önceki sürüme aittir. Önceki görsel test beklentileri de henüz güncellenmedi.
+
+Kullanıcının sonraki marka düzeltmesi önceliklidir: arayüz tabanı saf siyah `#000000`, panel
+`#141414`, turuncu `#FF9500` / `#FF6500`; metin ve sınırlar nötr gri/beyazdır, lacivert kullanılmaz.
+Aşağıdaki SVG renkleri tarihsel kaynak ölçümüdür; güncel login tokenları olarak okunmamalıdır.
+Resmî React Bits Pro Signal Type henüz kurulmadı: `components.json` yok ve mevcut süreçte
+`REACTBITS_LICENSE_KEY` tanımlı değil. Gerçek ENV dosyaları okunmadı/değiştirilmedi.
+Kullanıcı lisansı olmadığını belirtti; video referansıyla bağımsız efekt seçildi.
+Mevcut CSS efekti resmî bileşen değildir; lisanslı kaynak veya yeni bağımlılık kullanılmadı.
 Görsel referans: iki sütunlu Epidemic Sound giriş düzeni; Restofy paleti ve özgün servis illüstrasyonu.
 Üst marka yazısı Signal Type fikrinden esinlenen kısa CSS reveal kullanır; üçüncü taraf bileşen
 kodu/paketi eklenmedi. Sağ alan kullanıcı videosuyla sonraki adımda değiştirilebilir.

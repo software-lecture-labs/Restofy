@@ -2,7 +2,8 @@
 .loginSide { display: flex; flex-direction: column; min-width: 0; padding: 42px clamp(32px, 6.3vw, 112px) 28px; }
 .header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .staffLabel { color: var(--text-muted); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
-.formWrap { width: 100%; max-width: 410px; margin: auto; padding: 74px 0 64px; scroll-margin-top: 32px; }
+.formWrap { width: 100%; max-width: 380px; margin: auto; padding: 90px 0 74px; scroll-margin-top: 32px; }
+.brandHeading { margin: 0 0 48px; line-height: 1; }
 .eyebrow { display: flex; gap: 9px; align-items: center; color: var(--brand-primary); text-transform: uppercase; letter-spacing: .18em; font-size: 10px; font-weight: 600; margin-bottom: 22px; }
 .eyebrow > span { width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
 .title { font-size: clamp(2.3rem, 3.25vw, 3.25rem); font-weight: 500; line-height: 1.12; letter-spacing: -.055em; margin: 0 0 18px; text-wrap: balance; }
@@ -44,7 +45,7 @@
 .skip { position: fixed; top: 10px; left: 10px; padding: 12px 18px; border-radius: 8px; background: var(--brand-primary); color: var(--text-on-brand); z-index: 10; transform: translateY(-180%); }
 .skip:focus { transform: translateY(0); }
 .page button:focus-visible, .page select:focus-visible, .page summary:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 4px; }
-.scene { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; min-width: 0; padding: 54px clamp(34px, 4.5vw, 76px) 26px; color: var(--illustration-ink); background: radial-gradient(ellipse at 80% 38%, #ffd398 0%, transparent 65%), linear-gradient(155deg, #ffbd71, var(--brand-primary) 60%, #ed8333); color-scheme: light; }
+.scene { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; min-width: 0; padding: 54px clamp(34px, 4.5vw, 76px) 26px; color: var(--illustration-ink); background: var(--brand-primary); color-scheme: light; }
 .scene::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: -1; opacity: .12; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%23000' filter='url(%23n)' opacity='.45' d='M0 0h180v180H0z'/%3E%3C/svg%3E"); }
 .sceneTop { display: flex; align-items: center; gap: 9px; font-size: 10px; letter-spacing: .16em; font-weight: 600; text-transform: uppercase; }
 .sceneDot { width: 7px; height: 7px; border: 1px solid currentColor; border-radius: 50%; }
@@ -58,7 +59,7 @@
 .orbit::before { content: ""; position: absolute; inset: -35px; border: 1px solid #ffedd222; border-radius: 50%; }
 .cloche { animation: serve 7s ease-in-out infinite; transform-origin: center; }
 .leaf { animation: leaf-drift 7s ease-in-out infinite; transform-origin: 450px 160px; }
-.sceneBottom { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 10px; letter-spacing: .025em; }
+.sceneBottom { position: absolute; right: 32px; bottom: 26px; }
 .motionToggle { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #70321042; border-radius: 50%; color: var(--illustration-ink); background: transparent; }
 .motionToggle:hover { background: #ffffff26; }
 .scene .motionToggle:focus-visible { outline-color: var(--illustration-ink); }

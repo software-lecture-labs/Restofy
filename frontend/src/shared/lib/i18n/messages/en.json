@@ -1,4 +1,8 @@
 {
+  "Brand": {
+    "pause": "Pause the Restofy wordmark animation",
+    "resume": "Resume the Restofy wordmark animation"
+  },
   "Login": {
     "staffArea": "Staff sign in",
     "skip": "Skip to sign-in form",
