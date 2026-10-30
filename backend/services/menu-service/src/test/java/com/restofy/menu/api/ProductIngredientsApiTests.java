@@ -94,7 +94,8 @@ class ProductIngredientsApiTests {
     }
 
     private UUID created(String ingredientsField) throws Exception {
-        String body = send(post(BASE), create(ingredientsField)).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String body = send(post(BASE), create(ingredientsField)).andExpect(status().isCreated()).andReturn().getResponse()
+                .getContentAsString();
         return UUID.fromString(JsonPath.read(body, "$.id"));
     }
 
@@ -134,13 +135,15 @@ class ProductIngredientsApiTests {
         UUID id = created("");
         read(id).andExpect(status().isOk()).andExpect(jsonPath("$.ingredientsText").doesNotExist());
         assertNull(row(id).get("ingredients_text"));
-        assertTrue(JsonPath.<Map<String, Object>>read(read(id).andReturn().getResponse().getContentAsString(), "$").containsKey("ingredientsText"),
+        assertTrue(JsonPath.<Map<String, Object>>read(read(id).andReturn().getResponse().getContentAsString(),
+                "$").containsKey("ingredientsText"),
                 "the key is always present so a client can tell 'not provided' from 'unknown field'");
     }
 
     @Test
     void blankOrNullIngredientsAreStoredAsNullNeverAsEmptyText() throws Exception {
-        for (String field : new String[] {"\"ingredientsText\":null,", "\"ingredientsText\":\"\",", "\"ingredientsText\":\"   \",", "\"ingredientsText\":\"\\t\\n \","}) {
+        for (String field : new String[] {"\"ingredientsText\":null,", "\"ingredientsText\":\"\",", "\"ingredientsText\":\"   \",",
+                "\"ingredientsText\":\"\\t\\n \","}) {
             UUID id = created(field);
             assertNull(row(id).get("ingredients_text"), field);
         }
@@ -198,13 +201,15 @@ class ProductIngredientsApiTests {
         var before = row(id);
         patchOf(id, "\"Flour, water\"", 0).andExpect(status().isOk()).andExpect(jsonPath("$.ingredientsText").value("Flour, water"))
                 .andExpect(jsonPath("$.version").value(1));
-        patchOf(id, "\"Flour, water, salt\"", 1).andExpect(status().isOk()).andExpect(jsonPath("$.ingredientsText").value("Flour, water, salt"))
+        patchOf(id, "\"Flour, water, salt\"", 1).andExpect(status().isOk()).andExpect(jsonPath("$.ingredientsText")
+                .value("Flour, water, salt"))
                 .andExpect(jsonPath("$.version").value(2));
         patchOf(id, "\"  \"", 2).andExpect(status().isOk()).andExpect(jsonPath("$.ingredientsText").doesNotExist())
                 .andExpect(jsonPath("$.version").value(3));
         var after = row(id);
         assertNull(after.get("ingredients_text"));
-        for (String column : List.of("name", "description", "base_price", "currency", "vat_rate", "price_includes_vat", "is_active", "is_published", "category_id")) {
+        for (String column : List.of("name", "description", "base_price", "currency", "vat_rate", "price_includes_vat", "is_active",
+                "is_published", "category_id")) {
             assertEquals(before.get(column), after.get(column), column + " is untouched by an ingredients update");
         }
     }
@@ -254,8 +259,10 @@ class ProductIngredientsApiTests {
     void aPartiallyInvalidUpdateAppliesNoneOfItsFields() throws Exception {
         UUID id = created("\"ingredientsText\":\"Flour\",");
         var before = row(id);
-        send(patch(BASE + "/" + id), "{\"ingredientsText\":\"New text\",\"name\":\"Renamed\",\"basePrice\":-1,\"version\":0}").andExpect(status().isBadRequest());
-        send(patch(BASE + "/" + id), "{\"ingredientsText\":\"New text\",\"currency\":\"ZZZ\",\"version\":0}").andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id), "{\"ingredientsText\":\"New text\",\"name\":\"Renamed\",\"basePrice\":-1,\"version\":0}")
+                .andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id), "{\"ingredientsText\":\"New text\",\"currency\":\"ZZZ\",\"version\":0}")
+                .andExpect(status().isBadRequest());
         assertEquals(before, row(id));
     }
 
@@ -263,7 +270,8 @@ class ProductIngredientsApiTests {
 
     @Test
     void theTextNeverDerivesOptionsPricesOrAllergenInformation() throws Exception {
-        String body = send(post(BASE), create("\"ingredientsText\":\"Gluten, milk, nuts, extra cheese +5 TRY, no onion\",")).andExpect(status().isCreated())
+        String body = send(post(BASE), create("\"ingredientsText\":\"Gluten, milk, nuts, extra cheese +5 TRY, no onion\","))
+                .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Map<String, Object> response = JsonPath.read(body, "$");
         for (String forbidden : List.of("options", "ingredients", "allergens", "allergens", "removable", "extras", "priceDelta")) {
@@ -278,7 +286,8 @@ class ProductIngredientsApiTests {
     void anIngredientsEditNeverMovesArchivePublicationOrAvailability() throws Exception {
         UUID id = created("");
         send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":0}").andExpect(status().isOk());
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":0}").andExpect(status().isOk());
+        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":0}")
+                .andExpect(status().isOk());
         var availability = jdbc.queryForMap("SELECT * FROM product_availability WHERE product_id = ?", id);
         int history = jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE product_id = ?", Integer.class, id);
 
@@ -286,14 +295,17 @@ class ProductIngredientsApiTests {
                 .andExpect(jsonPath("$.isPublished").value(true)).andExpect(jsonPath("$.isActive").value(true))
                 .andExpect(jsonPath("$.availability.status").value("OUT_OF_STOCK")).andExpect(jsonPath("$.canOrder").value(false));
         assertEquals(availability, jdbc.queryForMap("SELECT * FROM product_availability WHERE product_id = ?", id));
-        assertEquals(history, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE product_id = ?", Integer.class, id));
+        assertEquals(history, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE product_id = ?", Integer.class,
+                id));
     }
 
     @Test
     void everyCommandResponseCarriesTheSameIngredientsText() throws Exception {
         UUID id = created("\"ingredientsText\":\"Flour\",");
-        send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":0}").andExpect(jsonPath("$.ingredientsText").value("Flour"));
-        send(patch(BASE + "/" + id + "/active"), "{\"isActive\":false,\"version\":1}").andExpect(jsonPath("$.ingredientsText").value("Flour"));
+        send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":0}").andExpect(jsonPath("$.ingredientsText")
+                .value("Flour"));
+        send(patch(BASE + "/" + id + "/active"), "{\"isActive\":false,\"version\":1}").andExpect(jsonPath("$.ingredientsText")
+                .value("Flour"));
         send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"CLEANING\",\"version\":0}")
                 .andExpect(jsonPath("$.ingredientsText").value("Flour"));
     }
@@ -304,7 +316,8 @@ class ProductIngredientsApiTests {
                 .andExpect(jsonPath("$.basePrice").value(0));
         send(post(BASE), create("\"ingredientsText\":\"Flour\",").replace("\"TRY\"", "\"XXX\"")).andExpect(status().isBadRequest());
         send(post(BASE), create("\"ingredientsText\":\"Flour\",").replace("12.5", "\"12.5\"")).andExpect(status().isBadRequest());
-        send(post(BASE), create("\"ingredientsText\":\"Flour\",").replace("\"vatRate\":10", "\"vatRate\":101")).andExpect(status().isBadRequest());
+        send(post(BASE), create("\"ingredientsText\":\"Flour\",").replace("\"vatRate\":10", "\"vatRate\":101"))
+                .andExpect(status().isBadRequest());
         assertEquals(1, products());
     }
 
@@ -344,7 +357,8 @@ class ProductIngredientsApiTests {
     void headersAndBodyFieldsCannotChooseTheTenantOrServerControlledValues() throws Exception {
         UUID forged = UUID.randomUUID();
         String body = create("\"ingredientsText\":\"Flour\",\"id\":\"" + forged + "\",\"createdByUserId\":\"" + forged
-                + "\",\"version\":9,\"canOrder\":true,\"isVisibleToCustomer\":true,\"allergens\":[\"milk\"],\"options\":[{\"name\":\"x\"}],");
+                + "\",\"version\":9,\"canOrder\":true,\"isVisibleToCustomer\":true,\"allergens\":[\"milk\"],\"options\":[{\"name\":\"x"
+                        + "\"}],");
         String response = mvc.perform(post(BASE).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .header("X-Restaurant-Id", RESTAURANT_B).header("X-Role", "ADMIN").header("X-User-Id", forged).content(body))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
@@ -356,7 +370,8 @@ class ProductIngredientsApiTests {
         assertNotEquals(forged, stored.get("created_by_user_id"));
         assertEquals(Boolean.FALSE, stored.get("is_published"));
         mvc.perform(patch(BASE + "/" + id).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Restaurant-Id", RESTAURANT_B).content("{\"ingredientsText\":\"Y\",\"version\":0,\"restaurantId\":\"" + RESTAURANT_B + "\"}"))
+                        .header("X-Restaurant-Id", RESTAURANT_B).content("{\"ingredientsText\":\"Y\",\"version\":0,\"restaurantId\":\""
+                                + RESTAURANT_B + "\"}"))
                 .andExpect(status().isBadRequest());
         assertEquals("Flour", row(id).get("ingredients_text"));
     }
@@ -364,7 +379,8 @@ class ProductIngredientsApiTests {
     @Test
     void errorBodiesDoNotEchoTheSubmittedText() throws Exception {
         String marker = "SECRET-MARKER-";
-        String body = send(post(BASE), create("\"ingredientsText\":" + json(marker + "i".repeat(1100)) + ",")).andExpect(status().isBadRequest())
+        String body = send(post(BASE), create("\"ingredientsText\":" + json(marker + "i".repeat(1100))
+                + ",")).andExpect(status().isBadRequest())
                 .andReturn().getResponse().getContentAsString();
         assertFalse(body.contains(marker));
         String unsafe = send(post(BASE), create("\"ingredientsText\":" + json(marker + "\u0000") + ",")).andExpect(status().isBadRequest())

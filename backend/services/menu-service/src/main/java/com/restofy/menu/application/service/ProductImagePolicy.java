@@ -42,12 +42,21 @@ public class ProductImagePolicy {
 
     public static final int MAX_LENGTH = 2048;
 
+    private static final int MAX_PORT = 65_535;
+    private static final int DEFAULT_HTTPS_PORT = 443;
+    private static final int MAX_HOST_LENGTH = 253;
+    private static final int MAX_HOST_LABEL_LENGTH = 63;
+    private static final int HEX_RADIX = 16;
+
+    /** Named in every startup error, so whoever sets up the service knows which key is wrong (never its value). */
+    private static final String SETTING = "restofy.menu.image.allowed-origins (environment variable MENU_IMAGE_ALLOWED_ORIGINS)";
     private static final String HOST_NOT_VALID = "Image URL host is not valid.";
     private static final String UNSAFE_CHARACTERS = "Image URL contains characters that are not allowed.";
 
     private static final Set<String> EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "avif");
     /** Last host label that names a local or private network rather than a public one. */
-    private static final Set<String> LOCAL_LABELS = Set.of("localhost", "local", "internal", "localdomain", "lan", "intranet", "home", "corp");
+    private static final Set<String> LOCAL_LABELS = Set.of("localhost", "local", "internal", "localdomain", "lan", "intranet", "home",
+            "corp");
     private static final Pattern ORIGIN = Pattern.compile("(?i)https://([^/:?#@\\\\\\s]+)(?::(\\d{1,5}))?");
 
     private final Set<String> allowedOrigins;
@@ -85,7 +94,7 @@ public class ProductImagePolicy {
         host = host.toLowerCase(Locale.ROOT);
         requirePublicHostName(host, HOST_NOT_VALID);
         int port = uri.getPort();
-        if (port == 0 || port > 65535) {
+        if (port == 0 || port > MAX_PORT) {
             throw invalid(HOST_NOT_VALID);
         }
         String origin = origin(host, port);
@@ -105,23 +114,23 @@ public class ProductImagePolicy {
     private static String parseOrigin(String entry) {
         Matcher matcher = ORIGIN.matcher(entry);
         if (!matcher.matches()) {
-            throw new IllegalArgumentException("Invalid image origin in restofy.menu.image.allowed-origins: only exact "
+            throw new IllegalArgumentException("Invalid image origin in " + SETTING + ": only exact "
                     + "https://host or https://host:port entries are allowed (no wildcard, path, query or other scheme).");
         }
         String host = matcher.group(1).toLowerCase(Locale.ROOT);
         if (!isPublicHostName(host)) {
-            throw new IllegalArgumentException("Invalid image origin in restofy.menu.image.allowed-origins: the host "
+            throw new IllegalArgumentException("Invalid image origin in " + SETTING + ": the host "
                     + "must be a public registered host name (no IP literal, localhost or local-network name).");
         }
         int port = matcher.group(2) == null ? -1 : Integer.parseInt(matcher.group(2));
-        if (matcher.group(2) != null && (port < 1 || port > 65535)) {
-            throw new IllegalArgumentException("Invalid image origin in restofy.menu.image.allowed-origins: bad port.");
+        if (matcher.group(2) != null && (port < 1 || port > MAX_PORT)) {
+            throw new IllegalArgumentException("Invalid image origin in " + SETTING + ": bad port.");
         }
         return origin(host, port);
     }
 
     private static String origin(String host, int port) {
-        return "https://" + host + (port == -1 || port == 443 ? "" : ":" + port);
+        return "https://" + host + (port == -1 || port == DEFAULT_HTTPS_PORT ? "" : ":" + port);
     }
 
     /**
@@ -130,7 +139,7 @@ public class ProductImagePolicy {
      * starts with a letter (so no IP-shaped name) and is not a local-network label.
      */
     private static boolean isPublicHostName(String host) {
-        if (host.isEmpty() || host.length() > 253) {
+        if (host.isEmpty() || host.length() > MAX_HOST_LENGTH) {
             return false;
         }
         String[] labels = host.split("\\.", -1);
@@ -147,7 +156,8 @@ public class ProductImagePolicy {
     }
 
     private static boolean isHostLabel(String label) {
-        if (label.isEmpty() || label.length() > 63 || label.charAt(0) == '-' || label.charAt(label.length() - 1) == '-') {
+        if (label.isEmpty() || label.length() > MAX_HOST_LABEL_LENGTH || label.charAt(0) == '-'
+                || label.charAt(label.length() - 1) == '-') {
             return false;
         }
         for (int i = 0; i < label.length(); i++) {
@@ -189,12 +199,12 @@ public class ProductImagePolicy {
         if (percentIndex + 2 >= url.length()) {
             throw invalid(UNSAFE_CHARACTERS);
         }
-        int high = Character.digit(url.charAt(percentIndex + 1), 16);
-        int low = Character.digit(url.charAt(percentIndex + 2), 16);
+        int high = Character.digit(url.charAt(percentIndex + 1), HEX_RADIX);
+        int low = Character.digit(url.charAt(percentIndex + 2), HEX_RADIX);
         if (high < 0 || low < 0) {
             throw invalid(UNSAFE_CHARACTERS);
         }
-        int value = high * 16 + low;
+        int value = high * HEX_RADIX + low;
         boolean dangerous = value < 0x20 || value == 0x7f || value == '.' || value == '/' || value == '\\' || value == '%';
         if (dangerous) {
             throw invalid(UNSAFE_CHARACTERS);

@@ -88,7 +88,11 @@ class ProductImageConcurrencyTests {
             int conflicts = 0;
             for (Future<Boolean> result : results) {
                 try {
-                    if (result.get()) wins++; else conflicts++;
+                    if (result.get()) {
+                        wins++;
+                    } else {
+                        conflicts++;
+                    }
                 } catch (ExecutionException unexpected) {
                     fail("Only success or a version conflict is acceptable, got " + unexpected.getCause());
                 }

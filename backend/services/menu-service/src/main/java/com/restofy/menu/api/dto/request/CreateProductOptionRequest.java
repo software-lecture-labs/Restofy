@@ -1,5 +1,6 @@
 package com.restofy.menu.api.dto.request;
 
+import com.restofy.menu.domain.entity.Product;
 import com.restofy.menu.domain.entity.ProductOption;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -26,7 +27,8 @@ public record CreateProductOptionRequest(
         @JsonDeserialize(using = StrictStringDeserializer.class) String type,
         @NotBlank @Size(max = ProductOption.NAME_MAX_LENGTH) @JsonDeserialize(using = StrictStringDeserializer.class) String name,
         @JsonDeserialize(using = StrictBooleanDeserializer.class) Boolean removable,
-        @DecimalMin("0") @Digits(integer = 15, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal priceDelta,
+        @DecimalMin("0") @Digits(integer = Product.PRICE_INTEGER_DIGITS, fraction = Product.PRICE_FRACTION_DIGITS)
+                @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal priceDelta,
         @JsonDeserialize(using = StrictNumberDeserializers.WholeNumber.class) Long maxQuantity,
         @Min(0) @Max(Integer.MAX_VALUE) @JsonDeserialize(using = StrictNumberDeserializers.WholeNumber.class) Long sortOrder,
         @Null(message = "The restaurant is taken from the verified actor.") UUID restaurantId,

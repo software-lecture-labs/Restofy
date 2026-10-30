@@ -27,7 +27,8 @@ class NutritionColumnsMigrationPostgresTests {
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine")
             .withDatabaseName("nutrition_control");
 
-    private static final String NUTRITION_COLUMNS = "SELECT name, calories, weight_grams, estimated_prep_minutes, version FROM products ORDER BY name";
+    private static final String NUTRITION_COLUMNS = "SELECT name, calories, weight_grams, estimated_prep_minutes, version FROM products "
+            + "ORDER BY name";
 
     @BeforeAll
     static void start() {
@@ -59,7 +60,9 @@ class NutritionColumnsMigrationPostgresTests {
 
     private List<String> rows(String url, String sql) throws Exception {
         var result = new ArrayList<String>();
-        try (var connection = connect(url); var statement = connection.createStatement(); var set = statement.executeQuery(sql)) {
+        try (var connection = connect(url);
+                var statement = connection.createStatement();
+                var set = statement.executeQuery(sql)) {
             int columns = set.getMetaData().getColumnCount();
             while (set.next()) {
                 var row = new StringBuilder();
@@ -74,7 +77,8 @@ class NutritionColumnsMigrationPostgresTests {
         UUID restaurant = UUID.randomUUID();
         UUID category = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
-        try (var connection = connect(url); var statement = connection.createStatement()) {
+        try (var connection = connect(url);
+                var statement = connection.createStatement()) {
             statement.execute("INSERT INTO categories (id, restaurant_id, name) VALUES ('" + category + "', '" + restaurant + "', 'Main')");
             statement.execute("INSERT INTO products (id, restaurant_id, category_id, name, base_price, currency, vat_rate, "
                     + "price_includes_vat, created_by_user_id, updated_by_user_id" + nutritionColumns + ") VALUES ('" + UUID.randomUUID()
@@ -127,15 +131,18 @@ class NutritionColumnsMigrationPostgresTests {
         insertProduct(url, "fine", ", calories", ", 100");
         insertProduct(url, "legacy", ", " + parts[0], ", " + parts[1]);
         var before = rows(url, NUTRITION_COLUMNS);
-        var definitionsBefore = rows(url, "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'products'::regclass "
+        var definitionsBefore = rows(url,
+                "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'products'::regclass "
                 + "AND conname LIKE 'ck_products_%' ORDER BY conname");
 
         Flyway toV66 = flyway(url, "66");
         assertThrows(FlywayException.class, toV66::migrate);
 
         assertEquals(before, rows(url, NUTRITION_COLUMNS), "nothing was deleted, converted or rounded");
-        assertEquals(definitionsBefore, rows(url, "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'products'::regclass "
-                + "AND conname LIKE 'ck_products_%' ORDER BY conname"), "the failed migration rolled back completely: the old constraints are intact");
+        assertEquals(definitionsBefore,
+                rows(url, "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'products'::regclass "
+                + "AND conname LIKE 'ck_products_%' ORDER BY conname"), "the failed migration rolled back completely: the old "
+                        + "constraints are intact");
         assertEquals(List.of("65"), rows(url, "SELECT max(version::int)::text FROM flyway_schema_history WHERE success"),
                 "a failed V66 is not recorded as applied");
     }

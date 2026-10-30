@@ -46,7 +46,6 @@ public class ProductOption {
     public static final int ADD_MAX_QUANTITY_LIMIT = 10;
     public static final int MAX_ACTIVE_PER_PRODUCT = 50;
 
-    private static final int PRICE_INTEGER_DIGITS = 15;
     private static final String INCLUDED_HAS_NO_PRICE = "An included ingredient has no price difference.";
 
     @Id
@@ -144,7 +143,7 @@ public class ProductOption {
         requireNoPriceDifference(spec.priceDelta());
         boolean removable = Boolean.TRUE.equals(spec.removable());
         return new ProductOption(restaurantId, productId, actorUserId, new Initial(OptionType.INCLUDED, spec.name(),
-                BigDecimal.ZERO.setScale(4), removable ? 0 : 1, 1, spec.sortOrder()));
+                BigDecimal.ZERO.setScale(Product.PRICE_FRACTION_DIGITS), removable ? 0 : 1, 1, spec.sortOrder()));
     }
 
     private static ProductOption createExtra(UUID restaurantId, UUID productId, UUID actorUserId, Spec spec) {
@@ -186,8 +185,8 @@ public class ProductOption {
         if (raw.signum() < 0) {
             throw new InvalidProductException("The price difference must not be negative.");
         }
-        Product.requireWithinPrecision(raw, PRICE_INTEGER_DIGITS, "The price difference is too large.", "The price difference");
-        return raw.setScale(4, RoundingMode.UNNECESSARY);
+        Product.requireWithinPrecision(raw, Product.PRICE_INTEGER_DIGITS, "The price difference is too large.", "The price difference");
+        return raw.setScale(Product.PRICE_FRACTION_DIGITS, RoundingMode.UNNECESSARY);
     }
 
     private static void requireNoPriceDifference(BigDecimal raw) {

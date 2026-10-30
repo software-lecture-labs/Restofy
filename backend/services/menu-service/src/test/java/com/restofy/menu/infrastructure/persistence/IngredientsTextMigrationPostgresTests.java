@@ -53,7 +53,8 @@ class IngredientsTextMigrationPostgresTests {
 
     private List<String> rows(Connection connection, String sql) throws Exception {
         var result = new ArrayList<String>();
-        try (var statement = connection.createStatement(); var set = statement.executeQuery(sql)) {
+        try (var statement = connection.createStatement();
+                var set = statement.executeQuery(sql)) {
             int columns = set.getMetaData().getColumnCount();
             while (set.next()) {
                 var row = new StringBuilder();
@@ -72,23 +73,31 @@ class IngredientsTextMigrationPostgresTests {
         UUID category = UUID.randomUUID();
         UUID product = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
-        try (var connection = connect(url); var statement = connection.createStatement()) {
+        try (var connection = connect(url);
+                var statement = connection.createStatement()) {
             statement.execute("INSERT INTO categories (id, restaurant_id, name) VALUES ('" + category + "', '" + restaurant + "', 'Main')");
             statement.execute("INSERT INTO products (id, restaurant_id, category_id, name, description, base_price, currency, vat_rate, "
                     + "price_includes_vat, is_published, created_by_user_id, updated_by_user_id) VALUES ('" + product + "', '" + restaurant
                     + "', '" + category + "', 'Old tea', 'Hot', 5.5, 'TRY', 10, TRUE, TRUE, '" + actor + "', '" + actor + "')");
         }
-        var before = rows(connect(url), "SELECT name, description, base_price, currency, vat_rate, price_includes_vat, is_active, is_published, version FROM products");
+        var before = rows(connect(url),
+                "SELECT name, description, base_price, currency, vat_rate, price_includes_vat, is_active, is_published, version FROM "
+                + "products");
 
         var result = flyway(url, "64").migrate();
         assertEquals(1, result.migrationsExecuted);
 
         try (var connection = connect(url)) {
-            assertEquals(List.of("null"), rows(connection, "SELECT ingredients_text FROM products"), "JDBC reports SQL NULL as the string null here");
-            assertEquals(before, rows(connection, "SELECT name, description, base_price, currency, vat_rate, price_includes_vat, is_active, is_published, version FROM products"),
+            assertEquals(List.of("null"), rows(connection, "SELECT ingredients_text FROM products"),
+                    "JDBC reports SQL NULL as the string null here");
+            assertEquals(before,
+                    rows(connection,
+                    "SELECT name, description, base_price, currency, vat_rate, price_includes_vat, is_active, is_published, version "
+                    + "FROM products"),
                     "no other column of an existing product changed");
             assertEquals(List.of("1"), rows(connection, "SELECT count(*) FROM products WHERE ingredients_text IS NULL"));
-            assertEquals(List.of("0"), rows(connection, "SELECT version FROM products"), "the migration does not bump the optimistic-lock version");
+            assertEquals(List.of("0"), rows(connection, "SELECT version FROM products"),
+                    "the migration does not bump the optimistic-lock version");
         }
         assertEquals(0, flyway(url, "64").migrate().migrationsExecuted, "an applied migration is never run again");
     }

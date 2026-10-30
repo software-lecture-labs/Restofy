@@ -85,7 +85,8 @@ class ProductNutritionApiTests {
     }
 
     private UUID created(String nutritionFields) throws Exception {
-        String body = send(post(BASE), create(nutritionFields)).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String body = send(post(BASE), create(nutritionFields)).andExpect(status().isCreated()).andReturn().getResponse()
+                .getContentAsString();
         return UUID.fromString(JsonPath.read(body, "$.id"));
     }
 
@@ -185,7 +186,8 @@ class ProductNutritionApiTests {
 
     @ParameterizedTest
     @CsvSource({"calories,-1", "calories,10001", "calories,2147483647", "estimatedPrepMinutes,-1", "estimatedPrepMinutes,241",
-            "weightGrams,0", "weightGrams,0.0", "weightGrams,0.000", "weightGrams,-0.001", "weightGrams,-5", "weightGrams,10000.001", "weightGrams,10001"})
+            "weightGrams,0", "weightGrams,0.0", "weightGrams,0.000", "weightGrams,-0.001", "weightGrams,-5",
+            "weightGrams,10000.001", "weightGrams,10001"})
     void outOfRangeValuesAre400OnCreateAndUpdateAndChangeNothing(String field, String value) throws Exception {
         send(post(BASE), create("\"" + field + "\":" + value + ",")).andExpect(status().isBadRequest());
         assertEquals(0, products());
@@ -231,7 +233,8 @@ class ProductNutritionApiTests {
     }
 
     @ParameterizedTest
-    @CsvSource({"12.345,12.345", "12.5,12.5", "12.50,12.5", "250,250", "250.0,250", "2.5E+2,250", "0.001,0.001", "10000,10000", "10000.000,10000", "0.100,0.1"})
+    @CsvSource({"12.345,12.345", "12.5,12.5", "12.50,12.5", "250,250", "250.0,250", "2.5E+2,250", "0.001,0.001", "10000,10000",
+            "10000.000,10000", "0.100,0.1"})
     void validDecimalNotationsAreAcceptedAndShownWithoutTrailingZeros(String sent, String shown) throws Exception {
         UUID id = created("\"weightGrams\":" + sent + ",");
         String body = read(id).andReturn().getResponse().getContentAsString();
@@ -250,9 +253,11 @@ class ProductNutritionApiTests {
 
     @Test
     void anErrorNeverEchoesTheRejectedValue() throws Exception {
-        String body = send(post(BASE), create("\"calories\":987654,")).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        String body = send(post(BASE), create("\"calories\":987654,")).andExpect(status().isBadRequest()).andReturn().getResponse()
+                .getContentAsString();
         assertFalse(body.contains("987654"), body);
-        body = send(post(BASE), create("\"weightGrams\":\"secret-text\",")).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        body = send(post(BASE), create("\"weightGrams\":\"secret-text\",")).andExpect(status().isBadRequest()).andReturn().getResponse()
+                .getContentAsString();
         assertFalse(body.contains("secret-text"), body);
     }
 
@@ -267,7 +272,8 @@ class ProductNutritionApiTests {
         patchOf(id, "\"weightGrams\":99.5", 1).andExpect(status().isOk()).andExpect(jsonPath("$.calories").value(300))
                 .andExpect(jsonPath("$.weightGrams").value(99.5)).andExpect(jsonPath("$.version").value(2));
         patchOf(id, "\"estimatedPrepMinutes\":12", 2).andExpect(status().isOk()).andExpect(jsonPath("$.estimatedPrepMinutes").value(12))
-                .andExpect(jsonPath("$.calories").value(300)).andExpect(jsonPath("$.weightGrams").value(99.5)).andExpect(jsonPath("$.version").value(3));
+                .andExpect(jsonPath("$.calories").value(300)).andExpect(jsonPath("$.weightGrams").value(99.5))
+                        .andExpect(jsonPath("$.version").value(3));
         var after = row(id);
         for (String column : OTHER_COLUMNS) {
             assertEquals(before.get(column), after.get(column), column + " is untouched by a nutrition update");
@@ -349,9 +355,13 @@ class ProductNutritionApiTests {
     @Test
     void nutritionCombinesWithOtherFieldsInOneUpdate() throws Exception {
         UUID id = created("");
-        send(patch(BASE + "/" + id), "{\"name\":\"Lahmacun\",\"basePrice\":20,\"ingredientsText\":\"Dough\",\"calories\":410,\"weightGrams\":180,\"version\":0}")
-                .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Lahmacun")).andExpect(jsonPath("$.ingredientsText").value("Dough"))
-                .andExpect(jsonPath("$.calories").value(410)).andExpect(jsonPath("$.weightGrams").value(180)).andExpect(jsonPath("$.version").value(1));
+        send(patch(BASE + "/"
+                + id), "{\"name\":\"Lahmacun\",\"basePrice\":20,\"ingredientsText\":\"Dough\",\"calories\":410,\"weightGrams\":180,\"ve"
+                + "rsion\":0}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Lahmacun")).andExpect(jsonPath("$.ingredientsText")
+                        .value("Dough"))
+                .andExpect(jsonPath("$.calories").value(410)).andExpect(jsonPath("$.weightGrams").value(180))
+                        .andExpect(jsonPath("$.version").value(1));
     }
 
     @Test

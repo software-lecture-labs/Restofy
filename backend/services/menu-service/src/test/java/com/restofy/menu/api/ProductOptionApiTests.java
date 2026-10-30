@@ -6,6 +6,7 @@ import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -132,7 +135,7 @@ class ProductOptionApiTests {
     @Test
     void aRemovableIncludedIngredientIsCreatedWithMinimumZeroMaximumOneAndNoPrice() throws Exception {
         send(post(options(product)), included("Onion", true)).andExpect(status().isCreated())
-                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith(options(product) + "/")))
+                .andExpect(header().string("Location", Matchers.startsWith(options(product) + "/")))
                 .andExpect(jsonPath("$.type").value("INCLUDED")).andExpect(jsonPath("$.name").value("Onion"))
                 .andExpect(jsonPath("$.removable").value(true)).andExpect(jsonPath("$.priceDelta").value(0))
                 .andExpect(jsonPath("$.minQuantity").value(0)).andExpect(jsonPath("$.maxQuantity").value(1))
@@ -153,9 +156,12 @@ class ProductOptionApiTests {
     void anIncludedIngredientMustStateRemovableAndNeverHasAPriceOrQuantity() throws Exception {
         send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\"}").andExpect(status().isBadRequest());
         send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":null}").andExpect(status().isBadRequest());
-        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true,\"priceDelta\":1}").andExpect(status().isBadRequest());
-        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true,\"maxQuantity\":1}").andExpect(status().isBadRequest());
-        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true,\"priceDelta\":0}").andExpect(status().isCreated());
+        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true,\"priceDelta\":1}")
+                .andExpect(status().isBadRequest());
+        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true,\"maxQuantity\":1}")
+                .andExpect(status().isBadRequest());
+        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":true,\"priceDelta\":0}")
+                .andExpect(status().isCreated());
         assertEquals(1, optionCount());
     }
 
@@ -167,7 +173,7 @@ class ProductOptionApiTests {
                 .andExpect(jsonPath("$.type").value("ADD")).andExpect(jsonPath("$.priceDelta").value(12.5))
                 .andExpect(jsonPath("$.minQuantity").value(0)).andExpect(jsonPath("$.maxQuantity").value(3))
                 .andExpect(jsonPath("$.removable").doesNotExist());
-        assertEquals(new java.math.BigDecimal("12.5000"), jdbc.queryForObject("SELECT price_delta FROM product_options", java.math.BigDecimal.class));
+        assertEquals(new BigDecimal("12.5000"), jdbc.queryForObject("SELECT price_delta FROM product_options", BigDecimal.class));
     }
 
     @Test
@@ -181,7 +187,8 @@ class ProductOptionApiTests {
     @ParameterizedTest
     @ValueSource(strings = {"0", "-1", "11", "100", "2147483648"})
     void anExtraMaximumQuantityOutsideOneToTenIsRejected(String max) throws Exception {
-        send(post(options(product)), extra("Cheese", "1", 1).replace("\"maxQuantity\":1", "\"maxQuantity\":" + max)).andExpect(status().isBadRequest());
+        send(post(options(product)), extra("Cheese", "1", 1).replace("\"maxQuantity\":1", "\"maxQuantity\":"
+                + max)).andExpect(status().isBadRequest());
         assertEquals(0, optionCount());
     }
 
@@ -196,8 +203,10 @@ class ProductOptionApiTests {
     void anExtraNeedsAPriceAndAMaximumAndCannotBeRemovable() throws Exception {
         send(post(options(product)), "{\"type\":\"ADD\",\"name\":\"Cheese\",\"maxQuantity\":2}").andExpect(status().isBadRequest());
         send(post(options(product)), "{\"type\":\"ADD\",\"name\":\"Cheese\",\"priceDelta\":1}").andExpect(status().isBadRequest());
-        send(post(options(product)), "{\"type\":\"ADD\",\"name\":\"Cheese\",\"priceDelta\":1,\"maxQuantity\":2,\"removable\":true}").andExpect(status().isBadRequest());
-        send(post(options(product)), "{\"type\":\"ADD\",\"name\":\"Cheese\",\"priceDelta\":null,\"maxQuantity\":2}").andExpect(status().isBadRequest());
+        send(post(options(product)), "{\"type\":\"ADD\",\"name\":\"Cheese\",\"priceDelta\":1,\"maxQuantity\":2,\"removable\":true}")
+                .andExpect(status().isBadRequest());
+        send(post(options(product)), "{\"type\":\"ADD\",\"name\":\"Cheese\",\"priceDelta\":null,\"maxQuantity\":2}")
+                .andExpect(status().isBadRequest());
         assertEquals(0, optionCount());
     }
 
@@ -206,7 +215,8 @@ class ProductOptionApiTests {
     @ParameterizedTest
     @ValueSource(strings = {"\"included\"", "\"add\"", "\"REMOVE\"", "\"\"", "null", "0", "1", "true", "[\"ADD\"]", "{}"})
     void anUnknownOrWronglyTypedTypeIsRejected(String type) throws Exception {
-        send(post(options(product)), "{\"type\":" + type + ",\"name\":\"X\",\"removable\":true,\"priceDelta\":1,\"maxQuantity\":1}").andExpect(status().isBadRequest());
+        send(post(options(product)), "{\"type\":" + type + ",\"name\":\"X\",\"removable\":true,\"priceDelta\":1,\"maxQuantity\":1}")
+                .andExpect(status().isBadRequest());
         assertEquals(0, optionCount());
     }
 
@@ -220,13 +230,15 @@ class ProductOptionApiTests {
         send(post(options(product)), included("a\\ud800b", true)).andExpect(status().isBadRequest());
         send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":5,\"removable\":true}").andExpect(status().isBadRequest());
         assertEquals(0, optionCount());
-        send(post(options(product)), included("  Çiğ \\t köfte 🍅 ", true)).andExpect(status().isCreated()).andExpect(jsonPath("$.name").value("Çiğ köfte 🍅"));
+        send(post(options(product)), included("  Çiğ \\t köfte 🍅 ", true)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Çiğ köfte 🍅"));
         send(post(options(product)), included("n".repeat(150), true)).andExpect(status().isCreated());
     }
 
     @Test
     void sortOrderIsOptionalNonNegativeAndStrictlyNumeric() throws Exception {
-        send(post(options(product)), included("A", true).replace("}", ",\"sortOrder\":7}")).andExpect(status().isCreated()).andExpect(jsonPath("$.sortOrder").value(7));
+        send(post(options(product)), included("A", true).replace("}", ",\"sortOrder\":7}")).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sortOrder").value(7));
         send(post(options(product)), included("B", true).replace("}", ",\"sortOrder\":-1}")).andExpect(status().isBadRequest());
         send(post(options(product)), included("C", true).replace("}", ",\"sortOrder\":\"3\"}")).andExpect(status().isBadRequest());
         send(post(options(product)), included("D", true).replace("}", ",\"sortOrder\":1.5}")).andExpect(status().isBadRequest());
@@ -237,14 +249,16 @@ class ProductOptionApiTests {
     @ParameterizedTest
     @ValueSource(strings = {"0", "1", "\"true\"", "\"yes\"", "[]"})
     void removableMustBeARealBoolean(String raw) throws Exception {
-        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":" + raw + "}").andExpect(status().isBadRequest());
+        send(post(options(product)), "{\"type\":\"INCLUDED\",\"name\":\"Onion\",\"removable\":" + raw
+                + "}").andExpect(status().isBadRequest());
         assertEquals(0, optionCount());
     }
 
     @Test
     void serverControlledValuesInTheBodyAreNeverAssigned() throws Exception {
         UUID forged = UUID.randomUUID();
-        String body = included("Onion", true).replace("{", "{\"id\":\"" + forged + "\",\"version\":9,\"isActive\":false,\"createdByUserId\":\""
+        String body = included("Onion", true).replace("{", "{\"id\":\"" + forged
+                + "\",\"version\":9,\"isActive\":false,\"createdByUserId\":\""
                 + forged + "\",\"minQuantity\":5,\"createdAt\":\"2001-01-01T00:00:00Z\",\"updatedByUserId\":\"" + forged + "\",");
         String json = send(post(options(product)), body).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         UUID id = UUID.fromString(JsonPath.read(json, "$.id"));
@@ -260,8 +274,10 @@ class ProductOptionApiTests {
 
     @Test
     void theRestaurantAndTheProductCannotBeSetInTheBody() throws Exception {
-        send(post(options(product)), included("Onion", true).replace("{", "{\"restaurantId\":\"" + RESTAURANT_B + "\",")).andExpect(status().isBadRequest());
-        send(post(options(product)), included("Onion", true).replace("{", "{\"productId\":\"" + UUID.randomUUID() + "\",")).andExpect(status().isBadRequest());
+        send(post(options(product)), included("Onion", true).replace("{", "{\"restaurantId\":\"" + RESTAURANT_B
+                + "\",")).andExpect(status().isBadRequest());
+        send(post(options(product)), included("Onion", true).replace("{", "{\"productId\":\"" + UUID.randomUUID()
+                + "\",")).andExpect(status().isBadRequest());
         assertEquals(0, optionCount());
     }
 
@@ -270,7 +286,8 @@ class ProductOptionApiTests {
     @Test
     void theSameTypeAndNormalizedNameIsA409EvenWhenTheExistingOptionIsDisabled() throws Exception {
         UUID cheese = created(included("Cheese", true));
-        send(post(options(product)), included("  CHEESE ", false)).andExpect(status().isConflict()).andExpect(jsonPath("$.status").value(409));
+        send(post(options(product)), included("  CHEESE ", false)).andExpect(status().isConflict()).andExpect(jsonPath("$.status")
+                .value(409));
         update(cheese, "{\"isActive\":false,\"version\":0}").andExpect(status().isOk());
         send(post(options(product)), included("cheese", true)).andExpect(status().isConflict());
         assertEquals(1, optionCount());
@@ -293,7 +310,8 @@ class ProductOptionApiTests {
     @Test
     void anExtraCanBeRenamedRepricedResizedAndReorderedWithTheVersionAdvancing() throws Exception {
         UUID id = created(extra("Cheese", "5", 2));
-        update(id, "{\"name\":\"Cheddar\",\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Cheddar")).andExpect(jsonPath("$.version").value(1));
+        update(id, "{\"name\":\"Cheddar\",\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Cheddar"))
+                .andExpect(jsonPath("$.version").value(1));
         update(id, "{\"priceDelta\":0,\"maxQuantity\":10,\"sortOrder\":3,\"version\":1}").andExpect(status().isOk())
                 .andExpect(jsonPath("$.priceDelta").value(0)).andExpect(jsonPath("$.maxQuantity").value(10))
                 .andExpect(jsonPath("$.sortOrder").value(3)).andExpect(jsonPath("$.version").value(2));
@@ -305,8 +323,10 @@ class ProductOptionApiTests {
     @Test
     void anIncludedIngredientCanSwitchBetweenRemovableAndMandatory() throws Exception {
         UUID id = created(included("Onion", true));
-        update(id, "{\"removable\":false,\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.removable").value(false)).andExpect(jsonPath("$.minQuantity").value(1));
-        update(id, "{\"removable\":true,\"version\":1}").andExpect(status().isOk()).andExpect(jsonPath("$.removable").value(true)).andExpect(jsonPath("$.minQuantity").value(0));
+        update(id, "{\"removable\":false,\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.removable").value(false))
+                .andExpect(jsonPath("$.minQuantity").value(1));
+        update(id, "{\"removable\":true,\"version\":1}").andExpect(status().isOk()).andExpect(jsonPath("$.removable").value(true))
+                .andExpect(jsonPath("$.minQuantity").value(0));
     }
 
     @Test
@@ -379,7 +399,7 @@ class ProductOptionApiTests {
         assertEquals(1L, after.get("version"));
         assertNotEquals(before.get("updated_by_user_id"), after.get("updated_by_user_id"));
         assertEquals(before.get("created_by_user_id"), after.get("created_by_user_id"));
-        assertTrue(((java.sql.Timestamp) after.get("updated_at")).after((java.sql.Timestamp) before.get("updated_at")));
+        assertTrue(((Timestamp) after.get("updated_at")).after((Timestamp) before.get("updated_at")));
     }
 
     @Test
@@ -444,7 +464,8 @@ class ProductOptionApiTests {
         String first = mvc.perform(get(options(product) + "?size=100").with(user("staff"))).andReturn().getResponse().getContentAsString();
         String second = mvc.perform(get(options(product) + "?size=100").with(user("staff"))).andReturn().getResponse().getContentAsString();
         assertEquals(first, second);
-        assertEquals(List.of("Item 0", "Item 1", "Item 2", "Item 3", "Item 4", "Item 5"), JsonPath.<List<String>>read(first, "$.items[*].name"));
+        assertEquals(List.of("Item 0", "Item 1", "Item 2", "Item 3", "Item 4", "Item 5"), JsonPath.<List<String>>read(first,
+                "$.items[*].name"));
     }
 
     @Test
@@ -462,7 +483,8 @@ class ProductOptionApiTests {
         List<String> collected = new ArrayList<>();
         for (int page = 0; page < 2; page++) {
             String body = mvc.perform(get(options(product) + "?size=2&page=" + page).with(user("staff"))).andExpect(status().isOk())
-                    .andExpect(jsonPath("$.totalElements").value(4)).andExpect(jsonPath("$.totalPages").value(2)).andExpect(jsonPath("$.size").value(2))
+                    .andExpect(jsonPath("$.totalElements").value(4)).andExpect(jsonPath("$.totalPages").value(2))
+                            .andExpect(jsonPath("$.size").value(2))
                     .andReturn().getResponse().getContentAsString();
             collected.addAll(JsonPath.<List<String>>read(body, "$.items[*].name"));
         }
@@ -471,7 +493,8 @@ class ProductOptionApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"?size=0", "?size=101", "?size=abc", "?page=-1", "?type=REMOVE", "?type=add", "?type=0", "?isActive=maybe", "?sort=name"})
+    @ValueSource(strings = {"?size=0", "?size=101", "?size=abc", "?page=-1", "?type=REMOVE", "?type=add", "?type=0", "?isActive=maybe",
+            "?sort=name"})
     void invalidListParametersAreRejectedOrIgnoredSafely(String query) throws Exception {
         var result = mvc.perform(get(options(product) + query).with(user("staff"))).andReturn().getResponse();
         if (query.equals("?sort=name")) {
@@ -510,7 +533,8 @@ class ProductOptionApiTests {
     @Test
     void theProductResponseDoesNotEmbedOptions() throws Exception {
         created(included("Onion", true));
-        String body = mvc.perform(get(PRODUCTS + "/" + product).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String body = mvc.perform(get(PRODUCTS + "/" + product).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString();
         Map<String, Object> response = JsonPath.read(body, "$");
         assertFalse(response.containsKey("options"));
         assertFalse(response.containsKey("ingredients"));
@@ -528,7 +552,8 @@ class ProductOptionApiTests {
         // Documented open decision: an option price is read in the product's currency, so a currency change
         // re-reads the same number in the new currency. The product update contract is deliberately unchanged.
         UUID cheese = created(extra("Cheese", "5", 2));
-        send(patch(PRODUCTS + "/" + product), "{\"currency\":\"EUR\",\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.currency").value("EUR"));
+        send(patch(PRODUCTS + "/" + product), "{\"currency\":\"EUR\",\"version\":0}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.currency").value("EUR"));
         mvc.perform(get(options(product) + "/" + cheese).with(user("staff"))).andExpect(jsonPath("$.priceDelta").value(5));
     }
 
@@ -571,7 +596,8 @@ class ProductOptionApiTests {
     void manyDisabledOptionsNeverMakeTheManagementListGrowWithoutBound() throws Exception {
         insertActive(30);
         jdbc.update("UPDATE product_options SET is_active = FALSE");
-        String body = mvc.perform(get(options(product)).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String body = mvc.perform(get(options(product)).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString();
         assertEquals(30, ((List<?>) JsonPath.read(body, "$.items")).size());
         mvc.perform(get(options(product) + "?size=10").with(user("staff"))).andExpect(jsonPath("$.items.length()").value(10))
                 .andExpect(jsonPath("$.totalPages").value(3));
@@ -632,14 +658,17 @@ class ProductOptionApiTests {
     @Test
     void errorBodiesAreFixedTextWithoutTheSubmittedValueOrInternals() throws Exception {
         String marker = "SECRET-MARKER-";
-        String bad = send(post(options(product)), included(marker + "\\u0000", true)).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        String bad = send(post(options(product)), included(marker + "\\u0000", true)).andExpect(status().isBadRequest()).andReturn()
+                .getResponse().getContentAsString();
         assertFalse(bad.contains(marker));
         created(included("Cheese", true));
-        String dup = send(post(options(product)), included("Cheese", true)).andExpect(status().isConflict()).andReturn().getResponse().getContentAsString();
+        String dup = send(post(options(product)), included("Cheese", true)).andExpect(status().isConflict()).andReturn().getResponse()
+                .getContentAsString();
         for (String leak : List.of("uq_product_options_name", "exception", "sql", "constraint", "org.springframework")) {
             assertFalse(dup.toLowerCase().contains(leak), leak);
         }
-        String missing = send(patch(options(product) + "/" + UUID.randomUUID()), "{\"name\":\"x\",\"version\":0}").andExpect(status().isNotFound())
+        String missing = send(patch(options(product) + "/" + UUID.randomUUID()), "{\"name\":\"x\",\"version\":0}")
+                .andExpect(status().isNotFound())
                 .andReturn().getResponse().getContentAsString();
         assertEquals("Product option was not found.", JsonPath.read(missing, "$.detail"));
     }

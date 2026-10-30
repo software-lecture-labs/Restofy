@@ -69,7 +69,8 @@ class ProductImagePolicyTests {
     @ValueSource(strings = {
             "http://images.example/a.png", "ftp://images.example/a.png", "javascript:alert(1)", "javascript://images.example/a.png",
             "data:image/png;base64,AAAA", "file:///etc/passwd.png", "file://images.example/a.png", "mailto:a@images.example",
-            "//images.example/a.png", "/a.png", "a.png", "images.example/a.png", "https:images.example/a.png", "https:/images.example/a.png",
+            "//images.example/a.png", "/a.png", "a.png", "images.example/a.png", "https:images.example/a.png", "https:/images.example/a"
+                    + ".png",
             "blob:https://images.example/a.png", "wss://images.example/a.png"})
     void everyOtherSchemeAndEveryNonAbsoluteReferenceIsRejected(String url) {
         rejected(url);
@@ -155,7 +156,8 @@ class ProductImagePolicyTests {
     @ValueSource(strings = {
             "https://images.example/a.svg", "https://images.example/a.SVG", "https://images.example/a.svgz", "https://images.example/a.gif",
             "https://images.example/a.GIF", "https://images.example/a.html", "https://images.example/a.htm", "https://images.example/a.js",
-            "https://images.example/a.php", "https://images.example/a.png.php", "https://images.example/a.png.html", "https://images.example/a.bmp",
+            "https://images.example/a.php", "https://images.example/a.png.php", "https://images.example/a.png.html", "https://images.ex"
+                    + "ample/a.bmp",
             "https://images.example/a.tiff", "https://images.example/a.ico", "https://images.example/a.pdf", "https://images.example/a",
             "https://images.example/a.", "https://images.example/.png", "https://images.example/dir.png/", "https://images.example/png",
             "https://images.example/a.pn", "https://images.example/a.pngg", "https://images.example/a.jpe", "https://images.example/a.webm",
@@ -197,6 +199,8 @@ class ProductImagePolicyTests {
     void anInvalidConfiguredOriginStopsTheApplicationInsteadOfBeingIgnored(String configured) {
         var failure = assertThrows(IllegalArgumentException.class, () -> new ProductImagePolicy(configured));
         assertTrue(failure.getMessage().contains("restofy.menu.image.allowed-origins"));
+        assertTrue(failure.getMessage().contains("MENU_IMAGE_ALLOWED_ORIGINS"), "the environment variable is named too");
+        assertFalse(failure.getMessage().contains(configured), "the configured value is never echoed");
     }
 
     @Test

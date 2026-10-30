@@ -5,6 +5,7 @@ import com.restofy.menu.domain.exception.InvalidProductException;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -127,7 +128,7 @@ class ProductOptionTests {
     @Test
     void anAbsurdExponentIsRefusedQuicklyWithoutBeingExpanded() {
         var huge = new ProductOption.Spec(OptionType.ADD, "C", null, new BigDecimal("1E+999999999"), 1, 0);
-        assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () -> rejected(huge));
+        assertTimeoutPreemptively(Duration.ofSeconds(2), () -> rejected(huge));
     }
 
     // ---- name, type, sort order ----

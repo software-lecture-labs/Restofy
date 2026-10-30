@@ -50,7 +50,8 @@ class ProductOptionsMigrationPostgresTests {
 
     private List<String> rows(Connection connection, String sql) throws Exception {
         var result = new ArrayList<String>();
-        try (var statement = connection.createStatement(); var set = statement.executeQuery(sql)) {
+        try (var statement = connection.createStatement();
+                var set = statement.executeQuery(sql)) {
             int columns = set.getMetaData().getColumnCount();
             while (set.next()) {
                 var row = new StringBuilder();
@@ -69,9 +70,11 @@ class ProductOptionsMigrationPostgresTests {
         UUID category = UUID.randomUUID();
         UUID product = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
-        try (var connection = connect(url); var statement = connection.createStatement()) {
+        try (var connection = connect(url);
+                var statement = connection.createStatement()) {
             statement.execute("INSERT INTO categories (id, restaurant_id, name) VALUES ('" + category + "', '" + restaurant + "', 'Main')");
-            statement.execute("INSERT INTO products (id, restaurant_id, category_id, name, description, ingredients_text, base_price, currency, vat_rate, "
+            statement.execute("INSERT INTO products (id, restaurant_id, category_id, name, description, ingredients_text, base_price, "
+                    + "currency, vat_rate, "
                     + "price_includes_vat, is_published, created_by_user_id, updated_by_user_id) VALUES ('" + product + "', '" + restaurant
                     + "', '" + category + "', 'Old pide', 'Hot', 'Flour', 5.5, 'TRY', 10, TRUE, TRUE, '" + actor + "', '" + actor + "')");
         }
@@ -82,7 +85,8 @@ class ProductOptionsMigrationPostgresTests {
         assertEquals(1, flyway(url, "65").migrate().migrationsExecuted);
 
         try (var connection = connect(url)) {
-            assertEquals(List.of("0"), rows(connection, "SELECT count(*) FROM product_options"), "no option is created for an existing product");
+            assertEquals(List.of("0"), rows(connection, "SELECT count(*) FROM product_options"),
+                    "no option is created for an existing product");
             assertEquals(before, rows(connection, productSql), "no column of an existing product changed");
             assertEquals(List.of("0"), rows(connection, "SELECT version FROM products"));
         }
@@ -94,7 +98,8 @@ class ProductOptionsMigrationPostgresTests {
         String url = newDatabase();
         assertEquals(5, flyway(url, "65").migrate().migrationsExecuted);
         try (var connection = connect(url)) {
-            List<String> names = rows(connection, "SELECT conname FROM pg_constraint WHERE conrelid = 'public.product_options'::regclass ORDER BY conname");
+            List<String> names = rows(connection,
+                    "SELECT conname FROM pg_constraint WHERE conrelid = 'public.product_options'::regclass ORDER BY conname");
             for (String expected : List.of("pk_product_options", "uq_product_options_restaurant_id", "fk_product_options_product",
                     "ck_product_options_type", "ck_product_options_name_trimmed", "ck_product_options_sort_order",
                     "ck_product_options_included", "ck_product_options_add")) {

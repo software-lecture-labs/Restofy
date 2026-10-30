@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -110,11 +111,14 @@ class ProductImageApiTests {
     @Test
     void addReplaceAndRemoveWalkThroughTheWholeLifecycle() throws Exception {
         UUID id = created();
-        image(id, quoted(IMAGE), 0).andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(IMAGE)).andExpect(jsonPath("$.version").value(1));
+        image(id, quoted(IMAGE), 0).andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(IMAGE))
+                .andExpect(jsonPath("$.version").value(1));
         assertEquals(IMAGE, row(id).get("image_url"));
-        image(id, quoted(OTHER_IMAGE), 1).andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(OTHER_IMAGE)).andExpect(jsonPath("$.version").value(2));
+        image(id, quoted(OTHER_IMAGE), 1).andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(OTHER_IMAGE))
+                .andExpect(jsonPath("$.version").value(2));
         assertEquals(OTHER_IMAGE, row(id).get("image_url"));
-        image(id, "\"\"", 2).andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").doesNotExist()).andExpect(jsonPath("$.version").value(3));
+        image(id, "\"\"", 2).andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").doesNotExist())
+                .andExpect(jsonPath("$.version").value(3));
         assertNull(row(id).get("image_url"));
         assertEquals(1, products(), "removing the image never deletes the product");
     }
@@ -123,7 +127,8 @@ class ProductImageApiTests {
     void removingNeverTouchesAnyOtherFieldOfTheProduct() throws Exception {
         UUID id = created();
         send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":0}").andExpect(status().isOk());
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":0}").andExpect(status().isOk());
+        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":0}")
+                .andExpect(status().isOk());
         image(id, quoted(IMAGE), 1).andExpect(status().isOk());
         var before = row(id);
         var availability = jdbc.queryForMap("SELECT * FROM product_availability WHERE product_id = ?", id);
@@ -139,7 +144,8 @@ class ProductImageApiTests {
             assertEquals(before.get(column), after.get(column), column + " is untouched by an image removal");
         }
         assertEquals(availability, jdbc.queryForMap("SELECT * FROM product_availability WHERE product_id = ?", id));
-        assertEquals(history, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE product_id = ?", Integer.class, id));
+        assertEquals(history, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE product_id = ?", Integer.class,
+                id));
     }
 
     @Test
@@ -161,7 +167,8 @@ class ProductImageApiTests {
         UUID id = created();
         var before = row(id);
         actor.actAs(RESTAURANT_A, ActorRole.ADMIN); // a different admin
-        image(id, "\"\"", 0).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(0)).andExpect(jsonPath("$.imageUrl").doesNotExist());
+        image(id, "\"\"", 0).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(0)).andExpect(jsonPath("$.imageUrl")
+                .doesNotExist());
         image(id, "\"   \"", 0).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(0));
         assertEquals(before, row(id), "version, updated_at and updated_by did not move");
     }
@@ -179,8 +186,10 @@ class ProductImageApiTests {
     void anAbsentOrNullImageLeavesTheExistingOneAlone() throws Exception {
         UUID id = created();
         image(id, quoted(IMAGE), 0).andExpect(status().isOk());
-        send(patch(BASE + "/" + id), "{\"name\":\"Renamed\",\"version\":1}").andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(IMAGE));
-        send(patch(BASE + "/" + id), "{\"imageUrl\":null,\"description\":\"Cold\",\"version\":2}").andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(IMAGE));
+        send(patch(BASE + "/" + id), "{\"name\":\"Renamed\",\"version\":1}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").value(IMAGE));
+        send(patch(BASE + "/" + id), "{\"imageUrl\":null,\"description\":\"Cold\",\"version\":2}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").value(IMAGE));
         send(patch(BASE + "/" + id), "{\"imageUrl\":null,\"version\":3}").andExpect(status().isBadRequest());
         assertEquals(IMAGE, row(id).get("image_url"));
     }
@@ -190,7 +199,8 @@ class ProductImageApiTests {
         UUID id = created();
         image(id, quoted(IMAGE), 0).andExpect(status().isOk());
         image(id, quoted("  " + IMAGE + "  "), 1).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1));
-        image(id, quoted("HTTPS://IMAGES.EXAMPLE:443/products/tea.png"), 1).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1))
+        image(id, quoted("HTTPS://IMAGES.EXAMPLE:443/products/tea.png"), 1).andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(1))
                 .andExpect(jsonPath("$.imageUrl").value(IMAGE));
         UUID second = created();
         image(second, quoted("HTTPS://Cdn.Example:8443/Dir/Tea.WEBP"), 0).andExpect(status().isOk())
@@ -207,15 +217,17 @@ class ProductImageApiTests {
         assertEquals(1L, after.get("version"));
         assertNotEquals(before.get("updated_by_user_id"), after.get("updated_by_user_id"));
         assertEquals(before.get("created_by_user_id"), after.get("created_by_user_id"));
-        assertTrue(((java.sql.Timestamp) after.get("updated_at")).after((java.sql.Timestamp) before.get("updated_at")));
+        assertTrue(((Timestamp) after.get("updated_at")).after((Timestamp) before.get("updated_at")));
     }
 
     @Test
     void imageCanBeChangedTogetherWithOtherFieldsInOneAtomicUpdate() throws Exception {
         UUID id = created();
-        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE + "\",\"name\":\"Tea 2\",\"basePrice\":0,\"ingredientsText\":\"New\",\"version\":0}")
+        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE
+                + "\",\"name\":\"Tea 2\",\"basePrice\":0,\"ingredientsText\":\"New\",\"version\":0}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").value(IMAGE)).andExpect(jsonPath("$.name").value("Tea 2"))
-                .andExpect(jsonPath("$.basePrice").value(0)).andExpect(jsonPath("$.ingredientsText").value("New")).andExpect(jsonPath("$.version").value(1));
+                .andExpect(jsonPath("$.basePrice").value(0)).andExpect(jsonPath("$.ingredientsText").value("New"))
+                        .andExpect(jsonPath("$.version").value(1));
     }
 
     @Test
@@ -223,8 +235,10 @@ class ProductImageApiTests {
         UUID id = created();
         var before = row(id);
         send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE + "\",\"basePrice\":-1,\"version\":0}").andExpect(status().isBadRequest());
-        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE + "\",\"currency\":\"XXX\",\"version\":0}").andExpect(status().isBadRequest());
-        send(patch(BASE + "/" + id), "{\"imageUrl\":\"https://evil.example/a.png\",\"name\":\"Renamed\",\"version\":0}").andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE + "\",\"currency\":\"XXX\",\"version\":0}")
+                .andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id), "{\"imageUrl\":\"https://evil.example/a.png\",\"name\":\"Renamed\",\"version\":0}")
+                .andExpect(status().isBadRequest());
         assertEquals(before, row(id), "the valid image in the same request was not applied either");
     }
 
@@ -236,7 +250,8 @@ class ProductImageApiTests {
         image(id, quoted(IMAGE), 0).andExpect(status().isOk());
         read(id).andExpect(jsonPath("$.imageUrl").value(IMAGE));
         mvc.perform(get(BASE).with(user("staff"))).andExpect(jsonPath("$.items[0].imageUrl").value(IMAGE));
-        send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":1}").andExpect(jsonPath("$.imageUrl").value(IMAGE));
+        send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":1}").andExpect(jsonPath("$.imageUrl")
+                .value(IMAGE));
         send(patch(BASE + "/" + id + "/active"), "{\"isActive\":false,\"version\":2}").andExpect(jsonPath("$.imageUrl").value(IMAGE));
         send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"CLEANING\",\"version\":0}")
                 .andExpect(jsonPath("$.imageUrl").value(IMAGE));
@@ -253,7 +268,8 @@ class ProductImageApiTests {
 
     @Test
     void anImageIsNotSettableOnCreateAndThatIsSaidClearly() throws Exception {
-        String body = "{\"categoryId\":\"" + category + "\",\"name\":\"Tea\",\"imageUrl\":\"" + IMAGE + "\",\"basePrice\":5,\"currency\":\"TRY\","
+        String body = "{\"categoryId\":\"" + category + "\",\"name\":\"Tea\",\"imageUrl\":\"" + IMAGE
+                + "\",\"basePrice\":5,\"currency\":\"TRY\","
                 + "\"vatRate\":10,\"priceIncludesVat\":true}";
         send(post(BASE), body).andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].field").value("imageUrl"));
         assertEquals(0, products());
@@ -263,7 +279,8 @@ class ProductImageApiTests {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "http://images.example/a.png", "javascript:alert(1)", "data:image/png;base64,AAAA", "file:///a.png", "https://evil.example/a.png",
+            "http://images.example/a.png", "javascript:alert(1)", "data:image/png;base64,AAAA", "file:///a.png", "https://evil.example/"
+                    + "a.png",
             "https://images.example.evil.example/a.png", "https://images.example@evil.example/a.png", "https://u:p@images.example/a.png",
             "https://images.example/a.png?x=1", "https://images.example/a.png#f", "https://localhost/a.png", "https://127.0.0.1/a.png",
             "https://[::1]/a.png", "https://10.0.0.1/a.png", "https://images.example/a.svg", "https://images.example/a.gif",
@@ -301,7 +318,8 @@ class ProductImageApiTests {
     @Test
     void errorBodiesAreFixedTextWithoutTheValueOrTheAllowlist() throws Exception {
         UUID id = created();
-        String body = image(id, quoted("https://evil.example/SECRET-MARKER.png"), 0).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        String body = image(id, quoted("https://evil.example/SECRET-MARKER.png"), 0).andExpect(status().isBadRequest()).andReturn()
+                .getResponse().getContentAsString();
         assertEquals("Image URL origin is not allowed.", JsonPath.read(body, "$.detail"));
         assertFalse(body.contains("SECRET-MARKER"));
         assertFalse(body.contains("images.example"), "the configured origins are not disclosed");
@@ -359,7 +377,8 @@ class ProductImageApiTests {
         actor.actAs(RESTAURANT_A, ActorRole.ADMIN);
         mvc.perform(patch(BASE + "/" + id).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .header("X-Image-Origin", "https://evil.example")
-                        .content("{\"imageUrl\":\"https://evil.example/a.png\",\"allowedOrigins\":[\"https://evil.example\"],\"version\":0}"))
+                        .content("{\"imageUrl\":\"https://evil.example/a.png\",\"allowedOrigins\":[\"https://evil.example\"],\"version"
+                                + "\":0}"))
                 .andExpect(status().isBadRequest());
         assertNull(row(id).get("image_url"));
     }
@@ -368,13 +387,15 @@ class ProductImageApiTests {
     void serverControlledFieldsNextToTheImageAreNeverAssigned() throws Exception {
         UUID id = created();
         UUID forged = UUID.randomUUID();
-        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE + "\",\"version\":0,\"id\":\"" + forged + "\",\"createdByUserId\":\"" + forged
+        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + IMAGE + "\",\"version\":0,\"id\":\"" + forged + "\",\"createdByUserId\":\""
+                + forged
                 + "\",\"updatedByUserId\":\"" + forged + "\",\"canOrder\":true,\"isVisibleToCustomer\":true}").andExpect(status().isOk());
         var stored = row(id);
         assertNotEquals(forged, stored.get("updated_by_user_id"));
         assertNotEquals(forged, stored.get("created_by_user_id"));
         assertEquals(id, stored.get("id"));
-        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + OTHER_IMAGE + "\",\"restaurantId\":\"" + RESTAURANT_B + "\",\"version\":1}").andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id), "{\"imageUrl\":\"" + OTHER_IMAGE + "\",\"restaurantId\":\"" + RESTAURANT_B
+                + "\",\"version\":1}").andExpect(status().isBadRequest());
         assertEquals(IMAGE, row(id).get("image_url"));
     }
 }

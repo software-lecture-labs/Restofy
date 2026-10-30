@@ -19,6 +19,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.util.UUID;
 
@@ -68,14 +69,16 @@ class ProductImageDisabledByDefaultApiTests {
 
     private UUID created() throws Exception {
         String json = send(post(BASE), "{\"categoryId\":\"" + category + "\",\"name\":\"Tea\",\"basePrice\":5,\"currency\":\"TRY\","
-                + "\"vatRate\":10,\"priceIncludesVat\":true}").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+                + "\"vatRate\":10,\"priceIncludesVat\":true}").andExpect(status().isCreated()).andReturn().getResponse()
+                        .getContentAsString();
         return UUID.fromString(JsonPath.read(json, "$.id"));
     }
 
     @Test
     void theShippedConfigurationHasNoAllowedOrigin() {
         String configured = environment.getProperty("restofy.menu.image.allowed-origins");
-        assertTrue(configured == null || configured.isBlank(), "the property ships empty; only an operator sets MENU_IMAGE_ALLOWED_ORIGINS");
+        assertTrue(configured == null
+                || configured.isBlank(), "the property ships empty; only an operator sets MENU_IMAGE_ALLOWED_ORIGINS");
     }
 
     @Test
@@ -94,9 +97,10 @@ class ProductImageDisabledByDefaultApiTests {
     void removingStillWorksSoAnImageStoredBeforeTheOriginWasRemovedCanBeCleared() throws Exception {
         UUID id = created();
         jdbc.update("UPDATE products SET image_url = 'https://old.example/a.png' WHERE id = ?", id);
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(BASE + "/" + id).with(user("staff")))
+        mvc.perform(MockMvcRequestBuilders.get(BASE + "/" + id).with(user("staff")))
                 .andExpect(jsonPath("$.imageUrl").value("https://old.example/a.png"));
-        send(patch(BASE + "/" + id), "{\"imageUrl\":\"\",\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.imageUrl").doesNotExist());
+        send(patch(BASE + "/" + id), "{\"imageUrl\":\"\",\"version\":0}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").doesNotExist());
         assertNull(jdbc.queryForObject("SELECT image_url FROM products WHERE id = ?", String.class, id));
     }
 
