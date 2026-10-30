@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { repositoryRoot, execute, redact, cleanGenerated, freshFile, backendResults, frontendResults, readModules, clearReports, withReportLock, withRunLog } from '../lib/quality-tools.mjs';
+import { repositoryRoot, execute, redact, cleanGenerated, freshFile, backendResults, frontendResults, readModules, clearReports, withReportLock, withRunLog, mavenCoverageArgs } from '../lib/quality-tools.mjs';
 
 // Read data, never execute/source an ENV file. Ambient variables take precedence.
 export function loadSonarEnv(root, profile, ambient = process.env) {
@@ -103,7 +103,7 @@ export async function runScan({root=repositoryRoot, profile='dev', ambient=proce
     await step('Backend Reports',async()=>{
       const version=await run(mvn,['-version'],root,true);
       if(version.code!==0 || !/Java version:\s*25[.,]/.test(version.output)) throw new Error('Maven must be available and use Java 25');
-      const result=await run(mvn,['-B','-ntp','-f','backend/pom.xml','clean','verify']);
+      const result=await run(mvn,['-B','-ntp','-f','backend/pom.xml',...mavenCoverageArgs(),'clean','verify']);
       if(result.code!==0) throw new Error('Backend build/tests failed');
       details.backend=backendResults(root,modules,started);
       backendReports=true;
