@@ -20,6 +20,8 @@ class ArchitectureRulesTests {
     static final ArchRule profileChecksLiveOnlyInEnvironmentPolicy = noClasses()
             .that().areNotAssignableTo(EnvironmentPolicy.class)
             .should().callMethod(Environment.class, "getActiveProfiles")
-            .orShould().callMethod(Environment.class, "acceptsProfiles", Profiles[].class)
+            .orShould().callMethod(Environment.class, "acceptsProfiles", Profiles.class)
+            .orShould().callMethod(Environment.class, "acceptsProfiles", String[].class)
+            .orShould().callMethod(Environment.class, "matchesProfiles", String[].class)
             .because("EnvironmentPolicy is the only place allowed to decide whether this is a development setting");
 }
