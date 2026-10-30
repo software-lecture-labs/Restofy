@@ -258,15 +258,15 @@ sayılır): normalize hesap + uzak adres başına 10 deneme ve hesap başına to
 Böylece e-postayı bilen biri kendi adresinin bütçesini tüketebilir ama gerçek sahibini başka
 bir adresten kilitleyemez; birçok adrese yayılmış tahmin ise hesap tavanında durur (tavana
 ulaşmak kabul edilen erişilebilirlik ödünleşimidir, bkz. ADR-AUTH-002).
-Bellekte en fazla 10000 pencere tutulur; kapasite dolunca **en eski pencereler silinir**,
+PostgreSQL'de limiter ailesi başına en fazla 10000 pencere tutulur; login/MFA kapasitesi dolunca **en eski pencereler silinir**,
 yeni kullanıcı reddedilmez (aksi halde sahte hesap seliyle masum kullanıcılar da 429 alırdı).
 MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama limitleri
 (`PasswordResetLimiter`) ise veritabanı tabanlıdır ve bilerek **kapalı kalır (fail-closed)**:
 6 haneli kodun tahminini sınırladıkları için dolu tabloda yeni kova açılmaz.
-Bellek içi limitler yalnız tek süreç içindir; yeniden başlatmada sıfırlanır ve birden fazla
-Auth örneğinde paylaşılmaz. Gateway/dağıtık rate limit ve refresh rate limit bu kapsamda
-uygulanmadı. Uzak adres `request.getRemoteAddr()` değeridir; Gateway arkasında bu Gateway'in
-adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır (ADR-AUTH-002).
+Login/MFA peer/reset sayaçları aynı Auth veritabanını kullanan örneklerde paylaşılır ve restart'ta korunur.
+Gateway gelen forwarding başlıklarını temizleyip socket peer adresini aktarır; Auth bunu yalnız
+`AUTH_TRUSTED_PROXY_CIDRS` içindeki doğrudan peer'den kabul eder. Varsayılan boş liste socket
+adresine döner. Gerçek ağ/CIDR kurulumu ve refresh hız sınırı bu kapsamda uygulanmadı (ADR-AUTH-002).
 
 ## AUTH-02 zorunlu ayarlar ve işletim sınırı
 
@@ -285,6 +285,8 @@ HTTPS olmalıdır. Eksik/geçersiz ayarlar uygulamanın başlamasını durdurur.
 Kök `.env.example` ve `docker-compose.yml` bu anahtarlarla güncellenmiştir (Alper onayıyla);
 anahtarlar yalnız Auth container'ına aktarılır. Gerçek değerler Git dışındaki ENV
 dosyalarında tutulur. Testler kendi JVM-içi anahtarlarını üretir.
+Yeni Mail signer/outbox/payload anahtarlarının biçimi, güvenli yerel üretimi ve Compose etkisi:
+[anahtar kurulumu](../../../docs/auth-service/key-setup.md).
 V2 yalnız `user_sessions` ve `refresh_tokens` ekler. Canlı migration/rebuild ayrı onay
 gerektirir. Audit tablosu, session listesi/silme API'si ve frontend ekranları kapsam dışındadır.
 
@@ -350,16 +352,16 @@ token'ını yeniden almalıdır. Access/refresh tokenları yanıtta veya JS stor
 TOTP, recovery ve enrollment onayı aynı DB başarısızlık sayacını paylaşır. Kontrol
 kod doğrulamadan önce yapılır. Beş dakikada beş yanlış deneme beş dakikalık geçici
 kilit ve 429 üretir; yeni parola girişi ya da enrollment başlatma sayacı sıfırlamaz.
-Başarılı MFA sayacı temizler. `MfaAttemptLimiter.attempt`, Spring proxy üzerinden
-`REQUIRES_NEW` transaction açar; 401/429 için rollback yapılmaz. MFA giriş servisleri
+Başarılı MFA sayacı temizler. `MfaAttemptLimiter` önce bağımsız peer kontrolünü tamamlar;
+ardından `MfaAccountAttempts.attempt`, Spring proxy üzerinden `REQUIRES_NEW` transaction açar.
+401/429 için rollback yapılmaz. MFA giriş servisleri
 transaction başlatmadan bu sınıra girer; çağıran transaction'ın rollback'i sayacı geri
 almaz. Kullanıcı satır kilidi account genelinde yarışları sıralar; başarılı faktör
 tüketimi ve yükseltme aynı transaction'dadır. Teknik hatalar transaction'ı geri alır.
 Bu sınır, aynı kullanıcı/MFA satırını kilitlemiş dış transaction içinden çağrılmamalıdır.
 
-Peer-IP limiti süreç başına 60 saniyede 30 istektir; en fazla 10000 pencere tutulur.
-Yalnız servlet peer adresi kullanılır, `X-Forwarded-For` güvenilmez. Gateway arkasında
-bu adres gerçek kullanıcı IP'si olmayabilir; dağıtık IP limiti garantisi yoktur.
+Peer-IP limiti PostgreSQL üzerinden ortak 60 saniyede 30 istektir; en fazla 10000 pencere tutulur.
+Adres, yukarıdaki dar proxy güveniyle çözülür; tanınmayan peer'in `X-Forwarded-For` alanı yok sayılır.
 Hesap kilidi mevcut doğrulanmış diğer cihazların yetkisini kendiliğinden kaldırmaz.
 
 ### Bilinen güvenlik ve işletim sınırları

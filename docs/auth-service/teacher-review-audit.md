@@ -1,5 +1,7 @@
 # Hocanın PR yorumları — güncel kod karşılaştırması
 
+> Son inceleme: [30 Ekim tüm PR denetimi](pre-pr-review.md). Bu sayfanın eski bulguları tarihsel kayıttır.
+
 > Tarihsel denetim: aşağıdaki 20 mesaj eşleştirmesi sağlamlaştırma öncesi bulguları korur.
 > Sonraki kullanıcı onayıyla proxy/ortak limiter, dayanıklı Mail, ayrı RSA, okuma kilidi, ortak test
 > modülü ve stil/ENV hataları ele alındı. Güncel sonuç: [hardening-status.md](hardening-status.md).

@@ -2,6 +2,9 @@
 
 Sahip: Kerem Kalyoncu (Auth/Mail). Güncelleme: 29 Ekim 2026.
 
+[30 Ekim PR öncesi hoca yorumları denetimi](pre-pr-review.md): tüm PR'lar, tekrar bulunan
+hatalar, yerel düzeltmeler ve doğrulama sınırları. [Yeni anahtar kurulumu](key-setup.md).
+
 Auth personel kimliğini üretir; servisler JWTyi yerelde doğrular. Auth diğer servislerin bütün clientlarını veya Sagalarını yönetmez. Cookie/JWT protokolü **staff-v1** olarak belgelenir; bu etiket yeni bir JWT claimi veya endpoint değildir.
 
 | Servis | Sahip | Statik inceleme sonucu |

@@ -1,6 +1,7 @@
 # Auth/Mail sağlamlaştırma — 30 Ekim 2026
 
 Durum: yerel uygulama ve son kalite kapısı tamamlandı. Uzak işlem yapılmadı.
+Sonraki kontrol: [30 Ekim PR denetimi ve ek düzeltmeler](pre-pr-review.md).
 Kullanıcının açık onayı: Gateway forwarding, ortak test modülü, eklemeli migration ve örnek ENV/Compose.
 
 ## Değişenler
