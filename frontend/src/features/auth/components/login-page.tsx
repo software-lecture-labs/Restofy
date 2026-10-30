@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type SubmitEvent } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { BrandWordmark } from "@/shared/components/brand/brand-wordmark";
@@ -13,6 +13,19 @@ import styles from "./login.module.css";
 
 function ArrowIcon() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function SessionHeading({ session }: { session: StaffSession }) {
+  const t = useTranslations("Login");
+  const pending = session.status === "MFA_PENDING";
+  let description = t("successDescription");
+  if (pending) {
+    description = t(session.mfaSetupRequired ? "mfaSetup" : "mfaPending");
+  }
+  return <>
+    <h2 className={styles.title}>{t(pending ? "mfaTitle" : "successTitle")}</h2>
+    <p className={styles.subtitle}>{description}</p>
+  </>;
 }
 
 export function LoginPage() {
@@ -43,16 +56,22 @@ export function LoginPage() {
     }
   }
 
-  async function login(event: FormEvent<HTMLFormElement>) {
+  async function login(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting.current) return;
     const form = event.currentTarget;
     const values = new FormData(form);
+    const email = values.get("email");
+    const password = values.get("password");
+    if (typeof email !== "string" || typeof password !== "string") {
+      setError(t("error.invalidInput"));
+      return;
+    }
     submitting.current = true;
     setBusy(true);
     setError("");
     try {
-      const result = await authClient.login(String(values.get("email") ?? "").trim(), String(values.get("password") ?? ""));
+      const result = await authClient.login(email.trim(), password);
       form.reset();
       setVisible(false);
       setSession(result);
@@ -80,16 +99,12 @@ export function LoginPage() {
       <section className={styles.loginSide} aria-label={t("staffArea")}>
         <div className={styles.formWrap} id="login-content">
           <h1 className={styles.brandHeading} aria-label="Restofy"><BrandWordmark /></h1>
-          {session && <>
-            <h2 className={styles.title}>{t(session.status === "MFA_PENDING" ? "mfaTitle" : "successTitle")}</h2>
-            <p className={styles.subtitle}>{t(session.status === "MFA_PENDING"
-              ? (session.mfaSetupRequired ? "mfaSetup" : "mfaPending") : "successDescription")}</p>
-          </>}
+          {session && <SessionHeading session={session} />}
           {error && <p className={styles.error} ref={errorElement} tabIndex={-1} role="alert">{error}</p>}
           {session ? (
             <div className={styles.sessionState}>
               <p className={styles.sessionLabel}>{t("accountRole")} <strong>{t(`roles.${session.role}`)}</strong></p>
-              <p role="status" className={styles.sessionNotice}>{t(session.status === "MFA_PENDING" ? "mfaNotice" : "successNotice")}</p>
+              <output className={styles.sessionNotice}>{t(session.status === "MFA_PENDING" ? "mfaNotice" : "successNotice")}</output>
               <button type="button" className={styles.submit} disabled={busy} onClick={logout}>
                 {busy ? t("signingOut") : t("signOut")}<ArrowIcon />
               </button>

@@ -15,7 +15,7 @@ export function BrandWordmark() {
       aria-label={t(paused ? "resume" : "pause")} title={t(paused ? "resume" : "pause")}>
       <span className={styles.letters} aria-hidden="true">
         {Array.from("Restofy").map((letter, index) => (
-          <span key={index}
+          <span key={letter}
             className={`${styles.glyph} ${letter === "o" ? styles.accent : ""} ${disturbed === index ? styles.disturbed : ""}`}
             style={{ "--signal-delay": `${delays[index]}ms` } as CSSProperties}
             onPointerEnter={() => setDisturbed(index)}>
