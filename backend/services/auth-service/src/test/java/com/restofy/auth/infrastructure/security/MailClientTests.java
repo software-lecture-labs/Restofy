@@ -58,8 +58,9 @@ class MailClientTests {
             assertThat(claims.getSubject()).isEqualTo("auth-service");
             assertThat(claims.getId()).isEqualTo(message.messageId().toString());
             assertThat(claims.getExpiration().toInstant()).isEqualTo(claims.getIssuedAt().toInstant().plusSeconds(60));
-            assertThatThrownBy(() -> Jwts.parser().verifyWith((RSAPublicKey) sessionKeys.getPublic())
-                    .build().parseSignedClaims(tokens.getFirst())).isInstanceOf(RuntimeException.class);
+            var sessionParser = Jwts.parser().verifyWith((RSAPublicKey) sessionKeys.getPublic()).build();
+            String mailToken = tokens.getFirst();
+            assertThatThrownBy(() -> sessionParser.parseSignedClaims(mailToken)).isInstanceOf(RuntimeException.class);
             assertThat(bodies.getFirst()).contains("\"code\":\"123456\"");
         } finally {
             server.stop(0);
@@ -78,9 +79,11 @@ class MailClientTests {
         server.start();
         var env = environment("http://127.0.0.1:" + server.getAddress().getPort());
         try (var client = new MailClient(settings(env), env, Clock.systemUTC(), mock(MailOutboxRepository.class))) {
-            assertThatThrownBy(() -> client.deliver(message(Instant.now().plusSeconds(60)))).isInstanceOf(RuntimeException.class);
+            var pending = message(Instant.now().plusSeconds(60));
+            assertThatThrownBy(() -> client.deliver(pending)).isInstanceOf(RuntimeException.class);
             assertThat(requests).hasValue(1);
-            assertThatThrownBy(() -> client.deliver(message(Instant.now().minusSeconds(1)))).isInstanceOf(IllegalStateException.class);
+            var expired = message(Instant.now().minusSeconds(1));
+            assertThatThrownBy(() -> client.deliver(expired)).isInstanceOf(IllegalStateException.class);
             assertThat(requests).hasValue(1);
         } finally {
             server.stop(0);

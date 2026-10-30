@@ -35,11 +35,13 @@ class NotificationServiceTokensTests {
         verifier(environment(), NOW).verify("Service " + token(builder -> { }));
         var tokens = verifier(environment(), NOW);
         for (String prefix : new String[]{"Bearer ", "service ", ""}) {
-            assertThatThrownBy(() -> tokens.verify(prefix + token(builder -> { })))
+            String credential = prefix + token(builder -> { });
+            assertThatThrownBy(() -> tokens.verify(credential))
                     .isInstanceOf(BadCredentialsException.class);
         }
         assertThatThrownBy(() -> tokens.verify(null)).isInstanceOf(BadCredentialsException.class);
-        assertThatThrownBy(() -> tokens.verify("Service " + "a".repeat(TOKEN_LIMIT + 1)))
+        String oversized = "Service " + "a".repeat(TOKEN_LIMIT + 1);
+        assertThatThrownBy(() -> tokens.verify(oversized))
                 .isInstanceOf(BadCredentialsException.class);
         assertThatThrownBy(() -> tokens.verify("Service malformed")).isInstanceOf(BadCredentialsException.class);
     }
@@ -60,9 +62,12 @@ class NotificationServiceTokensTests {
                 builder -> builder.issuedAt(Date.from(NOW.minusSeconds(90))));
         var tokens = verifier(environment(), NOW);
         for (Consumer<JwtBuilder> mutation : invalid) {
-            assertThatThrownBy(() -> tokens.verify("Service " + token(mutation))).isInstanceOf(BadCredentialsException.class);
+            String credential = "Service " + token(mutation);
+            assertThatThrownBy(() -> tokens.verify(credential)).isInstanceOf(BadCredentialsException.class);
         }
-        assertThatThrownBy(() -> verifier(environment(), NOW.plusSeconds(60)).verify("Service " + token(builder -> { })))
+        var expiredVerifier = verifier(environment(), NOW.plusSeconds(60));
+        String expired = "Service " + token(builder -> { });
+        assertThatThrownBy(() -> expiredVerifier.verify(expired))
                 .isInstanceOf(BadCredentialsException.class);
     }
 
@@ -77,10 +82,12 @@ class NotificationServiceTokensTests {
 
     @Test
     void missingKeyFailsClosedAndMalformedKeyFailsStartupWithoutExposingValue() {
-        assertThatThrownBy(() -> verifier(new MockEnvironment(), NOW).verify("Service " + token(builder -> { })))
+        var missingKeyVerifier = verifier(new MockEnvironment(), NOW);
+        String credential = "Service " + token(builder -> { });
+        assertThatThrownBy(() -> missingKeyVerifier.verify(credential))
                 .isInstanceOf(BadCredentialsException.class);
-        assertThatThrownBy(() -> new NotificationTrustSettings(
-                new MockEnvironment().withProperty("AUTH_NOTIFICATION_PUBLIC_KEY", "invalid-public-input")))
+        var malformed = new MockEnvironment().withProperty("AUTH_NOTIFICATION_PUBLIC_KEY", "invalid-public-input");
+        assertThatThrownBy(() -> new NotificationTrustSettings(malformed))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("AUTH_NOTIFICATION_PUBLIC_KEY")
                 .hasMessageNotContaining("invalid-public-input");
         var envFallback = new MockEnvironment().withProperty("AUTH_NOTIFICATION_PUBLIC_KEY",
@@ -97,8 +104,9 @@ class NotificationServiceTokensTests {
         assertThatThrownBy(() -> new NotificationTrustSettings(weak)).isInstanceOf(IllegalStateException.class);
         AuthSettings settings = mock(AuthSettings.class);
         when(settings.publicKey()).thenReturn((RSAPublicKey) KEYS.getPublic());
-        assertThatThrownBy(() -> new NotificationServiceTokens(new NotificationTrustSettings(environment()), settings,
-                Clock.fixed(NOW, ZoneOffset.UTC))).isInstanceOf(IllegalStateException.class);
+        var trust = new NotificationTrustSettings(environment());
+        Clock fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
+        assertThatThrownBy(() -> new NotificationServiceTokens(trust, settings, fixedClock)).isInstanceOf(IllegalStateException.class);
     }
 
     private static MockEnvironment environment() {

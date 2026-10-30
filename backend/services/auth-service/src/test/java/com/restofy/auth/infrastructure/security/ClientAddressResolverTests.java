@@ -62,8 +62,8 @@ class ClientAddressResolverTests {
     @ParameterizedTest
     @ValueSource(strings = {"NATIVE", "FRAMEWORK"})
     void automaticForwardedResolutionCannotBypassSocketTrust(String strategy) {
-        assertThatThrownBy(() -> new ClientAddressResolver(new MockEnvironment()
-                .withProperty("server.forward-headers-strategy", strategy))).isInstanceOf(IllegalStateException.class);
+        var environment = new MockEnvironment().withProperty("server.forward-headers-strategy", strategy);
+        assertThatThrownBy(() -> new ClientAddressResolver(environment)).isInstanceOf(IllegalStateException.class);
     }
 
     private static ClientAddressResolver resolver(String trusted) {

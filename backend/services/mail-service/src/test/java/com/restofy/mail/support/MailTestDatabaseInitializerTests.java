@@ -10,7 +10,8 @@ class MailTestDatabaseInitializerTests {
     void wrapperRetainsServiceContextAndRejectsNonTestProfile() {
         try (var context = new GenericApplicationContext()) {
             context.getEnvironment().setActiveProfiles("prod");
-            assertThatThrownBy(() -> new MailTestDatabaseInitializer().initialize(context))
+            var initializer = new MailTestDatabaseInitializer();
+            assertThatThrownBy(() -> initializer.initialize(context))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("Unsafe Mail test database configuration: only the test profile is allowed")
                     .hasNoCause();

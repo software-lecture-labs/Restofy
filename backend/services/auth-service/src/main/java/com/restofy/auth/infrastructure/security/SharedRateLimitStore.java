@@ -31,7 +31,7 @@ public class SharedRateLimitStore {
     public void check(Family family, List<Attempt> attempts) {
         AdvisoryLocks.acquireForTransaction(jdbc, family.lockId);
         Instant now = clock.instant();
-        jdbc.update("DELETE FROM " + family.table + " WHERE expires_at <= ?", Timestamp.from(now));
+        jdbc.update(family.deleteExpiredSql(), Timestamp.from(now));
         for (Attempt attempt : attempts) {
             hit(family, attempt, now);
         }
@@ -42,18 +42,17 @@ public class SharedRateLimitStore {
             throw new IllegalArgumentException("Invalid rate limit budget");
         }
         String key = codes.digest("limit", attempt.key());
-        var rows = jdbc.query("SELECT attempts, expires_at FROM " + family.table + " WHERE bucket_key = ?",
+        var rows = jdbc.query(family.selectSql(),
                 (rs, _) -> new Bucket(rs.getInt(1), rs.getTimestamp(2).toInstant()), key);
         if (rows.isEmpty()) {
-            Integer count = jdbc.queryForObject("SELECT count(*) FROM " + family.table, Integer.class);
+            Integer count = jdbc.queryForObject(family.countSql(), Integer.class);
             if (count == null || count >= MAX_BUCKETS) {
                 if (!family.evict) {
                     throw new LoginLimitException(FULL_TABLE_RETRY_SECONDS);
                 }
-                jdbc.update("DELETE FROM " + family.table + " WHERE bucket_key IN (SELECT bucket_key FROM " + family.table
-                        + " ORDER BY expires_at, bucket_key LIMIT 1)");
+                jdbc.update(family.evictSql());
             }
-            jdbc.update("INSERT INTO " + family.table + " (bucket_key, attempts, expires_at) VALUES (?, 1, ?)",
+            jdbc.update(family.insertSql(),
                     key, Timestamp.from(now.plusSeconds(attempt.windowSeconds())));
             return;
         }
@@ -61,7 +60,7 @@ public class SharedRateLimitStore {
         if (bucket.attempts() >= attempt.limit()) {
             throw new LoginLimitException(Math.max(1, bucket.expiry().getEpochSecond() - now.getEpochSecond()));
         }
-        jdbc.update("UPDATE " + family.table + " SET attempts = attempts + 1 WHERE bucket_key = ?", key);
+        jdbc.update(family.incrementSql(), key);
     }
 
     public static String peerKey(String peer) {
@@ -70,19 +69,75 @@ public class SharedRateLimitStore {
 
     /** Table identifiers are fixed here, never derived from request input. */
     public enum Family {
-        LOGIN("auth_login_limits", AdvisoryLocks.AUTH_LOGIN_LIMITS, true),
-        MFA_PEER("auth_mfa_peer_limits", AdvisoryLocks.AUTH_MFA_PEER_LIMITS, true),
-        RESET("password_reset_limits", AdvisoryLocks.PASSWORD_RESET_LIMITS, false);
+        LOGIN(AdvisoryLocks.AUTH_LOGIN_LIMITS, true),
+        MFA_PEER(AdvisoryLocks.AUTH_MFA_PEER_LIMITS, true),
+        RESET(AdvisoryLocks.PASSWORD_RESET_LIMITS, false);
 
-        private final String table;
         private final long lockId;
         private final boolean evict;
 
-        Family(String table, long lockId, boolean evict) {
-            this.table = table;
+        Family(long lockId, boolean evict) {
             this.lockId = lockId;
             this.evict = evict;
         }
+
+        String deleteExpiredSql() {
+            return switch (this) {
+                case LOGIN -> "DELETE FROM auth_login_limits WHERE expires_at <= ?";
+                case MFA_PEER -> "DELETE FROM auth_mfa_peer_limits WHERE expires_at <= ?";
+                case RESET -> "DELETE FROM password_reset_limits WHERE expires_at <= ?";
+            };
+        }
+
+        String selectSql() {
+            return switch (this) {
+                case LOGIN -> "SELECT attempts, expires_at FROM auth_login_limits WHERE bucket_key = ?";
+                case MFA_PEER -> "SELECT attempts, expires_at FROM auth_mfa_peer_limits WHERE bucket_key = ?";
+                case RESET -> "SELECT attempts, expires_at FROM password_reset_limits WHERE bucket_key = ?";
+            };
+        }
+
+        String countSql() {
+            return switch (this) {
+                case LOGIN -> "SELECT count(*) FROM auth_login_limits";
+                case MFA_PEER -> "SELECT count(*) FROM auth_mfa_peer_limits";
+                case RESET -> "SELECT count(*) FROM password_reset_limits";
+            };
+        }
+
+        String evictSql() {
+            return switch (this) {
+                case LOGIN -> """
+                        DELETE FROM auth_login_limits WHERE bucket_key IN
+                        (SELECT bucket_key FROM auth_login_limits ORDER BY expires_at, bucket_key LIMIT 1)
+                        """;
+                case MFA_PEER -> """
+                        DELETE FROM auth_mfa_peer_limits WHERE bucket_key IN
+                        (SELECT bucket_key FROM auth_mfa_peer_limits ORDER BY expires_at, bucket_key LIMIT 1)
+                        """;
+                case RESET -> """
+                        DELETE FROM password_reset_limits WHERE bucket_key IN
+                        (SELECT bucket_key FROM password_reset_limits ORDER BY expires_at, bucket_key LIMIT 1)
+                        """;
+            };
+        }
+
+        String insertSql() {
+            return switch (this) {
+                case LOGIN -> "INSERT INTO auth_login_limits (bucket_key, attempts, expires_at) VALUES (?, 1, ?)";
+                case MFA_PEER -> "INSERT INTO auth_mfa_peer_limits (bucket_key, attempts, expires_at) VALUES (?, 1, ?)";
+                case RESET -> "INSERT INTO password_reset_limits (bucket_key, attempts, expires_at) VALUES (?, 1, ?)";
+            };
+        }
+
+        String incrementSql() {
+            return switch (this) {
+                case LOGIN -> "UPDATE auth_login_limits SET attempts = attempts + 1 WHERE bucket_key = ?";
+                case MFA_PEER -> "UPDATE auth_mfa_peer_limits SET attempts = attempts + 1 WHERE bucket_key = ?";
+                case RESET -> "UPDATE password_reset_limits SET attempts = attempts + 1 WHERE bucket_key = ?";
+            };
+        }
+
     }
 
     public record Attempt(String key, long windowSeconds, int limit) {

@@ -18,8 +18,8 @@ public class NotificationSecurityConfiguration {
     @Order(1)
     SecurityFilterChain notificationSecurityFilterChain(HttpSecurity http, NotificationServiceTokens tokens) {
         return http.securityMatcher("/api/v1/internal/auth/**")
-                // This chain accepts only signed service credentials, never cookies or browser origins.
-                .csrf(csrf -> csrf.disable()).cors(cors -> cors.disable())
+                // Only a read-only GET is authorized; default CSRF protection remains enabled.
+                .cors(cors -> cors.disable())
                 .addFilterBefore(new NotificationRequestFilter(tokens), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.GET, "/api/v1/internal/auth/staff-recipients")

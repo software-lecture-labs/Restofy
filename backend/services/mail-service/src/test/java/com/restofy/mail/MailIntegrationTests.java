@@ -106,7 +106,8 @@ class MailIntegrationTests extends MailTestSupport {
     @Test void serviceTokenLengthLimitIsExactly4096() {
         UUID id=UUID.randomUUID();
         assertThat(tokens.verify(paddedToken(id,4096))).isEqualTo(id);
-        assertThatThrownBy(() -> tokens.verify(paddedToken(id,4098))).isInstanceOf(BadCredentialsException.class);
+        String oversized = paddedToken(id,4098);
+        assertThatThrownBy(() -> tokens.verify(oversized)).isInstanceOf(BadCredentialsException.class);
     }
 
     @Test void missingForgedAndUserIdentitiesAreRejected() throws Exception {

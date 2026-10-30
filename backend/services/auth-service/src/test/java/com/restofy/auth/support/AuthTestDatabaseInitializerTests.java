@@ -10,7 +10,8 @@ class AuthTestDatabaseInitializerTests {
     void wrapperRetainsServiceContextAndRejectsNonTestProfile() {
         try (var context = new GenericApplicationContext()) {
             context.getEnvironment().setActiveProfiles("prod");
-            assertThatThrownBy(() -> new AuthTestDatabaseInitializer().initialize(context))
+            var initializer = new AuthTestDatabaseInitializer();
+            assertThatThrownBy(() -> initializer.initialize(context))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("Unsafe Auth test database configuration: only the test profile is allowed")
                     .hasNoCause();

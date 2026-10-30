@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 public class NotificationServiceTokens {
     private static final int MAX_TOKEN_LENGTH = 4096;
     private static final long MAX_LIFETIME_SECONDS = 60;
+    private static final String AUTHORIZATION_PREFIX = "Service ";
     private static final String CALLER = "notification-service";
     private final NotificationTrustSettings trust;
     private final AuthSettings settings;
@@ -31,16 +32,17 @@ public class NotificationServiceTokens {
 
     public void verify(String authorization) {
         try {
-            if (trust.publicKey() == null || authorization == null || !authorization.startsWith("Service ")
-                    || authorization.length() > MAX_TOKEN_LENGTH + "Service ".length()) {
+            if (trust.publicKey() == null || authorization == null || !authorization.startsWith(AUTHORIZATION_PREFIX)
+                    || authorization.length() > MAX_TOKEN_LENGTH + AUTHORIZATION_PREFIX.length()) {
                 throw new IllegalArgumentException();
             }
+            // JJWT's Clock interface requires Date; authorization decisions below use java.time.Instant.
             var claims = Jwts.parser().verifyWith(trust.publicKey()).sig().clear().add(Jwts.SIG.RS256).and()
                     .clock(() -> Date.from(clock.instant())).requireIssuer(CALLER).requireSubject(CALLER)
                     .requireAudience("restofy-auth").require("token_type", "service")
                     .require("scope", "staff:recipients:read")
                     .require("restaurant_id", settings.restaurantId().toString())
-                    .build().parseSignedClaims(authorization.substring("Service ".length())).getPayload();
+                    .build().parseSignedClaims(authorization.substring(AUTHORIZATION_PREFIX.length())).getPayload();
             Instant now = clock.instant();
             if (claims.getIssuedAt() == null || claims.getNotBefore() == null || claims.getExpiration() == null
                     || claims.getId() == null || claims.getIssuedAt().toInstant().isAfter(now)
