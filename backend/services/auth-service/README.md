@@ -114,9 +114,9 @@ belirten bir hatayla başlamaz. Başlangıçta WARN logu yazılır. Karar tek ye
   değildir; yatay ölçekte darboğaz olabilir. Mail servisindeki iş kabulü de aynıdır.
   Kilit numaraları `AdvisoryLocks` sınıfında toplanmıştır (servis başına ayrı veritabanı
   olduğu için servisler arası çakışma olmaz).
-- `MailClient` Mail'e bellek içi kuyrukla, commit sonrası ve **yeniden denemesiz** gönderir;
-  Auth yeniden başlarsa ya da Mail kısa süre kesilirse mesaj kaybolur, kullanıcı yeni kod ister.
-  Bu ödünleşim ve transactional outbox alternatifi ADR-AUTH-001'de kayıtlıdır.
+- `MailClient` Auth değişikliğiyle aynı transaction'da şifreli outbox yazar; commit sonrası relay sınırlı yeniden denemeyle Mail'e gönderir;
+  Auth/Mail yeniden başladığında süresi dolmamış bekleyen içerik kurtarılır. SMTP sonucu
+  belirsizse kör resend yapılmaz. Anahtar geçişi ve sınırlar ADR-AUTH-001'de kayıtlıdır.
 - Kararların gerekçesi: `docs/decisions/ADR-AUTH-001-mail-gonderimi.md` ve
   `docs/decisions/ADR-AUTH-002-rate-limit-ve-kilitler.md`.
 

@@ -9,11 +9,11 @@ feature/mail-service dalı yalnız iskelettir; gerçek Mail uygulaması Auth dal
 
 ## Sağladığımız ve beklediğimiz
 
-Auth personel kimliğini [staff-v1](../staff-contract.md) ile sağlar. Mevcut sözleşme korunur; MailSettings/MailServiceTokens ve Auth MailClient birlikte değerlendirilir. Staff access JWT kabul edilmez. Genel Authorization: Service /api/v1/internal/** modeli burada uygulanmış gibi yazılmaz. Ayrı servis anahtarı #6 ertelenmiştir.
+Auth personel kimliğini [staff-v1](../staff-contract.md) ile sağlar. Mevcut sözleşme korunur; MailSettings/MailServiceTokens ve Auth MailClient birlikte değerlendirilir. Staff access JWT kabul edilmez. Genel Authorization: Service /api/v1/internal/** modeli burada uygulanmış gibi yazılmaz. JWT artık session RSA'sından ayrı AUTH_MAIL_PRIVATE_KEY kullanır; Mail public key bunun karşılığıdır.
 
 ## Client / olay / Saga
 
-Auth reset commit → bellek içi, yeniden denemesiz MailClient → Mail iş kabulü → SMTP. Kod payloadı yalnız bellekte, DBde metadata; restart/kesintide kayıp mümkün. En çok 3 SMTP denemesi inbox teslim garantisi değildir; ADR-AUTH-001 geçerli.
+Auth transaction → şifreli outbox → yeniden deneyen relay → Mail metadata+şifreli payload transaction → SMTP. İki taraf restart recovery destekler; messageId idempotency korunur. En çok 3 SMTP denemesi inbox teslim garantisi değildir; SENDING/UNKNOWN kör resend edilmez. [Geçiş ve sınırlar](../../decisions/ADR-AUTH-001-mail-gonderimi.md).
 
 ## Yetki ve hata davranışı
 

@@ -1,5 +1,10 @@
 # Hocanın PR yorumları — güncel kod karşılaştırması
 
+> Tarihsel denetim: aşağıdaki 20 mesaj eşleştirmesi sağlamlaştırma öncesi bulguları korur.
+> Sonraki kullanıcı onayıyla proxy/ortak limiter, dayanıklı Mail, ayrı RSA, okuma kilidi, ortak test
+> modülü ve stil/ENV hataları ele alındı. Güncel sonuç: [hardening-status.md](hardening-status.md).
+> GitHub issue durumlarına hiçbir yazma yapılmadı.
+
 Kontrol: 29 Ekim 2026. Yerel kaynak: `471a52f`; uzak yazma veya uygulama kodu değişikliği yapılmadı.
 Restofy'de `KeremKalyoncu` tarafından açılmış tüm durumdaki PR'lar sorgulandı; **yalnız PR #2** bulundu.
 `buraksenyurt` hesabının **16 inline yorumu + 4 review mesajı = 20 mesajının tamamı** okundu.

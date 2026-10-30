@@ -1,9 +1,12 @@
 # Auth teslim durumu — 29 Ekim 2026
 
+> Bu sayfanın test sayıları önceki personel/alıcı teslimine aittir. Sonraki onaylı Auth/Mail
+> sağlamlaştırması, genişleyen dar kapsam ve güncel testler [hardening-status.md](hardening-status.md) dosyasındadır.
+
 **UYGULANDI:** Auth PMD/Checkstyle + GitHub CI dosyası, bağımsız JWT tüketici testleri,
 14 dalın SHA kaydı, 12 servis entegrasyon sayfası, frontend/renk paleti ve hoca yorumları takibi.
 Ek teslim: **ADMIN personel yönetimi ve Notification aktif alıcı sorgusu**; [kesin API sözleşmesi](staff-directory-api.md).
-Yeni uçlar Auth içindedir; mevcut migration, ortak ENV/Compose/Gateway veya diğer servis kodu değiştirilmedi.
+Bu önceki fazda yeni uçlar yalnız Auth içindeydi; sonraki dar kapsam kullanıcı onayıyla genişletildi.
 Notification için opsiyonel public-key ayarı eklendi; gerçek anahtar veya ortam ayarı yazılmadı.
 
 ## Doğrulama
@@ -67,8 +70,8 @@ yeşil tamamlanmış gibi raporlanmaz; diğer backend modüllerinin o koşudaki 
 | Waiter / Umut | AuthenticatedStaff üreticisi, cookie CSRF, Order/QR gerçek bağlantıları |
 | Admin UI / Umut | Hazır Auth personel API'sine bağlanmak; version/409, MFA ve CSRF davranışını uygulamak |
 | Notification / Hamza | Hazır Auth alıcı sorgusuna kendi RS256 signer/client'ıyla bağlanmak; yalnız public key'i Auth'a tanıtmak |
-| Auth/Mail / Kerem | Bildirilen personel/kimlik/alıcı uçları hazır; gerçek SMTP ve mevcut Auth→Mail anahtar ayrımı sonraki iş |
-| Ortak ekip | #10 proxy peer adresi, #9 limiter stratejisi; çok restoranlı üyelik, key rotation ve guest politikası ayrı işler |
+| Auth/Mail / Kerem | Bildirilen personel/kimlik/alıcı uçları hazır; gerçek SMTP işletim doğrulaması ayrı; anahtar ayrımı sonraki onaylı sağlamlaştırmada uygulandı |
+| Ortak ekip | #10/#9 yerelde uygulandı, uzak issue durumu değiştirilmedi; çok restoranlı üyelik, key rotation ve guest politikası ayrı |
 
 Diğer servislerin client/Saga işleri Auth içine taşınmadı. Auth'a somut personel yönetimi/alıcı ihtiyacı eklendi;
 Order/Kitchen/Menu/QR/Waiter için hazır JWT sözleşmesi korunur. Ayrıntılar [ana indekste](README.md).

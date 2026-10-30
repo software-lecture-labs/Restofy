@@ -8,7 +8,7 @@ Java 25 ve çalışan Docker gerekir; yalnız geçici Testcontainers PostgreSQL 
 mvn -B -ntp -f backend/pom.xml -pl services/auth-service -am clean verify
 ```
 
-Auth POM'unda verify fazına bağlı iki kapı vardır. Ortak parent POM, pre-push veya diğer servis POM'ları değiştirilmedi. Dolayısıyla mevcut pre-push Maven verify çağrısı Auth analizlerini de çalıştırır; diğer servislere yeni kural yayılmaz.
+Auth POM'unda verify fazına bağlı iki kapı vardır. İlk kalite fazı kuralları yalnız Auth'a ekledi. Sonraki onaylı sağlamlaştırmada parent'a test-support modülü, Auth/Mail'e yalnız test-scope bağımlılık eklendi; pre-push değişmedi. Dolayısıyla mevcut pre-push Maven verify çağrısı Auth analizlerini de çalıştırır; diğer servislere yeni kural yayılmaz.
 
 Windows'ta Türkçe klasör adı/yerel kodlama nedeniyle agent exec dosyasını yanlış karakterli yola
 yazabilir. Bu ortamda gözlendi; normal verify başarısı tek başına coverage raporu kanıtı sayılmadı.
@@ -36,7 +36,7 @@ PMD kaynak yönetimi bulgusunda test executor'ü try-with-resources ile kapatıl
 
 ## GitHub CI
 
-Workflow: .github/workflows/auth-quality.yml. dev/main hedefli PR, feature/auth-service/dev/main push ve workflow_dispatch için hazırlanmıştır. Testcontainers çalıştıran Ubuntu + Temurin 25; contents:read, SHA sabitli Actions, credentials kalıcı değil. Gerçek ENV/SMTP/Sonar sırrı gerekmez. JUnit/JaCoCo/PMD/Checkstyle sonuçları başarısızlıkta da 7 gün saklanır.
+Workflow: .github/workflows/auth-quality.yml. dev/main hedefli PR, feature/auth-service/dev/main push ve workflow_dispatch için hazırlanmıştır. Testcontainers çalıştıran Ubuntu + Temurin 25; contents:read, SHA sabitli Actions, credentials kalıcı değil. Gerçek ENV/SMTP/Sonar sırrı gerekmez. Workflow artık Auth, Mail, Gateway ve ortak test desteğini birlikte verify eder. JUnit/JaCoCo/PMD/Checkstyle sonuçları başarısızlıkta da 7 gün saklanır.
 
 Workflow dosyası yerelde hazırdır; push yapılmadı. **GitHub çalışması ve required-check ayarları DOĞRULANMADI / değiştirilmedi.** QR dalında ayrıca backend-verify workflow'u vardır; bu dal o workflow'u taşımadığı için üzerine yazılmadı. Birleşimde iki kontrol kapsamı ekipçe değerlendirilmelidir.
 

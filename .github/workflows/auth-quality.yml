@@ -1,4 +1,4 @@
-name: Auth quality
+name: Auth integration quality
 
 on:
   pull_request:
@@ -30,14 +30,22 @@ jobs:
           cache-dependency-path: '**/pom.xml'
       - name: Verify Docker availability
         run: docker info
-      - name: Verify Auth tests, coverage, Checkstyle and PMD
-        run: mvn -B -ntp -f backend/pom.xml -pl services/auth-service -am clean verify
+      - name: Verify Auth, Mail, Gateway and shared test support
+        run: mvn -B -ntp -f backend/pom.xml -pl services/api-gateway,services/auth-service,services/mail-service -am clean verify
       - name: Check executed tests, architecture rule and coverage
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
+          for module in ('libs/test-support', 'services/api-gateway', 'services/auth-service', 'services/mail-service'):
+              target = Path('backend') / module / 'target'
+              reports = list((target / 'surefire-reports').glob('TEST-*.xml'))
+              assert reports, f'JUnit reports missing: {module}'
+              suites = [ET.parse(report).getroot() for report in reports]
+              assert sum(int(suite.get('tests', 0)) for suite in suites) > 0, module
+              for suite in suites:
+                  assert all(int(suite.get(key, 0)) == 0 for key in ('failures', 'errors', 'skipped')), suite.get('name')
           target = Path('backend/services/auth-service/target')
           reports = list((target / 'surefire-reports').glob('TEST-*.xml'))
           assert reports, 'Auth JUnit reports are missing'
@@ -60,6 +68,10 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
           path: |
+            backend/libs/test-support/target/surefire-reports/
+            backend/services/api-gateway/target/surefire-reports/
+            backend/services/mail-service/target/surefire-reports/
+            backend/services/mail-service/target/site/jacoco/
             backend/services/auth-service/target/surefire-reports/
             backend/services/auth-service/target/site/jacoco/
             backend/services/auth-service/target/checkstyle-result.xml

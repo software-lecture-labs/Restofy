@@ -26,6 +26,7 @@ Auth personel kimliğini üretir; servisler JWTyi yerelde doğrular. Auth diğer
 - [Hocanın PR yorumları ve ayrı işler](review-follow-up.md)
 - [Hocanın 20 mesajının güncel kodla karşılaştırması](teacher-review-audit.md)
 - [Kalite kapısı](quality.md)
+- [Auth/Mail sağlamlaştırma ve geçiş notları](hardening-status.md)
 - [Doğrulama ve teslim durumu](status.md)
 - [Bağımsız son inceleme ve gerçek client durumu](delivery-review.md)
 
@@ -33,4 +34,4 @@ MEVCUT kod varlığıdır; EKSİK uygulanmamıştır; UYUMSUZ sözleşme farkıd
 
 Personel yönetimi ve Notification alıcı API'si Auth'ta uygulandı; bağlantı ayrıntıları yukarıdaki sözleşmededir.
 Diğer ihtiyaçlar çoğunlukla consumer adapterlarıdır; introspection veya varsayımsal Saga uçları eklenmedi.
-Guest browser taşıması, çok restoranlı üyelik ve mevcut Auth→Mail anahtar ayrımı ayrı kapsamdır.
+Guest browser taşıması, çok restoranlı üyelik ve online anahtar rotasyonu ayrı kapsamdır.
