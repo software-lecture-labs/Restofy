@@ -114,7 +114,8 @@ class ServeRulesUnitTests {
         assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, ServeStatusDto.Status.APPLIED, null, null));
         assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, ServeStatusDto.Status.REJECTED, null, null));
         assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, ServeStatusDto.Status.REJECTED, " ", null));
-        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(null, ServeStatusDto.Status.REJECTED, "ORDER_CANCELLED", null));
+        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(null, ServeStatusDto.Status.REJECTED, "ORDER_CANCELLED",
+                null));
         assertEquals("ORDER_CANCELLED", new ServeStatusDto(id, ServeStatusDto.Status.REJECTED, "ORDER_CANCELLED", null).rejectionCode());
     }
 }

@@ -1,6 +1,7 @@
 package com.restofy.waiter.infrastructure.persistence.repository;
 
 import com.restofy.waiter.domain.entity.TableCommand;
+import com.restofy.waiter.domain.enums.ServiceRequestStatus;
 import com.restofy.waiter.domain.enums.TableCommandStatus;
 import com.restofy.waiter.domain.enums.TableCommandType;
 import org.springframework.data.domain.Pageable;
@@ -44,15 +45,20 @@ public interface TableCommandRepository extends JpaRepository<TableCommand, UUID
      * Completed closes whose session still has an unresolved call. A call can be written between QR's check of a
      * guest and the close itself; it belongs to a session QR already confirmed closed, so it ends with it.
      */
+    default List<TableCommand> findClosedSessionsWithUnresolvedCalls(Pageable page) {
+        return findByTypeAndStatusWithCallsIn(TableCommandType.CLOSE, TableCommandStatus.COMPLETED,
+                ServiceRequestStatus.UNRESOLVED, page);
+    }
+
+    /** The enum values are bound as parameters, so the query needs no fully qualified enum literals. */
     @Query("""
             select c from TableCommand c
-            where c.type = com.restofy.waiter.domain.enums.TableCommandType.CLOSE
-              and c.status = com.restofy.waiter.domain.enums.TableCommandStatus.COMPLETED
+            where c.type = :type and c.status = :status
               and exists (select 1 from ServiceRequest s
                           where s.restaurantId = c.restaurantId and s.tableSessionId = c.tableSessionId
-                            and s.status in (com.restofy.waiter.domain.enums.ServiceRequestStatus.OPEN,
-                                             com.restofy.waiter.domain.enums.ServiceRequestStatus.CLAIMED))
+                            and s.status in :callStatuses)
             order by c.completedAt asc, c.id asc
             """)
-    List<TableCommand> findClosedSessionsWithUnresolvedCalls(Pageable page);
+    List<TableCommand> findByTypeAndStatusWithCallsIn(TableCommandType type, TableCommandStatus status,
+                                                      Collection<ServiceRequestStatus> callStatuses, Pageable page);
 }

@@ -7,6 +7,7 @@ import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.domain.exception.SnapshotLimitExceededException;
 import com.restofy.waiter.infrastructure.client.DownstreamCalls;
 import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -26,7 +27,7 @@ import java.util.UUID;
 /**
  * Adapter for the QR service, the owner of tables and table sessions. Everything it reads is checked
  * against the caller's restaurant, so data of another tenant is never passed on.
- * The contract is a DRAFT (docs/waiter/integration-contracts.md); QR has not implemented it yet. Besides the
+ * The contract is a DRAFT; QR has not implemented it yet. Besides the
  * reads it carries the two table commands, closing a main session and marking a table cleaned: QR alone
  * decides them, and nothing here sends a command again on its own.
  */
@@ -100,7 +101,7 @@ public class QrClient {
     public Optional<QrGuestContextDto> verifyGuest(String guestToken) {
         return DownstreamCalls.executeOptional(DEPENDENCY, () -> client.post()
                 .uri("/internal/v1/guest-sessions/verify")
-                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(new QrGuestVerifyRequest(guestToken))
                 .retrieve().body(QrGuestContextDto.class));
     }
@@ -139,8 +140,8 @@ public class QrClient {
             QrCloseResultDto body = answer.getBody();
             if (body == null) throw badResponse("empty answer to the close command");
             int status = answer.getStatusCode().value();
-            boolean consistent = (status == 200 && body.state() == QrCloseResultDto.State.CLOSED)
-                    || (status == 202 && body.state() == QrCloseResultDto.State.CLOSING);
+            boolean consistent = (status == HttpStatus.OK.value() && body.state() == QrCloseResultDto.State.CLOSED)
+                    || (status == HttpStatus.ACCEPTED.value() && body.state() == QrCloseResultDto.State.CLOSING);
             if (!consistent) throw badResponse("status " + status + " does not match the state " + body.state());
             if (!body.commandId().equals(command.commandId())) throw badResponse("answer for another command");
             if (!body.tableId().equals(command.tableId()) || !body.tableSessionId().equals(command.tableSessionId())) {
@@ -222,10 +223,12 @@ public class QrClient {
     /** A definite refusal (400/404/409/422) is a rejection; 401/403 and everything else is no usable answer. */
     private static RuntimeException refused(RestClientResponseException refusal, String notFoundCode, Set<String> known) {
         int status = refusal.getStatusCode().value();
-        if (status != 404 && status != 400 && status != 409 && status != 422) {
+        if (!DownstreamCalls.isDefiniteRefusal(status)) {
             return DownstreamCalls.translate(DEPENDENCY, refusal);
         }
-        if (status == 404) return new QrRejectedException(404, notFoundCode, List.of());
+        if (status == HttpStatus.NOT_FOUND.value()) {
+            return new QrRejectedException(status, notFoundCode, List.of());
+        }
         try {
             JsonNode body = REJECTION_JSON.readTree(refusal.getResponseBodyAsString());
             String code = body.path("code").asString("");

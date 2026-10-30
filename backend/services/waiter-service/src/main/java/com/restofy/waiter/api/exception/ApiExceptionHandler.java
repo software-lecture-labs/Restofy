@@ -1,7 +1,9 @@
 package com.restofy.waiter.api.exception;
 
 import com.restofy.waiter.domain.exception.CallConflictException;
+import com.restofy.waiter.domain.exception.CallRateLimitedException;
 import com.restofy.waiter.domain.exception.DependencyException;
+import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.domain.exception.InvalidRequestException;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
 import com.restofy.waiter.domain.exception.ServeRejectedException;
@@ -62,11 +64,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DependencyException.class)
     ResponseEntity<Object> dependency(DependencyException error, WebRequest request) {
-        HttpStatus status = switch (error.failure()) {
-            case TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
-            case REJECTED, BAD_RESPONSE -> HttpStatus.BAD_GATEWAY;
-        };
+        HttpStatus status = statusOf(error.failure());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", "DEPENDENCY_" + error.failure());
         body.setProperty("dependency", error.dependency());
@@ -76,6 +74,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(CallConflictException.class)
     ResponseEntity<Object> conflict(CallConflictException error, WebRequest request) {
         return problem(HttpStatus.CONFLICT, error.code(), error.getMessage(), request);
+    }
+
+    @ExceptionHandler(CallRateLimitedException.class)
+    ResponseEntity<Object> rateLimited(CallRateLimitedException error, WebRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(error.retryAfterSeconds()));
+        ProblemDetail body = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, error.getMessage());
+        body.setProperty("code", "CALL_RATE_LIMITED");
+        return handleExceptionInternal(error, body, headers, HttpStatus.TOO_MANY_REQUESTS, request);
     }
 
     @ExceptionHandler(ServeRejectedException.class)
@@ -90,11 +97,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /** The command may have been applied: the status says what failed, the code says that the result is unknown. */
     @ExceptionHandler(ServeResultUnknownException.class)
     ResponseEntity<Object> serveUnknown(ServeResultUnknownException error, WebRequest request) {
-        HttpStatus status = switch (error.failure()) {
-            case TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
-            case REJECTED, BAD_RESPONSE -> HttpStatus.BAD_GATEWAY;
-        };
+        HttpStatus status = statusOf(error.failure());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", "SERVE_RESULT_UNKNOWN");
         body.setProperty("commandId", error.commandId());
@@ -115,11 +118,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /** The command may have been applied: the status says what failed, the code says that the result is unknown. */
     @ExceptionHandler(TableCommandUnknownException.class)
     ResponseEntity<Object> tableCommandUnknown(TableCommandUnknownException error, WebRequest request) {
-        HttpStatus status = switch (error.failure()) {
-            case TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
-            case REJECTED, BAD_RESPONSE -> HttpStatus.BAD_GATEWAY;
-        };
+        HttpStatus status = statusOf(error.failure());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", error.type().name() + "_RESULT_UNKNOWN");
         body.setProperty("commandId", error.commandId());
@@ -151,6 +150,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             detail.setProperty("code", status.is4xxClientError() ? "INVALID_REQUEST" : "INTERNAL_ERROR");
         }
         return response;
+    }
+
+    private static HttpStatus statusOf(DependencyFailure failure) {
+        return switch (failure) {
+            case TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
+            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case REJECTED, BAD_RESPONSE -> HttpStatus.BAD_GATEWAY;
+        };
     }
 
     private ResponseEntity<Object> problem(HttpStatus status, String code, String detail, WebRequest request) {

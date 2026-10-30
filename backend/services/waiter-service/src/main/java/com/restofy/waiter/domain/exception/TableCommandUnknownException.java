@@ -2,6 +2,7 @@ package com.restofy.waiter.domain.exception;
 
 import com.restofy.waiter.domain.enums.TableCommandType;
 
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -16,7 +17,7 @@ public class TableCommandUnknownException extends RuntimeException {
     private final DependencyFailure failure;
 
     public TableCommandUnknownException(TableCommandType type, UUID commandId, DependencyFailure failure) {
-        super("The result of the " + type.name().toLowerCase(java.util.Locale.ROOT) + " command is unknown. Do not "
+        super("The result of the " + type.name().toLowerCase(Locale.ROOT) + " command is unknown. Do not "
                 + "assume the table was or was not changed; query the command or repeat the same request with the "
                 + "same Idempotency-Key.");
         this.type = type;

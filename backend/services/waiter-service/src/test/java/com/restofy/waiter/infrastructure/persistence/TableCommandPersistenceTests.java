@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -101,7 +102,7 @@ class TableCommandPersistenceTests {
     @Test
     void anOpenCloseAndAnOpenCleaningAreStoredAndReadBackByTheEntity() {
         TableCommand.Origin origin = new TableCommand.Origin(UUID.randomUUID(), RESTAURANT, TABLE, 3, STAFF, "key-0123456789",
-                "digest", Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+                "digest", Instant.now().truncatedTo(ChronoUnit.MICROS));
         TableCommand saved = repository.saveAndFlush(TableCommand.close(origin, SESSION, "Müşteri ayrıldı"));
         assertEquals(0L, saved.getVersion());
 
@@ -115,7 +116,7 @@ class TableCommandPersistenceTests {
                 "Another restaurant's command id looks like a missing one");
         assertTrue(repository.findByIdAndRestaurantIdAndTableId(origin.id(), RESTAURANT, UUID.randomUUID()).isEmpty());
 
-        loaded.completeClose(Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS), 2, 1, Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        loaded.completeClose(Instant.now().truncatedTo(ChronoUnit.MICROS), 2, 1, Instant.now().truncatedTo(ChronoUnit.MICROS));
         TableCommand completed = repository.saveAndFlush(loaded);
         assertEquals(1L, completed.getVersion());
         assertEquals(TableCommandStatus.COMPLETED, repository.findById(origin.id()).orElseThrow().getStatus());
@@ -139,9 +140,12 @@ class TableCommandPersistenceTests {
 
         assertEquals(List.of(unknown), repository.findByRestaurantIdAndStatusInOrderByCreatedAtDesc(RESTAURANT, TableCommandStatus.OPEN)
                 .stream().map(TableCommand::getId).toList());
-        assertTrue(repository.existsByRestaurantIdAndTableIdAndTypeAndStatusIn(RESTAURANT, TABLE, TableCommandType.CLOSE, TableCommandStatus.OPEN));
-        assertTrue(!repository.existsByRestaurantIdAndTableIdAndTypeAndStatusIn(OTHER_RESTAURANT, TABLE, TableCommandType.CLOSE, TableCommandStatus.OPEN));
-        assertTrue(repository.existsByRestaurantIdAndTableSessionIdAndTypeAndStatus(RESTAURANT, SESSION, TableCommandType.CLOSE, TableCommandStatus.COMPLETED));
+        assertTrue(repository.existsByRestaurantIdAndTableIdAndTypeAndStatusIn(RESTAURANT, TABLE, TableCommandType.CLOSE,
+                TableCommandStatus.OPEN));
+        assertTrue(!repository.existsByRestaurantIdAndTableIdAndTypeAndStatusIn(OTHER_RESTAURANT, TABLE, TableCommandType.CLOSE,
+                TableCommandStatus.OPEN));
+        assertTrue(repository.existsByRestaurantIdAndTableSessionIdAndTypeAndStatus(RESTAURANT, SESSION, TableCommandType.CLOSE,
+                TableCommandStatus.COMPLETED));
     }
 
     @Test
@@ -152,7 +156,8 @@ class TableCommandPersistenceTests {
         insertCall(UUID.randomUUID(), RESTAURANT, "RESOLVED", null, null, null);
         assertTrue(repository.findClosedSessionsWithUnresolvedCalls(PageRequest.of(0, 10)).isEmpty());
         insertCall(UUID.randomUUID(), RESTAURANT, "OPEN", null, null, null);
-        assertEquals(List.of(closed), repository.findClosedSessionsWithUnresolvedCalls(PageRequest.of(0, 10)).stream().map(TableCommand::getId).toList());
+        assertEquals(List.of(closed), repository.findClosedSessionsWithUnresolvedCalls(PageRequest.of(0, 10)).stream()
+                .map(TableCommand::getId).toList());
     }
 
     // ----- uniqueness -----
@@ -190,7 +195,8 @@ class TableCommandPersistenceTests {
         jdbc.update("""
                 INSERT INTO table_commands (id, restaurant_id, command_type, table_id, table_session_id, expected_version,
                                             requested_by_user_id, idempotency_key, request_digest, status, created_at, updated_at)
-                VALUES (gen_random_uuid(), ?, 'CLOSE', ?, gen_random_uuid(), 1, gen_random_uuid(), 'key-shared-0001', 'd', 'PENDING', now(), now())
+                VALUES (gen_random_uuid(), ?, 'CLOSE', ?, gen_random_uuid(), 1, gen_random_uuid(), 'key-shared-0001', 'd',
+                        'PENDING', now(), now())
                 """, RESTAURANT, TABLE);
     }
 
@@ -207,35 +213,48 @@ class TableCommandPersistenceTests {
                 """;
         UUID session = UUID.randomUUID();
         // A close needs its session, a cleaning must not have one.
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, null, STAFF, "key-shape-0001",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, null, STAFF,
+                "key-shape-0001",
                 null, "PENDING", null, null, null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, session, STAFF, "key-shape-0002",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, session, STAFF,
+                "key-shape-0002",
                 null, "PENDING", null, null, null, null, null, null, null));
         // A reason belongs to a close, and is short.
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, null, STAFF, "key-shape-0003",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, null, STAFF,
+                "key-shape-0003",
                 "why", "PENDING", null, null, null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0004",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0004",
                 "x".repeat(301), "PENDING", null, null, null, null, null, null, null));
         // A rejection carries its code and only a rejection does; a final status carries its completion time.
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0005",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0005",
                 null, "REJECTED", null, Timestamp.from(Instant.now()), null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0006",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0006",
                 null, "UNKNOWN", "SESSION_NOT_OPEN", null, null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0007",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0007",
                 null, "REJECTED", "SESSION_NOT_OPEN", null, null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0008",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0008",
                 null, "PENDING", null, Timestamp.from(Instant.now()), null, null, null, null, null));
         // A completed close names what QR confirmed; a completed cleaning the table version and readiness.
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0009",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0009",
                 null, "COMPLETED", null, Timestamp.from(Instant.now()), null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, null, STAFF, "key-shape-0010",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, null, STAFF,
+                "key-shape-0010",
                 null, "COMPLETED", null, Timestamp.from(Instant.now()), null, null, null, null, null));
         // Unknown status and type, negative counts and versions.
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0011",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0011",
                 null, "DONE", null, null, null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "OPEN", TABLE, session, STAFF, "key-shape-0012",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "OPEN", TABLE, session, STAFF,
+                "key-shape-0012",
                 null, "PENDING", null, null, null, null, null, null, null));
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0013",
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
+                "key-shape-0013",
                 null, "COMPLETED", null, Timestamp.from(Instant.now()), Timestamp.from(Instant.now()), -1, 0, null, null));
         // And the valid shapes go in.
         jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0020",

@@ -12,7 +12,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -116,7 +118,8 @@ class WaiterCallApiTests extends ApiTestBase {
     @Test
     void aStaffPrincipalWithTheWrongShapeIsForbiddenEvenWithTheWaiterAuthority() throws Exception {
         mockMvc.perform(get("/api/v1/waiters/calls").with(as("someone", "WAITER"))).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/v1/waiters/calls").with(as(new AuthenticatedGuest(RESTAURANT, table1.id(), S1, UUID.randomUUID()), "WAITER")))
+        mockMvc.perform(get("/api/v1/waiters/calls").with(as(new AuthenticatedGuest(RESTAURANT, table1.id(), S1, UUID.randomUUID()),
+                "WAITER")))
                 .andExpect(status().isForbidden());
     }
 
@@ -189,11 +192,13 @@ class WaiterCallApiTests extends ApiTestBase {
         list("?type=BILL").andExpect(jsonPath("$.items[*].id").value(contains(billClaimed.toString(), billOpenT2.toString())));
         list("?type=BILL&type=HELP").andExpect(jsonPath("$.totalElements").value(4));
         list("?type=WAITER,HELP").andExpect(jsonPath("$.totalElements").value(3));
-        list("?status=OPEN").andExpect(jsonPath("$.items[*].id").value(contains(waiterOpen.toString(), billOpenT2.toString(), previousSession.toString())));
+        list("?status=OPEN").andExpect(jsonPath("$.items[*].id").value(contains(waiterOpen.toString(), billOpenT2.toString(),
+                previousSession.toString())));
         list("?status=OPEN&status=CLAIMED").andExpect(jsonPath("$.totalElements").value(4));
         list("?status=RESOLVED").andExpect(jsonPath("$.items[*].id").value(contains(helpResolved.toString())));
         list("?status=CANCELLED").andExpect(jsonPath("$.items[*]").value(empty()));
-        list("?tableId=" + table2.id()).andExpect(jsonPath("$.items[*].id").value(contains(helpResolved.toString(), billOpenT2.toString())));
+        list("?tableId=" + table2.id()).andExpect(jsonPath("$.items[*].id").value(contains(helpResolved.toString(),
+                billOpenT2.toString())));
         list("?tableSessionId=" + S1).andExpect(jsonPath("$.items[*].id").value(contains(waiterOpen.toString(), billClaimed.toString())));
         list("?tableId=" + table1.id() + "&type=BILL&status=CLAIMED")
                 .andExpect(jsonPath("$.items[*].id").value(contains(billClaimed.toString())));
@@ -230,7 +235,7 @@ class WaiterCallApiTests extends ApiTestBase {
     @Test
     void equalCreationTimesAreOrderedByIdSoPagesNeverOverlap() throws Exception {
         for (int index = 0; index < 4; index++) call(RESTAURANT, table1, S1, "HELP", "RESOLVED", T0);
-        List<String> ids = new java.util.ArrayList<>();
+        List<String> ids = new ArrayList<>();
         for (int page = 0; page < 2; page++) {
             var items = FakeBackends.read(list("?size=2&page=" + page).andReturn().getResponse().getContentAsString()).get("items");
             items.forEach(item -> ids.add(item.get("id").asString()));
@@ -245,7 +250,8 @@ class WaiterCallApiTests extends ApiTestBase {
             "?page=-1", "?page=x", "?size=0", "?size=101", "?size=abc",
             "?createdFrom=2026-10-16T10:00:00Z&createdTo=2026-10-16T09:00:00Z",
             "?createdFrom=2026-10-16T10:00:00Z&createdTo=2026-10-16T10:00:00Z",
-            "?type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER"})
+            "?type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER&type=WAITER"
+                    + "&type=WAITER"})
     void invalidFiltersAreRejected(String query) throws Exception {
         call(RESTAURANT, table1, S1, "WAITER", "OPEN", T0);
         list(query).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
@@ -497,6 +503,6 @@ class WaiterCallApiTests extends ApiTestBase {
                 + jdbc.queryForList("SELECT actor_type, actor_id FROM service_call_events").toString();
         assertTrue(!audit.contains(guest.token()));
         assertTrue(!audit.contains("gizli"), "The guest's free text must not leave the call record");
-        assertNotNull(jdbc.queryForObject("SELECT occurred_at FROM service_call_events WHERE event_type = 'RESOLVED'", java.sql.Timestamp.class));
+        assertNotNull(jdbc.queryForObject("SELECT occurred_at FROM service_call_events WHERE event_type = 'RESOLVED'", Timestamp.class));
     }
 }

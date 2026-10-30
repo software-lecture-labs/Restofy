@@ -3,6 +3,7 @@ package com.restofy.waiter.api;
 import com.restofy.waiter.support.ApiTestBase;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -10,7 +11,10 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
@@ -106,7 +110,7 @@ class WaiterTableApiTests extends ApiTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(expected.length))
                 .andExpect(jsonPath("$.items[*].tableNumber").value(expected.length == 0
-                        ? org.hamcrest.Matchers.empty() : org.hamcrest.Matchers.contains((Object[]) expected)));
+                        ? Matchers.empty() : Matchers.contains((Object[]) expected)));
     }
 
     @Test
@@ -176,7 +180,8 @@ class WaiterTableApiTests extends ApiTestBase {
 
     @Test
     void tableOfAnotherRestaurantLooksLikeAnUnknownTable() throws Exception {
-        FakeBackends.Table foreign = backends.tables.stream().filter(t -> t.restaurantId().equals(OTHER_RESTAURANT)).findFirst().orElseThrow();
+        FakeBackends.Table foreign = backends.tables.stream().filter(t -> t.restaurantId().equals(OTHER_RESTAURANT)).findFirst()
+                .orElseThrow();
         mockMvc.perform(get("/api/v1/waiters/tables/" + foreign.id()).with(asWaiter()))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("TABLE_NOT_FOUND"));
         mockMvc.perform(get("/api/v1/waiters/tables/" + UUID.randomUUID()).with(asWaiter()))
@@ -226,7 +231,7 @@ class WaiterTableApiTests extends ApiTestBase {
                 .andReturn().getResponse().getContentAsString();
         var items = FakeBackends.read(json).get("items");
         assertEquals(3, items.size());
-        assertEquals(3, java.util.stream.StreamSupport.stream(items.spliterator(), false)
+        assertEquals(3, StreamSupport.stream(items.spliterator(), false)
                 .map(node -> node.get("id").asString()).distinct().count());
     }
 
@@ -250,11 +255,11 @@ class WaiterTableApiTests extends ApiTestBase {
     @Test
     void ordersFromAnEarlierSessionReturnedByAMisbehavingOrderServiceAreRejected() throws Exception {
         FakeBackends.Order old = backends.orders.stream().filter(o -> o.number().equals("ORD-OLD")).findFirst().orElseThrow();
-        STUB.override("POST", "/internal/v1/orders/search", request -> DownstreamStub.Response.json(200, FakeBackends.write(java.util.Map.of(
-                "items", java.util.List.of(FakeBackends.orderJson(old)), "page", 0, "size", 20, "totalElements", 1))));
+        STUB.override("POST", "/internal/v1/orders/search", request -> DownstreamStub.Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.orderJson(old)), "page", 0, "size", 20, "totalElements", 1))));
         mockMvc.perform(get("/api/v1/waiters/tables/" + t1.id() + "/orders").with(asWaiter()))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"))
-                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("ORD-OLD"))));
+                .andExpect(jsonPath("$.detail").value(Matchers.not(Matchers.containsString("ORD-OLD"))));
     }
 }

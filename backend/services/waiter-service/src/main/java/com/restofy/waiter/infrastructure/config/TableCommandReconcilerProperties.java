@@ -23,9 +23,14 @@ import java.time.Duration;
 public record TableCommandReconcilerProperties(boolean enabled, long intervalMs, int batchSize, long minAgeSeconds,
                                                long maxAgeHours) {
 
+    /** Upper bound of {@code batch-size}: one round must stay short. */
+    public static final int MAX_BATCH_SIZE = 200;
+
     public TableCommandReconcilerProperties {
         if (intervalMs <= 0) throw new IllegalArgumentException("interval-ms must be greater than zero");
-        if (batchSize < 1 || batchSize > 200) throw new IllegalArgumentException("batch-size must be between 1 and 200");
+        if (batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
+            throw new IllegalArgumentException("batch-size must be between 1 and " + MAX_BATCH_SIZE);
+        }
         if (minAgeSeconds < 1) throw new IllegalArgumentException("min-age-seconds must be greater than zero");
         if (maxAgeHours < 1) throw new IllegalArgumentException("max-age-hours must be greater than zero");
     }

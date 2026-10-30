@@ -9,7 +9,8 @@ import java.time.Clock;
 
 /** Clock for audit timestamps and retry scheduling, the background policies and the background triggers. */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({NotificationDispatcherProperties.class, TableCommandReconcilerProperties.class})
+@EnableConfigurationProperties({NotificationDispatcherProperties.class, TableCommandReconcilerProperties.class,
+        CallRateLimitProperties.class})
 @EnableScheduling
 public class NotificationSyncConfiguration {
 

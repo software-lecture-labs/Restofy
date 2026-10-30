@@ -6,11 +6,13 @@ import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.infrastructure.client.DownstreamCalls;
 import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -24,8 +26,7 @@ import java.util.UUID;
 /**
  * Adapter for the Order service, the owner of orders, snapshots, cancellations and the served fact. Queries are
  * read-only (the search POSTs only carry large filters in a body); the single command is
- * {@link #serve}. The contract is a DRAFT (docs/waiter/integration-contracts.md); Order has not implemented it
- * yet.
+ * {@link #serve}. The contract is a DRAFT; Order has not implemented it yet.
  */
 @Component
 public class OrderClient {
@@ -134,7 +135,7 @@ public class OrderClient {
             return answer;
         } catch (RestClientResponseException refusal) {
             int status = refusal.getStatusCode().value();
-            if (status == 404 || status == 400 || status == 409 || status == 422) {
+            if (DownstreamCalls.isDefiniteRefusal(status)) {
                 throw new OrderRejectedException(rejectionCode(status, refusal));
             }
             throw DownstreamCalls.translate(DEPENDENCY, refusal);
@@ -160,14 +161,13 @@ public class OrderClient {
     }
 
     /** Reasons Order may give; anything else becomes the generic code so foreign text is never reflected. */
-    private static final java.util.Set<String> KNOWN_REJECTIONS = java.util.Set.of("ORDER_VERSION_CONFLICT",
+    private static final Set<String> KNOWN_REJECTIONS = Set.of("ORDER_VERSION_CONFLICT",
             "ORDER_SESSION_MISMATCH", "ORDER_NOT_READY", "ORDER_CANCELLED", "ORDER_ALREADY_SERVED",
             "ORDER_NOT_DELIVERABLE", "ORDER_COMMAND_CONFLICT");
-    private static final tools.jackson.databind.json.JsonMapper REJECTION_JSON =
-            tools.jackson.databind.json.JsonMapper.builder().build();
+    private static final JsonMapper REJECTION_JSON = JsonMapper.builder().build();
 
     private static String rejectionCode(int status, RestClientResponseException refusal) {
-        if (status == 404) return OrderRejectedException.NOT_FOUND;
+        if (status == HttpStatus.NOT_FOUND.value()) return OrderRejectedException.NOT_FOUND;
         try {
             return knownRejection(REJECTION_JSON.readTree(refusal.getResponseBodyAsString()).path("code").asString(""));
         } catch (RuntimeException _) {

@@ -18,11 +18,11 @@ import com.restofy.waiter.infrastructure.config.RestClientProperties;
 import com.restofy.waiter.infrastructure.persistence.repository.OrderServeCommandRepository;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -204,14 +204,17 @@ public class OrderServeService {
     }
 
     private boolean isInFlight(OrderServeCommand command) {
-        Duration window = Duration.ofMillis((long) timeouts.connectTimeoutMs() + timeouts.readTimeoutMs()).plusSeconds(2);
         return command.getStatus() == ServeCommandStatus.PENDING
-                && command.getUpdatedAt().isAfter(now().minus(window));
+                && command.getUpdatedAt().isAfter(now().minus(timeouts.inFlightWindow()));
     }
 
     static ServeRejectedException rejection(OrderServeCommand command) {
         String code = command.getRejectionCode();
-        int status = OrderRejectedException.NOT_FOUND.equals(code) ? 404 : DEPENDENCY_REJECTED.equals(code) ? 502 : 409;
+        int status = switch (code) {
+            case OrderRejectedException.NOT_FOUND -> HttpStatus.NOT_FOUND.value();
+            case DEPENDENCY_REJECTED -> HttpStatus.BAD_GATEWAY.value();
+            default -> HttpStatus.CONFLICT.value();
+        };
         String message = switch (code) {
             case OrderRejectedException.NOT_FOUND -> "Order not found";
             case DEPENDENCY_REJECTED -> "The order service did not accept the request from the waiter service";

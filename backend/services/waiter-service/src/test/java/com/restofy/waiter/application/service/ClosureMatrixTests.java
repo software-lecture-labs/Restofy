@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The closure matrix as a pure function: one case per row of the documented matrix (docs/waiter/api.md). The
+ * The closure matrix as a pure function: one case per row of the documented matrix. The
  * matrix reads only what the owners report, so a test builds the owners' answers and never a client claim.
  */
 class ClosureMatrixTests {
@@ -47,7 +47,8 @@ class ClosureMatrixTests {
                 business == OrderBusinessStatus.CANCELLED ? 1 : 0, total, total, null, List.of());
         return new OrderDto(UUID.randomUUID(), UUID.randomUUID(), "A-1", UUID.randomUUID(), UUID.randomUUID(), business,
                 delivery, AT, delivery == DeliveryStatus.SERVED ? AT : null,
-                preparation == null ? null : new PreparationProjectionDto(preparation, AT, preparation == PreparationStatus.READY ? AT : null, 1, AT),
+                preparation == null ? null : new PreparationProjectionDto(preparation, AT,
+                        preparation == PreparationStatus.READY ? AT : null, 1, AT),
                 payment == null ? null : new PaymentProjectionDto(payment, 1, AT), settlement, "TRY", total,
                 business == OrderBusinessStatus.CANCELLED ? total : ZERO,
                 business == OrderBusinessStatus.CANCELLED ? ZERO : total, List.of(item), List.of(), 4);

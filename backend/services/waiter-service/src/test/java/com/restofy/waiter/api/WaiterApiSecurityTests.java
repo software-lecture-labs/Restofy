@@ -4,6 +4,7 @@ import com.restofy.waiter.domain.enums.StaffRole;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import com.restofy.waiter.support.ApiTestBase;
 import com.restofy.waiter.support.DownstreamStub;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -127,7 +128,7 @@ class WaiterApiSecurityTests extends ApiTestBase {
     void successfulResponsesAreNotCacheable() throws Exception {
         mockMvc.perform(get("/api/v1/waiters/tables").with(asWaiter()))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store")));
     }
 
     @Test

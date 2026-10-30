@@ -5,7 +5,9 @@ import com.restofy.waiter.domain.exception.DependencyFailure;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -77,8 +79,8 @@ class DownstreamCallsTests {
             throw new RestClientException("conversion", new IOException(new HttpMessageNotReadableException("bad", null, null)));
         }));
         assertEquals(DependencyFailure.BAD_RESPONSE, failureOf(() -> {
-            throw new UnknownContentTypeException(String.class, org.springframework.http.MediaType.TEXT_PLAIN, 200, "OK",
-                    org.springframework.http.HttpHeaders.EMPTY, new byte[0]);
+            throw new UnknownContentTypeException(String.class, MediaType.TEXT_PLAIN, 200, "OK",
+                    HttpHeaders.EMPTY, new byte[0]);
         }));
         assertEquals(DependencyFailure.BAD_RESPONSE, failureOf(() -> {
             throw new RestClientException("something else");
@@ -91,20 +93,20 @@ class DownstreamCallsTests {
     void statusCodesMapToDistinctFailures(int status, DependencyFailure expected) {
         HttpStatus httpStatus = HttpStatus.valueOf(status);
         assertEquals(expected, failureOf(() -> {
-            throw status < 500 ? HttpClientErrorException.create(httpStatus, "x", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null)
-                    : HttpServerErrorException.create(httpStatus, "x", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null);
+            throw status < 500 ? HttpClientErrorException.create(httpStatus, "x", HttpHeaders.EMPTY, new byte[0], null)
+                    : HttpServerErrorException.create(httpStatus, "x", HttpHeaders.EMPTY, new byte[0], null);
         }));
     }
 
     @Test
     void notFoundIsAnAnswerOnlyForLookups() {
         Supplier<String> notFound = () -> {
-            throw HttpClientErrorException.create(HttpStatus.NOT_FOUND, "x", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null);
+            throw HttpClientErrorException.create(HttpStatus.NOT_FOUND, "x", HttpHeaders.EMPTY, new byte[0], null);
         };
         assertEquals(Optional.empty(), DownstreamCalls.executeOptional("qr", notFound));
         assertEquals(DependencyFailure.BAD_RESPONSE, failureOf(notFound));
         Supplier<String> unavailable = () -> {
-            throw HttpServerErrorException.create(HttpStatus.SERVICE_UNAVAILABLE, "x", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null);
+            throw HttpServerErrorException.create(HttpStatus.SERVICE_UNAVAILABLE, "x", HttpHeaders.EMPTY, new byte[0], null);
         };
         assertEquals(DependencyFailure.UNAVAILABLE,
                 assertThrows(DependencyException.class, () -> DownstreamCalls.executeOptional("qr", unavailable)).failure());

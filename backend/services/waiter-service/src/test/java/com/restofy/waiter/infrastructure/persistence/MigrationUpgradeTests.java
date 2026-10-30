@@ -10,7 +10,6 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -18,6 +17,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import javax.sql.DataSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -95,7 +95,8 @@ class MigrationUpgradeTests {
                 assertTrue(checksum.next());
                 assertEquals(V101_CHECKSUM, checksum.getInt(1), "V101 is applied history and must never be edited");
             }
-            try (var legacyRow = statement.executeQuery("SELECT table_id, status, version FROM service_requests WHERE id = '" + legacy + "'")) {
+            try (var legacyRow = statement.executeQuery("SELECT table_id, status, version FROM service_requests WHERE id = '" + legacy
+                    + "'")) {
                 assertTrue(legacyRow.next(), "A row written before WAITER-02 survives the upgrade");
                 assertNull(legacyRow.getObject("table_id"));
                 assertEquals("OPEN", legacyRow.getString("status"));
@@ -106,7 +107,8 @@ class MigrationUpgradeTests {
                 assertTrue(commands.next());
                 assertEquals(0, commands.getInt(1));
             }
-            try (var legacyRow = statement.executeQuery("SELECT closure_reason, cancelled_at, cancelled_by_command_id FROM service_requests WHERE id = '" + legacy + "'")) {
+            try (var legacyRow = statement.executeQuery("SELECT closure_reason, cancelled_at, cancelled_by_command_id FROM "
+                    + "service_requests WHERE id = '" + legacy + "'")) {
                 assertTrue(legacyRow.next());
                 assertNull(legacyRow.getObject(1));
                 assertNull(legacyRow.getObject(2));
@@ -114,13 +116,16 @@ class MigrationUpgradeTests {
             }
             assertThrows(SQLException.class, () -> statement.execute("INSERT INTO service_requests "
                     + "(id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status) "
-                    + "VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'WAITER', 'CANCELLED')"));
+                    + "VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'WAITER', "
+                            + "'CANCELLED')"));
             // New rows are held to the new rules.
             assertThrows(SQLException.class, () -> statement.execute("INSERT INTO service_requests "
                     + "(id, restaurant_id, table_session_id, guest_session_id, request_type, status) "
                     + "VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'WAITER', 'OPEN')"));
-            statement.execute("INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status) "
-                    + "VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'WAITER', 'OPEN')");
+            statement.execute("INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, "
+                    + "request_type, status) "
+                    + "VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'WAITER', "
+                            + "'OPEN')");
         }
 
         // Running again finds nothing to do and validates every checksum.

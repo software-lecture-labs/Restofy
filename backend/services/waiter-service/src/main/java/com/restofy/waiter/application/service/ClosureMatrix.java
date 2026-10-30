@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The informative closure matrix (docs/waiter/api.md, "Kapanış uygunluğu matrisi"). It looks only at what the
+ * The informative closure matrix. It looks only at what the
  * owners report: QR's session, and per order Order's delivery and cancellation state, Kitchen's readiness
  * projection and Order's verified money facts (derived from Payment's records). Nothing the client claims
  * ("paid", "remaining amount is zero") is an input, and there is no override: a blocker is a blocker.

@@ -17,6 +17,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Duration;
@@ -167,9 +168,11 @@ class NotificationSyncTests extends ApiTestBase {
         UUID id = raise("WAITER");
         staffCommand(asWaiter(WAITER_A), id, "resolve", newKey(), 0).andExpect(status().isOk());
         assertEquals("OPEN", jdbc.queryForObject(
-                "SELECT payload->'call'->>'status' FROM service_call_events WHERE service_request_id = ? AND call_version = 0", String.class, id));
+                "SELECT payload->'call'->>'status' FROM service_call_events WHERE service_request_id = ? AND call_version = "
+                        + "0", String.class, id));
         assertEquals("RESOLVED", jdbc.queryForObject(
-                "SELECT payload->'call'->>'status' FROM service_call_events WHERE service_request_id = ? AND call_version = 1", String.class, id));
+                "SELECT payload->'call'->>'status' FROM service_call_events WHERE service_request_id = ? AND call_version = "
+                        + "1", String.class, id));
     }
 
     // ----- ordering -----
@@ -294,7 +297,8 @@ class NotificationSyncTests extends ApiTestBase {
         notification.failNext(Fault.LOST_ANSWER, 1);
 
         assertEquals(new Round(1, 0, 1, 0), dispatcher.dispatchDue(t0));
-        assertEquals("TIMEOUT", jdbc.queryForObject("SELECT last_error_code FROM notification_deliveries WHERE status = 'PENDING'", String.class));
+        assertEquals("TIMEOUT", jdbc.queryForObject("SELECT last_error_code FROM notification_deliveries WHERE status = 'PENDING'",
+                String.class));
         assertEquals("RESOLVED", callStatusInDatabase(id));
         assertEquals(new Round(1, 1, 0, 0), dispatcher.dispatchDue(t0.plusSeconds(5)));
 
@@ -422,12 +426,12 @@ class NotificationSyncTests extends ApiTestBase {
         UUID id = raise("WAITER");
         for (String path : List.of("/api/v1/waiters/calls/" + id + "/read", "/api/v1/waiters/calls/" + id + "/acknowledge",
                 "/api/v1/waiters/notifications", "/api/v1/waiters/notifications/" + id + "/read")) {
-            mockMvc.perform(post(path).with(asWaiter()).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf().asHeader())
+            mockMvc.perform(post(path).with(asWaiter()).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader())
                             .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
                     .andExpect(status().is4xxClientError());
         }
         mockMvc.perform(put("/api/v1/waiters/calls/" + id).with(asWaiter())
-                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf().asHeader())
+                        .with(SecurityMockMvcRequestPostProcessors.csrf().asHeader())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"RESOLVED\"}"))
                 .andExpect(status().is4xxClientError());
         assertEquals("OPEN", callStatusInDatabase(id));

@@ -6,6 +6,7 @@ import com.restofy.waiter.domain.enums.ServiceRequestType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +31,13 @@ public interface ServiceRequestRepository
 
     /** Tenant-scoped lookup: another restaurant's call id is indistinguishable from a missing one. */
     Optional<ServiceRequest> findByIdAndRestaurantId(UUID id, UUID restaurantId);
+
+    /** Calls raised by the guest session since the given moment (rate limit). */
+    long countByRestaurantIdAndGuestSessionIdAndCreatedAtAfter(UUID restaurantId, UUID guestSessionId, Instant since);
+
+    /** The oldest call of the guest session since the given moment: when it leaves the window, one slot frees up. */
+    Optional<ServiceRequest> findFirstByRestaurantIdAndGuestSessionIdAndCreatedAtAfterOrderByCreatedAtAsc(
+            UUID restaurantId, UUID guestSessionId, Instant since);
 
     /** The guest's active call of that type, if any; at most one exists (partial unique index). */
     Optional<ServiceRequest> findFirstByRestaurantIdAndGuestSessionIdAndRequestTypeAndStatusIn(

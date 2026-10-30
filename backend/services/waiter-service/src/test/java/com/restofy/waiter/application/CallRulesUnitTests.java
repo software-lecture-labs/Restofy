@@ -26,10 +26,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -62,7 +64,8 @@ class CallRulesUnitTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", " ", "\t", "\u00a0\u2003", "\u200b\u200d", "two\nlines", "carriage\rreturn", "nul\u0000", "bell\u0007", "del\u007f", "c1\u0085"})
+    @ValueSource(strings = {"", " ", "\t", "\u00a0\u2003", "\u200b\u200d", "two\nlines", "carriage\rreturn", "nul\u0000", "bell\u0007",
+            "del\u007f", "c1\u0085"})
     void blankOrControlTextIsRejected(String text) {
         assertThrows(InvalidRequestException.class, () -> CallMessage.normalize(text));
     }
@@ -125,9 +128,9 @@ class CallRulesUnitTests {
 
     @Test
     void filterRejectsTooManyValuesAndEmptyOrInvertedWindows() {
-        List<ServiceRequestType> many = java.util.Collections.nCopies(11, ServiceRequestType.BILL);
+        List<ServiceRequestType> many = Collections.nCopies(11, ServiceRequestType.BILL);
         assertThrows(InvalidRequestException.class, () -> CallFilter.of(many, null, null, null, null, null, null));
-        assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, java.util.Collections.nCopies(11, ServiceRequestStatus.OPEN),
+        assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, Collections.nCopies(11, ServiceRequestStatus.OPEN),
                 null, null, null, null, null));
         assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, null, null, null, NOW, NOW, null));
         assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, null, null, null, NOW.plusSeconds(1), NOW, null));
@@ -188,8 +191,10 @@ class CallRulesUnitTests {
 
         ServiceRequest resolved = openCall();
         resolved.resolve(first, NOW);
-        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.resolve(UUID.randomUUID(), NOW)).code());
-        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.claim(UUID.randomUUID(), NOW)).code());
+        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.resolve(UUID.randomUUID(), NOW))
+                .code());
+        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.claim(UUID.randomUUID(), NOW))
+                .code());
         assertEquals(first, resolved.getResolvedByUserId(), "A resolver is never replaced");
 
         ServiceRequest cancelled = openCall();
@@ -226,7 +231,7 @@ class CallRulesUnitTests {
     @Test
     void everyEventTypeHasADistinctWireName() {
         assertEquals(Set.of("SERVICE_CALL_CREATED", "SERVICE_CALL_CLAIMED", "SERVICE_CALL_RESOLVED", "SERVICE_CALL_CANCELLED"),
-                EnumSet.allOf(CallEventType.class).stream().map(CallEventType::wireName).collect(java.util.stream.Collectors.toSet()));
+                EnumSet.allOf(CallEventType.class).stream().map(CallEventType::wireName).collect(Collectors.toSet()));
     }
 
     @Test
@@ -301,7 +306,8 @@ class CallRulesUnitTests {
         assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, null, open, active));
         assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, null, active));
         assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, open, null));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.TableSession(null, QrGuestContextDto.TableSessionState.OPEN));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.TableSession(null,
+                QrGuestContextDto.TableSessionState.OPEN));
         assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.GuestSession(id, null));
         assertFalse(open.status() == null);
     }

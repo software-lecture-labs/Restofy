@@ -4,6 +4,7 @@ import com.restofy.waiter.support.ApiTestBase;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.DownstreamStub.Response;
 import com.restofy.waiter.support.FakeBackends;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -70,7 +71,7 @@ class GuestCallApiTests extends ApiTestBase {
                 .andExpect(jsonPath("$.guestSessionId").doesNotExist())
                 .andExpect(jsonPath("$.tableSessionId").doesNotExist())
                 .andExpect(jsonPath("$.version").doesNotExist())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store")));
 
         Map<String, Object> row = jdbc.queryForMap("SELECT * FROM service_requests");
         assertEquals(RESTAURANT, row.get("restaurant_id"));

@@ -1,5 +1,7 @@
 package com.restofy.waiter.domain.enums;
 
+import java.util.List;
+
 /**
  * State of a serve command as far as Waiter knows it. Only {@code CONFIRMED} and {@code REJECTED} are answers
  * of Order. {@code PENDING} (sent, no answer yet) and {@code UNKNOWN} (the answer was lost or unusable) mean
@@ -11,5 +13,5 @@ public enum ServeCommandStatus {
     REJECTED,
     UNKNOWN;
 
-    public static final java.util.List<ServeCommandStatus> UNRESOLVED = java.util.List.of(PENDING, UNKNOWN);
+    public static final List<ServeCommandStatus> UNRESOLVED = List.of(PENDING, UNKNOWN);
 }

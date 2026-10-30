@@ -2,6 +2,7 @@ package com.restofy.waiter.infrastructure.persistence.repository;
 
 import com.restofy.waiter.domain.enums.ActorType;
 import com.restofy.waiter.domain.enums.CallEventType;
+import com.restofy.waiter.domain.enums.NotificationDeliveryStatus;
 import com.restofy.waiter.domain.enums.ServiceRequestStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -66,9 +67,10 @@ public class CallLedger {
         jdbc.update("""
                         INSERT INTO notification_deliveries (event_id, restaurant_id, service_request_id, call_version, status,
                                                              attempt_count, next_attempt_at, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
                         """,
-                eventId, restaurantId, serviceRequestId, callVersion, Timestamp.from(occurredAt),
+                eventId, restaurantId, serviceRequestId, callVersion, NotificationDeliveryStatus.PENDING.name(),
+                Timestamp.from(occurredAt),
                 Timestamp.from(occurredAt), Timestamp.from(occurredAt));
     }
 }

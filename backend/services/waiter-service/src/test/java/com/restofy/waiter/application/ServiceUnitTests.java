@@ -1,14 +1,15 @@
 package com.restofy.waiter.application;
 
 import com.restofy.waiter.api.dto.response.PageResponse;
+import com.restofy.waiter.application.service.OrderFilter;
+import com.restofy.waiter.application.service.PageParams;
 import com.restofy.waiter.domain.enums.DeliveryStatus;
 import com.restofy.waiter.domain.enums.OrderBusinessStatus;
+import com.restofy.waiter.domain.enums.OrderSessionScope;
 import com.restofy.waiter.domain.enums.OrderView;
 import com.restofy.waiter.domain.enums.PreparationStatus;
 import com.restofy.waiter.domain.enums.StaffRole;
 import com.restofy.waiter.domain.exception.InvalidRequestException;
-import com.restofy.waiter.application.service.OrderFilter;
-import com.restofy.waiter.application.service.PageParams;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -45,7 +46,7 @@ class ServiceUnitTests {
 
     @Test
     void orderFilterDefaultsToTheLiveSessions() {
-        assertEquals(com.restofy.waiter.domain.enums.OrderSessionScope.CURRENT, new OrderFilter(null, null, null).scope());
+        assertEquals(OrderSessionScope.CURRENT, new OrderFilter(null, null, null).scope());
     }
 
     @Test

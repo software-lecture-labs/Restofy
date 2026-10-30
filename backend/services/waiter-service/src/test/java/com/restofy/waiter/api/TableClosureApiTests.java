@@ -1,6 +1,7 @@
 package com.restofy.waiter.api;
 
 import com.restofy.waiter.domain.enums.StaffRole;
+import com.restofy.waiter.infrastructure.security.AuthenticatedGuest;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
 import com.restofy.waiter.support.FakeNotification;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * the delivery, balance and payment facts QR verifies. These tests drive Waiter against local HTTP stubs of the
  * DRAFT contracts and prove what Waiter sends, believes, refuses and records. They do NOT prove that the real
  * QR stops new orders, settles the orders in flight or checks balance and payment atomically: that is a promise
- * QR has not made in code yet (docs/waiter/handoff-qr.md).
+ * QR has not made in code yet.
  */
 class TableClosureApiTests extends TableCommandApiBase {
 
@@ -50,7 +51,8 @@ class TableClosureApiTests extends TableCommandApiBase {
         UUID help = call(S1, "HELP", "CLAIMED");
         UUID done = call(S1, "WAITER", "RESOLVED");
         UUID olderSession = call(S2, "WAITER", "OPEN");
-        UUID otherRestaurant = insertServiceRequest(OTHER_RESTAURANT, UUID.randomUUID(), S1, UUID.randomUUID(), "BILL", "OPEN", Instant.now());
+        UUID otherRestaurant = insertServiceRequest(OTHER_RESTAURANT, UUID.randomUUID(), S1, UUID.randomUUID(), "BILL", "OPEN",
+                Instant.now());
 
         eligibility(asWaiter(WAITER_A), table.id()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.informationalOnly").value(true))
@@ -113,7 +115,8 @@ class TableClosureApiTests extends TableCommandApiBase {
         // History is kept: the cancelled calls are still listed, as cancelled, next to the resolved one.
         mockMvc.perform(get("/api/v1/waiters/calls?tableSessionId=" + S1 + "&status=CANCELLED&status=RESOLVED").with(asWaiter(WAITER_A)))
                 .andExpect(jsonPath("$.totalElements").value(3))
-                .andExpect(jsonPath("$.items[?(@.status=='CANCELLED')].closureReason", contains("TABLE_SESSION_CLOSED", "TABLE_SESSION_CLOSED")))
+                .andExpect(jsonPath("$.items[?(@.status=='CANCELLED')].closureReason", contains("TABLE_SESSION_CLOSED",
+                        "TABLE_SESSION_CLOSED")))
                 .andExpect(jsonPath("$.items[?(@.status=='RESOLVED')].resolvedByUserId", not(empty())));
 
         // The table, as QR now reports it, is closed but not yet available.
@@ -259,13 +262,17 @@ class TableClosureApiTests extends TableCommandApiBase {
 
     @Test
     void anUncertainPaymentAnAbandonedRefundAndMissingFactsAreAllBlockers() throws Exception {
-        FakeBackends.Order unknown = withPayment(addOrder(table, S1, "ORD-5", "ACCEPTED", "SERVED", "READY", "2026-10-16T09:00:00Z"), "UNKNOWN");
+        FakeBackends.Order unknown = withPayment(addOrder(table, S1, "ORD-5", "ACCEPTED", "SERVED", "READY", "2026-10-16T09:00:00Z"),
+                "UNKNOWN");
         backends.settlements.put(unknown.id(), FakeBackends.Settlement.settled("150.00"));
-        FakeBackends.Order pending = withPayment(addOrder(table, S1, "ORD-6", "ACCEPTED", "SERVED", "READY", "2026-10-16T09:01:00Z"), "PENDING");
+        FakeBackends.Order pending = withPayment(addOrder(table, S1, "ORD-6", "ACCEPTED", "SERVED", "READY", "2026-10-16T09:01:00Z"),
+                "PENDING");
         backends.settlements.put(pending.id(), FakeBackends.Settlement.settled("150.00"));
-        FakeBackends.Order refund = withPayment(addOrder(table, S1, "ORD-7", "PARTIALLY_CANCELLED", "SERVED", "READY", "2026-10-16T09:02:00Z"), "PAID");
+        FakeBackends.Order refund = withPayment(addOrder(table, S1, "ORD-7", "PARTIALLY_CANCELLED", "SERVED", "READY",
+                "2026-10-16T09:02:00Z"), "PAID");
         backends.settlements.put(refund.id(), FakeBackends.Settlement.settled("150.00").withRefund("75.00", "0"));
-        FakeBackends.Order silent = withPayment(addOrder(table, S1, "ORD-8", "ACCEPTED", "SERVED", "READY", "2026-10-16T09:03:00Z"), "PAID");
+        FakeBackends.Order silent = withPayment(addOrder(table, S1, "ORD-8", "ACCEPTED", "SERVED", "READY", "2026-10-16T09:03:00Z"),
+                "PAID");
         backends.withoutSettlement.add(silent.id());
 
         eligibility(asWaiter(WAITER_A), table.id()).andExpect(jsonPath("$.closableInWaiterView").value(false))
@@ -335,7 +342,8 @@ class TableClosureApiTests extends TableCommandApiBase {
         assertEquals(0, closePosts().size(), "QR was not even asked");
         assertEquals(0, count("SELECT count(*) FROM table_commands"));
         // Query parameters are no way in either.
-        mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close?force=true&restaurantId=" + OTHER_RESTAURANT)
+        mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close?force=true&restaurantId="
+                + OTHER_RESTAURANT)
                         .with(asWaiter(WAITER_A)).with(csrf().asHeader())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
@@ -348,8 +356,10 @@ class TableClosureApiTests extends TableCommandApiBase {
         close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":-1}").andExpect(status().isBadRequest());
         close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":\"3\",\"reason\":5}").andExpect(status().isBadRequest());
         close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":3,\"reason\":42}").andExpect(status().isBadRequest());
-        close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":3,\"reason\":\"" + "x".repeat(301) + "\"}").andExpect(status().isBadRequest());
-        close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":3,\"reason\":\"a\\nb\"}").andExpect(status().isBadRequest());
+        close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":3,\"reason\":\"" + "x".repeat(301) + "\"}")
+                .andExpect(status().isBadRequest());
+        close(asWaiter(WAITER_A), table.id(), S1, newKey(), "{\"expectedVersion\":3,\"reason\":\"a\\nb\"}")
+                .andExpect(status().isBadRequest());
         close(asWaiter(WAITER_A), table.id(), S1, "short", versionBody(3)).andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close").with(asWaiter(WAITER_A))
                         .with(csrf().asHeader())
@@ -377,7 +387,7 @@ class TableClosureApiTests extends TableCommandApiBase {
             close(asStaff(role, RESTAURANT), table.id(), S1, newKey(), versionBody(3)).andExpect(status().isForbidden());
             eligibility(asStaff(role, RESTAURANT), table.id()).andExpect(status().isForbidden());
         }
-        close(as(new com.restofy.waiter.infrastructure.security.AuthenticatedGuest(RESTAURANT, table.id(), S1, UUID.randomUUID()), "GUEST"),
+        close(as(new AuthenticatedGuest(RESTAURANT, table.id(), S1, UUID.randomUUID()), "GUEST"),
                 table.id(), S1, newKey(), versionBody(3)).andExpect(status().isForbidden());
         // A mutation without the CSRF token is refused by the unchanged security chain.
         mockMvc.perform(post(url).with(asWaiter(WAITER_A)).header("Idempotency-Key", newKey())
@@ -465,10 +475,13 @@ class TableClosureApiTests extends TableCommandApiBase {
             assertTrue(List.of("CLOSE_ALREADY_OPEN", "SESSION_NOT_OPEN").contains(loser.code()), loser.body());
             assertEquals("CLEANING", backends.table(contested.id()).status());
             assertEquals("CANCELLED", callStatus(bill));
-            assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = '" + bill + "' AND event_type = 'CANCELLED'"),
+            assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = '" + bill
+                    + "' AND event_type = 'CANCELLED'"),
                     "The call ended once");
-            assertEquals(1, count("SELECT count(*) FROM table_commands WHERE table_session_id = '" + session + "' AND status = 'COMPLETED'"));
-            assertEquals(0, count("SELECT count(*) FROM table_commands WHERE table_session_id = '" + session + "' AND status IN ('PENDING','UNKNOWN','IN_PROGRESS')"));
+            assertEquals(1, count("SELECT count(*) FROM table_commands WHERE table_session_id = '" + session
+                    + "' AND status = 'COMPLETED'"));
+            assertEquals(0, count("SELECT count(*) FROM table_commands WHERE table_session_id = '" + session
+                    + "' AND status IN ('PENDING','UNKNOWN','IN_PROGRESS')"));
         }
     }
 
@@ -523,7 +536,8 @@ class TableClosureApiTests extends TableCommandApiBase {
         close(asWaiter(WAITER_A), table.id(), S1, key, versionBody(3)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("COMPLETED")).andExpect(jsonPath("$.commandId").value(commandId.toString()));
         assertEquals(2, closePosts().size());
-        assertEquals(FakeBackends.read(closePosts().get(0).body()).get("commandId"), FakeBackends.read(closePosts().get(1).body()).get("commandId"));
+        assertEquals(FakeBackends.read(closePosts().get(0).body()).get("commandId"), FakeBackends.read(closePosts().get(1).body())
+                .get("commandId"));
         assertEquals("CANCELLED", callStatus(bill));
         assertEquals(1, count("SELECT count(*) FROM table_commands"));
     }
@@ -624,8 +638,10 @@ class TableClosureApiTests extends TableCommandApiBase {
         assertEquals(0, round.checked(), "A completed close has nothing left to ask QR");
         assertEquals("CANCELLED", callStatus(late));
         assertEquals("OPEN", callStatus(nextSession), "A call of another session is never touched");
-        assertEquals(commandId(), jdbc.queryForObject("SELECT cancelled_by_command_id FROM service_requests WHERE id = ?", UUID.class, late));
-        assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = '" + late + "' AND event_type = 'CANCELLED'"));
+        assertEquals(commandId(), jdbc.queryForObject("SELECT cancelled_by_command_id FROM service_requests WHERE id = ?", UUID.class,
+                late));
+        assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = '" + late
+                + "' AND event_type = 'CANCELLED'"));
         // Running it again finds nothing more to do.
         assertEquals(0, reconciler.reconcileDue(Instant.now().plusSeconds(120)).lateCallsEnded());
     }

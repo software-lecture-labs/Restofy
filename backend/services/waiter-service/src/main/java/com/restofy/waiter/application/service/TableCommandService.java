@@ -19,15 +19,17 @@ import com.restofy.waiter.infrastructure.config.RestClientProperties;
 import com.restofy.waiter.infrastructure.persistence.repository.TableCommandRepository;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -188,7 +190,7 @@ public class TableCommandService {
     public int endLateCalls(int limit) {
         int ended = 0;
         for (TableCommand closed : commands.findClosedSessionsWithUnresolvedCalls(
-                org.springframework.data.domain.PageRequest.of(0, limit))) {
+                PageRequest.of(0, limit))) {
             try {
                 Integer count = transaction.execute(status -> callCloser.closeCallsOf(closed, now()));
                 ended += count == null ? 0 : count;
@@ -209,8 +211,9 @@ public class TableCommandService {
             Optional<TableCommand> existing = commands.findByRestaurantIdAndRequestedByUserIdAndIdempotencyKey(
                     fresh.getRestaurantId(), fresh.getRequestedByUserId(), fresh.getIdempotencyKey());
             if (existing.isPresent()) return replay(existing.get(), fresh.getRequestDigest());
-            throw new CallConflictException(fresh.getType() == TableCommandType.CLOSE ? "CLOSE_ALREADY_OPEN" : "CLEAN_ALREADY_OPEN",
-                    "Another " + fresh.getType().name().toLowerCase(java.util.Locale.ROOT)
+            throw new CallConflictException(
+                    fresh.getType() == TableCommandType.CLOSE ? "CLOSE_ALREADY_OPEN" : "CLEAN_ALREADY_OPEN",
+                    "Another " + fresh.getType().name().toLowerCase(Locale.ROOT)
                             + " command for this target has no final answer yet; query it instead of sending another");
         }
         return send(command);
@@ -363,8 +366,8 @@ public class TableCommandService {
     }
 
     private boolean isInFlight(TableCommand command) {
-        Duration window = Duration.ofMillis((long) timeouts.connectTimeoutMs() + timeouts.readTimeoutMs()).plusSeconds(2);
-        return command.getStatus() == TableCommandStatus.PENDING && command.getUpdatedAt().isAfter(now().minus(window));
+        return command.getStatus() == TableCommandStatus.PENDING
+                && command.getUpdatedAt().isAfter(now().minus(timeouts.inFlightWindow()));
     }
 
     private static String blockerList(List<String> blockers) {
@@ -374,14 +377,14 @@ public class TableCommandService {
     static TableCommandRejectedException rejection(TableCommand command) {
         String code = command.getRejectionCode();
         int status = switch (code) {
-            case "SESSION_NOT_FOUND", "TABLE_NOT_FOUND" -> 404;
-            case DEPENDENCY_REJECTED -> 502;
-            default -> 409;
+            case "SESSION_NOT_FOUND", "TABLE_NOT_FOUND" -> HttpStatus.NOT_FOUND.value();
+            case DEPENDENCY_REJECTED -> HttpStatus.BAD_GATEWAY.value();
+            default -> HttpStatus.CONFLICT.value();
         };
         String message = switch (code) {
             case "SESSION_NOT_FOUND", "TABLE_NOT_FOUND" -> "Table or session not found";
             case DEPENDENCY_REJECTED -> "The QR service did not accept the request from the waiter service";
-            default -> "The QR service did not apply the " + command.getType().name().toLowerCase(java.util.Locale.ROOT)
+            default -> "The QR service did not apply the " + command.getType().name().toLowerCase(Locale.ROOT)
                     + " command";
         };
         List<String> blockers = command.getRejectionDetail() == null ? List.of()

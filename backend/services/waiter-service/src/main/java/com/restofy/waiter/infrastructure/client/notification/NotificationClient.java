@@ -12,7 +12,7 @@ import java.util.UUID;
 
 /**
  * Adapter for the Notification service, the owner of notification delivery and per-staff read state. The
- * contract is a DRAFT (docs/waiter/integration-contracts.md); Notification has not implemented it yet.
+ * contract is a DRAFT; Notification has not implemented it yet.
  *
  * <p>A request is never repeated here. Repeating is the job of the persistent delivery queue, which resends
  * the same stored body with the same event id, so a retry is always the same operation.

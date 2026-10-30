@@ -4,6 +4,7 @@ import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
@@ -26,6 +27,15 @@ public final class DownstreamCalls {
     private DownstreamCalls() {
     }
 
+    /**
+     * A definite refusal by the downstream service (400, 404, 409, 422): the request was understood and not
+     * applied. Everything else, including 401/403, is no usable answer.
+     */
+    public static boolean isDefiniteRefusal(int status) {
+        return status == HttpStatus.BAD_REQUEST.value() || status == HttpStatus.NOT_FOUND.value()
+                || status == HttpStatus.CONFLICT.value() || status == HttpStatus.UNPROCESSABLE_ENTITY.value();
+    }
+
     /** The call must produce a body; an empty body or a 404 is a failure. */
     public static <T> T execute(String dependency, Supplier<T> call) {
         try {
@@ -40,7 +50,7 @@ public final class DownstreamCalls {
         try {
             return Optional.of(requireBody(dependency, call.get()));
         } catch (RestClientResponseException error) {
-            if (error.getStatusCode().value() == 404) return Optional.empty();
+            if (error.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) return Optional.empty();
             throw translate(dependency, error);
         } catch (RestClientException error) {
             throw translate(dependency, error);
@@ -71,8 +81,11 @@ public final class DownstreamCalls {
     private static DependencyFailure classify(RestClientException error) {
         if (error instanceof RestClientResponseException response) {
             int status = response.getStatusCode().value();
-            if (status == 401 || status == 403) return DependencyFailure.REJECTED;
-            return status >= 500 ? DependencyFailure.UNAVAILABLE : DependencyFailure.BAD_RESPONSE;
+            if (status == HttpStatus.UNAUTHORIZED.value() || status == HttpStatus.FORBIDDEN.value()) {
+                return DependencyFailure.REJECTED;
+            }
+            return status >= HttpStatus.INTERNAL_SERVER_ERROR.value()
+                    ? DependencyFailure.UNAVAILABLE : DependencyFailure.BAD_RESPONSE;
         }
         if (hasCause(error, HttpTimeoutException.class) || hasCause(error, SocketTimeoutException.class)) {
             return DependencyFailure.TIMEOUT;

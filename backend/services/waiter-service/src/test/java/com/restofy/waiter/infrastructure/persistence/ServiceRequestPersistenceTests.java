@@ -13,11 +13,14 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -161,7 +164,8 @@ class ServiceRequestPersistenceTests {
     @Test
     void requiredColumnsAreNotNullAndIdIsUnique() {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
-                "INSERT INTO service_requests (id, table_id, table_session_id, guest_session_id, request_type, status) VALUES (?, ?, ?, ?, 'WAITER', 'OPEN')",
+                "INSERT INTO service_requests (id, table_id, table_session_id, guest_session_id, request_type, status) VALUES (?, ?, ?, ?, "
+                        + "'WAITER', 'OPEN')",
                 UUID.randomUUID(), TABLE, SESSION, UUID.randomUUID()));
         UUID id = UUID.randomUUID();
         insert(id, RESTAURANT, SESSION, "WAITER", "OPEN", Instant.now());
@@ -200,17 +204,20 @@ class ServiceRequestPersistenceTests {
     void messageLengthIsBoundedByTheDatabaseToo() {
         UUID guest = UUID.randomUUID();
         var empty = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
-                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status, message)
+                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id,
+                                              request_type, status, message)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', '')
                 """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, guest));
         assertTrue(constraintOf(empty).contains("ck_service_requests_message"));
         var tooLong = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
-                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status, message)
+                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id,
+                                              request_type, status, message)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', ?)
                 """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, guest, "x".repeat(301)));
         assertTrue(constraintOf(tooLong).contains("ck_service_requests_message"));
         jdbc.update("""
-                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status, message)
+                INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id,
+                                              request_type, status, message)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', ?)
                 """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, guest, "ç".repeat(300));
     }
@@ -291,7 +298,7 @@ class ServiceRequestPersistenceTests {
     void newCallsArePersistedNotMergedAndGetVersionZero() {
         UUID id = UUID.randomUUID();
         ServiceRequest created = repository.saveAndFlush(ServiceRequest.open(id, RESTAURANT, TABLE, SESSION,
-                UUID.randomUUID(), ServiceRequestType.HELP, "Yardım", Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS)));
+                UUID.randomUUID(), ServiceRequestType.HELP, "Yardım", Instant.now().truncatedTo(ChronoUnit.MICROS)));
         assertEquals(0L, created.getVersion());
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM service_requests WHERE id = ?", Integer.class, id));
     }
@@ -305,7 +312,7 @@ class ServiceRequestPersistenceTests {
         firstReader.resolve(UUID.randomUUID(), Instant.now());
         repository.saveAndFlush(firstReader);
         secondReader.resolve(UUID.randomUUID(), Instant.now());
-        assertThrows(org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+        assertThrows(ObjectOptimisticLockingFailureException.class,
                 () -> repository.saveAndFlush(secondReader));
     }
 
@@ -428,9 +435,9 @@ class ServiceRequestPersistenceTests {
 
     @Test
     void callStateOnlyChangesThroughDomainTransitions() {
-        assertTrue(java.util.Arrays.stream(ServiceRequest.class.getDeclaredMethods())
+        assertTrue(Arrays.stream(ServiceRequest.class.getDeclaredMethods())
                 .noneMatch(method -> method.getName().startsWith("set")), "State changes go through claim and resolve");
-        assertTrue(java.util.Arrays.stream(ServiceRequest.class.getConstructors()).findAny().isEmpty(),
+        assertTrue(Arrays.stream(ServiceRequest.class.getConstructors()).findAny().isEmpty(),
                 "No public constructor: calls are created through ServiceRequest.open");
         assertNull(ServiceRequest.open(UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID(),
                 ServiceRequestType.WAITER, null, Instant.now()).getMessage());

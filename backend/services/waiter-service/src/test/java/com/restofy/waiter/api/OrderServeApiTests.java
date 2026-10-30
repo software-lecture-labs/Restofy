@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * local HTTP stub that behaves like a compliant implementation of the DRAFT Order contract (atomic decision,
  * idempotent by command id). They prove what Waiter does with Order's answers, silences and refusals. They do
  * NOT prove that the real Order decides atomically, deduplicates by command id or applies the transition
- * matrix: that is a promise Order has not made in code yet (docs/waiter/handoff-order.md).
+ * matrix: that is a promise Order has not made in code yet.
  */
 class OrderServeApiTests extends ApiTestBase {
 
@@ -263,7 +263,8 @@ class OrderServeApiTests extends ApiTestBase {
     @Test
     void anotherRestaurantsOrderAndAnUnknownOrderBothLookMissing() throws Exception {
         FakeBackends.Table foreignTable = addTable(OTHER_RESTAURANT, "1", "OCCUPIED", UUID.randomUUID());
-        FakeBackends.Order foreign = addOrder(foreignTable, foreignTable.sessionId(), "F-1", "ACCEPTED", "PENDING", "READY", "2026-10-16T09:00:00Z");
+        FakeBackends.Order foreign = addOrder(foreignTable, foreignTable.sessionId(), "F-1", "ACCEPTED", "PENDING", "READY",
+                "2026-10-16T09:00:00Z");
         serve(asWaiter(), foreign, newKey(), 4)
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
         serve(asWaiter(), UUID.randomUUID(), newKey(), body(S1, 4))
@@ -543,7 +544,8 @@ class OrderServeApiTests extends ApiTestBase {
 
     @Test
     void unusableRefusalsFromOrderNeverEchoTheirText() throws Exception {
-        STUB.override("POST", SERVE_POST, request -> Response.json(409, "{\"code\":\"<script>alert(1)</script>\",\"detail\":\"secret-internal-host:5052\"}"));
+        STUB.override("POST", SERVE_POST, request -> Response.json(409,
+                "{\"code\":\"<script>alert(1)</script>\",\"detail\":\"secret-internal-host:5052\"}"));
         String response = serve(asWaiter(), order, newKey(), 4).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ORDER_REJECTED")).andReturn().getResponse().getContentAsString();
         assertFalse(response.contains("script") || response.contains("secret-internal-host"));

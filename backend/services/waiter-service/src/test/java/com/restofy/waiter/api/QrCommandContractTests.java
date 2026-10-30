@@ -1,7 +1,9 @@
 package com.restofy.waiter.api;
 
+import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.DownstreamStub.Response;
 import com.restofy.waiter.support.FakeBackends;
+import com.restofy.waiter.support.FakeQrCommands;
 import com.restofy.waiter.support.TableCommandApiBase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -47,7 +49,7 @@ class QrCommandContractTests extends TableCommandApiBase {
         jdbc.update("DELETE FROM table_commands");
     }
 
-    private UUID commandIdOf(com.restofy.waiter.support.DownstreamStub.Request request) {
+    private UUID commandIdOf(DownstreamStub.Request request) {
         return UUID.fromString(FakeBackends.read(request.body()).get("commandId").asString());
     }
 
@@ -86,7 +88,8 @@ class QrCommandContractTests extends TableCommandApiBase {
     @ParameterizedTest
     @CsvSource({"401,DEPENDENCY_REJECTED,REJECTED", "403,DEPENDENCY_REJECTED,REJECTED", "418,CLOSE_RESULT_UNKNOWN,UNKNOWN",
             "500,CLOSE_RESULT_UNKNOWN,UNKNOWN", "502,CLOSE_RESULT_UNKNOWN,UNKNOWN", "504,CLOSE_RESULT_UNKNOWN,UNKNOWN"})
-    void everythingThatIsNotADefiniteAnswerLeavesTheOutcomeUnknown(int qrStatus, String expectedCode, String commandStatus) throws Exception {
+    void everythingThatIsNotADefiniteAnswerLeavesTheOutcomeUnknown(int qrStatus, String expectedCode,
+            String commandStatus) throws Exception {
         STUB.override("POST", CLOSE_POST, request -> Response.json(qrStatus, "{}"));
         closeSession(3).andExpect(jsonPath("$.code").value(expectedCode));
         assertEquals(commandStatus, commandRow().get("status"));
@@ -149,20 +152,21 @@ class QrCommandContractTests extends TableCommandApiBase {
     @Test
     void aStatusAnswerAboutAnotherCommandIsRefused() throws Exception {
         call(S1, "BILL", "OPEN");
-        qrCommands.failNextClose(com.restofy.waiter.support.FakeQrCommands.Fault.LOST_ANSWER);
+        qrCommands.failNextClose(FakeQrCommands.Fault.LOST_ANSWER);
         closeSession(3).andExpect(status().isGatewayTimeout());
         UUID command = commandId();
         STUB.override("GET", CLOSE_STATUS_GET, request ->
                 Response.json(200, FakeBackends.write(closedAnswer(UUID.randomUUID(), table.id(), S1, 2, 2))));
 
-        commandStatus(table.id(), command).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"));
+        commandStatus(table.id(), command).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code")
+                .value("DEPENDENCY_BAD_RESPONSE"));
 
         assertEquals("UNKNOWN", commandRow().get("status"));
     }
 
     @Test
     void aRejectedStatusAnswerEndsTheCommandWithAKnownReasonOnly() throws Exception {
-        qrCommands.failNextClose(com.restofy.waiter.support.FakeQrCommands.Fault.HANG_BEFORE_APPLY);
+        qrCommands.failNextClose(FakeQrCommands.Fault.HANG_BEFORE_APPLY);
         closeSession(3).andExpect(status().isGatewayTimeout());
         UUID command = commandId();
         STUB.override("GET", CLOSE_STATUS_GET, request -> {

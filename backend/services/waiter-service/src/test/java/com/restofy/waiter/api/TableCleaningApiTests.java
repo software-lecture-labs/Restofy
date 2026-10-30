@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import tools.jackson.databind.JsonNode;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -259,7 +260,7 @@ class TableCleaningApiTests extends TableCommandApiBase {
         closeTheSession();
         // QR says "applied" but shows the table still cleaning: a contradictory answer.
         STUB.override("POST", CLEAN_POST, request -> {
-            Map<String, Object> answer = new java.util.LinkedHashMap<>();
+            Map<String, Object> answer = new LinkedHashMap<>();
             answer.put("commandId", FakeBackends.read(request.body()).get("commandId").asString());
             answer.put("status", "APPLIED");
             answer.put("rejectionCode", null);

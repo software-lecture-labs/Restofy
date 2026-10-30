@@ -13,7 +13,6 @@ import java.util.UUID;
  * <p>NOT IMPLEMENTED: nothing in this service creates this principal yet. The Auth contract (token or
  * session format, issuer, how the restaurant context is bound) is not approved, so every protected
  * request is rejected until an authentication mechanism fills the SecurityContext with this type.
- * See docs/waiter/handoff-auth.md.
  */
 public record AuthenticatedStaff(UUID staffUserId, UUID restaurantId, StaffRole role) {
 

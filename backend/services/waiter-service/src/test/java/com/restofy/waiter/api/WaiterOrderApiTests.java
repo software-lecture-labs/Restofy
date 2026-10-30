@@ -3,6 +3,7 @@ package com.restofy.waiter.api;
 import com.restofy.waiter.support.ApiTestBase;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.ResultActions;
@@ -10,9 +11,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
@@ -106,9 +108,9 @@ class WaiterOrderApiTests extends ApiTestBase {
     @Test
     void orderThatKitchenHasNotConfirmedIsNeitherReadyNorHiddenAndKeepsAnUnknownPreparation() throws Exception {
         String json = listOrders("").andReturn().getResponse().getContentAsString();
-        var unconfirmed = java.util.stream.StreamSupport.stream(FakeBackends.read(json).get("items").spliterator(), false)
+        var unconfirmed = StreamSupport.stream(FakeBackends.read(json).get("items").spliterator(), false)
                 .filter(node -> node.get("orderNumber").asString().equals("ORD-5")).findFirst().orElseThrow();
-        org.junit.jupiter.api.Assertions.assertTrue(unconfirmed.has("preparation") && unconfirmed.get("preparation").isNull());
+        Assertions.assertTrue(unconfirmed.has("preparation") && unconfirmed.get("preparation").isNull());
         listOrders("?view=READY_HISTORY").andExpect(content().string(not(containsString("ORD-5"))));
         listOrders("?view=AWAITING_DELIVERY").andExpect(content().string(not(containsString("ORD-5"))));
     }
@@ -131,7 +133,8 @@ class WaiterOrderApiTests extends ApiTestBase {
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.items[0].orderNumber").value("ORD-6"))
                 .andExpect(jsonPath("$.items[0].table.tableNumber").value("2"));
-        FakeBackends.Table foreign = backends.tables.stream().filter(t -> t.restaurantId().equals(OTHER_RESTAURANT)).findFirst().orElseThrow();
+        FakeBackends.Table foreign = backends.tables.stream().filter(t -> t.restaurantId().equals(OTHER_RESTAURANT)).findFirst()
+                .orElseThrow();
         listOrders("?tableId=" + foreign.id()).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TABLE_NOT_FOUND"));
         listOrders("?tableId=" + UUID.randomUUID()).andExpect(status().isNotFound());
@@ -221,7 +224,8 @@ class WaiterOrderApiTests extends ApiTestBase {
 
     @Test
     void orderOfAnotherRestaurantLooksLikeAnUnknownOrder() throws Exception {
-        FakeBackends.Order foreign = backends.orders.stream().filter(o -> o.restaurantId().equals(OTHER_RESTAURANT)).findFirst().orElseThrow();
+        FakeBackends.Order foreign = backends.orders.stream().filter(o -> o.restaurantId().equals(OTHER_RESTAURANT)).findFirst()
+                .orElseThrow();
         mockMvc.perform(get("/api/v1/waiters/orders/" + foreign.id()).with(asWaiter()))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"))
                 .andExpect(content().string(not(containsString("ORD-FOREIGN"))));
@@ -232,7 +236,8 @@ class WaiterOrderApiTests extends ApiTestBase {
 
     @Test
     void orderServiceThatLeaksAnotherTenantsOrderIsNeverRelayed() throws Exception {
-        FakeBackends.Order foreign = backends.orders.stream().filter(o -> o.restaurantId().equals(OTHER_RESTAURANT)).findFirst().orElseThrow();
+        FakeBackends.Order foreign = backends.orders.stream().filter(o -> o.restaurantId().equals(OTHER_RESTAURANT)).findFirst()
+                .orElseThrow();
         STUB.override("GET", "/internal/v1/orders/[0-9a-f-]{36}",
                 request -> DownstreamStub.Response.json(200, FakeBackends.write(FakeBackends.orderJson(foreign))));
         mockMvc.perform(get("/api/v1/waiters/orders/" + foreign.id()).with(asWaiter()))

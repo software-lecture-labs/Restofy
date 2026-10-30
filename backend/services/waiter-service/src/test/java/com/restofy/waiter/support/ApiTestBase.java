@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -109,7 +110,7 @@ public abstract class ApiTestBase {
 
     /** The authority is passed separately so tests can build mismatches between authority and principal. */
     protected static RequestPostProcessor as(Object principal, String... authorities) {
-        List<SimpleGrantedAuthority> granted = java.util.Arrays.stream(authorities)
+        List<SimpleGrantedAuthority> granted = Arrays.stream(authorities)
                 .map(authority -> new SimpleGrantedAuthority("ROLE_" + authority)).toList();
         return authentication(new UsernamePasswordAuthenticationToken(principal, null, granted));
     }

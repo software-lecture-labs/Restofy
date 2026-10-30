@@ -20,6 +20,7 @@ import com.restofy.waiter.infrastructure.client.qr.QrTableDto;
 import com.restofy.waiter.infrastructure.config.TableCommandReconcilerProperties;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -241,6 +242,6 @@ class TableCommandRulesUnitTests {
         assertThrows(IllegalArgumentException.class, () -> new TableCommandReconcilerProperties(true, 5000, 201, 20, 48));
         assertThrows(IllegalArgumentException.class, () -> new TableCommandReconcilerProperties(true, 5000, 20, 0, 48));
         assertThrows(IllegalArgumentException.class, () -> new TableCommandReconcilerProperties(true, 5000, 20, 20, 0));
-        assertEquals(java.time.Duration.ofHours(48), new TableCommandReconcilerProperties(true, 5000, 20, 20, 48).maxAge());
+        assertEquals(Duration.ofHours(48), new TableCommandReconcilerProperties(true, 5000, 20, 20, 48).maxAge());
     }
 }

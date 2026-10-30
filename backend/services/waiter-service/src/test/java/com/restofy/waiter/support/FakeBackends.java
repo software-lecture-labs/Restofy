@@ -7,8 +7,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -16,6 +18,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -123,17 +128,17 @@ public final class FakeBackends {
         }
     }
 
-    public final List<Table> tables = new java.util.concurrent.CopyOnWriteArrayList<>();
+    public final List<Table> tables = new CopyOnWriteArrayList<>();
     /** Per order: Order's settlement facts; an order without an entry gets the facts its payment summary implies. */
-    public final Map<UUID, Settlement> settlements = new java.util.concurrent.ConcurrentHashMap<>();
+    public final Map<UUID, Settlement> settlements = new ConcurrentHashMap<>();
     /** Orders for which Order reports no settlement facts at all. */
-    public final Set<UUID> withoutSettlement = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    public final List<Order> orders = new java.util.concurrent.CopyOnWriteArrayList<>();
+    public final Set<UUID> withoutSettlement = ConcurrentHashMap.newKeySet();
+    public final List<Order> orders = new CopyOnWriteArrayList<>();
     private final Map<UUID, ServeRecord> serveRecords = new HashMap<>();
-    private final java.util.Deque<ServeFault> serveFaults = new java.util.ArrayDeque<>();
+    private final Deque<ServeFault> serveFaults = new ArrayDeque<>();
     public volatile PartialCancellation partialCancellation = PartialCancellation.ALLOW;
     /** Known guest credentials by token; an unknown token is answered with 404. */
-    public final Map<String, Guest> guests = new java.util.concurrent.ConcurrentHashMap<>();
+    public final Map<String, Guest> guests = new ConcurrentHashMap<>();
 
     private static final Pattern TABLE_ID = Pattern.compile("/internal/v1/tables/([0-9a-f-]{36})");
     private static final Pattern ORDER_ID = Pattern.compile("/internal/v1/orders/([0-9a-f-]{36})");
@@ -428,8 +433,8 @@ public final class FakeBackends {
     }
 
     /** The orderJson helpers are static; the instance that is currently serving requests supplies the overrides. */
-    private static final java.util.concurrent.atomic.AtomicReference<FakeBackends> OVERRIDES =
-            new java.util.concurrent.atomic.AtomicReference<>(new FakeBackends());
+    private static final AtomicReference<FakeBackends> OVERRIDES =
+            new AtomicReference<>(new FakeBackends());
 
     public static Map<String, Object> orderJson(Order o) {
         Map<String, Object> json = new LinkedHashMap<>();

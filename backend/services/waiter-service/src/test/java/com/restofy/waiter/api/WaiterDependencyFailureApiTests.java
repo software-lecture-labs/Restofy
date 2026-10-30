@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -38,7 +40,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
     }
 
     private ResultActions get(String path) throws Exception {
-        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path).with(asWaiter()));
+        return mockMvc.perform(MockMvcRequestBuilders.get(path).with(asWaiter()));
     }
 
     private void assertSafeBody(ResultActions result) throws Exception {
@@ -217,7 +219,8 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());
         // The same order twice in one page.
         STUB.override("POST", "/internal/v1/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(order), FakeBackends.orderJson(order)), "page", 0, "size", 20, "totalElements", 2))));
+                "items", List.of(FakeBackends.orderJson(order),
+                        FakeBackends.orderJson(order)), "page", 0, "size", 20, "totalElements", 2))));
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());
     }
 
@@ -225,8 +228,8 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
     void orderOfATableUnknownToQrIsABadGatewayAndNeverShownWithoutItsTable() throws Exception {
         FakeBackends.Table ghost = new FakeBackends.Table(UUID.randomUUID(), RESTAURANT, "GHOST", "OCCUPIED", SESSION);
         FakeBackends.Order lost = new FakeBackends.Order(UUID.randomUUID(), RESTAURANT, ghost.id(), SESSION, "ORD-GHOST",
-                "ACCEPTED", "PENDING", "READY", java.time.Instant.parse("2026-10-16T09:00:00Z"),
-                java.time.Instant.parse("2026-10-16T09:10:00Z"), null);
+                "ACCEPTED", "PENDING", "READY", Instant.parse("2026-10-16T09:00:00Z"),
+                Instant.parse("2026-10-16T09:10:00Z"), null);
         STUB.override("POST", "/internal/v1/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
                 "items", List.of(FakeBackends.orderJson(lost)), "page", 0, "size", 20, "totalElements", 1))));
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());

@@ -8,7 +8,9 @@ import com.restofy.waiter.domain.enums.ServiceRequestType;
 import com.restofy.waiter.domain.enums.TableCommandStatus;
 import com.restofy.waiter.domain.enums.TableCommandType;
 import com.restofy.waiter.domain.exception.CallConflictException;
+import com.restofy.waiter.domain.exception.CallRateLimitedException;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
+import com.restofy.waiter.infrastructure.config.CallRateLimitProperties;
 import com.restofy.waiter.infrastructure.persistence.repository.CallLedger;
 import com.restofy.waiter.infrastructure.persistence.repository.CallLedger.IdempotencyRecord;
 import com.restofy.waiter.infrastructure.persistence.repository.ServiceRequestRepository;
@@ -16,11 +18,13 @@ import com.restofy.waiter.infrastructure.persistence.repository.TableCommandRepo
 import com.restofy.waiter.infrastructure.security.AuthenticatedGuest;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -42,8 +46,14 @@ import java.util.function.Supplier;
 public class CallCommandService {
 
     private static final int ATTEMPTS = 3;
-    private static final int OK = 200;
-    private static final int CREATED = 201;
+    private static final int OK = HttpStatus.OK.value();
+    private static final int CREATED = HttpStatus.CREATED.value();
+    /** Operation names and actor scopes are stored with the idempotency records: never change their values. */
+    private static final String CREATE = "CREATE";
+    private static final String CLAIM = "CLAIM";
+    private static final String RESOLVE = "RESOLVE";
+    private static final String GUEST_SCOPE = "GUEST:";
+    private static final String STAFF_SCOPE = "STAFF:";
 
     /** Result of a command; {@code httpStatus} is 201 only when a new call was created. */
     public record Outcome(ServiceRequest call, int httpStatus) {
@@ -53,15 +63,18 @@ public class CallCommandService {
     private final CallLedger ledger;
     private final CallEvents events;
     private final TableCommandRepository tableCommands;
+    private final CallRateLimitProperties rateLimit;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public CallCommandService(ServiceRequestRepository calls, CallLedger ledger, CallEvents events,
-                              TableCommandRepository tableCommands, TransactionTemplate transaction, Clock clock) {
+                              TableCommandRepository tableCommands, CallRateLimitProperties rateLimit,
+                              TransactionTemplate transaction, Clock clock) {
         this.calls = calls;
         this.ledger = ledger;
         this.events = events;
         this.tableCommands = tableCommands;
+        this.rateLimit = rateLimit;
         this.transaction = transaction;
         this.clock = clock;
     }
@@ -74,10 +87,10 @@ public class CallCommandService {
         AuthenticatedGuest verified = AuthenticatedGuest.require(guest);
         String message = CallMessage.normalize(rawMessage);
         String key = IdempotencyKeys.require(idempotencyKey);
-        String scope = "GUEST:" + verified.guestSessionId();
-        String digest = IdempotencyKeys.digest("CREATE", type, message);
+        String scope = GUEST_SCOPE + verified.guestSessionId();
+        String digest = IdempotencyKeys.digest(CREATE, type, message);
         return atomically(() -> {
-            Optional<IdempotencyRecord> prior = ledger.findIdempotency(verified.restaurantId(), scope, "CREATE", key);
+            Optional<IdempotencyRecord> prior = ledger.findIdempotency(verified.restaurantId(), scope, CREATE, key);
             if (prior.isPresent()) return replay(verified.restaurantId(), prior.get(), digest);
             // QR already refused guests of a closed session; this is the second line for a session whose closure
             // QR confirmed to Waiter, so no new call can attach itself to it.
@@ -89,32 +102,50 @@ public class CallCommandService {
             Optional<ServiceRequest> active = calls.findFirstByRestaurantIdAndGuestSessionIdAndRequestTypeAndStatusIn(
                     verified.restaurantId(), verified.guestSessionId(), type, ServiceRequestStatus.UNRESOLVED);
             if (active.isPresent()) {
-                ledger.recordIdempotency(verified.restaurantId(), scope, "CREATE", key, digest, active.get().getId(), OK, now);
+                ledger.recordIdempotency(verified.restaurantId(), scope, CREATE, key, digest, active.get().getId(), OK, now);
                 return new Outcome(active.get(), OK);
             }
+            enforceRateLimit(verified, now);
             ServiceRequest call = calls.saveAndFlush(ServiceRequest.open(UUID.randomUUID(), verified.restaurantId(),
                     verified.tableId(), verified.tableSessionId(), verified.guestSessionId(), type, message, now));
             record(call, CallEventType.CREATED, null, ActorType.GUEST, verified.guestSessionId(), now);
-            ledger.recordIdempotency(verified.restaurantId(), scope, "CREATE", key, digest, call.getId(), CREATED, now);
+            ledger.recordIdempotency(verified.restaurantId(), scope, CREATE, key, digest, call.getId(), CREATED, now);
             return new Outcome(call, CREATED);
         });
     }
 
+    /**
+     * A guest session may raise only a few new calls per window, so one phone cannot flood the staff. The count
+     * is read inside the command's transaction; two truly simultaneous requests of the same guest can overshoot
+     * the limit by one, which is acceptable for a flood guard (the one-active-call-per-type index still holds).
+     */
+    private void enforceRateLimit(AuthenticatedGuest guest, Instant now) {
+        Instant since = now.minus(rateLimit.window());
+        long recent = calls.countByRestaurantIdAndGuestSessionIdAndCreatedAtAfter(guest.restaurantId(),
+                guest.guestSessionId(), since);
+        if (recent < rateLimit.maxNewCalls()) return;
+        long retryAfter = calls.findFirstByRestaurantIdAndGuestSessionIdAndCreatedAtAfterOrderByCreatedAtAsc(
+                        guest.restaurantId(), guest.guestSessionId(), since)
+                .map(oldest -> Duration.between(now, oldest.getCreatedAt().plus(rateLimit.window())).toSeconds() + 1)
+                .orElse(rateLimit.windowSeconds());
+        throw new CallRateLimitedException(Math.max(1, retryAfter));
+    }
+
     /** OPEN → CLAIMED. Optional step; a call that is already claimed or resolved is a conflict, never overwritten. */
     public Outcome claim(AuthenticatedStaff staff, UUID callId, long expectedVersion, String idempotencyKey) {
-        return change(staff, callId, expectedVersion, idempotencyKey, "CLAIM", CallEventType.CLAIMED);
+        return change(staff, callId, expectedVersion, idempotencyKey, CLAIM, CallEventType.CLAIMED);
     }
 
     /** OPEN or CLAIMED → RESOLVED by any waiter of the restaurant; the resolver and time are recorded once. */
     public Outcome resolve(AuthenticatedStaff staff, UUID callId, long expectedVersion, String idempotencyKey) {
-        return change(staff, callId, expectedVersion, idempotencyKey, "RESOLVE", CallEventType.RESOLVED);
+        return change(staff, callId, expectedVersion, idempotencyKey, RESOLVE, CallEventType.RESOLVED);
     }
 
     private Outcome change(AuthenticatedStaff staff, UUID callId, long expectedVersion, String idempotencyKey,
                            String operation, CallEventType eventType) {
         UUID restaurantId = AuthenticatedStaff.requireWaiterRestaurant(staff);
         String key = IdempotencyKeys.require(idempotencyKey);
-        String scope = "STAFF:" + staff.staffUserId();
+        String scope = STAFF_SCOPE + staff.staffUserId();
         String digest = IdempotencyKeys.digest(operation, callId, expectedVersion);
         return atomically(() -> {
             Optional<IdempotencyRecord> prior = ledger.findIdempotency(restaurantId, scope, operation, key);

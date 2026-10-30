@@ -21,12 +21,19 @@ import java.time.Duration;
 public record NotificationDispatcherProperties(boolean enabled, long intervalMs, int batchSize, long leaseSeconds,
                                                int maxAttempts, long initialBackoffSeconds, long maxBackoffSeconds) {
 
+    /** Upper bound of {@code batch-size}: one round must stay a short database transaction. */
+    public static final int MAX_BATCH_SIZE = 200;
+
     public NotificationDispatcherProperties {
         if (intervalMs <= 0) throw new IllegalArgumentException("interval-ms must be greater than zero");
-        if (batchSize < 1 || batchSize > 200) throw new IllegalArgumentException("batch-size must be between 1 and 200");
+        if (batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
+            throw new IllegalArgumentException("batch-size must be between 1 and " + MAX_BATCH_SIZE);
+        }
         if (leaseSeconds < 1) throw new IllegalArgumentException("lease-seconds must be greater than zero");
         if (maxAttempts < 1) throw new IllegalArgumentException("max-attempts must be greater than zero");
-        if (initialBackoffSeconds < 1) throw new IllegalArgumentException("initial-backoff-seconds must be greater than zero");
+        if (initialBackoffSeconds < 1) {
+            throw new IllegalArgumentException("initial-backoff-seconds must be greater than zero");
+        }
         if (maxBackoffSeconds < initialBackoffSeconds) {
             throw new IllegalArgumentException("max-backoff-seconds must not be smaller than initial-backoff-seconds");
         }

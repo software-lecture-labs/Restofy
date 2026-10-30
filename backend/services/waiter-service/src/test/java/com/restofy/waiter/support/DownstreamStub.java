@@ -1,5 +1,6 @@
 package com.restofy.waiter.support;
 
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
@@ -107,7 +108,7 @@ public final class DownstreamStub implements AutoCloseable {
         return requests.stream().filter(r -> r.method().equals(method) && pattern.matcher(r.path()).matches()).toList();
     }
 
-    private void handle(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+    private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
             Map<String, List<String>> headers = new HashMap<>();
             exchange.getRequestHeaders().forEach((name, values) -> headers.put(name.toLowerCase(Locale.ROOT), List.copyOf(values)));

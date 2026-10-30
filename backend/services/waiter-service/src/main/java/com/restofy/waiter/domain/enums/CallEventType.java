@@ -8,7 +8,7 @@ public enum CallEventType {
     /** The call ended unresolved because its table session was closed (WAITER-04). */
     CANCELLED;
 
-    /** Event name used on the wire to Notification (docs/waiter/integration-contracts.md). */
+    /** Event name used on the wire to Notification. */
     public String wireName() {
         return "SERVICE_CALL_" + name();
     }

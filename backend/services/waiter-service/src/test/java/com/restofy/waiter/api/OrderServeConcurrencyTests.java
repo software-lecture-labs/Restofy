@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * Two waiters racing, and a serve racing a cancellation. The decision belongs to Order, so these tests check
  * that Waiter relays whatever single decision Order made, never invents a second outcome and records exactly
  * one answer per command. The Order stub decides inside one critical section; the real Order's atomicity is
- * not proven here (docs/waiter/handoff-order.md states it as a requirement).
+ * not proven here (it is a requirement towards Order).
  */
 class OrderServeConcurrencyTests extends ApiTestBase {
 

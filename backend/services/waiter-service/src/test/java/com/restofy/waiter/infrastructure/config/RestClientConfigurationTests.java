@@ -26,9 +26,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -146,7 +148,7 @@ class RestClientConfigurationTests {
             assertTrue(context.getBean(QrClient.class).listAllTables(restaurant).isEmpty());
             assertTrue(context.getBean(QrClient.class).findTable(restaurant, UUID.randomUUID()).isEmpty());
             assertTrue(context.getBean(OrderClient.class).findOrder(restaurant, UUID.randomUUID()).isEmpty());
-            assertTrue(context.getBean(OrderClient.class).activeOrderCounts(restaurant, java.util.List.of()).isEmpty());
+            assertTrue(context.getBean(OrderClient.class).activeOrderCounts(restaurant, List.of()).isEmpty());
         });
         assertNotNull(backends);
         assertEquals(3, peer.requests().size(), "An empty session list must not produce a request");
@@ -185,12 +187,12 @@ class RestClientConfigurationTests {
     void clientsRefuseOversizedSessionListsBeforeTheyReachTheNetwork() {
         runner(environment()).run(context -> {
             OrderClient client = context.getBean(OrderClient.class);
-            java.util.List<UUID> tooMany = java.util.stream.IntStream.range(0, OrderClient.MAX_SESSION_IDS + 1)
+            List<UUID> tooMany = IntStream.range(0, OrderClient.MAX_SESSION_IDS + 1)
                     .mapToObj(index -> UUID.randomUUID()).toList();
             UUID restaurant = UUID.randomUUID();
             assertThrows(IllegalArgumentException.class, () -> client.activeOrderCounts(restaurant, tooMany));
             assertThrows(IllegalArgumentException.class, () -> client.search(restaurant, null, tooMany, null, 0, 20));
-            assertThrows(IllegalArgumentException.class, () -> client.search(restaurant, null, java.util.List.of(), null, 0, 20));
+            assertThrows(IllegalArgumentException.class, () -> client.search(restaurant, null, List.of(), null, 0, 20));
         });
         assertTrue(peer.requests().isEmpty());
     }

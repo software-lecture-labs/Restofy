@@ -5,6 +5,7 @@ import com.restofy.waiter.support.FakeBackends;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,7 +84,7 @@ class CallConcurrencyTests extends ApiTestBase {
     }
 
     private UUID raise(String type) throws Exception {
-        String body = raiseCall(addGuest(table), type).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated())
+        String body = raiseCall(addGuest(table), type).andExpect(MockMvcResultMatchers.status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(FakeBackends.read(body).get("id").asString());
     }
@@ -112,7 +113,8 @@ class CallConcurrencyTests extends ApiTestBase {
             UUID resolver = (UUID) row.get("resolved_by_user_id");
             assertEquals(FakeBackends.read(winners.getFirst().body()).get("resolvedByUserId").asString(), resolver.toString());
             assertEquals(1L, row.get("version"));
-            assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = ? AND event_type = 'RESOLVED'", call));
+            assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = ? AND event_type = 'RESOLVED'",
+                    call));
             assertEquals(2, count("SELECT count(*) FROM service_call_events WHERE service_request_id = ?", call));
         }
     }
@@ -147,7 +149,8 @@ class CallConcurrencyTests extends ApiTestBase {
                     staff(WAITER_A, call, "resolve", key, 0), staff(WAITER_A, call, "resolve", key, 0)));
 
             assertTrue(answers.stream().allMatch(a -> a.status() == 200), "round " + round + ": " + answers);
-            assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = ? AND event_type = 'RESOLVED'", call));
+            assertEquals(1, count("SELECT count(*) FROM service_call_events WHERE service_request_id = ? AND event_type = 'RESOLVED'",
+                    call));
             assertEquals(1, count("SELECT count(*) FROM idempotency_records WHERE service_request_id = ? AND operation = 'RESOLVE'", call));
             assertEquals(1L, jdbc.queryForObject("SELECT version FROM service_requests WHERE id = ?", Long.class, call));
         }

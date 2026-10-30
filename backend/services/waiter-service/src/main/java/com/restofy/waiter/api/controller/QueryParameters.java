@@ -11,6 +11,9 @@ import java.util.Set;
  */
 final class QueryParameters {
 
+    /** Longest unknown parameter name that is echoed back in the error message. */
+    private static final int MAX_ECHOED_NAME_LENGTH = 40;
+
     private QueryParameters() {
     }
 
@@ -24,7 +27,7 @@ final class QueryParameters {
     }
 
     private static String safe(String name) {
-        String trimmed = name.length() > 40 ? name.substring(0, 40) : name;
+        String trimmed = name.length() > MAX_ECHOED_NAME_LENGTH ? name.substring(0, MAX_ECHOED_NAME_LENGTH) : name;
         return trimmed.replaceAll("[^A-Za-z0-9_.\\-\\[\\]]", "?");
     }
 }

@@ -4,21 +4,21 @@ import com.restofy.waiter.api.dto.response.GuestCallResponse;
 import com.restofy.waiter.api.dto.response.NotificationSyncResponse;
 import com.restofy.waiter.api.dto.response.OrderResponse;
 import com.restofy.waiter.api.dto.response.PendingCommandResponse;
-import com.restofy.waiter.api.dto.response.TableCommandResponse;
 import com.restofy.waiter.api.dto.response.ServeCommandResponse;
 import com.restofy.waiter.api.dto.response.ServiceCallResponse;
+import com.restofy.waiter.api.dto.response.ServiceRequestResponse;
+import com.restofy.waiter.api.dto.response.TableCommandResponse;
+import com.restofy.waiter.api.dto.response.TableSessionResponse;
+import com.restofy.waiter.api.dto.response.TableSummaryResponse;
 import com.restofy.waiter.application.service.OrderServeService;
 import com.restofy.waiter.application.service.TableCommandService;
 import com.restofy.waiter.domain.entity.OrderServeCommand;
+import com.restofy.waiter.domain.entity.ServiceRequest;
 import com.restofy.waiter.domain.entity.TableCommand;
+import com.restofy.waiter.domain.enums.ServiceRequestType;
 import com.restofy.waiter.domain.enums.TableCommandStatus;
 import com.restofy.waiter.domain.enums.TableCommandType;
 import com.restofy.waiter.domain.enums.TableOperationalStatus;
-import com.restofy.waiter.api.dto.response.ServiceRequestResponse;
-import com.restofy.waiter.api.dto.response.TableSessionResponse;
-import com.restofy.waiter.api.dto.response.TableSummaryResponse;
-import com.restofy.waiter.domain.entity.ServiceRequest;
-import com.restofy.waiter.domain.enums.ServiceRequestType;
 import com.restofy.waiter.infrastructure.client.order.CancellationDto;
 import com.restofy.waiter.infrastructure.client.order.OrderDto;
 import com.restofy.waiter.infrastructure.client.order.OrderItemDto;
@@ -129,7 +129,8 @@ public final class WaiterMapper {
 
     private static OrderResponse.Item toItem(OrderItemDto item) {
         return new OrderResponse.Item(item.id(), item.productId(), item.productName(), item.quantity(),
-                item.cancelledQuantity(), item.quantity() - item.cancelledQuantity(), item.unitGrossPrice(), item.lineGrossTotal(), item.note(),
+                item.cancelledQuantity(), item.quantity() - item.cancelledQuantity(), item.unitGrossPrice(),
+                item.lineGrossTotal(), item.note(),
                 item.options().stream().map(WaiterMapper::toOption).toList());
     }
 
