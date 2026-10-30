@@ -10,6 +10,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -51,8 +52,9 @@ class CategorySchemaPostgresIntegrationTests {
     void flywayAppliedExactlyTheMenuMigrationsInOrder() {
         assertEquals(1, jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE success AND version = '61' AND type = 'SQL'", Integer.class));
-        // V62 (products), V63 (availability), V64 (ingredients text), V65 (options) and V66 (nutrition bounds) and V67 (availability commands) are the only migrations after V61.
-        assertEquals(java.util.List.of("61", "62", "63", "64", "65", "66", "67"), jdbc.queryForList(
+        // V62 (products), V63 (availability), V64 (ingredients text), V65 (options) and V66 (nutrition bounds) and V67 (availability
+        // commands) are the only migrations after V61.
+        assertEquals(List.of("61", "62", "63", "64", "65", "66", "67"), jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class));
     }
 

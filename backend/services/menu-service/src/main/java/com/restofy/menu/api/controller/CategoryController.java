@@ -73,7 +73,8 @@ public class CategoryController {
     }
 
     @PostMapping("/categories")
-    public ResponseEntity<CategoryResponse> create(@AdminActor AuthenticatedActor actor, @Valid @RequestBody CreateCategoryRequest request) {
+    public ResponseEntity<CategoryResponse> create(@AdminActor AuthenticatedActor actor,
+            @Valid @RequestBody CreateCategoryRequest request) {
         Category created = categories.createRoot(actor, request.name(), request.sortOrder());
         return ResponseEntity.created(URI.create("/api/v1/menu/categories/" + created.getId()))
                 .body(CategoryMapper.toResponse(created));

@@ -5,6 +5,7 @@ import com.restofy.menu.application.service.CategoryService;
 import com.restofy.menu.application.service.UpdateCategoryCommand;
 import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.domain.exception.CategoryVersionConflictException;
+import com.restofy.menu.domain.exception.DuplicateCategoryNameException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,7 +68,11 @@ class CategoryConcurrencyTests {
             for (Future<String> result : results) {
                 try {
                     String outcome = result.get();
-                    if (outcome.equals("OK")) wins++; else conflicts++;
+                    if (outcome.equals("OK")) {
+                        wins++;
+                    } else {
+                        conflicts++;
+                    }
                 } catch (ExecutionException unexpected) {
                     fail("Only OK or a version conflict is acceptable, got " + unexpected.getCause());
                 }
@@ -93,7 +98,7 @@ class CategoryConcurrencyTests {
                     try {
                         service.createRoot(admin, "Drinks", 0);
                         return "OK";
-                    } catch (com.restofy.menu.domain.exception.DuplicateCategoryNameException duplicate) {
+                    } catch (DuplicateCategoryNameException duplicate) {
                         return "CONFLICT";
                     }
                 }));

@@ -6,6 +6,7 @@ import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,7 +85,7 @@ class CategoryManagementApiTests {
     void adminCreatesRootCategoryForTheirOwnRestaurant() throws Exception {
         create("{\"name\":\"Main Dishes\",\"sortOrder\":2}")
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith(BASE + "/")))
+                .andExpect(header().string("Location", Matchers.startsWith(BASE + "/")))
                 .andExpect(jsonPath("$.name").value("Main Dishes"))
                 .andExpect(jsonPath("$.sortOrder").value(2))
                 .andExpect(jsonPath("$.isActive").value(true))
@@ -98,7 +99,8 @@ class CategoryManagementApiTests {
     void restaurantIdInBodyIsIgnoredAndActorRestaurantIsUsed() throws Exception {
         create("{\"name\":\"Sneaky\",\"restaurantId\":\"" + RESTAURANT_B + "\"}")
                 .andExpect(status().isCreated());
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM categories WHERE restaurant_id = ? AND parent_id IS NULL", Integer.class, RESTAURANT_A));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM categories WHERE restaurant_id = ? AND parent_id IS NULL", Integer.class,
+                RESTAURANT_A));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM categories WHERE restaurant_id = ?", Integer.class, RESTAURANT_B));
     }
 

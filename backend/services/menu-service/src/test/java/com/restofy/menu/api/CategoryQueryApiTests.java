@@ -5,6 +5,7 @@ import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.HashSet;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -117,7 +121,7 @@ class CategoryQueryApiTests {
     @Test
     void paginationCoversEveryRowExactlyOnceEvenWithEqualSortOrder() throws Exception {
         for (int i = 0; i < 5; i++) root(RESTAURANT_A, "Cat " + i, 0, true);
-        var seen = new java.util.HashSet<String>();
+        var seen = new HashSet<String>();
         int[] expectedSizes = {2, 2, 1};
         for (int page = 0; page < 3; page++) {
             String body = fetch(CATEGORIES + "?page=" + page + "&size=2").andExpect(status().isOk())
@@ -126,7 +130,7 @@ class CategoryQueryApiTests {
                     .andExpect(jsonPath("$.page").value(page))
                     .andExpect(jsonPath("$.items.length()").value(expectedSizes[page]))
                     .andReturn().getResponse().getContentAsString();
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\":\"([0-9a-f-]{36})\"").matcher(body);
+            Matcher m = Pattern.compile("\"id\":\"([0-9a-f-]{36})\"").matcher(body);
             while (m.find()) assertTrue(seen.add(m.group(1)), "row repeated across pages");
         }
         assertEquals(5, seen.size());
@@ -141,7 +145,8 @@ class CategoryQueryApiTests {
                 "sort=name;DROP TABLE categories", "sort=parent.name", "sort=,asc"}) {
             fetch(CATEGORIES + "?" + query).andExpect(status().isBadRequest());
         }
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_name = 'categories'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_name = 'categories'",
+                Integer.class));
     }
 
     // ---- root detail ----
@@ -182,7 +187,7 @@ class CategoryQueryApiTests {
                 .andExpect(jsonPath("$.totalElements").value(2))
                 .andExpect(jsonPath("$.items[0].name").value("Cold"))
                 .andExpect(jsonPath("$.items[1].name").value("Hot"))
-                .andExpect(jsonPath("$.items[*].parentId").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(drinks.toString()))));
+                .andExpect(jsonPath("$.items[*].parentId").value(Matchers.everyItem(Matchers.is(drinks.toString()))));
         fetch(CATEGORIES + "/" + drinks + "/subcategories?isActive=true").andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.items[0].name").value("Hot"));

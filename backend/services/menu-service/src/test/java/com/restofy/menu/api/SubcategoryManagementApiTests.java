@@ -5,6 +5,7 @@ import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,7 +85,7 @@ class SubcategoryManagementApiTests {
         UUID drinks = root(RESTAURANT_A, "Drinks");
         createSub(drinks, "{\"name\":\"  Hot   Drinks \",\"sortOrder\":1}")
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith(SUBCATEGORIES + "/")))
+                .andExpect(header().string("Location", Matchers.startsWith(SUBCATEGORIES + "/")))
                 .andExpect(jsonPath("$.name").value("Hot Drinks"))
                 .andExpect(jsonPath("$.parentId").value(drinks.toString()))
                 .andExpect(jsonPath("$.isActive").value(true))
