@@ -1,14 +1,14 @@
-# Önerilen başlık
-
-feat(auth,mail): personel entegrasyonu ve güvenilir kimlik altyapısı
-
-# PR açıklaması
+# feat(auth,mail): personel entegrasyonu ve güvenilir kimlik altyapısı
 
 ## Amaç
 
-Diğer servislerin Auth'u tekrar tekrar değiştirmeden bağlanabilmesi için personel sözleşmesini
-testlerle korur; ADMIN personel yönetimini ve Notification alıcı sorgusunu sağlar. PR #2 sonrası
-proxy, çok örnekli limiter, okuma kilidi, test altyapısı ve Mail kaybı risklerini giderir.
+Hocam merhaba,
+
+PR #2'deki incelemenizde belirttiğiniz konuları ve #11'deki kapsam, Compose ve dokümantasyon
+uyarılarınızı dikkate alarak Auth/Mail tarafını güncelledim. Diğer servislerin Auth'a bağlanabilmesi
+için personel sözleşmesini testlerle korudum; ADMIN personel yönetimini ve Notification alıcı
+sorgusunu tamamladım. Proxy, çok örnekli limiter, okuma kilidi, test altyapısı ve Mail kaybı
+konularındaki düzeltmeler aşağıda yer alıyor.
 
 ## Değişiklikler
 
@@ -47,15 +47,16 @@ mvn -B -ntp -f backend/pom.xml -pl services/api-gateway,services/auth-service,se
 - Yerel Java 25/Testcontainers tam kapı: **484 başarılı test**, 0 başarısızlık/hata/atlama
   (ortak 37, Gateway 55, Auth 323, Mail 69).
 - Sonraki test koruması değişikliği: **41 başarılı odaklı test** (ortak 37, Auth 2, Mail 2);
-  iki yeni regresyon dahil toplam 486 farklı test. 486'nın tek koşuda çalıştığı iddia edilmez.
+  bu koşu, tam koşudan sonra eklenen iki mimari regresyon testini de kapsıyor.
 - Son Auth PMD/Checkstyle: **0/0**. Auth/Mail Java kaynaklarında package/import dışı >140 satır: **0**.
 - Eski ArchUnit kuralı yasak çağrıyı kaçırırken regresyon RED; düzeltilen Auth/Mail kuralları GREEN.
 - Yeni Compose sırlarının eksikliği sahte ENV ile eski ayarda RED, yeni ayarda GREEN.
 - Windows Türkçe yolunda yalnız CLI üzerinden koşuya özel ASCII JaCoCo exec yolu kullanıldı;
   coverage eşiği/test zorunluluğu gevşetilmedi. Gerçek ENV, DB veya SMTP kullanılmadı.
 
-GitHub Actions dosyası yerelde hazırdır; **uzak CI sonucu doğrulanmadı**. Tüm repo pre-push kapısı
-yeşil diye sunulmaz; eski frontend lint/çalışmayan servis health sınırları teslim raporunda kayıtlıdır.
+GitHub Actions workflow'u hazır; **uzak CI sonucu henüz doğrulanmadı**.
+Tam repo pre-push koşusunda frontend lint ve çalışmayan servislerin health kontrolleri
+başarılı tamamlanmadı; bu PR için yukarıdaki Auth/Mail/Gateway kalite kapısı doğrulandı.
 
 ## Kapsam ve bilinen sınırlar
 
@@ -68,12 +69,7 @@ Kod değişiklikleri Auth/Mail ve onaylı dar Gateway forwarding/testleriyle sı
 ortak POM yalnız test-support kaydı, Compose/örnek ENV yalnız ilgili aktarım için değişir.
 Sonar ve diğer servislerin iş koduna müdahale edilmedi. Canlı migration/deploy uygulanmadı.
 
-Refs: #9, #10. Issue'lar otomatik kapatılmaz. Hocanın #2 ve #11 mesajlarının karşılıkları
-`docs/auth-service/pre-pr-review.md`; kapsam kapanışı `docs/auth-service/completion-review.md` içindedir.
+İnceleme yorumlarınızın karşılıklarını `docs/auth-service/pre-pr-review.md`, kapsam ve
+kalan ekip bağımlılıklarını `docs/auth-service/completion-review.md` içinde belgeledim.
 
-## İnceleme sırası
-
-Bu metin yerel dalın birleşik teslim özetidir. Hocanın küçük PR beklentisine uygun olarak
-kalite/test altyapısı → GET kilit ayrımı → proxy/limiter → dayanıklı Mail → personel/Notification
-fazları ayrı PR'lara ayrılabilir. Her parça kendi gerekli test/ADR/ayar değişikliklerini taşır;
-bu hazırlık sırasında uzak PR açılmadı veya dal geçmişi yeniden yazılmadı.
+İlgili takipler: #9, #10.
