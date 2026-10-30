@@ -1,0 +1,107 @@
+package com.restofy.auth.application.service;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import com.restofy.auth.domain.entity.StaffEmail;
+import com.restofy.auth.domain.entity.StaffUser;
+import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.infrastructure.config.EnvironmentPolicy;
+import com.restofy.auth.infrastructure.config.StaffBootstrapProperties;
+import com.restofy.auth.infrastructure.config.StaffBootstrapProperties.Account;
+import com.restofy.auth.infrastructure.persistence.AdvisoryLocks;
+import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
+import com.restofy.auth.infrastructure.security.StaffPasswords;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class StaffBootstrapService {
+    private final StaffUserRepository users;
+    private final StaffPasswords passwords;
+    private final JdbcTemplate jdbc;
+
+    public StaffBootstrapService(StaffUserRepository users, StaffPasswords passwords, JdbcTemplate jdbc) {
+        this.users = users;
+        this.passwords = passwords;
+        this.jdbc = jdbc;
+    }
+
+    @Transactional
+    public void initialize(StaffBootstrapProperties properties, String[] activeProfiles) {
+        var dev = properties.getDevUsers();
+        var initial = properties.getInitialAdmin();
+        if (!dev.isEnabled() && !initial.isEnabled()) {
+            return;
+        }
+        if (dev.isEnabled() && initial.isEnabled()) {
+            throw new IllegalStateException("Development and initial ADMIN bootstrap must not run together");
+        }
+        if (dev.isEnabled()) {
+            validateDevelopment(properties, activeProfiles);
+        } else {
+            validate(initial);
+        }
+
+        // Transaction-scoped, DB-local lock serializes concurrent application starts.
+        // No lock survives commit/rollback. UNIQUE(email_normalized) is the final DB guard.
+        AdvisoryLocks.acquireForTransaction(jdbc, AdvisoryLocks.STAFF_BOOTSTRAP);
+        if (dev.isEnabled()) {
+            createOrPreserve(dev.getAdmin(), StaffRole.ADMIN);
+            createOrPreserve(dev.getWaiter(), StaffRole.WAITER);
+            createOrPreserve(dev.getKitchen(), StaffRole.KITCHEN);
+        } else {
+            createInitialAdmin(initial);
+        }
+    }
+
+    private void validateDevelopment(StaffBootstrapProperties properties, String[] activeProfiles) {
+        var dev = properties.getDevUsers();
+        if (!EnvironmentPolicy.isDevelopment(activeProfiles)
+                || !EnvironmentPolicy.isDevelopmentEnvironmentName(properties.getEnvironment())) {
+            throw new IllegalStateException("Development staff bootstrap requires only dev/local/test profiles and environment");
+        }
+        List<Account> accounts = List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen());
+        Set<String> emails = new HashSet<>();
+        for (Account account : accounts) {
+            validate(account);
+            if (!emails.add(StaffEmail.normalize(account.getEmail()))) {
+                throw new IllegalStateException("Development staff emails must be distinct");
+            }
+        }
+    }
+
+    private void createInitialAdmin(Account initial) {
+        String email = StaffEmail.normalize(initial.getEmail());
+        var existing = users.findByEmailNormalized(email);
+        if (existing.isPresent()) {
+            if (existing.get().getRole() != StaffRole.ADMIN) {
+                throw new IllegalStateException("Initial ADMIN email is already assigned to a different role");
+            }
+            return; // Preserve password, activation state and identity, including a disabled ADMIN.
+        }
+        if (users.existsByRole(StaffRole.ADMIN)) {
+            throw new IllegalStateException("Initial ADMIN bootstrap cannot create an additional ADMIN");
+        }
+        createOrPreserve(initial, StaffRole.ADMIN);
+    }
+
+    private void validate(Account account) {
+        StaffEmail.normalize(account.getEmail());
+        passwords.validateNewPassword(account.getPassword());
+    }
+
+    private void createOrPreserve(Account account, StaffRole role) {
+        String email = StaffEmail.normalize(account.getEmail());
+        var existing = users.findByEmailNormalized(email);
+        if (existing.isPresent()) {
+            if (existing.get().getRole() != role) {
+                throw new IllegalStateException("Staff bootstrap email is already assigned to a different role");
+            }
+            return;
+        }
+        users.saveAndFlush(new StaffUser(email, passwords.hash(account.getPassword()), role));
+    }
+}

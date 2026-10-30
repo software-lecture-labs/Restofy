@@ -26,8 +26,23 @@
     <tag />
     <url />
   </scm>
-  <properties></properties>
+  <properties>
+    <!-- Güvenlik yaması: Boot 4.1.1 BOM sürümleri CVE'li; yeni Boot yaması çıkana kadar override -->
+    <tomcat.version>11.0.25</tomcat.version>
+    <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+    <jackson-bom.version>3.1.7</jackson-bom.version>
+  </properties>
   <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.icegreen</groupId>
+      <artifactId>greenmail</artifactId>
+      <version>2.1.14</version>
+      <scope>test</scope>
+    </dependency>
     <!--.env library -->
     <dependency>
       <groupId>io.github.cdimascio</groupId>
@@ -127,8 +142,22 @@
       <artifactId>spring-boot-starter-webmvc-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <!-- Architecture rules: profile checks live only in EnvironmentPolicy -->
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>1.4.1</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
   <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource>
+        <directory>../auth-service/src/main/resources</directory>
+        <includes><include>mail-service-contract.properties</include></includes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.springframework.boot</groupId>
