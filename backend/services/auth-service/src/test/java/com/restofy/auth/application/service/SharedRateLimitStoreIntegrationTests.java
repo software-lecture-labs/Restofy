@@ -184,7 +184,7 @@ class SharedRateLimitStoreIntegrationTests extends AuthSessionTestSupport {
     }
 
     private long check(Family family, Attempt... attempts) {
-        Long retryAfter = new TransactionTemplate(transactionManager).execute(_ -> {
+        return new TransactionTemplate(transactionManager).execute(_ -> {
             try {
                 store.check(family, List.of(attempts));
                 return 0L;
@@ -193,7 +193,6 @@ class SharedRateLimitStoreIntegrationTests extends AuthSessionTestSupport {
                 return exception.retryAfter();
             }
         });
-        return retryAfter;
     }
 
     private int attempts(String table, String key) {

@@ -47,7 +47,7 @@ public class MailPayloadRepository {
 
     @Transactional
     public List<PasswordResetMailRequest> ready() {
-        cleanup();
+        deleteExpiredPayloads();
         Timestamp now = Timestamp.from(clock.instant());
         var candidates = jdbc.query("""
                 SELECT p.mail_job_id, p.encrypted_payload FROM mail_delivery_payloads p
@@ -82,6 +82,10 @@ public class MailPayloadRepository {
 
     @Transactional
     public void cleanup() {
+        deleteExpiredPayloads();
+    }
+
+    private void deleteExpiredPayloads() {
         jdbc.update("""
                 DELETE FROM mail_delivery_payloads p USING mail_jobs j
                 WHERE p.mail_job_id = j.id AND (j.status NOT IN (?, ?, ?) OR j.send_before <= ?)

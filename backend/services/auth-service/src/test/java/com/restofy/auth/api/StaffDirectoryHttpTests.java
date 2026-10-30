@@ -119,7 +119,8 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
         assertThat(refreshTokens.findBySessionId(grant.session().getId())).allMatch(token -> token.getRevokedAt() != null);
         assertThatThrownBy(() -> auth.authenticate(oldIdentity))
                 .isInstanceOf(BadCredentialsException.class);
-        assertThatThrownBy(() -> auth.refresh(grant.refresh()))
+        String revokedRefresh = grant.refresh();
+        assertThatThrownBy(() -> auth.refresh(revokedRefresh))
                 .isInstanceOf(BadCredentialsException.class);
         StaffUser changed = users.findById(waiter.getId()).orElseThrow();
         mvc.perform(mutation(ROOT + "/" + waiter.getId(), adminCookies)

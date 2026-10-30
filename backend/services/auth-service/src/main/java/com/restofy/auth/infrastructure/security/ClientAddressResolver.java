@@ -63,6 +63,19 @@ public class ClientAddressResolver {
     }
 
     private record Subnet(byte[] address, int bits) {
+        @Override public boolean equals(Object other) {
+            return other instanceof Subnet(byte[] otherAddress, int otherBits)
+                    && bits == otherBits && Arrays.equals(address, otherAddress);
+        }
+
+        @Override public int hashCode() {
+            return 31 * Arrays.hashCode(address) + Integer.hashCode(bits);
+        }
+
+        @Override public String toString() {
+            return "Subnet[address=" + Arrays.toString(address) + ", bits=" + bits + "]";
+        }
+
         static Subnet parse(String value) {
             String[] parts = value.split("/", -1);
             InetAddress parsed = literal(parts[0]);

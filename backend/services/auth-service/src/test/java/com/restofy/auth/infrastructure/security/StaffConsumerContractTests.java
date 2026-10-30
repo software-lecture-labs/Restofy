@@ -55,20 +55,26 @@ class StaffConsumerContractTests {
     void pendingAdminCannotBecomeAStaffPrincipal() {
         UserSession pending = new UserSession(new StaffUser("admin@example.com", HASH, StaffRole.ADMIN),
                 clock.instant(), SESSION_SECONDS, null);
-        assertThatThrownBy(() -> consume(producer.issue(pending), clock.instant(), KEYS))
+        String pendingToken = producer.issue(pending);
+        Instant now = clock.instant();
+        assertThatThrownBy(() -> consume(pendingToken, now, KEYS))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void rejectsWrongSignatureTamperingAndUnboundedInput() {
         String wire = producer.issue(session(StaffRole.WAITER));
-        assertThatThrownBy(() -> consume(wire, clock.instant(), AuthSessionTestSupport.generateKeys()))
+        Instant now = clock.instant();
+        KeyPair wrongKeys = AuthSessionTestSupport.generateKeys();
+        assertThatThrownBy(() -> consume(wire, now, wrongKeys))
                 .isInstanceOf(IllegalArgumentException.class);
         String[] parts = wire.split("\\.");
         parts[1] = Base64.getUrlEncoder().withoutPadding().encodeToString("{}".getBytes(StandardCharsets.UTF_8));
-        assertThatThrownBy(() -> consume(String.join(".", parts), clock.instant(), KEYS))
+        String tampered = String.join(".", parts);
+        assertThatThrownBy(() -> consume(tampered, now, KEYS))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> consume("x".repeat(MAX_TOKEN_LENGTH + 1), clock.instant(), KEYS))
+        String oversized = "x".repeat(MAX_TOKEN_LENGTH + 1);
+        assertThatThrownBy(() -> consume(oversized, now, KEYS))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -79,7 +85,8 @@ class StaffConsumerContractTests {
         session.revoke(clock.instant());
         assertThat(session.isUsable(clock.instant())).isFalse();
         assertThat(consume(wire, clock.instant().plusSeconds(ACCESS_SECONDS - 1), KEYS)).isNotNull();
-        assertThatThrownBy(() -> consume(wire, clock.instant().plusSeconds(ACCESS_SECONDS), KEYS))
+        Instant expiry = clock.instant().plusSeconds(ACCESS_SECONDS);
+        assertThatThrownBy(() -> consume(wire, expiry, KEYS))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

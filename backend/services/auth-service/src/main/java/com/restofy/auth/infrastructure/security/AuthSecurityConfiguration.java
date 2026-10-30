@@ -27,6 +27,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
 public class AuthSecurityConfiguration {
+    private static final String ADMIN_ROLE = "ADMIN";
     private static final String STAFF_SESSION = "STAFF_SESSION";
     @Bean
     Clock authClock() {
@@ -68,13 +69,13 @@ public class AuthSecurityConfiguration {
                                 "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover").hasAuthority("MFA_PENDING")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/recovery-codes/regenerate")
                                 .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
-                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
+                                        AuthorityAuthorizationManager.hasRole(ADMIN_ROLE)))
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/staff", "/api/v1/auth/staff/**")
                                 .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
-                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
+                                        AuthorityAuthorizationManager.hasRole(ADMIN_ROLE)))
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/staff", "/api/v1/auth/staff/**")
                                 .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
-                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
+                                        AuthorityAuthorizationManager.hasRole(ADMIN_ROLE)))
                         .anyRequest().denyAll())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
