@@ -19,15 +19,14 @@ import static org.assertj.core.api.Assertions.*;
 @AutoConfigureMockMvc
 class QrServiceApplicationTests {
     @Autowired MockMvc mvc;
-    @Autowired com.restofy.qr.application.service.OrderAdmissionService admissions;
     @Autowired com.restofy.qr.application.service.GuestSessionContextReader contexts;
-    @Autowired com.restofy.qr.application.service.OrderBusinessOutcomeService outcomes;
+    @Autowired com.restofy.qr.application.port.OrderSessionAccess orders;
     @Autowired com.restofy.qr.application.service.TableSessionClosureService closure;
 
     @Test
     void neitherAClaimedStaffRoleNorAPaymentReferenceSuppliesLifecycleAuthority() {
         var id = java.util.UUID.randomUUID();
-        assertThatThrownBy(() -> closure.close(id, 0)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+        assertThat(orders.inspect(id, id).knowledge()).isEqualTo(com.restofy.qr.domain.OrderSessionState.Knowledge.UNKNOWN);
         assertThatThrownBy(() -> closure.cleaned(id, 0)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
     }
 
@@ -50,9 +49,11 @@ class QrServiceApplicationTests {
     @Test
     void aPaymentReferenceCannotSupplyTheMissingOrderAndPaymentAuthority() {
         var id = java.util.UUID.randomUUID();
-        var command = new com.restofy.qr.domain.OrderOutcome.Command(id, id, id, 1, 0,
-                com.restofy.qr.domain.enums.OrderBusinessStatus.COMPLETED, java.time.Instant.now(), id);
-        assertThatThrownBy(() -> outcomes.apply(command)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+        assertThat(orders.inspect(id, id).protectedGuests()).isEmpty();
+        assertThatThrownBy(() -> orders.prepare(null)).isInstanceOf(com.restofy.qr.domain.exception.SessionClosureUnavailableException.class);
+        assertThatThrownBy(() -> orders.status(null)).isInstanceOf(com.restofy.qr.domain.exception.SessionClosureUnavailableException.class);
+        assertThatThrownBy(() -> orders.acknowledge(null, null)).isInstanceOf(com.restofy.qr.domain.exception.SessionClosureUnavailableException.class);
+        assertThatThrownBy(() -> orders.abort(null)).isInstanceOf(com.restofy.qr.domain.exception.SessionClosureUnavailableException.class);
     }
 
     @Test
@@ -69,8 +70,8 @@ class QrServiceApplicationTests {
         org.springframework.security.core.context.SecurityContextHolder.setContext(context);
         try {
             var id = java.util.UUID.randomUUID();
-            var request = new com.restofy.qr.application.service.OrderAdmissionService.Reservation(id, id, id, id, "key", "a".repeat(64), "A".repeat(43));
-            assertThatThrownBy(() -> admissions.reserve(request)).isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+            assertThat(orders.inspect(id, id).knowledge()).isEqualTo(com.restofy.qr.domain.OrderSessionState.Knowledge.UNKNOWN);
+            assertThatThrownBy(() -> orders.prepare(null)).isInstanceOf(com.restofy.qr.domain.exception.SessionClosureUnavailableException.class);
         } finally { org.springframework.security.core.context.SecurityContextHolder.clearContext(); }
         mvc.perform(post("/api/v1/qr/order-admissions").with(csrf()).header("X-Role", "ORDER_SERVICE")
                 .header("X-Restaurant-Id", "forged")).andExpect(status().isUnauthorized());

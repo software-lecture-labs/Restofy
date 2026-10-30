@@ -4,11 +4,16 @@ import com.restofy.qr.api.dto.response.GuestSessionResponse;
 import com.restofy.qr.api.dto.response.OpenedGuestSessionResponse;
 import com.restofy.qr.domain.entity.GuestSession;
 import com.restofy.qr.domain.entity.QrScanEvent;
+import com.restofy.qr.domain.OrderSessionState;
 import com.restofy.qr.infrastructure.persistence.repository.GuestSessionRepository;
 import com.restofy.qr.infrastructure.persistence.repository.QrScanEventRepository;
 import com.restofy.qr.infrastructure.security.GuestTokenCodec;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class GuestSessionOpeningService {
@@ -16,22 +21,31 @@ public class GuestSessionOpeningService {
     private final GuestSessionRepository guests;
     private final GuestTokenCodec tokens;
     private final QrScanEventRepository scans;
+    private final TransactionTemplate writes;
+    private final TransactionTemplate mandatory;
 
     public GuestSessionOpeningService(TableSessionOpeningService mainSessions, GuestSessionRepository guests,
-                                      GuestTokenCodec tokens, QrScanEventRepository scans) {
-        this.mainSessions = mainSessions;
-        this.guests = guests;
-        this.tokens = tokens;
-        this.scans = scans;
+                                      GuestTokenCodec tokens, QrScanEventRepository scans, PlatformTransactionManager manager) {
+        this.mainSessions = mainSessions; this.guests = guests; this.tokens = tokens; this.scans = scans;
+        writes = new TransactionTemplate(manager);
+        mandatory = new TransactionTemplate(manager);
+        mandatory.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public OpenedGuestSessionResponse open(String qrToken) {
-        // The outer transaction keeps QR revalidation, parent lock, occupancy and
-        // the first guest atomic. A repeated accepted scan always creates a guest.
-        var opened = mainSessions.open(qrToken);
+        var state = mainSessions.prepare(qrToken);
+        return writes.execute(status -> openLocked(qrToken, state));
+    }
+
+    public OpenedGuestSessionResponse openLocked(String qrToken, OrderSessionState state) {
+        return mandatory.execute(status -> createGuest(qrToken, state));
+    }
+
+    private OpenedGuestSessionResponse createGuest(String qrToken, OrderSessionState state) {
+        // The mandatory template enforces the boundary even for calls within this class.
+        var opened = mainSessions.openLocked(qrToken, state);
         var main = opened.session();
-        // Use the same validated Clock sample for main, guest and scan event.
         var joinedAt = opened.checkedAt();
         String token = tokens.generateToken();
         var guest = guests.saveAndFlush(new GuestSession(main.restaurantId(), main.id(), tokens.digest(token), joinedAt));

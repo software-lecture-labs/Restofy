@@ -1,31 +1,27 @@
 # QR Service — Entegrasyon Rehberi
 
-**Güncelleme:** 28 Ekim 2026. **Kapsam:** QR-01, QR-02, QR-03 ve QR-04 backend teslimi; Auth entegrasyonu öncesi bakım düzeltmeleri.
+**Güncelleme:** 30 Ekim 2026. **Kapsam:** QR-01–QR-04 ve [ADR-QR-001/A](../decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) doğrultusunda yenilenen QR kodu.
 
-Bu rehber gerçek QR kaynak kodundaki sözleşmeleri açıklar. Başka servislerde henüz bulunmayan endpoint'leri varmış gibi tanımlamaz. Java servis metotları ağ üzerinden çağrılabilen API değildir; karşı servis QR domain/JPA sınıflarını import etmemeli veya QR veritabanına bağlanmamalıdır.
-
-Çalışmanın sonraki PR hedefi `feature/qr-service` → `dev`: dört fazın QR backendini ortak geliştirme dalına taşımak ve Auth Service entegrasyonuna zemin hazırlamak. Bu, Auth entegrasyonunun yapılmış veya API'lerin açılmış olduğu anlamına gelmez. PR/merge işlemleri geliştirici tarafından ayrıca yürütülür.
+QR masa, QR kimliği ve main/guest oturumlarının sahibidir. Sipariş kabulü/iş durumu Order'da, mali doğruluk Payment'ta kalır. QR ayrıntılı sipariş/ödeme defteri tutmaz. Bu rehber Java sınırlarını açıklar; çalışan karşı-servis endpoint'i, broker veya gerçek servisler arası entegrasyon ilan etmez. Servisler QR domain/JPA sınıflarını import etmez veya QR DB'sine bağlanmaz.
 
 ## 1. Teslim kapsamı ve gerçek durum
 
-| Faz | Uygulanan backend kapsamı |
+| Alan | Uygulanan QR davranışı |
 | --- | --- |
-| QR-01 | Restoran kapsamlı masa oluşturma/güncelleme, aktiflik, detay/liste, filtreleme/sayfalama, validation, optimistic version ve hata sözleşmesi |
-| QR-02.1–02.4 | Rastgele QR kimliği, digest + AES-GCM şifreli saklama, yenileme/eski kimliği geçersizleştirme, aktif/pasif, referans güvenli hard delete, metadata, PNG görüntüleme/indirme |
-| QR-03.1–03.4 | QR doğrulama/masa eşleştirme, tek açık ana oturum, her kabul edilen taramaya ayrı guest, tek seferlik guest tokenı, kalıcı kabul edilmiş tarama ve aktif guest istatistiği |
-| QR-04.1–04.4 | Bağımsız guest/ortak main idle süreleri, sipariş admission rezervasyonu, sıralı iş/finans sonucu ve tekrar güvenliği, personel onaylı kapanış ve ayrı temizlik işlemi |
+| QR-01 | Tenant kapsamında masa CRUD, aktiflik/doluluk ayrımı, filtre/sayfalama ve optimistic version |
+| QR-02 | Rastgele QR kimliği, digest + AES-GCM şifreli içerik, rotate/aktiflik/silme, metadata, PNG görüntüleme/indirme |
+| QR-03 | QR doğrulama, tek açık main, her kabul edilen taramada ayrı guest/token/event, tutarlı yerel istatistik |
+| QR-04 / A | Bağımsız guest/main idle; Order kaynaklı geçici koruma bilgisi; kalıcı otomatik kapanış/idle işlemi; kayıp yanıt uzlaştırması; ayrı yetkili temizlendi |
 
-**IMPLEMENTED (UYGULANDI):** Bu fazların QR içindeki iş kuralları, yerel PostgreSQL/Flyway şeması ve testleri. Order/Payment koordinasyonunun Java sınırları mevcut; olumlu kaynak kanıtları yalnız testlerde üretilir.
+**IMPLEMENTED:** QR tarafındaki A koordinatörü, kısa yerel transaction'lar, değişmez işlem/sonuç kaydı, bounded retry işi, yeni V29/V30 ve PostgreSQL testleri. Eski `OrderAdmissionService`, `OrderBusinessOutcomeService`, sipariş/finans tabloları ve personel close controller'ı kaldırıldı.
 
-**NOT IMPLEMENTED (UYGULANMADI):** QR içinde gerçek Auth/üyelik/rol ve servis kimliği adaptörleri; gerçek restoran doğrulaması; Order/Payment HTTP taşıması ve uzak kaynak fence/tam kapsam doğrulaması; downstream kapanış bildirimi/Notification arşivlemesi; frontend ve güvenli guest tarayıcı taşıması.
+**NOT IMPLEMENTED:** Gerçek Auth üyelik/rol ve servis kimliği adaptörleri; Order'ın kalıcı checkout gate'i, Order → Payment sorgusu ve gerçek QR/Order transport'u; frontend aktivitesi/guest taşıması, rate limit ve downstream bildirimleri.
 
-**NOT VERIFIED (DOĞRULANMADI):** Gerçek Auth → Gateway → QR → Order → Payment başarı E2E, gerçek mobil kamera ve production işletim hazırlığı. Testlerdeki restoran/personel/Order/Payment mock'ları gerçek entegrasyon kanıtı değildir.
+**NOT VERIFIED:** Gerçek Auth → Gateway → QR → Order → Payment başarı/yarış E2E, çoklu gerçek Order instance gate'i, gerçek ödeme ve mobil kamera. Testlerde PostgreSQL/Flyway gerçektir; Order otoritesi test double'ıdır.
 
-**Review sonrası mimari not:** V29/V30 admission ve finansal güvenlik projeksiyonunun kapsamı Order/Payment sahipleriyle ortak karar beklemektedir. Alternatifler ve açık sorular [ADR-QR-001](../ADR/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) içinde kayıtlıdır. Bu ADR henüz kabul edilmedi; mevcut iş kodu bu review düzeltmesinde değiştirilmedi. Aşağıdaki iç sözleşmeler nihai ekip uzlaşması olarak okunmamalıdır.
+Health dışındaki HTTP iş API'leri **denyAll** kalır. Auth'ı başlatmak veya rol/restoran header'ı göndermek erişimi açmaz. `OrderSessionAccess.inspect` varsayılan `UNKNOWN`; diğer kaynak metotları unavailable döner. Dolayısıyla çalışan job'lar henüz gerçek siparişsizliği/ödemeyi doğrulayıp masa kapatamaz.
 
-HTTP'de health dışında **denyAll** vardır. Auth servisini başlatmak, `SWAGGER_ENABLED=true` yapmak veya restoran/rol header'ı göndermek erişimi açmaz. Erişim açılması, mevcut güven sınırlarının gerçek kaynaklarla tamamlanmasını ve negatif yetki testlerini gerektirir.
-
-Normatif kaynaklar: [güvenlik](../SECURITY.md), [gereksinimler](../requirements.md), [mimari](../architecture.md), [veri modeli](../database.md), [ER](../er-diagram.md), [yerleşim](../folder-structure.md), [migration aralıkları](../decisions/migrations.md), [web kuralları](../web-rules.md). Eski analizlerin tarihli mevcut durum tespitleri güncel QR kodunun yerine geçmez.
+Normatif kaynaklar: [güvenlik](../SECURITY.md), [gereksinimler](../requirements.md), [mimari](../architecture.md), [veri modeli](../database.md), [ER](../er-diagram.md), [yerleşim](../folder-structure.md), [migration aralıkları](../decisions/migrations.md), [web kuralları](../web-rules.md). Eski analizlerin tarihli tespitleri güncel kod yerine geçmez.
 
 ## 2. Gerçek HTTP envanteri
 
@@ -50,10 +46,9 @@ Normatif kaynaklar: [güvenlik](../SECURITY.md), [gereksinimler](../requirements
 | POST | `/table-sessions/open` | İncelenecek müşteri scan erişimi; ValidateQrCodeRequest | Her kabulde 201 OpenedGuestSessionResponse |
 | POST | `/guest-sessions/activity` | Aynı guest/masa bağlamı; GuestActivityRequest | 200 GuestActivityResponse |
 | GET | `/tables/{id}/session-statistics` | Yönetim | 200 TableSessionStatisticsResponse |
-| POST | `/table-sessions/{sessionId}/close` | Aynı restoran doğrulanmış WAITER/ADMIN; SessionLifecycleRequest | 200 SessionLifecycleResponse |
 | POST | `/table-sessions/{sessionId}/cleaned` | Aynı restoran doğrulanmış WAITER/ADMIN; SessionLifecycleRequest | 200 SessionLifecycleResponse |
 
-**19 iş method/path'i vardır.** `/actuator/health` önek dışında public 200'dür, ayrıntıları açmaz. Swagger/OpenAPI dev ayarı olsa bile HTTP yetkisi otomatik açılmaz; anonim `/v3/api-docs` isteğinin 401 dönmesi güvenlik testinde doğrulanır. Yukarıdaki 200/201/204 uygulanan controller sözleşmesidir; gerçek kimlikli HTTP başarı E2E'si değildir.
+**18 iş method/path'i vardır.** Eski personel `/table-sessions/{sessionId}/close` controller'ı kaldırıldı; otomatik kapanış public HTTP komutu değildir. `/actuator/health` önek dışında public 200'dür, ayrıntıları açmaz. Swagger/OpenAPI dev ayarı olsa bile HTTP yetkisi otomatik açılmaz; anonim `/v3/api-docs` isteğinin 401 dönmesi güvenlik testinde doğrulanır. Yukarıdaki 200/201/204 uygulanan controller sözleşmesidir; gerçek kimlikli HTTP başarı E2E'si değildir.
 
 Bütün iş JSON yanıtları `Cache-Control: no-store`. PNG 512×512; `Content-Disposition` adı `qr-{qrId}.png`, nosniff, noindex/nofollow/noarchive ve no-referrer header'ları mevcut. Metadata liste/detayı digest, şifreli payload veya ham token döndürmez. INACTIVE QR/masa görseli basılabilir; bu, tarama yetkisi sağlamaz. REVOKED görseli 409 olur.
 
@@ -69,9 +64,9 @@ Bütün iş JSON yanıtları `Cache-Control: no-store`. PNG 512×512; `Content-D
 
 Docker içindeki `localhost`, QR container'ını değil çağıran container'ı gösterir. Servis URL'sinin ENV'de bulunması gerçek bir HTTP istemcisi veya servis güveni kurulduğu anlamına gelmez. İlgili servisin kendi infrastructure/client katmanında Spring `RestClient` ve sürümlü DTO'lar kullanılmalı; başka servisin JPA/domain sınıfları paylaşılmamalıdır.
 
-Mevcut `REST_CLIENT_CONNECT_TIMEOUT_MS` / `REST_CLIENT_READ_TIMEOUT_MS` sözleşmesinden yararlanın; örnekte 3000/5000 ms vardır. Bunların bütün QR/karşı-servis çağrılarına otomatik uygulandığını varsaymayın; mevcut istemci yapılandırması ve testleri kontrol edilmelidir. HTTP timeout'ı işlem başarısızlığına dair kesin kanıt değildir. Özellikle create/rotate/open/admission/outcome/close komutlarına genel otomatik POST retry eklemeyin; işlem türünün uzlaştırma ve tekrar güvenliği kuralını uygulayın.
+Mevcut `REST_CLIENT_CONNECT_TIMEOUT_MS` / `REST_CLIENT_READ_TIMEOUT_MS` sözleşmesinden yararlanın; örnekte 3000/5000 ms vardır. Bunların bütün QR/karşı-servis çağrılarına otomatik uygulandığını varsaymayın; mevcut istemci yapılandırması ve testleri kontrol edilmelidir. HTTP timeout'ı işlem başarısızlığına dair kesin kanıt değildir. Özellikle create/rotate/open/lifecycle komutlarına genel otomatik POST retry eklemeyin; işlem türünün uzlaştırma ve tekrar güvenliği kuralını uygulayın.
 
-`/order-admissions`, `/order-outcomes` veya `/internal/...` gibi ağ endpoint'leri bu teslimde yoktur. Aşağıdaki Java sözleşmeleri için transport eklemek, sürümlü request/response, servis kimliği, tenant doğrulaması ve ayrı kabul testleriyle yapılacak entegrasyon işidir.
+Yeni guest doğrulama ve lifecycle Java sınırları için `/internal/...` ağ endpoint'leri bu teslimde yoktur. Aşağıdaki Java sözleşmeleri için transport eklemek, sürümlü request/response, servis kimliği, tenant doğrulaması ve ayrı kabul testleriyle yapılacak entegrasyon işidir.
 
 ## 3. Request ve response şekilleri
 
@@ -85,7 +80,7 @@ Mevcut `REST_CLIENT_CONNECT_TIMEOUT_MS` / `REST_CLIENT_READ_TIMEOUT_MS` sözleş
 | QrCodeVersionRequest | Zorunlu nonnegative `version`; rotate body'de, delete query'de |
 | ValidateQrCodeRequest | Yalnız `qrToken`: 43 URL-safe karakter `[A-Za-z0-9_-]` |
 | GuestActivityRequest | Aynı biçimde `guestToken` + zorunlu UUID restaurantId/tableSessionId/guestSessionId; bu ID'ler doğrulanacak beklentidir, yetki değildir |
-| SessionLifecycleRequest | `version`: zorunlu/nonnegative; close için main version, cleaned için tableVersion |
+| SessionLifecycleRequest | `version`: zorunlu/nonnegative; cleaned için tableVersion |
 | GET tables | isActive yalnız `true/false`; operationalStatus enum; page 0..10000, size 1..100; varsayılan 0/20; sort `tableNumber/createdAt/updatedAt`, direction `asc/desc` |
 | GET QR list | page 0..10000, size 1..100, varsayılan 0/20; sıralama issuedAt DESC, id DESC |
 
@@ -121,10 +116,10 @@ OpenedGuestSessionResponse şekli:
 {"tableSession":{"id":"00000000-0000-0000-0000-000000000002","restaurantId":"00000000-0000-0000-0000-000000000001","tableId":"00000000-0000-0000-0000-000000000012","status":"OPEN","version":0,"openedAt":"2026-10-20T00:00:00Z","lastActivityAt":"2026-10-20T00:00:00Z","idleExpiresAt":"2026-10-20T00:15:00Z","orderProtected":false},"guestSession":{"id":"00000000-0000-0000-0000-000000000003","restaurantId":"00000000-0000-0000-0000-000000000001","tableSessionId":"00000000-0000-0000-0000-000000000002","status":"ACTIVE","version":0,"joinedAt":"2026-10-20T00:00:00Z","lastActivityAt":"2026-10-20T00:00:00Z","expiresAt":"2026-10-20T00:15:00Z","orderProtected":false},"guestToken":"<yalnız-ilk-yanıtta-dönen-token>"}
 ```
 
-Kapanış yanıtı; ardından cleaned body'de **7** kullanılır:
+Temizlendi yanıtı aynı metadata biçimini kullanır. Otomatik kapanışta `closedByUserId` NULL'dır; sahte personel üretilmez. Aşağıdaki kapanmış oturum için cleaned isteğinde güncel **7** tableVersion kullanılır:
 
 ```json
-{"sessionId":"00000000-0000-0000-0000-000000000002","tableId":"00000000-0000-0000-0000-000000000012","status":"CLOSED","version":4,"closingAt":"2026-10-20T00:20:00Z","closedAt":"2026-10-20T00:20:00Z","closedByUserId":"00000000-0000-0000-0000-000000000004","tableStatus":"CLEANING","tableVersion":7}
+{"sessionId":"00000000-0000-0000-0000-000000000002","tableId":"00000000-0000-0000-0000-000000000012","status":"CLOSED","version":4,"closingAt":"2026-10-20T00:20:00Z","closedAt":"2026-10-20T00:20:00Z","closedByUserId":null,"tableStatus":"CLEANING","tableVersion":7}
 ```
 
 Diğer response alanları (Java record isimleri gerçek DTO'lardır):
@@ -145,110 +140,113 @@ Ham guest tokenı yalnız yeni guest yanıtında döner; DB'de SHA-256 digest bu
 
 ProblemDetail `status/detail/title` temel sözleşmesi; iç SQL/token/stack trace açılmaz. 400 validation/parse; 401 doğrulanmış kimlik yok; 403 yetki/CSRF; 404 yok/yabancı tenant/uygunsuz QR veya guest; 409 duplicate/stale version/uygunsuz lifecycle/FK veya kapanış koşulu; 503 yapılandırılmamış QR görsel adresi veya eksik gerçek kapanış kanıtı. Genel beklenmeyen hata güvenli 500'dür. Şu an canlı business yazmaları CSRF'siz 403, protected GET'ler anonim 401; varsayılan ADMIN/WAITER rolü de izin sağlamaz. 429 bu serviste uygulanmış kabul edilmez; erişim açılmadan rate limit tasarlanmalıdır.
 
-## 4. İlişkiler ve bağımsız durumlar
+## 4. Durumlar, süreler ve veri sahipliği
 
-QR DB sahibi zincir: restoran REF → dining_tables → qr_codes/table_sessions → guest_sessions/order_admissions/qr_scan_events. CONFIRMED admission → order_business_states → order_business_events. Tenant/main/guest zincirinde yerel FK'ler vardır; Auth/Admin/Order/Payment DB'sine FK/JOIN yoktur. Kimlikleri servislerin JPA entity'siyle paylaşma.
+QR'ın yerel zinciri: `dining_tables → qr_codes/table_sessions → guest_sessions/qr_scan_events/session_transition_operations`. Tenant kapsamlı yerel FK'ler vardır; Order/Payment/Auth DB'sine FK veya JOIN yoktur.
 
-| Eksen | Uygulanan davranış |
-|---|---|
-| Masa | AVAILABLE→OCCUPIED ilk main ile; personel kapanışı OCCUPIED→CLEANING; ayrı temizlendi CLEANING→AVAILABLE. Siparişsiz güvenli idle doğrudan AVAILABLE. AVAILABLE/DISABLED aktiflikten ayrı; OCCUPIED/CLEANING pasifleştirilemez. |
-| QR | ACTIVE/INACTIVE/REVOKED; masa başına tek ACTIVE. Rotate eski ACTIVE'i revoke edip yeni credential çıkarır. REVOKED yeniden açılamaz. Referanslı hard delete FK ile 409; geçmiş cascade silinmez. |
-| Main | OPEN/CLOSING/CLOSED/EXPIRED; aynı masa için en fazla tek OPEN/CLOSING. Normal personel kapanışında OPEN→CLOSING→CLOSED kısa tek yerel transaction'dır. |
-| Guest | Her kabul edilen scan, ilk dahil, ayrı ACTIVE guest üretir; kapanış ENDED, idle EXPIRED. UUID veya QR bilmek guest/personel yetkisi değildir. |
-| Admission | PENDING→CONFIRMED veya REJECTED; timeout ile silinmez. Karar tekrarları yeni sipariş izni değildir. |
-| Business | ORDER_PLACED→PAYMENT_PENDING→COMPLETED veya güvenilir tam iptal CANCELLED; doğrudan ORDER_PLACED→COMPLETED yalnız gerçek tamamlanma+SETTLED kanıtıyla. Terminal iş durumu aktifleşmez; aynı terminalde yeni mali bilgi işlenebilir. |
-| Financial | UNVERIFIED / SETTLED / CANCELLATION_CLEAR / RECONCILIATION_REQUIRED; Payment tahsilat/bakiye modelinin yerine geçmez. |
+| Eksen | Güncel davranış |
+| --- | --- |
+| Masa | İlk main ile AVAILABLE → OCCUPIED; normal otomatik kapanışla CLEANING; ayrı yetkili temizlendi ile AVAILABLE. Güvenli siparişsiz idle doğrudan AVAILABLE |
+| QR | ACTIVE/INACTIVE/REVOKED; masa başına tek ACTIVE. Rotate eski kimliği revoke eder. Referanslı silme 409 |
+| Main | OPEN → CLOSING, kaynakla koordinasyon, sonra CLOSED/EXPIRED; kesin kaynak abort'uyla OPEN. Aynı masa için tek OPEN/CLOSING |
+| Guest | Her kabul edilen scan ayrı ACTIVE guest. Normal kapanış ENDED, idle EXPIRED. Kimlik/scan sayısı tekil insan sayısı değildir |
+| Yerel operasyon | REQUESTED → APPLIED → COMPLETED veya REQUESTED → ABORTING → ABORTED. Sonuç ve komut değişmez; ödeme durumları saklanmaz |
 
-**COMPLETED ana masayı kapatmaz.** Owner ve main kapanışa kadar korunur. Ön ödeme bir hazırlanan siparişi tamamlanmış saydırmaz. Kısmi iptal tam CANCELLED değildir. Ödenmiş/belirsiz iptal refund değildir; uzlaştırma engeli korunur. Geç mali olay eski guest'i veya sonraki main'i canlandırmaz.
+Siparişsiz guest kendi son gerçek aktivitesinden 15 dakika kullanılır; main herhangi bir geçerli scan/aktiviteyle yenilenir. Bir telefon diğer guest'in süresini yenilemez. Okuma, token doğrulama, polling ve arka plan sekmesi aktivite sayılmaz. Order'ın başarılı anlamlı sepet değişikliği ve frontend'in gerçek menü etkileşimi entegrasyonda ayrı bildirilir; bağlantıları henüz yoktur.
 
-Her guest sipariş yokken kendi anlamlı aktivitesinden 15 dakika; main herhangi bir geçerli scan/activity ile yenilenir. Bir guest'in hareketi diğer telefonun süresini yenilemez. Okuma/polling/arka plan sekme süre yenilememeli. Frontend henüz bu davranışı uygulamadı; activity beyanı insan/fiziksel varlık kanıtı değildir. Tam deadline'da kullanım reddedilir; UTC/PG mikrosaniye hassasiyeti korunur.
+Order'ın güvenilir kapsamı kabul edilmiş sipariş sahibi guest'leri ve main'i korur. UNKNOWN veya süresi geçmiş kaynak sonucu fiziksel expiry izni değildir. Süresi dolmuş credential'ın kullanımı ile DB satırlarının job tarafından sonlandırılması farklıdır.
 
-CONFIRMED kabul main ve yalnız owner guest'i korur. PENDING kullanım ömrünü süresiz uzatmaz fakat bilinmeyen sipariş yüzünden fiziksel boşaltmayı engeller. Güvenilir tam iptal kapsamıyla owner'ın son siparişi iptal edilince iptal kaynak zamanından 15 dakika; bütün siparişler güvenli iptalse kullanılabilir guest'ler+main için aynı kural. `max(gerçek lastActivityAt, cancelledAt)+15 dakika`; geç mesaj fazladan süre kazandırmaz, expired guest canlanmaz.
+Güvenli son tam iptalde ilgili guest, bütün siparişler güvenli iptalse main için `max(lastActivityAt, doğrulanmışİptalAt)+15 dakika` kullanılır. Gecikmiş mesaj alındığı andan yeni süre başlatmaz; terminal guest canlanmaz. Payment belirsizliği veya bekleyen iade güvenli iptal değildir.
 
-Idle job mevcut: başlangıç/fixed delay 60 saniye, batch 100 ve keyset tarama. Varsayılan Order bilgisi UNKNOWN'dur. Dolayısıyla cron var diye gerçek siparişsizlik doğrulanmış olmaz; fiziksel expiry güvenilir NO_ORDERS/uygun yerel sertifika olmadan çalışmaz. Kullanım deadline'ı ile fiziksel satır temizliği farklıdır. Sayım scan/guest sayısıdır; benzersiz insan sayısı değildir. V28 öncesi kayıt dışı taramalar geriye dönük uydurulmaz.
+Normal kapanış için bütün gerçek siparişler tamamlanmış ve mali açıdan uygun olmalıdır. Ödenmemiş COMPLETED veya ödenmiş ama hazırlanan sipariş kapanışı engeller. Hiç sipariş vermemiş guest için ödeme aranmaz; kapanışta o da main ile sonlanır. Garson/admin kapanış onayı yoktur; temizlik yetkisi ayrıdır.
 
 ## 5. Bağlanacak kapalı güven sınırları
 
-| QR sınıfı | Şimdiki gerçek davranış | Entegrasyonda gereken |
-|---|---|---|
-| TableManagementAccess.requireRestaurantId | Authentication exception | Aktif kimlik, yönetim izni ve restoran üyeliği; client header değil |
-| SessionLifecycleAccess.requireStaff | Authentication exception | Güncel aynı-restoran WAITER/ADMIN + userId; yerel doğrulanmış bağlam, lock altında uzak I/O yok |
-| OrderAdmissionAccess.requireRestaurantId | Authentication exception | Gerçek Order servis kimliği, tenant ve exact komut/fence/kalıcı karar |
-| OrderOutcomeAccess.verify | Authentication exception | Yetkili Order+Payment, exact Command/tenant/order/evidence ve güvenilir tam Scope |
-| IdleExpiryOrderAccess.knowledge | UNKNOWN | Yetkili, güncel sipariş varlığı; erişim hatası/timeout/not-found UNKNOWN kalır |
-| SessionClosureEvidenceAccess.verify | 503 unavailable | Staff onayına bağlı tam Order/Payment kapsamı ve mali güvenlik; kaynak fence/geçerlilik |
+| Sınır | Mevcut davranış | Gerçek entegrasyon yükümlülüğü |
+| --- | --- | --- |
+| TableManagementAccess | Authentication exception | Personel kimliği, güncel tenant üyeliği ve yönetim izni |
+| SessionLifecycleAccess | Authentication exception | Yalnız temizlendi için doğrulanmış aynı-restoran staff/userId |
+| GuestSessionValidationService | Yerel token digest'i + main/guest/masa/süre doğrulaması | Servis kimliği doğrulanmış Order taşıması; tokenı güvenli taşıma |
+| OrderSessionAccess.inspect | UNKNOWN | Bütün tenant/main kapsamı, korunan guest'ler, güvenli iptal anları ve tazelik |
+| prepare/status/acknowledge/abort | Unavailable | Aynı kalıcı komuta bağlı, doğrulanmış Order/Payment kaynak sonucu |
 
-Bu sınıflara sabit tenant, test mock'u veya `permitAll` koymak entegrasyon değildir. Auth/Gateway'de doğrulama yapılması QR'ın kendi yetki kontrolünü kaldırmaz. SecurityFilterChain, CSRF/CORS/rate limit, token/cookie taşıma, revoke ve üyelik değişikliği davranışı birlikte incelenmeli. Guest credential'ı personel veya tüm masanın sipariş erişimi vermez. Tarayıcı tokenı localStorage/sessionStorage/IndexedDB'de saklanmaz; güvenli taşıma modeli ayrıca onaylanmalı.
+Sabit tenant, test mock'u veya `permitAll` gerçek entegrasyon değildir. Client restaurantId/role beyanı yetki sayılmaz. Guest credential'ı başka guest veya personel erişimi vermez. Ham QR/guest tokenları log/olay/analytics'e konmaz; tarayıcı localStorage/sessionStorage/IndexedDB'de tutulmaz. Servis güveni ve güvenli tarayıcı taşıması ayrıca uygulanıp doğrulanmalıdır.
 
-## 6. Order/Payment servis içi v1 sözleşmeleri
+## 6. Order/Payment ile A sözleşmesi
 
-**Aşağıdakiler Java servis sınırlarıdır; HTTP endpoint veya çalışan karşı-servis API'si DEĞİLDİR.** Broker/outbox dispatcher, güvenilir network transport ve retry worker yoktur. Yeni taşıma/servis güven modeli ayrı onayla tasarlanmalı.
+**Bunlar Java sözleşmeleridir; yeni iç HTTP endpoint'leri açılmadı.** Order kendi infrastructure/client katmanında sürümlü wire DTO ve `RestClient` adaptörü geliştirmelidir. QR'ın sınıfları ortak domain kütüphanesine dönüştürülmez. Ağ endpoint yolu, servis credential'ı ve izin matrisi ayrı entegrasyon PR'ında kesinleştirilir.
 
-### Admission — OrderAdmissionService
+### Guest bağlamı
 
-`reserve(Reservation)` alanları: restaurantId, tableSessionId, guestSessionId, sabit orderId, idempotencyKey, requestDigest, guestToken. Key `[A-Za-z0-9._:-]{1,120}`; digest SHA-256 biçiminde 64 küçük hex. Response: id, restaurantId, tableSessionId, guestSessionId, orderId, status, fencingVersion, version, requestedAt, expiresAt, confirmedAt, rejectedAt.
+`GuestSessionValidationService.validate(guestToken)` → restaurantId, tableId, tableSessionId, guestSessionId, checkedAt.
 
-`confirm(Decision)` / `reject(Decision)`: restaurantId, admissionId, orderId, requestDigest, fencingVersion, expectedVersion, occurredAt. Admission kendi değişmez komutunun fence=1 değerini döndürür; ID tekrar kullanılmaz. Order bunu kendi kalıcı iş kaydı/tombstone'u ile atomik doğrulamalı. Son tarih en çok 60 saniyedir; korumasız guest/main deadline'ı daha erkense kısalır. Confirm kaynağın deadline'dan önce kalıcı kabul ettiğini kanıtlamalı; geç teslim ile geç iş kararı karıştırılmaz. Ret geçici network hatası değil, bu exact komut için kalıcı Order tombstone'udur.
+QR token digest'inden gerçek bağlamı çözer; aktif masa/OCCUPIED, OPEN main, ACTIVE guest ve süre/Order koruması birlikte kontrol edilir. Token + beklenen ID overload'u da vardır; beyan edilen ID'ler yalnız eşleşme beklentisidir. CLOSING/terminal main veya başka guest/tenant reddedilir. Doğrulama aktivite yazmaz ve sonraki checkout commit'i için kalıcı izin değildir. Order'ın kendi kapanış gate kontrolü yine zorunludur.
 
-Akış: sabit orderId/key/digest → QR reserve → Order kendi transaction'ında deadline/fence/kimlik/ürün-fiyat kontrolü + kalıcı karar → exact confirm/reject. Order commit'i başarırken confirm kaybolursa yeni sipariş üretme. Aynı rezervasyonu uzlaştır; kör timeout ret/silme yok. Reserve replay mevcut sonucu döndürebilir; yeni Order commit yetkisi veya güncel guest kullanılabilirlik garantisi değildir. Yeni confirm ORDER_PLACED projection oluşturur; eski confirm retry ilerlemiş business durumunu sıfırlamaz.
+### Okuma sonucu — OrderSessionState
 
-### Business sonuç — OrderBusinessOutcomeService
+`inspect(restaurantId, tableSessionId)` şu minimal bilgiyi sağlar:
 
-`apply(Command)` / `inspect(Command)` alanları: restaurantId, admissionId, eventId, **admission başına** sequence (1'den başlar), QR projection expectedVersion, status, occurredAt, evidenceId. Kaynak Order/Payment global DB version'ı bu sequence değildir.
+| Alan | Anlam |
+| --- | --- |
+| restaurantId / sessionId | Yetkili kapsam, istekle birebir eşleşmeli |
+| knowledge | UNKNOWN, NO_ORDERS, OPEN_WORK, SETTLED; Order'ın bütün kapsam değerlendirmesi |
+| revision / verifiedAt / validUntil | Pozitif kaynak sürümü, gelecekte olmayan doğrulama, henüz dolmamış geçerlilik |
+| protectedGuests | Kabul edilmiş işi/koruması süren gerçek guest kimlikleri |
+| cancellationReleases / mainCancellationAt | Güvenli son iptalden sonraki sabit süre başlangıçları |
 
-`OrderOutcome.Evidence`: verifiedRestaurantId, orderId, exact command, finance, scope. Scope: revision, confirmedSequences haritası (admissionId→güncel kaynak sequence), pendingIds, complete. Sunucu üyelik/sıraları aynı parent kilidinde eşleştirir; kaynak adapter'ı kapsamın gerçek uzak evreni içerdiğini ayrıca doğrulamalı. Yerel boşluk/boş liste complete kanıtı değildir. Eksik legacy projection okumalarda uydurulmaz; güvenilir ilk sıralı sonuçla kurulabilir.
+Bu sonuç QR'da per-order/finans projeksiyonu olarak saklanmaz. Kaynak erişilemiyorsa veya kapsam/tazelik bilinmiyorsa UNKNOWN kullanılır. NO_ORDERS okuması tek başına expiry izni; SETTLED okuması tek başına kapanış izni değildir.
 
-Receipt `(restaurant,eventId)` ve `(restaurant,admission,sequence)` tekildir; `QR_OUTCOME_V1` SHA-256 fingerprint exact command/finance/kanıt/kapsamı bağlar. Aynı olay aynı immutable ACK'i döndürür, timer/version yenilemez; değiştirilmiş duplicate/gap/stale version 409. `Result`: eventId, admissionId, sequence, status, reconciliationRequired, version.
+### Kalıcı kapanış/idle protokolü
 
-`inspect` current admissionId/status/finance/sequence/version/reconciliationRequired + varsa exact recordedEvent receipt döndürür; aktivite veya legacy projection üretmez. Kayıp ACK önce inspect ile uzlaştırılır. Başka bir siparişin güvenli iptali sibling projection version'ını ilerletebilir; eski ACK version'ı güncel varsayılmaz. Receipt varsa mutation tekrarı gerekmez; receipt yok/stale version varsa kaynak exact komutu güncel veriyle yeniden doğrulamalı. Genel otomatik POST retry eklenmez.
+Kaynak: [SessionTransition](../../backend/services/qr-service/src/main/java/com/restofy/qr/domain/SessionTransition.java), [koordinatör](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/TableSessionClosureService.java), [QR transaction'ları](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/SessionTransitionTransactions.java).
 
-### Kapanış kanıtı — SessionClosure
+1. QR kısa yerel transaction'da masa/main kilidini alır, süreleri kontrol eder, main'i CLOSING yapar ve REQUESTED kaydını yazar. `Command`: değişmez operationId, Purpose SETTLED/IDLE, requestedAt ve snapshot (tenant/main/table kimlikleri, main/table version, zamanlar, aktif guest version/süreleri).
+2. QR transaction'ı bittikten sonra Order'a **aynı komutla** `prepare(command)` çağrılır. Order restaurant/main bazında kendi checkout commit'iyle aynı kalıcı gate'i kullanır; bütün siparişler, devam eden kabuller ve Payment belirsizliklerini değerlendirir.
+3. `Authority` tam komutu, SourceStatus, Effect, pozitif sourceRevision, verifiedAt/validUntil, complete, checkoutFenced ve gerekiyorsa idleGuestIds içerir. AUTHORISED yalnız kalıcı checkout engeli ve tam güncel mali kapsam sağlanmışsa verilir. Sadece PAID, boolean, JVM kilidi, sayfalı/active sipariş listesi yeterli değildir.
+4. QR yeni kısa transaction'da tam komut, kapsam, tazelik, fence ve güncel yerel snapshot'ı tekrar doğrular. SETTLED_CLOSE main + tüm aktif guest + CLEANING; IDLE_MAIN due main + guest expiry + AVAILABLE; IDLE_GUESTS yalnız kaynakça uygun ve yerelde süresi dolmuş guest'ler + main'in yenilenmeden OPEN olmasıdır.
+5. Yerel sonuç ile APPLIED aynı transaction'da kalıcılaşır. `LocalResult` operationId/kapsam, etki, main/table durum ve version, completedAt, expiredGuests içerir. Sonradan değiştirilemez.
+6. Transaction dışında `acknowledge(command, localResult)` yapılır. Doğrulanmış kesin ACK gelirse COMPLETED olur. Order, kapanmış main'e yeni checkout kabul etmez; IDLE_GUESTS veya kesin abort durumunda gate'i buna göre güvenli açar.
+7. Kaynak BLOCKED veya yerel snapshot değişmişse QR ABORTING'e geçer. Yalnız `abort(command)` kesin true ile Order'daki abort doğrulanınca OPEN/ABORTED olur. Timeout veya bilinmeyen sonuç kendiliğinden yeniden açmaz.
 
-Staff(restaurantId,userId) doğrulanmış yetkidir. Snapshot Parent(restaurantId,sessionId,tableId,sessionVersion,tableVersion,scopeRevision) ve admissions map'idir. Map değeri orderId/status/version + varsa Projection(status,finance,sequence,version) içerir. Evidence: exact staff/snapshot, verifiedAt, validUntil, complete, financiallyClear. Şart `verifiedAt <= checkedAt < validUntil`; testteki 30 saniye production politikası değildir.
+Order `status(command)` ile aynı işlem sonucunu döndürür. Kayıp prepare yanıtından sonra yeni işlem ID'si yaratılmaz. Yalnız yetkili, güncel ve tam NOT_STARTED yanıtı aynı komutun prepare edilmesini sağlar. UNKNOWN/eksik/stale yanıt REQUESTED/CLOSING'i korur; kalıcı gate bir yanıtın geçerlilik süresi doldu diye kalkmamalıdır. QR permit süresini geçirdiyse yeniden status ile yetkili güncel kanıt almalıdır.
 
-Kapanış orkestratörü caller transaction'ını `NEVER` ile reddeder: prepare kısa transaction → kaynak kontrolü transaction dışında → finish yeni kısa transaction. Güncel staff ve snapshot tekrar eşleşir. `spring.jpa.open-in-view=false`, `ddl-auto=validate` ve parent kilit sırası korunmalı. Uzak Payment commit'i QR transaction'ıyla atomik değildir; adapter kendi fence/yeniden doğrulama sözleşmesini uygulamalı. Staff onayı olmadan ödeme otomatik kapanış oluşturmaz.
+Kaynak status BLOCKED/NOT_STARTED için de komut, kapsam ve tazelik doğrulanır. ACK/abort boolean'ı wire body'den kör alınmaz; gerçek adaptör exact komut, kimlik ve kalıcı kaynak sonucunu doğrulamadan true üretemez. Kaynak iç tutarsızlığı operasyonel uzlaştırmadır; retry yeni tahsilat başlatmaz.
 
-PENDING varsa 409 ve değişiklik yok; kalıcı CLOSING'e alıp bilinmeyen işi silen bir saga yoktur. Uygun yerel kapanış OPEN→CLOSING→CLOSED, aktif guest ENDED ve masa CLEANING'i birlikte commit eder. Önceden CLOSING varsa güvenli koşullarla tamamlanabilir. Cleaned ayrı işlemdir; sonraki/live main bulunursa eski temizlendi isteği reddedilir. Tarihler aynı mikrosaniyede çakışırsa sıra tahmin edilmez; konservatif 409 ve operasyonel uzlaştırma gerekebilir.
+### Transaction ve retry sınırı
 
-Close/cleaned tekrar güvenliği hedef duruma dayanır; immutable command receipt veya downstream event delivery garantisi değildir. Yanıt güncel görünüm olduğundan eski CLOSED main tekrarında masa artık yeni müşteride OCCUPIED görünebilir; yeni main'e dokunulmaz. Gerçek mutasyonda eski version yeniden okunmalı.
+Dış koordinatörler caller transaction'ını `NEVER` ile reddeder. Order okuma/prepare/status/ACK/abort çağrıları hiçbir QR DB transaction'ında çalışmaz. QR yazımı kısa transaction'larda aynı parent kilit sırası ve optimistic version ile yürür. `openLocked/validateLocked` yalnız mevcut QR transaction'ında ve önceden alınmış kaynak bilgisiyle iç kompozisyon içindir; ağdan çağrılmaz.
 
-## 7. Diğer ekiplerin yapacağı işler
+`SessionClosureRetryJob` 60 saniyede önce REQUESTED/APPLIED/ABORTING işlemleri, sonra OPEN main adaylarını en fazla 100'er kayıtla keyset tarar. Bir kayıt hatası diğerlerini durdurmaz. `SessionIdleExpiryJob` aynı aralık/batch yaklaşımıyla idle adaylarını değerlendirir ve aynı gate protokolünü kullanır. Bunlar broker/outbox dispatcher veya ödeme retry mekanizması değildir.
 
-| Ekip | QR'da mevcut | Karşı tarafta / ortak çalışmada PENDING |
-|---|---|---|
-| Auth | Kapalı yönetim/lifecycle/servis kimlik sınırları, guest guard | Kimlik/tenant/rol/üyelik, güvenilir servis kimliği, guest taşıma/revoke, CSRF/CORS/rate limit ve negatif E2E; yeni güven modeli onayı |
-| Admin | Masa/QR HTTP iş servisleri | Gerçek restoran varlığı ve ayar doğrulaması; yönetim UI/API bağlantısı; QR DB'ye doğrudan yazma yok |
-| Order | reserve/confirm/reject ve outcome apply/inspect | Sabit ID/key/digest, kalıcı kabul/ret+fence/deadline, güvenilir kaynak sonuçları, transport/uzlaştırma; fiyat/Menu ve ödeme kuralları Order sahibinde |
-| Payment | FinancialOutcome ve kapalı kapanış kanıt sınırı | Yetkili gerçek tahsilat/belirsiz girişim/iptal-iade kanıtı, tam kapsam ve fence; client başarı sayfası kanıt değil |
-| Waiter | Staff close/cleaned HTTP sözleşmesi | Doğrulanmış WAITER restaurant context; version/read-conflict UI; temizliği ayrı komut; hazır sipariş teslimi QR değil Order işlemi |
-| Menu | QR validate/open context | Menü sayfası ve kendi sipariş yetkisi ayrımı; QR iş durumunun ikinci yazarı olmama; doğrudan bir QR→Menu fiyat çağrısı mevcut değil |
-| Notification | Kapanışın QR yerel durumu | Kapanış sonrası aktif bildirimleri arşivleyen güvenilir event/API tüketimi; dayanıklı olay teslimi henüz yok, geçmiş silinmez |
-| Gateway | `/api/v1/qr/**` route | Kimlik/route erişim matrisi, header temizliği, CSRF/CORS/limit politikası; QR içinde tekrar tenant/nesne kontrolü |
-| Frontend | API DTO/versiyon/no-store/görsel sözleşmeleri | QR fragment sayfası, güvenli guest taşıma, foreground activity, yenileme/kopma/409 UX, kendi sipariş sınırı ve kamera E2E |
+## 7. Karşı servislerin yapacağı işler
 
-Bu rehber karşı servislerde var olmayan URL veya endpoint adı tanımlamaz. Gerekli yeni iç taşıma sözleşmeleri versiyonlu DTO ile ayrıca kararlaştırılmalı; QR JPA entity'leri başka servise import edilmemeli. Kitchen/Rating/Timer entegrasyonu bu teslimin çalışan özelliği değildir. Wi-Fi süresi QR'ın 15 dakikasından ayrıdır; puanlama için kapanmış guest'e yeniden genel erişim verilmez.
+| Servis | Gereken |
+| --- | --- |
+| Order / Hamza | K5 gerçek QR token adaptörü; başarılı sepet aktivitesi; main bazlı kalıcı checkout gate; prepare/status/ACK/abort; tam kapsam/korunan guest/güvenli iptal sonucu; Payment'ın yetkili sorgusu |
+| Payment / Alper | Order'a mali kapsam, sürüm/tazelik ve belirsizlik/iade sonuçları; müşterinin yalnız kendi siparişini ödemesi; kesin olmayan ödeme/iadenin clear sayılmaması |
+| Auth / QR | Personel kimliği/tenant üyeliği, cleaned/yönetim izinleri ve gerçek servis güveni; kademeli API açılışı |
+| Menu / Frontend | Güvenli public URL/fragment ve guest taşıması; gerçek menü aktivitesi; background polling'in aktiviteye dönüşmemesi |
+| Waiter | Ayrı temizlendi komutu; teslimin Order'a ait kalması; normal kapanışta ek onay istememesi |
+| Notification / diğer tüketiciler | Kapanış/temizlik olayları ve dayanıklı teslim ayrıca geliştirilir; mevcut QR retry işi bildirim teslimi sağlamaz |
 
-## 8. Bağlama sırası ve kalan kararlar
+Order'ın incelenen `7acc43f` sürümünde kalıcı gate, Payment sorgusu ve bu transport henüz yoktur. QR kontrolünden sonra ayrı Order transaction'ı commit etmek K8'i sağlamaz. Mevcut Order outbox yazımı teslim edilmiş olay sayılmaz. Bu çalışmada uzak branch değiştirilmedi.
 
-1. Auth + Gateway + QR ekipleri yönetim/servis/guest güven sözleşmesini ve rol matrisini onaylar; Auth adapter'ları ve negatif tenant/rol testleri kurulur.
-2. Admin restoran doğrulaması ve müşteri public entry URL/guest browser taşıması netleştirilir; yönetim ve scan erişimleri ayrı izinlerle açılır.
-3. Order admission kalıcı commit/tombstone/fence/deadline sözleşmesi ve güvenilir transport bağlanır; kayıp teyit/timeout uzlaştırması doğrulanır.
-4. Order/Payment sıralı outcome ve tam kapsam kanıtı bağlanır; NO_ORDERS ve mali belirsizlik güvenle ayırt edilir. Yerel test mock'ları production adapter yapılmaz.
-5. Waiter/Admin onaylı close/cleaned ve Payment kaynak kanıtı birlikte test edilir; ödeme onayı erken kapanış tetiklemez.
-6. Notification/downstream kapanış teslimi ve retry/operasyon uzlaştırması eklenir; masa kapanması bildirim gönderildi anlamına gelmez.
-7. Gerçek Auth/Gateway/Order/Payment ve mobil müşteri akışıyla başarı/negatif/yarış E2E yapılır; sonra onaylı API açılışı ve production hazırlığı değerlendirilir.
+## 8. Bağlama ve ortak doğrulama sırası
 
-Açık ürün/teknik konular: D-01/D-02 gerçek ödeme/iade ve kısmi/READY iptali; D-03 kapanmış guest sonrası değerlendirme yetkisi; D-09 Auth/servis/guest browser taşıması; D-10 olay teslimi; D-11 retention/backup/geri yükleme; D-14 QR rotate/revoke sonrası mevcut guest politikası; D-15 başka guest siparişleri/ortak masa hesabı. Mevcut rotate guest'leri otomatik bitirmez; bunun nihai ürün politikası olduğu iddia edilmez. D-04 için bu geliştirmede onaylanan bağımsız guest/ortak main/iptal kaynak zamanlı 15 dakika kararları geçerlidir. Nihai public URL ve fiziksel varlık/kopyalanmış QR tehdidi ayrıca ele alınmalıdır.
+1. Gerçek Auth personel/servis güvenini küçük PR'larla kurun; önce ortak rol/tenant matrisi ve negatif testler.
+2. Order'ın gate ve sürümlü wire sözleşmesini Payment yetkili sorgusuyla uygulayın. Order V41–V50 aralığı dolu; yeni migration numarası için ekip kararı alın, başka servisin aralığını kullanmayın.
+3. QR'ın kapalı `OrderSessionAccess` sınırını gerçek adaptörle değiştirin; read authority ile mutation permit'i karıştırmayın.
+4. Gerçek token doğrulama ve foreground aktivite taşımasını kurun; müşteri taramaları açılmadan rate limit'i ekleyin.
+5. Checkout-kapanış yarışları, kayıp ACK/restart, Order/Payment kesintisi, tenant/guest sahipliği ve SQL rollback için ortak E2E çalıştırın.
+6. Gerçek kimlikli HTTP ve mobil akış doğrulandıktan sonra endpoint gruplarını açın. Tek bir `permitAll` değişikliği entegrasyon değildir.
 
-## 9. ENV, migration ve işletim
+## 9. ENV, migration ve yerel işletim
 
-- `QR_PAYLOAD_ENCRYPTION_KEY`: Base64 32 byte AES anahtarı; gerçek değer Git/log/sohbet dışında. Yeniden başlatmada değiştirilmez. Kaybolursa eski şifreli QR içeriği çözülemez. Rotation/keyring/migration akışı bu teslimde yoktur.
-- İlk kurulum yardımcısı `ops/qr/qr-key.mjs`; komutlar, profil/aktif `.env` eşitlemesi ve hata kodları [QR anahtar üretimi](qr-key-uretimi.md) içinde açıklanır. Compose anahtarın boş aktarımına izin verir; QR uygulaması boş/geçersiz anahtarla başlamaz. Diğer servislerin zorunlu ayarları ayrıca gereklidir.
-- `QR_PUBLIC_ENTRY_URL`: Boşsa image/download 503. Dolu adres sınırlı HTTPS URL; userinfo/query/fragment yok; loopback HTTP yalnız dev/test ve prod yokken. Görsel payload **`entryUrl#token=<qrToken>`**. Fragment sunucu HTTP isteğine gitmez; müşteri sayfasının bunu güvenli okuması henüz uygulanmadı. Gerçek üretim domain'i belirlenmeli; mevcut dev ayarı production kararı değildir.
-- `.env.example` alanları gerçek sır içermez. Yeni ENV değişikliği, Compose aktarımı, ağ veya dependency ayrı onay gerektirir; bu rehber ENV'yi değiştirmedi.
-- V21 dining_tables; V22 qr_codes; V23 rotate; V24 INACTIVE; V25 optional expiresAt; V26 main; V27 guest; V28 accepted scan; V29 admission; V30 business projection/event. Testcontainers testleri bu şemayı PostgreSQL 17 üzerinde kurar ve validate eder; gerçek DEV veritabanının uygulanmış sürümü ayrıca kendi Flyway history'sinden kontrol edilmelidir. **Aralık dolu; V31 Payment'a ait.** Uygulanmış SQL değişmez; yeni şema için ekipten yeni aralık kararı gerekir. Hibernate update/create, Flyway clean/repair veya volume reset çözüm olarak kullanılmaz.
-- QR expiry opsiyonel schema/domain desteğine rağmen mevcut HTTP'de expiresAt değiştirme endpoint'i yoktur. Guest credential kaybında mevcut guest'i geri veren API yoktur; yeniden scan ayrı guest yaratır. Genel liste/receipt/event taşıma endpoint'i hayal edilmemeli.
-- Ortak DEV PostgreSQL kimliği production least-privilege izolasyonu sayılmaz. Production yedek/geri yükleme, servis DB rolleri, kaynak/bağlantı limitleri, TLS ve erişim sınırları ayrıca hazırlanmalı.
+- Yeni uygulama ENV'si veya bağımlılık eklenmedi. `QR_PAYLOAD_ENCRYPTION_KEY` mevcut Base64 32-byte AES anahtarıdır; kaybolursa eski QR içerikleri çözülemez. Gerçek değer Git/log dışında, `.env.example` boş tutulur. [Anahtar rehberi](qr-key-uretimi.md).
+- `QR_PUBLIC_ENTRY_URL` boşsa görsel 503. HTTPS, userinfo/query/fragment yok; loopback HTTP yalnız dev/test. Payload `entryUrl#token=<qrToken>`; fragment sunucu isteğine gitmez. Gerçek müşteri sayfası/üretim URL'si henüz bağlı değildir.
+- V21–V28 korunmuştur. V29 artık `session_transition_operations`, V30 onun değişmez komut/sonuç ve geçerli stage geçiş trigger'ını kurar. Eski admission/business/financial tabloları ve onlara bağlı Java kodu kaldırıldı. Yeni tablo yalnız QR komut snapshot'ı ve kendi sonucunu tutar.
+- V29/V30 değişimi bu branch için merge öncesi açık kullanıcı izniyle yapıldı. Eski checksum'lı **yalnız yerel QR DB** yine açık izinle sıfırlandı; geçmiş QR verileri taşınmadı. Diğer servis DB'leri ve ortak PostgreSQL/Sonar volume'leri korunmuştur. Bu istisna paylaşılan ortama veya başka migration'a genellenmez; ekipte eski QR geçmişi olanlar kendi onaylı geçişini planlamalıdır.
+- JPA `ddl-auto=validate` korunur; otomatik repair/clean yoktur. Yeni dağıtım/paylaşılan geçmiş sonrası migration değişimi yeni sürümle yapılır.
 
 ## 10. Auth entegrasyonuna başlarken
 
@@ -257,7 +255,7 @@ Auth ekibinin [PR #2](https://github.com/software-lecture-labs/Restofy/pull/2) t
 Plan, mevcut QR PR'ının dev merge'inden sonra Auth'ı küçük PR'larla bağlamaktır. Endpoint başına zorunlu tek PR yerine ortak yetki/iş akışı bazında gruplama reviewer'a sorulacaktır; ilk öneri masa listeleme/detay ve `TableManagementAccess` doğrulamasıdır. Guest güvenliği ve hız sınırı tamamlanana kadar müşteri tarama endpoint'leri kapalı kalır. Bu, onaylanmış yeni bir erişim matrisi veya tamamlanmış Auth entegrasyonu değildir.
 
 1. Auth'ın personel oturumu ve JWT/cookie sözleşmesini QR/Gateway sınırlarıyla karşılaştırın. İmza algoritması, issuer, audience, süre, token türü ve auth/MFA durumu kaynakta tanımlandığı biçimde doğrulanmalı. Auth'ın private signing key'i QR'a kopyalanmamalı; QR payload AES anahtarı personel JWT anahtarı değildir. Anahtar dağıtımı/yenilemesi ve servis kimliği için yeni güven tasarımı ayrıca onaylanmalıdır.
-2. `TableManagementAccess` ve `SessionLifecycleAccess` için güncel aktif restoran üyeliği, işlem izni ve kullanıcı kimliği üreten gerçek adaptörleri geliştirin. Yönetim operasyonlarının izin matrisi kesinleşmeden her personele erişim vermeyin. Kapanış/temizlik aynı restoranın doğrulanmış WAITER/ADMIN yetkisini gerektirir. Sahte `X-Role`/`X-Restaurant-Id` ve varsayılan Spring kullanıcısı yetki kaynağı değildir.
+2. `TableManagementAccess` ve personelde kalacak temizlik/yönetim işlemleri için güncel restoran üyeliği, işlem izni ve kullanıcı kimliği üreten gerçek adaptörleri geliştirin. Otomatik kapanışın Order kaynağını gerçek servis kimliğiyle doğrulayın; kapalı adaptörü `permitAll` veya sahte kullanıcıyla aşmayın. Yönetim/temizlendi izin matrisi ayrıca korunur. Sahte `X-Role`/`X-Restaurant-Id` ve varsayılan Spring kullanıcısı yetki kaynağı değildir.
 3. Personel oturumu ile anonim guest yetkisini ayrı tutun. Guest tokenı yalnız eşleşen restoran/main/guest kapsamında geçerlidir; başka guest'in siparişlerini veya personel API'lerini açmaz. Tokenın tarayıcıda taşınması, reload ve kayıp token davranışı ayrıca kararlaştırılmalı; localStorage/sessionStorage/IndexedDB kullanılmamalı.
 4. Cookie kullanımı için CSRF, izinli Origin/CORS, logout/revoke ve üyelik değişikliğinin etkisini birlikte uygulayıp test edin. Curl/Postman veya servis çağrısı başarısız diye CSRF kapatılmamalı. Personel cookie'si ile servis kimliği aynı şey değildir.
 5. QR tarama/activity ve görsel üretimi için rate limit/kaynak sınırlarını belirleyin. Birden fazla instance'ta tutarlılık, limit kapasitesi dolduğunda masum kullanıcıların engellenmemesi ve güvenilir proxy üzerinden istemci IP'si çözümü doğrulanmalı. İstemcinin gönderdiği `X-Forwarded-For` doğrudan güvenilir kabul edilmemeli.
@@ -273,7 +271,7 @@ Mevcut kapalı adaptörleri kaldırıp sabit olumlu sonuç döndürmek güvenlik
 
 ### İstatistik okumasının transaction kararı
 
-`TableSessionStatisticsService.get` salt okunur PostgreSQL `REPEATABLE_READ` transaction'ı kullanır. Ana/guest/sipariş koruması ve tarama sayaçları tek MVCC snapshot'ından okunur; sırf istatistik için `PESSIMISTIC_WRITE` alınmaz. Devam eden tarama, activity veya kapanış yazma transaction'ının bitmesini beklemek gerekmez.
+`TableSessionStatisticsService.get` salt okunur PostgreSQL `REPEATABLE_READ` transaction'ı kullanır. Yerel main/guest ve tarama sayaçları tek MVCC snapshot'ından okunur. Order okuma bilgisi transaction dışında alınır; uzak kaynakla atomik snapshot iddiası yoktur. Caller transaction'ı varsa uzak I/O yapılmaz ve koruma konusunda konservatif yerel görünüm kullanılır; sırf istatistik için `PESSIMISTIC_WRITE` alınmaz. Devam eden tarama, activity veya kapanış yazma transaction'ının bitmesini beklemek gerekmez.
 
 İlk okuma sırasında commit edilmemiş değişiklikler görülmez; sorgular arasında yeni commit gelse bile aynı yanıt eski snapshot'tan tutarlı kalır. Sonraki istek yeni commit'i görür. Bu yanıt güncel bir mutasyon izni değildir; Order/kapanış/guest yazma akışlarının kilitleri ve güncel doğrulamaları korunur.
 
@@ -281,45 +279,14 @@ Mevcut kapalı adaptörleri kaldırıp sabit olumlu sonuç döndürmek güvenlik
 
 ### Sabitler ve otomatik backend kontrolü
 
-Admission üst süresi `OrderAdmission.MAX_RESERVATION_WINDOW`, idle tarama aralığı `SWEEP_DELAY_MILLIS`, URL üst sınırı `MAX_ENTRY_URL_LENGTH` ile adlandırıldı. Masa ve QR listeleri ortak `PageLimits` doğrulamasını kullanır. Değerler ve API sınırları değişmedi; yeni uygulama ENV'si eklenmedi.
+Idle ve kapanış retry işleri 60 saniye aralıkla, 100 kayıt sınırı ve keyset sayfalama ile çalışır. URL üst sınırı `MAX_ENTRY_URL_LENGTH` ile adlandırıldı. Masa ve QR listeleri ortak `PageLimits` doğrulamasını kullanır. Değerler ve API sınırları değişmedi; yeni uygulama ENV'si eklenmedi.
 
 [Backend verify workflow'u](../../.github/workflows/backend-verify.yml), backend/kalite scripti/workflow değişen push'larda, `dev` hedefli PR'larda ve manuel tetiklemede Java 25 ile mevcut `pre-push backend dev` kapısını çalıştırır. Bu kapı `mvn clean verify`, her serviste gerçekten çalışmış ve atlanmamış JUnit testleri ve servis başına en az %80 satır coverage kontrolünü içerir. Node.js ve Docker/Testcontainers gerekir; gerçek uygulama ENV'si veya Sonar tokenı kullanılmaz. Workflow yalnız okuma iznine sahiptir; deploy/commit/push yapmaz. Bu dosyanın varlığı çalışmasının başarılı olduğu anlamına gelmez; ilk GitHub çalışması ayrıca kontrol edilmelidir. Branch protection veya zorunlu status check ayarı bu teslimde değiştirilmez.
 
-## 12. Ortak kabul ve doğrulama
+## 12. Kabul ölçütleri ve kanıt sınırı
 
-Mevcut kapalı ortamda Swagger üzerinden iş API'lerinden 200 beklenmez. Gerçek kimlikli başarı testleri, adaptörler tamamlandıktan sonra onaylı entegrasyon ortamında çalıştırılır.
+QR testleri tenant izolasyonu, kapalı API'ler, ayrı guest süreleri/koruması, güvenli iptal zamanı, otomatik tüm-guest kapanışı, CLOSING sırasında kullanım reddi, stale/eksik kaynak kanıtı, değişen snapshot, SQL rollback, paralel aynı işlem, kayıp prepare/ACK ve değişmez audit kayıtlarını kapsar. Test kaynak adaptörleri çağrıldığında açık QR transaction'ı olmadığını ayrıca doğrular.
 
-| Alan | Birlikte doğrulanacak senaryolar |
-| --- | --- |
-| Auth/tenant | Tenant A'nın masa/QR işlemleri; tenant B aynı ID'yi okuyamaz/yazamaz; eksik/yanlış rol, üyelik iptali, süresi dolmuş veya yanlış audience token, sahte header, CSRF/Origin reddi |
-| Masa | Duplicate numara 409; eksik/eski version; PUT'ta opsiyonel alanların temizlenmesi; yanlış enum/JSON, filtre/sayfalama sınırları |
-| QR | Pasif/revoked/expired QR ve pasif masa reddi; rotate sonrası eski token; metadata'da sır bulunmaması; aynı PNG payload'ı ve güvenli header'lar; referanslı hard delete 409 |
-| Scan/guest | Paralel ilk taramada tek main ve ayrı guest/event; her kabul 201; yeniden scan yeni guest; yanlış tenant/main/guest token reddi; gerçek kamera ve URL fragment akışı |
-| İstatistik | Guest/event yazımı commit olmadan eski tutarlı snapshot; sorgular arasında commit olduğunda karışık sayaç olmaması; okuma yüzünden tarama/kapanışın yazma kilidi beklememesi; sayımların tekil insan diye sunulmaması |
-| Idle | Her telefonun ayrı 15 dakikası; main'in geçerli hareketle uzaması; polling'in süreyi yenilememesi; exact deadline; UNKNOWN Order bilgisinde otomatik masa boşaltılmaması |
-| Admission | Aynı key/digest tekrarının ikinci kayıt üretmemesi; değişmiş komut reddi; kayıp confirm/ACK; tombstone/deadline/fence ve geç commit; timeout'ın ret kanıtı sayılmaması |
-| Outcome | Sıralı/tekrarlı/değiştirilmiş event, sequence gap, stale projection version, tam kapsam eksikliği, tüm/guest bazlı güvenli iptal restart'ı; geç ödeme/iptal belirsizliği; inspect okumasının süre yenilememesi |
-| Kapanış | PENDING/aktif/ödenmemiş/legacy/mali belirsiz kapsamda reddetme; gerçek personel onayı + tam mali kanıt; aktif guest/main/table birlikte commit veya rollback; close ile scan/activity/reserve/outcome/expiry yarışı |
-| Temizlik/downstream | CLEANING → AVAILABLE ayrı komut; eski main'in yeni müşteriyi boşaltamaması; tekrarların yeni etki üretmemesi; Notification arşivleme ve dayanıklı teslimin ayrıca doğrulanması |
+Yerel PostgreSQL testlerinin geçmesi gerçek Order gate'ini veya Payment doğruluğunu kanıtlamaz. Ortak kabul planı [ADR §8](../decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md#8-ortak-kabul-testleri) içindedir. Backend pre-push ve bağımsız Sonar gerçek sonuçları görev raporunda tutulur; bu rehbere geçmiş sayılarla yeni çalışma başarılıymış gibi kanıt eklenmez. Frontend bu görevde çalıştırılmaz.
 
-Windows'ta repository kökünden mevcut manuel kontroller:
-
-```powershell
-.\pre-push\pre-push.cmd qr-service dev
-.\pre-push\pre-push.cmd backend dev
-```
-
-Doğrudan Maven için **Java 25**, Maven ve Docker Engine/Desktop gerekir. Surefire test profilini açar; gerçek uygulama veritabanı yerine geçici PostgreSQL 17 kullanılır:
-
-```powershell
-mvn -B -f backend/pom.xml -pl services/qr-service -am clean verify
-mvn -B -f backend/pom.xml clean verify
-```
-
-Frontend geliştirmesi bu teslimde yoktur. Frontend kapsamı açıldığında mevcut `pre-push full dev` ayrıca uygulanır. SonarQube bağımsız ve isteğe bağlıdır; pre-push'a gömülü değildir. Kod değişince önce güncel test/JaCoCo üretilmeli; eski raporlarla tarama yapılmamalıdır. Hiç çalıştırılmamış kontrol PASS veya `SAFE TO COMMIT` olarak sunulmaz.
-
-## 13. Entegrasyonun tamamlanma ölçütü
-
-Dört QR backend fazı tamamlanmış olsa da servisler arası entegrasyon, yukarıdaki PENDING adaptörler ve gerçek E2E olmadan tamamlanmış sayılmaz. `dev` PR'ı bu ayrımı açıkça belirtmeli: QR-01–QR-04 iş mantığı teslim ediliyor; Auth Service ile güvenli entegrasyon ortak dalda sonraki çalışma olacak. Order/Payment/Notification teslimi, API açılışı ve production hazırlığı ayrıca takip edilir.
-
-Bu dosya ekip için Git'e alınacak QR rehberidir. Yerel task raporları, geliştirme ajan talimatı, gerçek `.env*`, tokenlar ve loglar Git dışında kalır. Bu rehberi paylaşmak için diğer yerel Markdown dosyalarını stage etmeye gerek yoktur.
+Entegrasyonun tamamlanması için gerçek servis kimliği/tenant kontrolleri, Order gate + Payment kapsamı, token/aktivite transport'u, tarama rate limit'i, kesinti/yarış E2E ve onaylı kademeli HTTP açılışı birlikte doğrulanmalıdır. QR'ın yerel A uyarlamasının tamamlanması bütün bu servis işlerinin tamamlandığı anlamına gelmez.

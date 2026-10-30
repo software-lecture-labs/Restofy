@@ -313,9 +313,10 @@ class TableSessionPostgresIntegrationTests {
     @Test
     void openingFirstPreventsAConcurrentStaleDisableFromLeavingAnInactiveOccupiedTable() throws Exception {
         var code = create("1");
+        var orderState = opening.prepare(code.qrToken());
         try (var executor = Executors.newSingleThreadExecutor()) {
             Future<Object> disable = new TransactionTemplate(transactions).execute(transaction -> {
-                opening.open(code.qrToken());
+                opening.openLocked(code.qrToken(), orderState);
                 var future = executor.submit(() -> {
                     try { return tables.changeActive(code.tableId(), new ChangeTableActiveRequest(false, 0L)); }
                     catch (OptimisticLockingFailureException exception) { return exception; }

@@ -3,7 +3,8 @@ package com.restofy.qr.infrastructure;
 import com.restofy.qr.application.service.SessionIdleExpiryJob;
 import com.restofy.qr.application.service.SessionIdleExpiryService;
 import com.restofy.qr.infrastructure.persistence.repository.TableSessionRepository;
-import com.restofy.qr.infrastructure.security.IdleExpiryOrderAccess;
+import com.restofy.qr.application.port.OrderSessionAccess;
+import com.restofy.qr.domain.OrderSessionState;
 import java.time.Clock;
 import java.util.*;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ class IdleExpiryJobTests {
 
     @Test
     void productionOrderKnowledgeIsUnknownAndNeverAssumesNoOrders() {
-        assertThat(new IdleExpiryOrderAccess().knowledge(UUID.randomUUID(), UUID.randomUUID())).isEqualTo(IdleExpiryOrderAccess.Knowledge.UNKNOWN);
+        assertThat(new OrderSessionAccess().inspect(UUID.randomUUID(), UUID.randomUUID()).knowledge()).isEqualTo(OrderSessionState.Knowledge.UNKNOWN);
     }
 
     @Test

@@ -281,9 +281,10 @@ class ScanStatisticsPostgresIntegrationTests {
     void statisticsDoesNotWaitForAnUncommittedScanAndNeverObservesAPartialGuestEvent() throws Exception {
         var code = create("1");
         UUID tableId = code.tableId();
+        var orderState = mainOpening.prepare(code.qrToken());
         try (var executor = Executors.newSingleThreadExecutor()) {
             new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
-                opening.open(code.qrToken());
+                opening.openLocked(code.qrToken(), orderState);
                 var future = executor.submit(() -> statistics.get(tableId));
                 try {
                     // The writer still holds its row lock. Readers see the entire previous commit.

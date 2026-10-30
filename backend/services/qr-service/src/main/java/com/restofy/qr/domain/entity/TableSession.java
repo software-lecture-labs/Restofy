@@ -3,7 +3,6 @@ package com.restofy.qr.domain.entity;
 import com.restofy.qr.domain.enums.TableSessionStatus;
 import com.restofy.qr.domain.IdleWindow;
 import com.restofy.qr.domain.exception.TableSessionConflictException;
-import com.restofy.qr.domain.exception.OrderOutcomeConflictException;
 import com.restofy.qr.domain.exception.SessionClosureConflictException;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -36,9 +35,6 @@ public class TableSession {
     private UUID closedByUserId;
     @Version
     private long version;
-    @Column(name = "order_scope_revision", nullable = false) private long orderScopeRevision;
-    @Column(name = "orders_absent_verified", nullable = false) private boolean ordersAbsentVerified;
-    @Column(name = "orders_absent_verified_at") private Instant ordersAbsentVerifiedAt;
 
     protected TableSession() {
         // JPA
@@ -81,17 +77,9 @@ public class TableSession {
                 && idleExpiresAt != null && !idleExpiresAt.isAfter(now);
     }
 
-    public void invalidateOrderScope() { ordersAbsentVerified = false; ordersAbsentVerifiedAt = null; }
-
-    public void recordOrderScope(long revision, boolean absent, Instant now) {
-        if (revision <= orderScopeRevision || now.isBefore(openedAt)) { throw new OrderOutcomeConflictException(); }
-        orderScopeRevision = revision; ordersAbsentVerified = absent;
-        ordersAbsentVerifiedAt = absent ? IdleWindow.storedTime(now) : null;
-    }
-
     public void restartIdleAfterCancellation(Instant cancelledAt, Instant now, boolean wasProtected) {
         if (!isOpenAt(now, wasProtected)) { return; }
-        if (cancelledAt.isAfter(now) || cancelledAt.isBefore(openedAt)) { throw new OrderOutcomeConflictException(); }
+        if (cancelledAt.isAfter(now) || cancelledAt.isBefore(openedAt)) { throw new TableSessionConflictException(); }
         idleExpiresAt = IdleWindow.deadline(cancelledAt.isAfter(lastActivityAt) ? cancelledAt : lastActivityAt);
     }
 
@@ -115,14 +103,29 @@ public class TableSession {
         }
     }
 
-    public void closeAt(Instant now, UUID staffUserId) {
-        Objects.requireNonNull(staffUserId);
+    public void closeAt(Instant now) {
         if (status != TableSessionStatus.CLOSING || closingAt == null || closedAt != null
                 || now.isBefore(lastActivityAt) || now.isBefore(closingAt)) { throw new SessionClosureConflictException(); }
         status = TableSessionStatus.CLOSED;
         closedAt = IdleWindow.storedTime(now);
-        closedByUserId = staffUserId;
-        invalidateOrderScope();
+        closedByUserId = null; // Automatic lifecycle actor is the durable operation, never a fabricated staff ID.
+    }
+
+    public void expireClosingAt(Instant now) {
+        if (status != TableSessionStatus.CLOSING || closedAt != null || idleExpiresAt == null
+                || idleExpiresAt.isAfter(now) || now.isBefore(lastActivityAt) || now.isBefore(closingAt)) {
+            throw new SessionClosureConflictException();
+        }
+        status = TableSessionStatus.EXPIRED;
+        closedAt = IdleWindow.storedTime(now);
+    }
+
+    /** Only called after a verified source abort or a committed guest-only idle transition. */
+    public void reopenAfterTransition(Instant now) {
+        if (status != TableSessionStatus.CLOSING || closedAt != null || now.isBefore(closingAt)
+                || now.isBefore(lastActivityAt)) { throw new SessionClosureConflictException(); }
+        status = TableSessionStatus.OPEN;
+        closingAt = null;
     }
 
     public UUID getId() { return id; }
@@ -136,10 +139,4 @@ public class TableSession {
     public Instant getClosedAt() { return closedAt; }
     public UUID getClosedByUserId() { return closedByUserId; }
     public long getVersion() { return version; }
-    public long getOrderScopeRevision() { return orderScopeRevision; }
-    public boolean isOrdersAbsentVerified() { return ordersAbsentVerified; }
-    public boolean hasVerifiedNoOrdersAt(Instant now) {
-        return ordersAbsentVerified && ordersAbsentVerifiedAt != null && !ordersAbsentVerifiedAt.isAfter(now);
-    }
-    public Instant getOrdersAbsentVerifiedAt() { return ordersAbsentVerifiedAt; }
 }

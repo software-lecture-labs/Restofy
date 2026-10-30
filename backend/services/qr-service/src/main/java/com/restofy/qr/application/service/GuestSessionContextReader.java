@@ -33,6 +33,16 @@ public class GuestSessionContextReader {
         this.clock = clock;
     }
 
+    /** Immutable token location only; mutable lifecycle authority is checked again under the parent lock. */
+    @Transactional(readOnly = true)
+    public Identity locate(String token) {
+        String digest;
+        try { digest = tokens.digest(token); }
+        catch (IllegalArgumentException _) { throw new InvalidGuestSessionException(); }
+        var location = guests.locateByDigest(digest).orElseThrow(InvalidGuestSessionException::new);
+        return new Identity(location.getRestaurantId(), location.getTableSessionId(), location.getId());
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public LockedGuest lockIdentity(String token, UUID restaurantId, UUID tableSessionId, UUID guestSessionId) {
         String digest;
@@ -61,4 +71,5 @@ public class GuestSessionContextReader {
 
     public record LockedSession(DiningTable table, TableSession main, Instant checkedAt) { }
     public record LockedGuest(LockedSession parent, GuestSession guest) { }
+    public record Identity(UUID restaurantId, UUID sessionId, UUID guestId) { }
 }

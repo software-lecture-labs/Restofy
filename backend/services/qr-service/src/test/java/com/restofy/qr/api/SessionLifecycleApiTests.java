@@ -8,6 +8,7 @@ import com.restofy.qr.domain.enums.*;
 import com.restofy.qr.domain.exception.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
@@ -18,48 +19,51 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Standalone DTO/HTTP mapping only, never real Auth or production success E2E. */
+/** Standalone mapping, not real Auth success E2E. Automatic closure has no browser/personnel close endpoint. */
 class SessionLifecycleApiTests {
     private static MockMvc mvc(TableSessionClosureService service) {
         return MockMvcBuilders.standaloneSetup(new TableSessionLifecycleController(service))
                 .setControllerAdvice(new ApiExceptionHandler()).build();
     }
 
-    @ParameterizedTest @ValueSource(strings = {"close", "cleaned"})
-    void mapsNoStoreLifecycleViewAndUsesTheCorrectVersion(String operation) throws Exception {
-        var service = mock(TableSessionClosureService.class); UUID id = UUID.randomUUID(); UUID table = UUID.randomUUID();
-        var result = new Result(id, table, TableSessionStatus.CLOSED, 2, Instant.EPOCH, Instant.EPOCH, UUID.randomUUID(), TableOperationalStatus.CLEANING, 7);
-        if (operation.equals("close")) { when(service.close(id, 1)).thenReturn(result); }
-        else { when(service.cleaned(id, 1)).thenReturn(result); }
-        mvc(service).perform(post("/api/v1/qr/table-sessions/{id}/{operation}", id, operation)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":1}"))
+    @Test void mapsSeparateCleaningWithoutInventingAStaffClosureActor() throws Exception {
+        var service = mock(TableSessionClosureService.class); UUID id = UUID.randomUUID();
+        when(service.cleaned(id, 1)).thenReturn(new Result(id, UUID.randomUUID(), TableSessionStatus.CLOSED, 2,
+                Instant.EPOCH, Instant.EPOCH, null, TableOperationalStatus.AVAILABLE, 7));
+        mvc(service).perform(post("/api/v1/qr/table-sessions/{id}/cleaned", id).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"version\":1}"))
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.sessionId").value(id.toString())).andExpect(jsonPath("$.status").value("CLOSED"))
-                .andExpect(jsonPath("$.version").value(2)).andExpect(jsonPath("$.tableVersion").value(7));
+                .andExpect(jsonPath("$.status").value("CLOSED")).andExpect(jsonPath("$.tableVersion").value(7));
+        verify(service).cleaned(id, 1);
+    }
+
+    @Test void oldManualCloseRouteCannotInvokeAutomaticLifecycle() throws Exception {
+        var service = mock(TableSessionClosureService.class);
+        mvc(service).perform(post("/api/v1/qr/table-sessions/{id}/close", UUID.randomUUID())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
+                .andExpect(status().isNotFound());
+        verifyNoInteractions(service);
     }
 
     @ParameterizedTest @ValueSource(strings = {"{}", "{\"version\":null}", "{\"version\":-1}", "{\"version\":\"invalid\"}", "", "{broken"})
-    void invalidOrMissingVersionsNeverReachTheService(String body) throws Exception {
+    void invalidCleaningVersionNeverReachesService(String body) throws Exception {
         var service = mock(TableSessionClosureService.class);
         try (var validator = new LocalValidatorFactoryBean()) {
             validator.afterPropertiesSet();
-            var mvc = MockMvcBuilders.standaloneSetup(new TableSessionLifecycleController(service))
+            var api = MockMvcBuilders.standaloneSetup(new TableSessionLifecycleController(service))
                     .setControllerAdvice(new ApiExceptionHandler()).setValidator(validator).build();
-            for (String operation : new String[]{"close", "cleaned"}) {
-                mvc.perform(post("/api/v1/qr/table-sessions/{id}/{operation}", UUID.randomUUID(), operation)
-                        .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
-            }
+            api.perform(post("/api/v1/qr/table-sessions/{id}/cleaned", UUID.randomUUID())
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
         }
         verifyNoInteractions(service);
     }
 
     @ParameterizedTest @ValueSource(strings = {"conflict", "unavailable"})
-    void reportsSafeConflictOrUnavailableInsteadOfClaimingClosure(String failure) throws Exception {
+    void cleaningReportsSafeErrors(String failure) throws Exception {
         var service = mock(TableSessionClosureService.class); var id = UUID.randomUUID();
-        when(service.close(id, 0)).thenThrow(failure.equals("conflict") ? new SessionClosureConflictException() : new SessionClosureUnavailableException());
-        mvc(service).perform(post("/api/v1/qr/table-sessions/{id}/close", id)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
-                .andExpect(status().is(failure.equals("conflict") ? 409 : 503))
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+        when(service.cleaned(id, 0)).thenThrow(failure.equals("conflict") ? new SessionClosureConflictException() : new SessionClosureUnavailableException());
+        mvc(service).perform(post("/api/v1/qr/table-sessions/{id}/cleaned", id).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"version\":0}"))
+                .andExpect(status().is(failure.equals("conflict") ? 409 : 503));
     }
 }

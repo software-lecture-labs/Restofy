@@ -1,6 +1,5 @@
 package com.restofy.qr.domain;
 
-import com.restofy.qr.domain.SessionClosure.*;
 import com.restofy.qr.domain.entity.*;
 import com.restofy.qr.domain.enums.*;
 import com.restofy.qr.domain.exception.*;
@@ -17,19 +16,18 @@ class SessionClosureTests {
 
     @Test void closingRetainsTheFirstClosingTimeAndRejectsEarlyFinalizationOrReopeningTerminalState() {
         var main = new TableSession(UUID.randomUUID(), UUID.randomUUID(), NOW);
-        UUID actor = UUID.randomUUID();
         var earlier = NOW.minusNanos(1);
         var later = NOW.plusSeconds(2);
-        assertThatThrownBy(() -> main.closeAt(NOW, actor)).isInstanceOf(SessionClosureConflictException.class);
+        assertThatThrownBy(() -> main.closeAt(NOW)).isInstanceOf(SessionClosureConflictException.class);
         assertThatThrownBy(() -> main.beginClosingAt(earlier)).isInstanceOf(SessionClosureConflictException.class);
         main.beginClosingAt(NOW);
         main.beginClosingAt(NOW.plusSeconds(1));
         assertThat(main.getClosingAt()).isEqualTo(NOW);
-        assertThatThrownBy(() -> main.closeAt(earlier, actor)).isInstanceOf(SessionClosureConflictException.class);
-        main.closeAt(NOW.plusSeconds(1), actor);
-        assertThat(main.getClosedByUserId()).isEqualTo(actor);
+        assertThatThrownBy(() -> main.closeAt(earlier)).isInstanceOf(SessionClosureConflictException.class);
+        main.closeAt(NOW.plusSeconds(1));
+        assertThat(main.getClosedByUserId()).isNull();
         assertThatThrownBy(() -> main.beginClosingAt(later)).isInstanceOf(SessionClosureConflictException.class);
-        assertThatThrownBy(() -> main.closeAt(later, actor)).isInstanceOf(SessionClosureConflictException.class);
+        assertThatThrownBy(() -> main.closeAt(later)).isInstanceOf(SessionClosureConflictException.class);
     }
 
     @ParameterizedTest @EnumSource(value = TableSessionStatus.class, names = {"CLOSED", "EXPIRED"})
@@ -39,14 +37,14 @@ class SessionClosureTests {
         assertThatThrownBy(() -> main.beginClosingAt(NOW)).isInstanceOf(SessionClosureConflictException.class);
     }
 
-    @Test void futureClosingAndUnidentifiedStaffCannotCompleteClosure() {
+    @Test void futureClosingCannotCompleteEarlyAndAutomaticClosureHasNoStaffActor() {
         var main = new TableSession(UUID.randomUUID(), UUID.randomUUID(), NOW);
         var future = NOW.plusSeconds(10);
-        var actor = UUID.randomUUID();
         main.beginClosingAt(future);
         assertThatThrownBy(() -> main.beginClosingAt(NOW)).isInstanceOf(SessionClosureConflictException.class);
-        assertThatThrownBy(() -> main.closeAt(NOW, actor)).isInstanceOf(SessionClosureConflictException.class);
-        assertThatThrownBy(() -> main.closeAt(future, null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> main.closeAt(NOW)).isInstanceOf(SessionClosureConflictException.class);
+        main.closeAt(future);
+        assertThat(main.getClosedByUserId()).isNull();
     }
 
     @Test void explicitEndingKeepsRealActivityAndCannotRewriteAlreadyTerminalGuestHistory() {
@@ -75,23 +73,4 @@ class SessionClosureTests {
         assertThatThrownBy(table::finishCleaning).isInstanceOf(TableConflictException.class);
     }
 
-    @Test void sourceScopeIsImmutableAndProofCannotBeReboundToAnotherVersionOrIdentity() {
-        var actor = new Staff(UUID.randomUUID(), UUID.randomUUID());
-        var parent = new Parent(actor.restaurantId(), UUID.randomUUID(), UUID.randomUUID(), 2, 3, 0);
-        var original = new HashMap<UUID, Admission>();
-        var snapshot = new Snapshot(parent, original);
-        original.put(UUID.randomUUID(), new Admission(UUID.randomUUID(), OrderAdmissionStatus.PENDING, 0, null));
-        assertThat(snapshot.admissions()).isEmpty();
-        var frozen = snapshot.admissions();
-        assertThatThrownBy(frozen::clear).isInstanceOf(UnsupportedOperationException.class);
-        var proof = new Evidence(actor, snapshot, NOW, NOW.plusSeconds(5), true, true);
-        assertThat(proof.matches(actor, snapshot, NOW)).isTrue();
-        assertThat(proof.matches(actor, snapshot, NOW.plusSeconds(5))).isFalse();
-        var stale = new Snapshot(new Parent(actor.restaurantId(), parent.sessionId(), parent.tableId(), 3, 3, 0), Map.of());
-        assertThat(proof.matches(actor, stale, NOW)).isFalse();
-        var restaurantId = actor.restaurantId();
-        var empty = Map.<UUID, Admission>of();
-        assertThatThrownBy(() -> new Staff(restaurantId, null)).isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new Snapshot(null, empty)).isInstanceOf(NullPointerException.class);
-    }
 }

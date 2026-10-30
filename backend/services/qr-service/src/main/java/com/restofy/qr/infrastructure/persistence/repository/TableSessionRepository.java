@@ -13,6 +13,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.domain.Pageable;
 
 public interface TableSessionRepository extends JpaRepository<TableSession, UUID> {
+    @Query("select s.id as id, s.restaurantId as restaurantId from TableSession s where s.status=:status "
+            + "and (:after is null or s.id > :after) order by s.id")
+    List<IdleCandidate> findLifecycleCandidates(TableSessionStatus status, UUID after, Pageable pageable);
     @Query("select (count(s) > 0) from TableSession s where s.restaurantId=:restaurantId and s.tableId=:tableId and s.id<>:sessionId "
             + "and (s.openedAt>=:closedAt or s.status in (com.restofy.qr.domain.enums.TableSessionStatus.OPEN, " +
                     "com.restofy.qr.domain.enums.TableSessionStatus.CLOSING))")
