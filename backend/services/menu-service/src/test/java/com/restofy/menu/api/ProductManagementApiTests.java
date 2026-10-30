@@ -6,6 +6,7 @@ import com.restofy.menu.domain.enums.ActorRole;
 import com.restofy.menu.infrastructure.persistence.repository.CategoryRepository;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -111,7 +113,7 @@ class ProductManagementApiTests {
     void adminCreatesAnActiveUnpublishedDraftForTheirOwnRestaurant() throws Exception {
         create(valid(categoryA, "Burger"))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", org.hamcrest.Matchers.startsWith(BASE + "/")))
+                .andExpect(header().string("Location", Matchers.startsWith(BASE + "/")))
                 .andExpect(jsonPath("$.name").value("Burger"))
                 .andExpect(jsonPath("$.description").value("Grilled"))
                 .andExpect(jsonPath("$.categoryId").value(categoryA.toString()))
@@ -164,7 +166,7 @@ class ProductManagementApiTests {
         UUID forced = UUID.randomUUID();
         String body = valid(categoryA, "Burger").replace("{", "{\"id\":\"" + forced + "\",\"version\":9,");
         create(body).andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(org.hamcrest.Matchers.not(forced.toString())))
+                .andExpect(jsonPath("$.id").value(Matchers.not(forced.toString())))
                 .andExpect(jsonPath("$.version").value(0));
     }
 
@@ -439,7 +441,7 @@ class ProductManagementApiTests {
     @Test
     void aCategoryWithProductsCannotBeRemovedFromTheDatabase() throws Exception {
         createdId("Burger");
-        var failure = assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+        var failure = assertThrows(DataIntegrityViolationException.class,
                 () -> jdbc.update("DELETE FROM categories WHERE id = ?", categoryA));
         assertTrue(failure.getMessage().contains("fk_products_category"));
     }

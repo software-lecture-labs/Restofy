@@ -250,7 +250,8 @@ class ProductStateCommandsApiTests {
     @Test
     void invalidOrMissingStatusAndVersionAreValidationErrors() throws Exception {
         UUID id = createIn(drinks);
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"SOLD\",\"reasonCode\":\"X\",\"version\":0}").andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"SOLD\",\"reasonCode\":\"X\",\"version\":0}")
+                .andExpect(status().isBadRequest());
         send(patch(BASE + "/" + id + "/availability"), "{\"reasonCode\":\"X\",\"version\":0}").andExpect(status().isBadRequest());
         send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"AVAILABLE\"}").andExpect(status().isBadRequest());
         send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"AVAILABLE\",\"version\":-1}").andExpect(status().isBadRequest());
@@ -350,7 +351,8 @@ class ProductStateCommandsApiTests {
                                 + "\"changedByUserId\":\"" + forged + "\",\"restaurantId\":\"" + RESTAURANT_B + "\"}"))
                 .andExpect(status().isOk());
         assertNotEquals(forged, stored(id).get("changed_by_user_id"));
-        assertEquals(RESTAURANT_A, jdbc.queryForObject("SELECT restaurant_id FROM product_availability WHERE product_id = ?", UUID.class, id));
+        assertEquals(RESTAURANT_A, jdbc.queryForObject("SELECT restaurant_id FROM product_availability WHERE product_id = ?", UUID.class,
+                id));
     }
 
     // ---- axes never overwrite each other ----
@@ -394,8 +396,10 @@ class ProductStateCommandsApiTests {
         UUID id = createIn(drinks);
         read(id).andExpect(jsonPath("$.isVisibleToCustomer").value(false)).andExpect(jsonPath("$.canOrder").value(false));   // draft
         publication(id, true, 0).andExpect(jsonPath("$.isVisibleToCustomer").value(true)).andExpect(jsonPath("$.canOrder").value(true));
-        availability(id, "OUT_OF_STOCK", "SOLD_OUT", null, 0).andExpect(jsonPath("$.isVisibleToCustomer").value(true)).andExpect(jsonPath("$.canOrder").value(false));
-        availability(id, "TEMPORARILY_CLOSED", "CLEANING", null, 1).andExpect(jsonPath("$.isVisibleToCustomer").value(true)).andExpect(jsonPath("$.canOrder").value(false));
+        availability(id, "OUT_OF_STOCK", "SOLD_OUT", null, 0).andExpect(jsonPath("$.isVisibleToCustomer").value(true))
+                .andExpect(jsonPath("$.canOrder").value(false));
+        availability(id, "TEMPORARILY_CLOSED", "CLEANING", null, 1).andExpect(jsonPath("$.isVisibleToCustomer").value(true))
+                .andExpect(jsonPath("$.canOrder").value(false));
         availability(id, "AVAILABLE", null, null, 2).andExpect(jsonPath("$.canOrder").value(true));
         active(id, false, 1).andExpect(jsonPath("$.isVisibleToCustomer").value(false)).andExpect(jsonPath("$.canOrder").value(false));
         active(id, true, 2).andExpect(jsonPath("$.canOrder").value(true));

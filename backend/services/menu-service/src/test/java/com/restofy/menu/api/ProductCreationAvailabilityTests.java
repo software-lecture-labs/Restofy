@@ -98,7 +98,8 @@ class ProductCreationAvailabilityTests {
 
         assertEquals(1, count("product_availability"));
         assertEquals("AVAILABLE", jdbc.queryForObject("SELECT status FROM product_availability WHERE product_id = ?", String.class, id));
-        assertEquals(RESTAURANT, jdbc.queryForObject("SELECT restaurant_id FROM product_availability WHERE product_id = ?", UUID.class, id));
+        assertEquals(RESTAURANT, jdbc.queryForObject("SELECT restaurant_id FROM product_availability WHERE product_id = ?", UUID.class,
+                id));
         assertEquals(jdbc.queryForObject("SELECT created_by_user_id FROM products WHERE id = ?", UUID.class, id),
                 jdbc.queryForObject("SELECT changed_by_user_id FROM product_availability WHERE product_id = ?", UUID.class, id));
         assertEquals(1, count("product_availability_history"));

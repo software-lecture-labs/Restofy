@@ -228,8 +228,10 @@ class ProductSchemaPostgresIntegrationTests {
         UUID category = insertCategory(RESTAURANT_A, "Drinks");
         UUID id = insertProduct(RESTAURANT_A, category, "Tea");
         assertEquals(1, jdbc.update("UPDATE products SET calories = 0, weight_grams = 0.001, estimated_prep_minutes = 0 WHERE id = ?", id));
-        assertEquals(1, jdbc.update("UPDATE products SET calories = 10000, weight_grams = 10000, estimated_prep_minutes = 240 WHERE id = ?", id));
-        assertEquals(1, jdbc.update("UPDATE products SET calories = NULL, weight_grams = NULL, estimated_prep_minutes = NULL WHERE id = ?", id));
+        assertEquals(1,
+                jdbc.update("UPDATE products SET calories = 10000, weight_grams = 10000, estimated_prep_minutes = 240 WHERE id = ?", id));
+        assertEquals(1, jdbc.update("UPDATE products SET calories = NULL, weight_grams = NULL, estimated_prep_minutes = NULL WHERE id = ?",
+                id));
     }
 
     @Test

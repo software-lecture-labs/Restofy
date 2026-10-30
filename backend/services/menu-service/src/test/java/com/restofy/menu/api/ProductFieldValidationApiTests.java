@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -70,7 +72,7 @@ class ProductFieldValidationApiTests {
 
     /** A valid create body with one field replaced by a raw JSON value (or removed when {@code raw == null}). */
     private String create(String field, String raw) {
-        var fields = new java.util.LinkedHashMap<String, String>();
+        var fields = new LinkedHashMap<String, String>();
         fields.put("categoryId", "\"" + category + "\"");
         fields.put("name", "\"Tea\"");
         fields.put("basePrice", "5");
@@ -78,7 +80,11 @@ class ProductFieldValidationApiTests {
         fields.put("vatRate", "10");
         fields.put("priceIncludesVat", "true");
         if (field != null) {
-            if (raw == null) fields.remove(field); else fields.put(field, raw);
+            if (raw == null) {
+                fields.remove(field);
+            } else {
+                fields.put(field, raw);
+            }
         }
         var body = new StringBuilder("{");
         fields.forEach((k, v) -> body.append(body.length() > 1 ? "," : "").append('"').append(k).append("\":").append(v));
@@ -246,7 +252,7 @@ class ProductFieldValidationApiTests {
         submit(create("basePrice", "0e5")).andExpect(status().isCreated());
         UUID id = seeded();
         patchOf(id, "basePrice", "0").andExpect(status().isOk()).andExpect(jsonPath("$.basePrice").value(0));
-        assertEquals(0, ((java.math.BigDecimal) row(id).get("base_price")).signum());
+        assertEquals(0, ((BigDecimal) row(id).get("base_price")).signum());
         send(patch(BASE + "/" + id), "{\"basePrice\":12.5,\"version\":1}").andExpect(status().isOk());
         send(patch(BASE + "/" + id), "{\"basePrice\":0.00,\"version\":2}").andExpect(status().isOk())
                 .andExpect(jsonPath("$.basePrice").value(0));
@@ -258,8 +264,9 @@ class ProductFieldValidationApiTests {
         submit(create("basePrice", "19.99")).andExpect(status().isCreated());
         submit(create("basePrice", "0.0001")).andExpect(status().isCreated());
         submit(create("basePrice", "123456789012345.6789")).andExpect(status().isCreated());
-        assertEquals(new java.math.BigDecimal("0.1000"), jdbc.queryForObject("SELECT base_price FROM products WHERE base_price < 0.2 AND base_price > 0.0999", java.math.BigDecimal.class));
-        assertEquals(new java.math.BigDecimal("123456789012345.6789"), jdbc.queryForObject("SELECT max(base_price) FROM products", java.math.BigDecimal.class));
+        assertEquals(new BigDecimal("0.1000"),
+                jdbc.queryForObject("SELECT base_price FROM products WHERE base_price < 0.2 AND base_price > 0.0999", BigDecimal.class));
+        assertEquals(new BigDecimal("123456789012345.6789"), jdbc.queryForObject("SELECT max(base_price) FROM products", BigDecimal.class));
     }
 
     @Test
@@ -276,7 +283,8 @@ class ProductFieldValidationApiTests {
     @Test
     void invalidPricesAreRejectedOnCreateAndUpdateWithoutChangingAnything() throws Exception {
         for (String raw : new String[] {"-1", "-0.0001", "-0.01", "-999999999999999.9999", "1.00001", "0.00001", "5.123456789",
-                "\"abc\"", "\"\"", "true", "[1]", "{}", "\"NaN\"", "\"Infinity\"", "\"-Infinity\"", "1e999999999", "1E+400", "-1e999999999"}) {
+                "\"abc\"", "\"\"", "true", "[1]", "{}", "\"NaN\"", "\"Infinity\"", "\"-Infinity\"", "1e999999999", "1E+400",
+                "-1e999999999"}) {
             rejectedOnCreateAndUpdate("basePrice", raw);
         }
     }
@@ -292,9 +300,11 @@ class ProductFieldValidationApiTests {
 
     @Test
     void bareNonNumbersAndBrokenJsonAreRejected() throws Exception {
-        submit("{\"categoryId\":\"" + category + "\",\"name\":\"Tea\",\"basePrice\":NaN,\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}")
+        submit("{\"categoryId\":\"" + category
+                + "\",\"name\":\"Tea\",\"basePrice\":NaN,\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}")
                 .andExpect(status().isBadRequest());
-        submit("{\"categoryId\":\"" + category + "\",\"name\":\"Tea\",\"basePrice\":Infinity,\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}")
+        submit("{\"categoryId\":\"" + category
+                + "\",\"name\":\"Tea\",\"basePrice\":Infinity,\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}")
                 .andExpect(status().isBadRequest());
         submit("{not json").andExpect(status().isBadRequest());
         submit("").andExpect(status().isBadRequest());
@@ -356,7 +366,7 @@ class ProductFieldValidationApiTests {
         patchOf(id, "priceIncludesVat", "false").andExpect(status().isOk())
                 .andExpect(jsonPath("$.priceIncludesVat").value(false)).andExpect(jsonPath("$.basePrice").value(5))
                 .andExpect(jsonPath("$.vatRate").value(10));
-        assertEquals(0, new java.math.BigDecimal("5").compareTo((java.math.BigDecimal) row(id).get("base_price")));
+        assertEquals(0, new BigDecimal("5").compareTo((BigDecimal) row(id).get("base_price")));
     }
 
     // ---- currency ----
@@ -375,9 +385,11 @@ class ProductFieldValidationApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XSU", "XUA", "XAD", "BOV", "CHE", "CHW", "CLF", "COU", "MXV", "USN", "UYI"})
+    @ValueSource(strings = {"XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XSU", "XUA", "XAD", "BOV", "CHE", "CHW", "CLF", "COU",
+            "MXV", "USN", "UYI"})
     void specialPurposeCurrencyCodesCannotBeUsedForPricesOnCreateAndUpdate(String code) throws Exception {
-        String body = submit(create("currency", json(code))).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        String body = submit(create("currency", json(code))).andExpect(status().isBadRequest()).andReturn().getResponse()
+                .getContentAsString();
         assertTrue(JsonPath.<String>read(body, "$.detail").startsWith("Currency "), body);
         assertEquals(0, products());
         UUID id = seeded();
@@ -387,7 +399,8 @@ class ProductFieldValidationApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"ZZZ", "ABC", "QQQ", "AAA", "try", "Try", "usd", "TR", "T", "TRYY", "TR1", "T R", " TRY", "TRY ", "\u00dcSD", "\"\"", ""})
+    @ValueSource(strings = {"ZZZ", "ABC", "QQQ", "AAA", "try", "Try", "usd", "TR", "T", "TRYY", "TR1", "T R", " TRY", "TRY ", "\u00dcSD",
+            "\"\"", ""})
     void unknownMalformedOrWronglyCasedCurrenciesAreRejectedOnCreateAndUpdate(String code) throws Exception {
         rejectedOnCreateAndUpdate("currency", json(code));
     }
@@ -406,12 +419,14 @@ class ProductFieldValidationApiTests {
     void aMissingCurrencyIsRejectedOnCreateButAnUpdateMayOmitIt() throws Exception {
         post400(create("currency", null));
         UUID id = seeded();
-        send(patch(BASE + "/" + id), "{\"name\":\"Renamed\",\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.currency").value("TRY"));
+        send(patch(BASE + "/" + id), "{\"name\":\"Renamed\",\"version\":0}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.currency").value("TRY"));
     }
 
     @Test
     void anIsoButUnknownCodeFailsAsAValidationErrorWithAFixedMessage() throws Exception {
-        String body = submit(create("currency", "\"ZZZ\"")).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        String body = submit(create("currency", "\"ZZZ\"")).andExpect(status().isBadRequest()).andReturn().getResponse()
+                .getContentAsString();
         assertEquals("Currency must be a valid ISO 4217 currency code.", JsonPath.read(body, "$.detail"));
         assertFalse(body.contains("ZZZ"), "the submitted value is not echoed back");
     }

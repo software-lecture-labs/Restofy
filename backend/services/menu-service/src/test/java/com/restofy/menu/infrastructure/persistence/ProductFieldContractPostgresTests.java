@@ -8,6 +8,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Null;
 import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.lang.reflect.Field;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -79,8 +81,10 @@ class ProductFieldContractPostgresTests {
         assertEquals("YES", db.get("is_nullable"));
         assertNull(db.get("column_default"), "no invented default content");
         assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, jpa("ingredientsText").length());
-        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, component(CreateProductRequest.class, "ingredientsText").getAnnotation(Size.class).max());
-        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, component(UpdateProductRequest.class, "ingredientsText").getAnnotation(Size.class).max());
+        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, component(CreateProductRequest.class, "ingredientsText").getAnnotation(Size.class)
+                .max());
+        assertEquals(Product.INGREDIENTS_TEXT_MAX_LENGTH, component(UpdateProductRequest.class, "ingredientsText").getAnnotation(Size.class)
+                .max());
         assertNull(component(CreateProductRequest.class, "ingredientsText").getAnnotation(NotNull.class), "ingredients text is optional");
     }
 
@@ -93,7 +97,7 @@ class ProductFieldContractPostgresTests {
         assertEquals(2048, Product.IMAGE_URL_MAX_LENGTH);
         assertEquals(Product.IMAGE_URL_MAX_LENGTH, component(UpdateProductRequest.class, "imageUrl").getAnnotation(Size.class).max());
         assertNull(component(UpdateProductRequest.class, "imageUrl").getAnnotation(NotNull.class), "a partial update may omit it");
-        assertNotNull(component(CreateProductRequest.class, "imageUrl").getAnnotation(jakarta.validation.constraints.Null.class),
+        assertNotNull(component(CreateProductRequest.class, "imageUrl").getAnnotation(Null.class),
                 "the image is not set on create");
     }
 
@@ -185,7 +189,7 @@ class ProductFieldContractPostgresTests {
                 SELECT count(*) FROM information_schema.columns WHERE table_name = 'products'
                 AND data_type IN ('double precision', 'real')""", Integer.class));
         for (String field : List.of("basePrice", "vatRate")) {
-            assertDoesNotThrow(() -> assertEquals(java.math.BigDecimal.class, Product.class.getDeclaredField(field).getType()));
+            assertDoesNotThrow(() -> assertEquals(BigDecimal.class, Product.class.getDeclaredField(field).getType()));
         }
     }
 }

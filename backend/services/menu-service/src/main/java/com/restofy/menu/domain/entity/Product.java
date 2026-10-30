@@ -18,8 +18,8 @@ import java.util.Currency;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Menu product. {@code restaurantId} is a logical reference to the Admin service and
@@ -46,11 +46,13 @@ public class Product {
     public static final int WEIGHT_GRAMS_SCALE = 3;
     public static final int PREP_MINUTES_MAX = 240;
 
-    /** Matches numeric(19,4): 15 integer digits and 4 fraction digits. */
-    private static final int PRICE_SCALE = 4;
-    private static final int PRICE_INTEGER_DIGITS = 15;
-    private static final int VAT_INTEGER_DIGITS = 3;
-    private static final BigDecimal MAX_VAT_RATE = BigDecimal.valueOf(100);
+    /** Matches numeric(19,4): 15 integer digits and 4 fraction digits. Shared with the request validation. */
+    public static final int PRICE_INTEGER_DIGITS = 15;
+    public static final int PRICE_FRACTION_DIGITS = 4;
+    /** Matches numeric(7,4): a VAT rate is at most 100, so three integer digits. */
+    public static final int VAT_INTEGER_DIGITS = 3;
+    public static final String MAX_VAT_RATE_TEXT = "100";
+    private static final BigDecimal MAX_VAT_RATE = new BigDecimal(MAX_VAT_RATE_TEXT);
     private static final BigDecimal MAX_WEIGHT_GRAMS = BigDecimal.valueOf(WEIGHT_GRAMS_MAX);
     private static final Pattern CURRENCY_PATTERN = Pattern.compile("[A-Z]{3}");
     /**
@@ -113,14 +115,14 @@ public class Product {
     @Column(name = "estimated_prep_minutes")
     private Integer estimatedPrepMinutes;
 
-    @Column(name = "base_price", nullable = false, precision = 19, scale = PRICE_SCALE)
+    @Column(name = "base_price", nullable = false, precision = 19, scale = PRICE_FRACTION_DIGITS)
     private BigDecimal basePrice;
 
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3)
     private String currency;
 
-    @Column(name = "vat_rate", nullable = false, precision = 7, scale = PRICE_SCALE)
+    @Column(name = "vat_rate", nullable = false, precision = 7, scale = PRICE_FRACTION_DIGITS)
     private BigDecimal vatRate;
 
     @Column(name = "price_includes_vat", nullable = false)
@@ -305,7 +307,7 @@ public class Product {
             throw new InvalidProductException("Base price must not be negative.");
         }
         requireWithinPrecision(raw, PRICE_INTEGER_DIGITS, "Base price is too large.", "Base price");
-        return raw.setScale(PRICE_SCALE, RoundingMode.UNNECESSARY);
+        return raw.setScale(PRICE_FRACTION_DIGITS, RoundingMode.UNNECESSARY);
     }
 
     public static BigDecimal normalizeVatRate(BigDecimal raw) {
@@ -316,7 +318,7 @@ public class Product {
             throw new InvalidProductException("VAT rate must be between 0 and 100.");
         }
         requireWithinPrecision(raw, VAT_INTEGER_DIGITS, "VAT rate must be between 0 and 100.", "VAT rate");
-        return raw.setScale(PRICE_SCALE, RoundingMode.UNNECESSARY);
+        return raw.setScale(PRICE_FRACTION_DIGITS, RoundingMode.UNNECESSARY);
     }
 
     /**
@@ -342,8 +344,8 @@ public class Product {
         if (stripped.signum() != 0 && stripped.precision() - stripped.scale() > maxIntegerDigits) {
             throw new InvalidProductException(tooLargeMessage);
         }
-        if (stripped.scale() > PRICE_SCALE) {
-            throw new InvalidProductException(label + " must have at most " + PRICE_SCALE + " decimal places.");
+        if (stripped.scale() > PRICE_FRACTION_DIGITS) {
+            throw new InvalidProductException(label + " must have at most " + PRICE_FRACTION_DIGITS + " decimal places.");
         }
     }
 

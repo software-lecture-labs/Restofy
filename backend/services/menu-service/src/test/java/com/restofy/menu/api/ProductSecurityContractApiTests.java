@@ -19,7 +19,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -76,7 +80,8 @@ class ProductSecurityContractApiTests {
     }
 
     private String body() {
-        return "{\"categoryId\":\"" + categoryA + "\",\"name\":\"Tea\",\"basePrice\":5,\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}";
+        return "{\"categoryId\":\"" + categoryA
+                + "\",\"name\":\"Tea\",\"basePrice\":5,\"currency\":\"TRY\",\"vatRate\":10,\"priceIncludesVat\":true}";
     }
 
     private UUID seeded() throws Exception {
@@ -176,7 +181,8 @@ class ProductSecurityContractApiTests {
         UUID forgedId = UUID.randomUUID();
         UUID forgedUser = UUID.randomUUID();
         String forged = body().replace("{", "{\"id\":\"" + forgedId + "\",\"version\":7,\"createdAt\":\"2001-01-01T00:00:00Z\","
-                + "\"updatedAt\":\"2001-01-01T00:00:00Z\",\"createdByUserId\":\"" + forgedUser + "\",\"updatedByUserId\":\"" + forgedUser + "\","
+                + "\"updatedAt\":\"2001-01-01T00:00:00Z\",\"createdByUserId\":\"" + forgedUser + "\",\"updatedByUserId\":\"" + forgedUser
+                        + "\","
                 + "\"canOrder\":true,\"isVisibleToCustomer\":true,\"categoryEffectivelyActive\":true,"
                 + "\"availability\":{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"FORGED\",\"version\":9},"
                 + "\"category\":{\"id\":\"" + categoryB + "\"},\"parentCategory\":{\"id\":\"" + categoryB + "\"},");
@@ -189,7 +195,7 @@ class ProductSecurityContractApiTests {
         assertEquals(0L, product.get("version"));
         assertNotEquals(forgedUser, product.get("created_by_user_id"));
         assertNotEquals(forgedUser, product.get("updated_by_user_id"));
-        assertTrue(((java.sql.Timestamp) product.get("created_at")).toInstant().atOffset(java.time.ZoneOffset.UTC).getYear() > 2001);
+        assertTrue(((Timestamp) product.get("created_at")).toInstant().atOffset(ZoneOffset.UTC).getYear() > 2001);
         assertEquals(Boolean.FALSE, product.get("is_published"));
         var availability = availabilityRow(id);
         assertEquals("AVAILABLE", availability.get("status"));
@@ -203,7 +209,8 @@ class ProductSecurityContractApiTests {
         var before = row(id);
         UUID forgedUser = UUID.randomUUID();
         String forged = "{\"basePrice\":6,\"version\":0,\"id\":\"" + UUID.randomUUID() + "\",\"createdAt\":\"2001-01-01T00:00:00Z\","
-                + "\"updatedAt\":\"2001-01-01T00:00:00Z\",\"createdByUserId\":\"" + forgedUser + "\",\"updatedByUserId\":\"" + forgedUser + "\","
+                + "\"updatedAt\":\"2001-01-01T00:00:00Z\",\"createdByUserId\":\"" + forgedUser + "\",\"updatedByUserId\":\"" + forgedUser
+                        + "\","
                 + "\"canOrder\":true,\"isVisibleToCustomer\":true,\"availability\":{\"status\":\"OUT_OF_STOCK\"}}";
         send(patch(BASE + "/" + id), forged).andExpect(status().isOk());
         var after = row(id);
@@ -234,9 +241,9 @@ class ProductSecurityContractApiTests {
                 .andExpect(status().isOk());
         var product = row(id);
         assertEquals(Boolean.FALSE, product.get("is_published"));
-        assertEquals(0, new java.math.BigDecimal("5").compareTo((java.math.BigDecimal) product.get("base_price")));
+        assertEquals(0, new BigDecimal("5").compareTo((BigDecimal) product.get("base_price")));
         assertNotEquals(forged, availabilityRow(id).get("changed_by_user_id"));
-        assertTrue(((java.sql.Timestamp) availabilityRow(id).get("changed_at")).toInstant().atOffset(java.time.ZoneOffset.UTC).getYear() > 2001);
+        assertTrue(((Timestamp) availabilityRow(id).get("changed_at")).toInstant().atOffset(ZoneOffset.UTC).getYear() > 2001);
     }
 
     // ---- tenant isolation and ADMIN scope for price edits ----
@@ -258,9 +265,10 @@ class ProductSecurityContractApiTests {
     void aProductCannotBeCreatedOrMovedIntoAnotherRestaurantsCategoryEvenWithAValidPrice() throws Exception {
         UUID id = seeded();
         send(post(BASE), body().replace(categoryA.toString(), categoryB.toString())).andExpect(status().isNotFound());
-        send(patch(BASE + "/" + id), "{\"categoryId\":\"" + categoryB + "\",\"basePrice\":1,\"version\":0}").andExpect(status().isNotFound());
+        send(patch(BASE + "/" + id), "{\"categoryId\":\"" + categoryB + "\",\"basePrice\":1,\"version\":0}")
+                .andExpect(status().isNotFound());
         assertEquals(categoryA, row(id).get("category_id"));
-        assertEquals(0, new java.math.BigDecimal("5").compareTo((java.math.BigDecimal) row(id).get("base_price")),
+        assertEquals(0, new BigDecimal("5").compareTo((BigDecimal) row(id).get("base_price")),
                 "the price in the same rejected request was not applied either");
     }
 
@@ -288,7 +296,7 @@ class ProductSecurityContractApiTests {
                         .header("X-Restaurant-Id", RESTAURANT_A).header("X-Role", "ADMIN").header("X-User-Id", UUID.randomUUID())
                         .content("{\"basePrice\":1,\"version\":0}"))
                 .andExpect(status().isNotFound());
-        assertEquals(0, new java.math.BigDecimal("5").compareTo((java.math.BigDecimal) row(id).get("base_price")));
+        assertEquals(0, new BigDecimal("5").compareTo((BigDecimal) row(id).get("base_price")));
     }
 
     // ---- a price edit never moves another axis ----
@@ -297,19 +305,21 @@ class ProductSecurityContractApiTests {
     void editingPriceVatCurrencyAndInclusionNeverChangesArchivePublicationOrAvailability() throws Exception {
         UUID id = seeded();
         send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":0}").andExpect(status().isOk());
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"reasonText\":\"gone\",\"version\":0}")
+        send(patch(BASE + "/" + id
+                + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"reasonText\":\"gone\",\"version\":0}")
                 .andExpect(status().isOk());
         var availability = availabilityRow(id);
         int history = historyCount(id);
 
         send(patch(BASE + "/" + id), "{\"basePrice\":0,\"vatRate\":18,\"currency\":\"EUR\",\"priceIncludesVat\":false,\"version\":1}")
                 .andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.isPublished").value(true))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.isActive").value(true))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.availability.status").value("OUT_OF_STOCK"))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.canOrder").value(false));
+                .andExpect(MockMvcResultMatchers.jsonPath("$.isPublished").value(true))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.isActive").value(true))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.availability.status").value("OUT_OF_STOCK"))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.canOrder").value(false));
 
-        assertEquals(availability, availabilityRow(id), "a price edit leaves the closed state, reason, actor and version exactly as they were");
+        assertEquals(availability, availabilityRow(id),
+                "a price edit leaves the closed state, reason, actor and version exactly as they were");
         assertEquals(history, historyCount(id));
     }
 
@@ -318,17 +328,18 @@ class ProductSecurityContractApiTests {
         UUID open = seeded();
         send(patch(BASE + "/" + open + "/publication"), "{\"isPublished\":true,\"version\":0}").andExpect(status().isOk());
         send(patch(BASE + "/" + open), "{\"basePrice\":7.25,\"version\":1}").andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.canOrder").value(true));
+                .andExpect(MockMvcResultMatchers.jsonPath("$.canOrder").value(true));
         UUID draft = seeded();
         send(patch(BASE + "/" + draft), "{\"basePrice\":7.25,\"version\":0}").andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.isPublished").value(false))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.canOrder").value(false));
+                .andExpect(MockMvcResultMatchers.jsonPath("$.isPublished").value(false))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.canOrder").value(false));
     }
 
     @Test
     void aRejectedPriceEditLeavesTheClosedAvailabilityAndItsHistoryUntouched() throws Exception {
         UUID id = seeded();
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"CLEANING\",\"version\":0}").andExpect(status().isOk());
+        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"CLEANING\",\"version\":0}")
+                .andExpect(status().isOk());
         var availability = availabilityRow(id);
         int history = historyCount(id);
         var product = row(id);
@@ -347,7 +358,7 @@ class ProductSecurityContractApiTests {
         UUID id = seeded();
         send(patch(BASE + "/" + id), "{\"basePrice\":6,\"version\":0}").andExpect(status().isOk());
         send(patch(BASE + "/" + id), "{\"basePrice\":99,\"version\":0}").andExpect(status().isConflict());
-        assertEquals(0, new java.math.BigDecimal("6").compareTo((java.math.BigDecimal) row(id).get("base_price")));
+        assertEquals(0, new BigDecimal("6").compareTo((BigDecimal) row(id).get("base_price")));
         assertEquals(1L, row(id).get("version"));
     }
 
@@ -362,7 +373,7 @@ class ProductSecurityContractApiTests {
         assertEquals(created.get("created_by_user_id"), changed.get("created_by_user_id"));
         assertNotEquals(created.get("updated_by_user_id"), changed.get("updated_by_user_id"));
         assertEquals(created.get("created_at"), changed.get("created_at"));
-        assertTrue(((java.sql.Timestamp) changed.get("updated_at")).after((java.sql.Timestamp) created.get("updated_at")));
+        assertTrue(((Timestamp) changed.get("updated_at")).after((Timestamp) created.get("updated_at")));
     }
 
     @Test
@@ -372,7 +383,7 @@ class ProductSecurityContractApiTests {
         actor.actAs(RESTAURANT_A, ActorRole.ADMIN);
         send(patch(BASE + "/" + id), "{\"basePrice\":5.0000,\"vatRate\":10.00,\"currency\":\"TRY\",\"version\":0}")
                 .andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.version").value(0));
+                .andExpect(MockMvcResultMatchers.jsonPath("$.version").value(0));
         assertEquals(created, row(id), "nothing, including updated_at and updated_by, moved");
     }
 }

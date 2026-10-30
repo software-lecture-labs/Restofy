@@ -31,9 +31,12 @@ public record CreateProductRequest(
         @JsonDeserialize(using = NutritionDeserializers.WholeNumber.class) Integer calories,
         @JsonDeserialize(using = NutritionDeserializers.Decimal.class) BigDecimal weightGrams,
         @JsonDeserialize(using = NutritionDeserializers.WholeNumber.class) Integer estimatedPrepMinutes,
-        @NotNull @DecimalMin("0") @Digits(integer = 15, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal basePrice,
+        @NotNull @DecimalMin("0") @Digits(integer = Product.PRICE_INTEGER_DIGITS, fraction = Product.PRICE_FRACTION_DIGITS)
+                @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal basePrice,
         @NotNull @Pattern(regexp = "[A-Z]{3}", message = "must be a three-letter uppercase currency code") String currency,
-        @NotNull @DecimalMin("0") @DecimalMax("100") @Digits(integer = 3, fraction = 4) @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal vatRate,
+        @NotNull @DecimalMin("0") @DecimalMax(Product.MAX_VAT_RATE_TEXT) @Digits(integer = Product.VAT_INTEGER_DIGITS,
+                fraction = Product.PRICE_FRACTION_DIGITS)
+                @JsonDeserialize(using = StrictNumberDeserializers.Decimal.class) BigDecimal vatRate,
         @NotNull @JsonDeserialize(using = StrictBooleanDeserializer.class) Boolean priceIncludesVat,
         @Null(message = "The restaurant is taken from the verified actor.") UUID restaurantId,
         @Null(message = "A new product is always an unpublished draft.") Boolean isPublished,

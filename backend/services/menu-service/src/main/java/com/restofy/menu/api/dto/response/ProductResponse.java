@@ -21,8 +21,10 @@ import java.util.UUID;
  * never feed a price, a stock decision or a timer.
  *
  * <p>{@code availability} is {@code null} only when the product has no availability record, which is
- * never orderable. {@code isVisibleToCustomer} and {@code canOrder} are derived on every read and not
- * stored: visible = active, published and category chain active; orderable = visible and AVAILABLE.
+ * never orderable. {@code isVisibleToCustomer}, {@code isListedPublicly} and {@code canOrder} are derived on every read
+ * and not stored: visible = active, published and category chain active (availability does not take part);
+ * listed publicly = visible and an availability record exists, which is exactly what the customer menu lists (a product
+ * without the record is visible in this management sense but hidden from customers); orderable = visible and AVAILABLE.
  */
 public record ProductResponse(
         UUID id,
@@ -32,6 +34,7 @@ public record ProductResponse(
         boolean categoryEffectivelyActive,
         ProductAvailabilityResponse availability,
         boolean isVisibleToCustomer,
+        boolean isListedPublicly,
         boolean canOrder,
         String name,
         String description,

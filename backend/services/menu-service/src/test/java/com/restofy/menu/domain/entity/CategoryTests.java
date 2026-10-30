@@ -30,7 +30,8 @@ class CategoryTests {
 
     @Test
     void controlCharactersAndLoneSurrogatesAreRefused() {
-        for (String bad : new String[] {"a\u0000b", "a\u0001b", "a\u001fb", "a\u007fb", "a\u0085b", "a\u009fb", "a\ud800b", "\udc00", "ab\ud83d"}) {
+        for (String bad : new String[] {"a\u0000b", "a\u0001b", "a\u001fb", "a\u007fb", "a\u0085b", "a\u009fb", "a\ud800b", "\udc00",
+                "ab\ud83d"}) {
             var failure = assertThrows(InvalidCategoryException.class, () -> Category.normalizeName(bad));
             assertEquals("Category name contains characters that are not allowed.", failure.getMessage());
         }

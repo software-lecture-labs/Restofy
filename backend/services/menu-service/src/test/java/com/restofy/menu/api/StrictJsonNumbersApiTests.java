@@ -125,10 +125,13 @@ class StrictJsonNumbersApiTests {
             send(post(BASE), create(pair[0], pair[1])).andExpect(status().isCreated());
         }
         assertEquals(9, products());
-        assertEquals(new BigDecimal("0.1000"), jdbc.queryForObject("SELECT base_price FROM products WHERE base_price BETWEEN 0.09 AND 0.11", BigDecimal.class),
+        assertEquals(new BigDecimal("0.1000"),
+                jdbc.queryForObject("SELECT base_price FROM products WHERE base_price BETWEEN 0.09 AND 0.11", BigDecimal.class),
                 "0.1 is stored exactly, with no floating-point noise");
-        assertEquals(new BigDecimal("123456789012345.6789"), jdbc.queryForObject("SELECT max(base_price) FROM products WHERE base_price < 1E+15", BigDecimal.class));
-        assertEquals(new BigDecimal("1000.0000"), jdbc.queryForObject("SELECT base_price FROM products WHERE base_price = 1000", BigDecimal.class));
+        assertEquals(new BigDecimal("123456789012345.6789"),
+                jdbc.queryForObject("SELECT max(base_price) FROM products WHERE base_price < 1E+15", BigDecimal.class));
+        assertEquals(new BigDecimal("1000.0000"), jdbc.queryForObject("SELECT base_price FROM products WHERE base_price = 1000",
+                BigDecimal.class));
     }
 
     @Test
@@ -160,8 +163,10 @@ class StrictJsonNumbersApiTests {
         var before = row(id);
         send(patch(BASE + "/" + id), "{\"name\":\"Renamed\",\"version\":" + version + "}").andExpect(status().isBadRequest());
         send(patch(BASE + "/" + id + "/active"), "{\"isActive\":false,\"version\":" + version + "}").andExpect(status().isBadRequest());
-        send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":" + version + "}").andExpect(status().isBadRequest());
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":" + version + "}")
+        send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":" + version
+                + "}").andExpect(status().isBadRequest());
+        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":" + version
+                + "}")
                 .andExpect(status().isBadRequest());
         assertEquals(before, row(id));
         assertEquals("AVAILABLE", jdbc.queryForObject("SELECT status FROM product_availability WHERE product_id = ?", String.class, id));
@@ -181,7 +186,8 @@ class StrictJsonNumbersApiTests {
         send(patch(BASE + "/" + id), "{\"name\":\"A\",\"version\":0}").andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1));
         send(patch(BASE + "/" + id + "/active"), "{\"isActive\":false,\"version\":1}").andExpect(status().isOk());
         send(patch(BASE + "/" + id + "/publication"), "{\"isPublished\":true,\"version\":2}").andExpect(status().isOk());
-        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":0}").andExpect(status().isOk());
+        send(patch(BASE + "/" + id + "/availability"), "{\"status\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\",\"version\":0}")
+                .andExpect(status().isOk());
         send(patch(BASE + "/" + id), "{\"name\":\"B\",\"version\":0}").andExpect(status().isConflict());
         send(patch(BASE + "/" + id), "{\"name\":\"B\",\"version\":-1}").andExpect(status().isBadRequest());
         send(patch(BASE + "/" + id), "{\"name\":\"B\"}").andExpect(status().isBadRequest());

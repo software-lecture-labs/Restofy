@@ -86,7 +86,8 @@ class ProductAvailabilitySchemaPostgresIntegrationTests {
         assertEquals("SOLD_OUT", loaded.getReasonCode());
         assertEquals("gone", loaded.getReasonText());
         assertEquals(1L, loaded.getVersion(), "one real change bumped the optimistic-lock version");
-        assertEquals("OUT_OF_STOCK", jdbc.queryForObject("SELECT status FROM product_availability WHERE product_id = ?", String.class, product));
+        assertEquals("OUT_OF_STOCK", jdbc.queryForObject("SELECT status FROM product_availability WHERE product_id = ?", String.class,
+                product));
         var history = histories.findByRestaurantIdAndProductIdOrderByChangedAtDescIdAsc(RESTAURANT_A, product);
         assertEquals(1, history.size());
         assertEquals(AvailabilityStatus.AVAILABLE, history.get(0).getFromStatus());

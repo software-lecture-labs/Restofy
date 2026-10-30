@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -71,7 +72,8 @@ class ProductResponseConsistencyApiTests {
     }
 
     private String getOne(UUID id) throws Exception {
-        return mvc.perform(get(BASE + "/" + id).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return mvc.perform(get(BASE + "/" + id).with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString();
     }
 
     private Map<String, Object> core(String json) {
@@ -86,7 +88,9 @@ class ProductResponseConsistencyApiTests {
     @Test
     void createGetListAndEveryCommandAgreeOnTheCoreFields() throws Exception {
         String created = send(post(BASE), "{\"categoryId\":\"" + category + "\",\"name\":\"  Lamb   kebab \","
-                + "\"description\":\" grilled \",\"ingredientsText\":\" lamb, spices \",\"calories\":250,\"weightGrams\":12.50,\"estimatedPrepMinutes\":8,\"basePrice\":125.5,\"currency\":\"TRY\",\"vatRate\":8.5,"
+                + "\"description\":\" grilled \",\"ingredientsText\":\" lamb, spices "
+                        + "\",\"calories\":250,\"weightGrams\":12.50,\"estimatedPrepMinutes\":8,\"basePrice\":125.5,\"currency\":\"TRY"
+                        + "\",\"vatRate\":8.5,"
                 + "\"priceIncludesVat\":true}", 201);
         UUID id = UUID.fromString(JsonPath.read(created, "$.id"));
         Map<String, Object> expected = core(created);
@@ -112,7 +116,7 @@ class ProductResponseConsistencyApiTests {
 
     /** First item of a list response as a standalone JSON document. */
     private String toJson(String list) throws Exception {
-        return new tools.jackson.databind.ObjectMapper().writeValueAsString(JsonPath.read(list, "$.items[0]"));
+        return new ObjectMapper().writeValueAsString(JsonPath.read(list, "$.items[0]"));
     }
 
     @Test

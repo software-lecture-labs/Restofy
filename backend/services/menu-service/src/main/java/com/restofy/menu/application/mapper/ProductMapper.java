@@ -27,6 +27,7 @@ public final class ProductMapper {
                 placement.isEffectivelyActive(),
                 availability(view.availability()),
                 eligibility.isVisibleToCustomer(),
+                eligibility.isListedPublicly(),
                 eligibility.canOrder(),
                 product.getName(),
                 product.getDescription(),

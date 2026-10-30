@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -120,7 +121,7 @@ class ProductCategoryAssignmentApiTests {
                 SELECT column_name FROM information_schema.columns
                 WHERE table_name = 'products' AND (column_name LIKE '%categor%' OR column_name LIKE '%parent%')""",
                 String.class);
-        assertEquals(java.util.List.of("category_id"), categoryColumns);
+        assertEquals(List.of("category_id"), categoryColumns);
     }
 
     // ---- attaching on create ----

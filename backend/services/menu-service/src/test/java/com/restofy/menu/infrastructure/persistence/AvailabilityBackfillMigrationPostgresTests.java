@@ -51,9 +51,11 @@ class AvailabilityBackfillMigrationPostgresTests {
         return DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
-    private void insertProduct(Connection connection, UUID restaurant, UUID category, UUID product, UUID creator, UUID updater) throws Exception {
+    private void insertProduct(Connection connection, UUID restaurant, UUID category, UUID product, UUID creator,
+            UUID updater) throws Exception {
         try (var statement = connection.createStatement()) {
-            statement.execute("INSERT INTO categories (id, restaurant_id, name) VALUES ('" + category + "', '" + restaurant + "', 'Cat " + category + "')");
+            statement.execute("INSERT INTO categories (id, restaurant_id, name) VALUES ('" + category + "', '" + restaurant + "', 'Cat "
+                    + category + "')");
             statement.execute("INSERT INTO products (id, restaurant_id, category_id, name, base_price, currency, vat_rate, "
                     + "price_includes_vat, is_published, created_by_user_id, updated_by_user_id) VALUES ('" + product + "', '"
                     + restaurant + "', '" + category + "', 'Old tea', 5, 'TRY', 10, TRUE, TRUE, '" + creator + "', '" + updater + "')");
@@ -62,7 +64,8 @@ class AvailabilityBackfillMigrationPostgresTests {
 
     private List<String> rows(Connection connection, String sql) throws Exception {
         var result = new ArrayList<String>();
-        try (var statement = connection.createStatement(); var set = statement.executeQuery(sql)) {
+        try (var statement = connection.createStatement();
+                var set = statement.executeQuery(sql)) {
             int columns = set.getMetaData().getColumnCount();
             while (set.next()) {
                 var row = new StringBuilder();
@@ -99,9 +102,11 @@ class AvailabilityBackfillMigrationPostgresTests {
             assertEquals(List.of("2"), rows(connection, "SELECT count(*) FROM product_availability "
                     + "WHERE status = 'TEMPORARILY_CLOSED' AND reason_code = 'MIGRATION_BACKFILL' AND reason_text IS NOT NULL"));
             assertEquals(List.of(productA + "|" + restaurantA + "|" + updaterA),
-                    rows(connection, "SELECT product_id, restaurant_id, changed_by_user_id FROM product_availability WHERE product_id = '" + productA + "'"));
+                    rows(connection, "SELECT product_id, restaurant_id, changed_by_user_id FROM product_availability WHERE product_id = '"
+                            + productA + "'"));
             assertEquals(List.of(productB + "|" + restaurantB + "|" + updaterB),
-                    rows(connection, "SELECT product_id, restaurant_id, changed_by_user_id FROM product_availability WHERE product_id = '" + productB + "'"));
+                    rows(connection, "SELECT product_id, restaurant_id, changed_by_user_id FROM product_availability WHERE product_id = '"
+                            + productB + "'"));
             // The backfill is recorded in the history too, with no previous status.
             assertEquals(List.of("2"), rows(connection, "SELECT count(*) FROM product_availability_history "
                     + "WHERE from_status IS NULL AND to_status = 'TEMPORARILY_CLOSED' AND reason_code = 'MIGRATION_BACKFILL'"));

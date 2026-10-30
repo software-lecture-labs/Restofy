@@ -1,9 +1,13 @@
 package com.restofy.menu.domain.entity;
 
 import com.restofy.menu.domain.exception.InvalidProductException;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.util.Currency;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -66,7 +70,8 @@ class ProductTests {
     void priceRules() {
         assertEquals(new BigDecimal("0.0000"), Product.normalizePrice(BigDecimal.ZERO));
         assertEquals(new BigDecimal("12.3400"), Product.normalizePrice(new BigDecimal("12.34")));
-        assertEquals(new BigDecimal("1.2000"), Product.normalizePrice(new BigDecimal("1.200000")), "trailing zeros are not extra precision");
+        assertEquals(new BigDecimal("1.2000"), Product.normalizePrice(new BigDecimal("1.200000")),
+                "trailing zeros are not extra precision");
         assertEquals(new BigDecimal("999999999999999.9999"), Product.normalizePrice(new BigDecimal("999999999999999.9999")));
         assertThrows(InvalidProductException.class, () -> Product.normalizePrice(null));
         BigDecimal negativePrice = new BigDecimal("-0.0001");
@@ -165,13 +170,13 @@ class ProductTests {
     @Test
     void absurdExponentsAreRefusedQuicklyWithoutBeingExpanded() {
         for (String huge : new String[] {"1E+999999999", "9.9E+2147483646", "1E+400"}) {
-            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () -> {
+            Assertions.assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
                 BigDecimal value = new BigDecimal(huge);
                 assertThrows(InvalidProductException.class, () -> Product.normalizePrice(value), huge);
                 assertThrows(InvalidProductException.class, () -> Product.normalizeVatRate(value), huge);
             });
         }
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(2), () -> {
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(2), () -> {
             BigDecimal value = new BigDecimal("1E-999999999");
             assertThrows(InvalidProductException.class, () -> Product.normalizePrice(value),
                     "a nonzero value far below 0.0001 needs more than four decimals");
@@ -206,7 +211,8 @@ class ProductTests {
 
     @Test
     void genuineMonetaryCurrenciesAreAcceptedIncludingTheOnesThatStartWithX() {
-        for (String ok : new String[] {"TRY", "USD", "EUR", "GBP", "JPY", "CHF", "SAR", "AED", "CAD", "AUD", "XAF", "XOF", "XCD", "XPF", "XCG"}) {
+        for (String ok : new String[] {"TRY", "USD", "EUR", "GBP", "JPY", "CHF", "SAR", "AED", "CAD", "AUD", "XAF", "XOF", "XCD", "XPF",
+                "XCG"}) {
             assertEquals(ok, Product.normalizeCurrency(ok), ok);
         }
     }
@@ -228,10 +234,10 @@ class ProductTests {
     /** Guards against a newer JDK adding a pseudo-currency: anything without fraction digits must stay rejected. */
     @Test
     void everyJdkPseudoCurrencyIsRejectedAndEveryOtherJdkCurrencyOutsideTheDeniedSetIsAccepted() {
-        java.util.Set<String> denied = java.util.Set.of("XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XBB", "XBC", "XBD",
+        Set<String> denied = Set.of("XXX", "XTS", "XAU", "XAG", "XPD", "XPT", "XDR", "XBA", "XBB", "XBC", "XBD",
                 "XSU", "XUA", "XFU", "XFO", "XAD", "BOV", "CHE", "CHW", "CLF", "COU", "MXV", "USN", "USS", "UYI", "UYW");
         int accepted = 0;
-        for (java.util.Currency currency : java.util.Currency.getAvailableCurrencies()) {
+        for (Currency currency : Currency.getAvailableCurrencies()) {
             String code = currency.getCurrencyCode();
             if (currency.getDefaultFractionDigits() < 0 || denied.contains(code)) {
                 assertThrows(InvalidProductException.class, () -> Product.normalizeCurrency(code), code);

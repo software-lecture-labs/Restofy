@@ -2,9 +2,9 @@ package com.restofy.menu.domain.entity;
 
 import com.restofy.menu.domain.enums.AvailabilityStatus;
 import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 

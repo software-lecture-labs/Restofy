@@ -96,7 +96,8 @@ class AuthorizationBeforeValidationApiTests {
         assertFalse(content.contains("\"errors\""), "no validation details: " + content);
         assertTrue(result.getResponse().getContentType().startsWith("application/problem+json"));
         String detail = JsonPath.read(content, "$.detail");
-        assertTrue(detail.equals("Authentication is required.") || detail.equals("The caller is not allowed to perform this operation."), detail);
+        assertTrue(detail.equals("Authentication is required.") || detail.equals("The caller is not allowed to perform this operation."),
+                detail);
         for (String leak : List.of("name", "basePrice", "currency", "vatRate", "version", "status", "page", "size", "sort", "uuid")) {
             assertFalse(detail.toLowerCase().contains(leak), "detail must not mention " + leak);
         }
@@ -128,7 +129,8 @@ class AuthorizationBeforeValidationApiTests {
             assertEquals(400, result.getResponse().getStatus(), call + " -> " + result.getResponse().getContentAsString());
         }
         MvcResult validation = run(new Call(HttpMethod.POST, P, "{}"));
-        assertNotNull(JsonPath.read(validation.getResponse().getContentAsString(), "$.errors"), "an ADMIN still sees which fields are wrong");
+        assertNotNull(JsonPath.read(validation.getResponse().getContentAsString(), "$.errors"),
+                "an ADMIN still sees which fields are wrong");
     }
 
     @Test
@@ -148,7 +150,8 @@ class AuthorizationBeforeValidationApiTests {
         actor.actAsNobody();
         MvcResult result = mvc.perform(request(HttpMethod.POST, P).with(user("staff")).with(csrf())
                 .header("X-Restaurant-Id", RESTAURANT).header("X-Role", "ADMIN").header("X-User-Id", UUID.randomUUID())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"restaurantId\":\"" + RESTAURANT + "\",\"role\":\"ADMIN\"}")).andReturn();
+                .contentType(MediaType.APPLICATION_JSON).content("{\"restaurantId\":\"" + RESTAURANT
+                        + "\",\"role\":\"ADMIN\"}")).andReturn();
         assertOnlyAFixedProblem(result, 401);
         actor.actAs(RESTAURANT, ActorRole.WAITER);
         MvcResult waiter = mvc.perform(request(HttpMethod.POST, P).with(user("staff")).with(csrf())

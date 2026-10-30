@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.IntConsumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -65,7 +66,7 @@ class ProductConcurrencyTests {
     }
 
     /** Runs all attempts at the same instant and returns how many succeeded / conflicted. */
-    private int[] race(int contenders, java.util.function.IntConsumer attempt) throws Exception {
+    private int[] race(int contenders, IntConsumer attempt) throws Exception {
         var ready = new CountDownLatch(contenders);
         var go = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(contenders);
@@ -90,7 +91,11 @@ class ProductConcurrencyTests {
             int conflicts = 0;
             for (Future<Boolean> result : results) {
                 try {
-                    if (result.get()) wins++; else conflicts++;
+                    if (result.get()) {
+                        wins++;
+                    } else {
+                        conflicts++;
+                    }
                 } catch (ExecutionException unexpected) {
                     fail("Only success or a version conflict is acceptable, got " + unexpected.getCause());
                 }
@@ -259,7 +264,8 @@ class ProductConcurrencyTests {
         assertEquals(3, outcome[1]);
         var row = jdbc.queryForMap("SELECT base_price, currency, vat_rate, price_includes_vat, version FROM products WHERE id = ?", id);
         int winner = ((BigDecimal) row.get("base_price")).intValue() - 100;
-        assertEquals(winner % 2 == 0 ? "EUR" : "USD", row.get("currency"), "price, currency, VAT and inclusion all come from the SAME request");
+        assertEquals(winner % 2 == 0 ? "EUR" : "USD", row.get("currency"),
+                "price, currency, VAT and inclusion all come from the SAME request");
         assertEquals(winner, ((BigDecimal) row.get("vat_rate")).intValue());
         assertEquals(winner % 2 == 0, row.get("price_includes_vat"));
         assertEquals(1L, row.get("version"));

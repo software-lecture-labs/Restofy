@@ -56,7 +56,8 @@ class ProductAvailabilityTests {
     @Test
     void closedStatusesNeedAReasonCode() {
         var availability = initial();
-        for (AvailabilityStatus closed : new AvailabilityStatus[] {AvailabilityStatus.OUT_OF_STOCK, AvailabilityStatus.TEMPORARILY_CLOSED}) {
+        for (AvailabilityStatus closed : new AvailabilityStatus[] {AvailabilityStatus.OUT_OF_STOCK,
+                AvailabilityStatus.TEMPORARILY_CLOSED}) {
             assertThrows(InvalidProductException.class, () -> availability.change(closed, null, "text only", ADMIN));
             assertThrows(InvalidProductException.class, () -> availability.change(closed, "  ", null, ADMIN));
         }

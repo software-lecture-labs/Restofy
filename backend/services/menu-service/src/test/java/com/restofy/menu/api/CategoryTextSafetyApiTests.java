@@ -71,7 +71,8 @@ class CategoryTextSafetyApiTests {
     }
 
     private UUID created(String path, String name) throws Exception {
-        String body = send(post(path), "{\"name\":" + json(name) + "}").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String body = send(post(path), "{\"name\":" + json(name) + "}").andExpect(status().isCreated()).andReturn().getResponse()
+                .getContentAsString();
         return UUID.fromString(JsonPath.read(body, "$.id"));
     }
 
@@ -117,7 +118,8 @@ class CategoryTextSafetyApiTests {
         for (String name : new String[] {"Çorbalar", "İçecekler & Şerbetler", "寿司", "Dessert 🍰"}) {
             send(post(C), "{\"name\":" + json(name) + "}").andExpect(status().isCreated()).andExpect(jsonPath("$.name").value(name));
         }
-        send(post(C), "{\"name\":\"  Main \\t  Dishes \"}").andExpect(status().isCreated()).andExpect(jsonPath("$.name").value("Main Dishes"));
+        send(post(C), "{\"name\":\"  Main \\t  Dishes \"}").andExpect(status().isCreated()).andExpect(jsonPath("$.name")
+                .value("Main Dishes"));
         send(post(C), "{\"name\":\"main dishes\"}").andExpect(status().isConflict());
         send(post(C), "{\"name\":\"   \"}").andExpect(status().isBadRequest());
         send(post(C), "{\"name\":\"" + "n".repeat(151) + "\"}").andExpect(status().isBadRequest());
