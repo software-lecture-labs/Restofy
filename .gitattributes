@@ -1,7 +1,3 @@
-# Default: normalize text files to LF in the repository (editors on Windows may write CRLF).
-# Files already stored with CRLF in the index are left as they are; specific rules below win.
-* text=auto eol=lf
-
 pre-push/*.sh text eol=lf
 pre-push/*.cmd text eol=crlf
 sonarqube/*.sh text eol=lf
