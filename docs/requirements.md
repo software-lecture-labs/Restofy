@@ -172,6 +172,11 @@ Kaynak Word'deki teknik maddeler öneridir; repository'deki `docs/SECURITY.md` u
 
 ## 6. Açık karar kaydı
 
+**30 Ekim 2026 Auth güncellemesi:** Aşağıdaki liste 15 Ekim analizinin ortak karar kaydıdır.
+D-09/D-10'un uygulanmış Auth/Mail dilimi ve D-13'ün Auth migration aralığı
+[Auth kapanış kaydında](auth-service/completion-review.md) netleştirildi. D-05 ve ekip geneli
+kararlar açık kalır; Auth'un yerel tamamlanması tüm platform kararlarının kapandığı anlamına gelmez.
+
 - **D-01 / Ürün + ödeme:** Demo/gerçek ödeme sürüm sınırı, sağlayıcı, ön/son ödeme ve iptal/iade/başarılı geç callback davranışı.
 - **D-02 / Ürün + Kitchen + Order:** Ürün bazlı iptalin sipariş bazlı hazırlığa etkisi; kalan ürünler ve tam iptal ilişkisi; READY sipariş iptal sınırı.
 - **D-03 / Ürün + Rating:** Nakit ödeyen guest puanlayabilir mi? Oy tekilliği ve değerlendirme süresi nasıl uygulanır?

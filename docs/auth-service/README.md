@@ -1,5 +1,7 @@
 # Auth entegrasyon paketi
 
+[Güncel kapsam kapanışı](completion-review.md) · [Yerel PR açıklaması](pr-message.md)
+
 Sahip: Kerem Kalyoncu (Auth/Mail). Güncelleme: 29 Ekim 2026.
 
 [30 Ekim PR öncesi hoca yorumları denetimi](pre-pr-review.md): tüm PR'lar, tekrar bulunan

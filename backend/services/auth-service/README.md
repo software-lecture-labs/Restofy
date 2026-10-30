@@ -1,4 +1,4 @@
-# Auth Service — AUTH-01 / AUTH-02
+# Auth Service — AUTH-01..04 ve personel entegrasyonu
 
 Güncel servisler arası sözleşme, bağlantı beklentileri, CI ve doğrulama kaydı:
 [Auth entegrasyon paketi](../../../docs/auth-service/README.md).
@@ -65,7 +65,8 @@ Başlangıç ADMIN'i MFA olmadan yönetim erişimi kazanmaz. MFA kurulumu AUTH-0
 
 ## Güvenlik sınırı
 
-Spring method security etkindir; roller hiyerarşik değildir. Henüz iş endpoint'i yoktur.
+Spring method security etkindir; roller hiyerarşik değildir. Auth oturum/MFA/reset,
+ADMIN personel yönetimi ve dar Notification alıcı sorgusunu sağlar; sipariş/ödeme işi yönetmez.
 GET health/liveness/readiness ve aşağıda belirtilen Auth yolları dışında HTTP yolları
 reddedilir. Basic/form login kapalıdır, varsayılan Spring kullanıcısıyla
 geçici giriş yoktur. Sunucu HTTP oturumu oluşturmaz veya mevcut oturum kimliğini yüklemez.
@@ -74,8 +75,9 @@ Swagger ENV'si açık olsa bile bu aşamada dokümantasyon HTTP erişimi verilme
 
 Çok restoranlı dokümanlarla tek restoran hedefinin uyumu açık ekip kararıdır.
 Bu çalışma başka servislerin tenant kontrollerini değiştirmez; `ADMIN` global platform
-yöneticisi değildir. Servisler arası kimlik, tenant taşıma, cookie/session ve CSRF
-sözleşmesinin sonraki aşaması Alper'le kesinleştirilecektir.
+yöneticisi değildir. Mevcut staff cookie/JWT, tenant ve CSRF sözleşmesi
+`docs/auth-service/staff-contract.md` içinde sabittir. Genel servis kimliği önerisinin tüm
+servislere uygulanması bu teslimin parçası değildir; Notification ve Mail'in uygulanan dar sözleşmeleri ayrıdır.
 
 AUTH-02: HTTP giriş, cookie/token/session, iptal/çıkış, hız sınırları ve CSRF sözleşmesi.
 AUTH-03: zorunlu ADMIN TOTP, ilk MFA kurulumu, kurtarma ve replay kontrolü.
@@ -97,7 +99,8 @@ curl -si -b jar.txt -c jar.txt -H 'Origin: http://localhost:5000' \
   -d '{"email":"...","password":"..."}' http://localhost:5051/api/v1/auth/login
 ```
 
-Servisler arası kimlik bu uçlardan geçmez; o, ayrı bir `Authorization: Service` sözleşmesidir.
+Notification→Auth alıcı sorgusu ayrı `Authorization: Service` zincirinden geçer.
+Auth→Mail mevcut `Bearer` sözleşmesini kullanır; tarayıcı giriş endpoint'leri servis tokenı dağıtmaz.
 
 ### Geliştirme anahtarı `AUTH_MFA_REQUIRED`
 
@@ -125,12 +128,12 @@ belirten bir hatayla başlamaz. Başlangıçta WARN logu yazılır. Karar tek ye
 Yeni bir PowerShell'de (yalnız o süreç için, kalıcı Windows ayarı değiştirilmez):
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-25.0.4.1'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-25.0.5' # Kurulu Java 25 yolunu kullanın.
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 java -version
 javac -version
 mvn -version
-mvn -B -ntp -f backend/pom.xml -pl services/auth-service clean verify
+mvn -B -ntp -f backend/pom.xml -pl services/auth-service -am clean verify
 .\pre-push\pre-push.cmd full dev
 ```
 
