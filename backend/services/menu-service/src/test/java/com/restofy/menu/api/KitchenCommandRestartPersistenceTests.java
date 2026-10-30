@@ -4,8 +4,8 @@ import com.restofy.menu.MenuServiceApplication;
 import com.restofy.menu.application.service.KitchenAvailabilityCommand;
 import com.restofy.menu.application.service.KitchenAvailabilityCommandService;
 import com.restofy.menu.application.service.KitchenAvailabilityResult;
-import com.restofy.menu.application.service.KitchenAvailabilityResult.Outcome;
 import com.restofy.menu.domain.enums.AvailabilityStatus;
+import com.restofy.menu.domain.enums.CommandOutcome;
 import com.restofy.menu.domain.exception.CommandIdConflictException;
 import com.restofy.menu.support.PublicMenuFixture;
 import com.restofy.menu.support.TestActorConfiguration;
@@ -63,7 +63,8 @@ class KitchenCommandRestartPersistenceTests {
     }
 
     private Map<String, Object> state() {
-        return jdbc.queryForMap("SELECT status, reason_code, version, changed_at, changed_by_user_id FROM product_availability WHERE product_id = ?", product);
+        return jdbc.queryForMap("SELECT status, reason_code, version, changed_at, changed_by_user_id FROM product_availability WHERE "
+                + "product_id = ?", product);
     }
 
     private ConfigurableApplicationContext restart() {
@@ -74,7 +75,8 @@ class KitchenCommandRestartPersistenceTests {
     @Test
     void aCommandIsStillRecognisedAfterARestartAndNothingIsReopened() {
         UUID id = UUID.randomUUID();
-        KitchenAvailabilityCommand command = new KitchenAvailabilityCommand(id, product, AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", "no dough", null);
+        KitchenAvailabilityCommand command = new KitchenAvailabilityCommand(id, product, AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT",
+                "no dough", null);
         KitchenAvailabilityResult first = kitchen.handle(command);
         Map<String, Object> before = state();
         int history = jdbc.queryForObject("SELECT count(*) FROM product_availability_history", Integer.class);
@@ -87,10 +89,11 @@ class KitchenCommandRestartPersistenceTests {
 
             KitchenAvailabilityResult replay = restarted.handle(command);
             assertTrue(replay.replayed(), "the command id was remembered across the restart");
-            assertEquals(Outcome.APPLIED, replay.outcome());
+            assertEquals(CommandOutcome.APPLIED, replay.outcome());
             assertEquals(first.version(), replay.version());
 
-            KitchenAvailabilityCommand different = new KitchenAvailabilityCommand(id, product, AvailabilityStatus.TEMPORARILY_CLOSED, "CLEANING", null, null);
+            KitchenAvailabilityCommand different = new KitchenAvailabilityCommand(id, product, AvailabilityStatus.TEMPORARILY_CLOSED,
+                    "CLEANING", null, null);
             assertThrows(CommandIdConflictException.class, () -> restarted.handle(different));
         }
 
@@ -101,7 +104,8 @@ class KitchenCommandRestartPersistenceTests {
 
     @Test
     void aClosedProductStaysClosedAcrossARestartUntilAnExplicitAvailableCommand() {
-        kitchen.handle(new KitchenAvailabilityCommand(UUID.randomUUID(), product, AvailabilityStatus.TEMPORARILY_CLOSED, "CLEANING", null, null));
+        kitchen.handle(new KitchenAvailabilityCommand(UUID.randomUUID(), product, AvailabilityStatus.TEMPORARILY_CLOSED, "CLEANING", null,
+                null));
         Map<String, Object> before = state();
 
         try (ConfigurableApplicationContext second = restart()) {

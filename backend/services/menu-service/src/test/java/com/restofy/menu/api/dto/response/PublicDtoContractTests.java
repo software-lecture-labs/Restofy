@@ -45,7 +45,8 @@ class PublicDtoContractTests {
 
     @Test
     void noManagementFieldIsEverInAPublicDto() {
-        List<String> forbidden = List.of("restaurantId", "version", "createdAt", "updatedAt", "createdByUserId", "updatedByUserId", "isActive",
+        List<String> forbidden = List.of("restaurantId", "version", "createdAt", "updatedAt", "createdByUserId", "updatedByUserId",
+                "isActive",
                 "isPublished", "isVisibleToCustomer", "reasonCode", "reasonText", "changedAt", "vatRate", "categoryId", "parentCategory",
                 "categoryEffectivelyActive", "commandId", "sortOrder", "minQuantity");
         for (Class<?> type : List.of(PublicProductCardResponse.class, PublicCategoryRef.class, PublicCategoryResponse.class,

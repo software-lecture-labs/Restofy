@@ -67,9 +67,12 @@ class ProductListingConsistencyApiTests {
         return switch (shape) {
             case ROOT_ACTIVE -> fixture.category(ALPHA, null, "Root " + n, 0, true);
             case ROOT_INACTIVE -> fixture.category(ALPHA, null, "Root " + n, 0, false);
-            case SUB_ACTIVE_PARENT_ACTIVE -> fixture.category(ALPHA, fixture.category(ALPHA, null, "Parent " + n, 0, true), "Sub " + n, 0, true);
-            case SUB_ACTIVE_PARENT_INACTIVE -> fixture.category(ALPHA, fixture.category(ALPHA, null, "Parent " + n, 0, false), "Sub " + n, 0, true);
-            case SUB_INACTIVE_PARENT_ACTIVE -> fixture.category(ALPHA, fixture.category(ALPHA, null, "Parent " + n, 0, true), "Sub " + n, 0, false);
+            case SUB_ACTIVE_PARENT_ACTIVE -> fixture.category(ALPHA, fixture.category(ALPHA, null, "Parent " + n, 0, true), "Sub "
+                    + n, 0, true);
+            case SUB_ACTIVE_PARENT_INACTIVE -> fixture.category(ALPHA, fixture.category(ALPHA, null, "Parent " + n, 0, false), "Sub "
+                    + n, 0, true);
+            case SUB_INACTIVE_PARENT_ACTIVE -> fixture.category(ALPHA, fixture.category(ALPHA, null, "Parent " + n, 0, true), "Sub "
+                    + n, 0, false);
         };
     }
 

@@ -3,8 +3,12 @@ package com.restofy.menu.application.service;
 import com.restofy.menu.application.security.TrustedKitchenCaller;
 import com.restofy.menu.application.security.TrustedKitchenCallerProvider;
 import com.restofy.menu.domain.entity.ProductAvailability;
+import com.restofy.menu.domain.entity.ProductAvailabilityCommand;
+import com.restofy.menu.domain.entity.ProductAvailabilityCommand.Content;
 import com.restofy.menu.domain.entity.ProductAvailabilityHistory;
 import com.restofy.menu.domain.enums.AvailabilityStatus;
+import com.restofy.menu.domain.enums.CommandOutcome;
+import com.restofy.menu.domain.enums.CommandSource;
 import com.restofy.menu.domain.exception.CommandIdConflictException;
 import com.restofy.menu.domain.exception.InvalidProductException;
 import com.restofy.menu.domain.exception.ProductAvailabilityMissingException;
@@ -12,7 +16,6 @@ import com.restofy.menu.domain.exception.ProductAvailabilityVersionConflictExcep
 import com.restofy.menu.domain.exception.ProductNotFoundException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import com.restofy.menu.infrastructure.persistence.repository.ProductAvailabilityCommandRepository;
-import com.restofy.menu.infrastructure.persistence.repository.ProductAvailabilityCommandRepository.Content;
 import com.restofy.menu.infrastructure.persistence.repository.ProductAvailabilityHistoryRepository;
 import com.restofy.menu.infrastructure.persistence.repository.ProductAvailabilityRepository;
 import com.restofy.menu.infrastructure.persistence.repository.ProductRepository;
@@ -43,8 +46,6 @@ import java.util.UUID;
 @Service
 public class KitchenAvailabilityCommandService {
 
-    static final String SOURCE = "KITCHEN";
-
     private final TrustedKitchenCallerProvider callers;
     private final ProductRepository products;
     private final ProductAvailabilityRepository availabilities;
@@ -68,7 +69,8 @@ public class KitchenAvailabilityCommandService {
         UUID restaurantId = caller.restaurantId();
         products.findByIdAndRestaurantId(command.productId(), restaurantId).orElseThrow(ProductNotFoundException::new);
 
-        if (!commands.claim(restaurantId, command.commandId(), content, Instant.now())) {
+        var claimed = new ProductAvailabilityCommand(restaurantId, command.commandId(), content, Instant.now());
+        if (commands.claim(claimed) == 0) {
             return replay(restaurantId, command.commandId(), content);
         }
         return apply(caller, command, content);
@@ -91,18 +93,17 @@ public class KitchenAvailabilityCommandService {
         if (status.requiresReason() && code == null) {
             throw new InvalidProductException("A reason code is required to close a product.");
         }
-        return new Content(command.productId(), SOURCE, status.name(), code, text, command.expectedVersion(),
+        return new Content(command.productId(), CommandSource.KITCHEN, status, code, text, command.expectedVersion(),
                 caller.onBehalfOfUserId());
     }
 
     private KitchenAvailabilityResult replay(UUID restaurantId, UUID commandId, Content content) {
-        var stored = commands.find(restaurantId, commandId)
+        var stored = commands.findByRestaurantIdAndCommandId(restaurantId, commandId)
                 .orElseThrow(() -> new IllegalStateException("A claimed command id has no record."));
         if (!stored.content().equals(content)) {
             throw new CommandIdConflictException();
         }
-        return new KitchenAvailabilityResult(KitchenAvailabilityResult.Outcome.valueOf(stored.outcome()), true,
-                AvailabilityStatus.valueOf(stored.content().targetStatus()), stored.resultingVersion());
+        return new KitchenAvailabilityResult(stored.getOutcome(), true, stored.getTargetStatus(), stored.getResultingVersion());
     }
 
     private KitchenAvailabilityResult apply(TrustedKitchenCaller caller, KitchenAvailabilityCommand command, Content content) {
@@ -125,8 +126,10 @@ public class KitchenAvailabilityCommandService {
             }
             histories.saveAndFlush(ProductAvailabilityHistory.changed(before, availability, command.commandId()));
         }
-        var outcome = changed ? KitchenAvailabilityResult.Outcome.APPLIED : KitchenAvailabilityResult.Outcome.NO_CHANGE;
-        commands.complete(restaurantId, command.commandId(), outcome.name(), availability.getVersion());
+        var outcome = changed ? CommandOutcome.APPLIED : CommandOutcome.NO_CHANGE;
+        commands.findByRestaurantIdAndCommandId(restaurantId, command.commandId())
+                .orElseThrow(() -> new IllegalStateException("A claimed command id has no record."))
+                .complete(outcome, availability.getVersion());
         return new KitchenAvailabilityResult(outcome, false, availability.getStatus(), availability.getVersion());
     }
 }

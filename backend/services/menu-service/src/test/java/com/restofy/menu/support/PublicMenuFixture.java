@@ -89,7 +89,8 @@ public final class PublicMenuFixture {
                 id, restaurant, category, name, spec.description(), spec.price(), spec.active(), spec.published(), ACTOR, ACTOR,
                 Timestamp.from(spec.createdAt()), Timestamp.from(spec.createdAt()));
         if (spec.availability() != null) {
-            jdbc.update("INSERT INTO product_availability (id, restaurant_id, product_id, status, reason_code, changed_at, changed_by_user_id) "
+            jdbc.update("INSERT INTO product_availability (id, restaurant_id, product_id, status, reason_code, changed_at, "
+                    + "changed_by_user_id) "
                     + "VALUES (?, ?, ?, ?, ?, now(), ?)", UUID.randomUUID(), restaurant, id, spec.availability(),
                     "AVAILABLE".equals(spec.availability()) ? null : "SOLD_OUT", ACTOR);
         }
@@ -108,8 +109,10 @@ public final class PublicMenuFixture {
 
     private UUID option(UUID restaurant, UUID product, String name, String type, String[] priceMinMax, int sortOrder, boolean active) {
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO product_options (id, restaurant_id, product_id, name, option_type, price_delta, min_quantity, max_quantity, "
-                + "sort_order, is_active, created_by_user_id, updated_by_user_id) VALUES (?, ?, ?, ?, ?, CAST(? AS numeric), CAST(? AS integer), "
+        jdbc.update("INSERT INTO product_options (id, restaurant_id, product_id, name, option_type, price_delta, min_quantity, "
+                + "max_quantity, "
+                + "sort_order, is_active, created_by_user_id, updated_by_user_id) VALUES (?, ?, ?, ?, ?, CAST(? AS numeric), CAST(? AS "
+                        + "integer), "
                 + "CAST(? AS integer), ?, ?, ?, ?)", id, restaurant, product, name, type, priceMinMax[0], priceMinMax[1], priceMinMax[2],
                 sortOrder, active, ACTOR, ACTOR);
         return id;

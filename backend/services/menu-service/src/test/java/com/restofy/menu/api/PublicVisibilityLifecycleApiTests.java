@@ -20,6 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -74,7 +75,8 @@ class PublicVisibilityLifecycleApiTests {
     }
 
     private String publicList(String query) throws Exception {
-        return mvc.perform(get(java.net.URI.create(PUBLIC_PRODUCTS + query))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return mvc.perform(get(URI.create(PUBLIC_PRODUCTS + query))).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString();
     }
 
     private List<String> publicNames() throws Exception {
@@ -96,7 +98,8 @@ class PublicVisibilityLifecycleApiTests {
     }
 
     private void publish(UUID id, boolean published) throws Exception {
-        admin(patch(ADMIN_PRODUCTS + "/" + id + "/publication"), "{\"isPublished\":" + published + ",\"version\":" + productVersion(id) + "}", 200);
+        admin(patch(ADMIN_PRODUCTS + "/" + id + "/publication"), "{\"isPublished\":" + published + ",\"version\":" + productVersion(id)
+                + "}", 200);
     }
 
     private void archive(UUID id, boolean active) throws Exception {
@@ -105,7 +108,8 @@ class PublicVisibilityLifecycleApiTests {
 
     private void availability(UUID id, String status) throws Exception {
         String reason = "AVAILABLE".equals(status) ? "" : ",\"reasonCode\":\"SOLD_OUT\"";
-        admin(patch(ADMIN_PRODUCTS + "/" + id + "/availability"), "{\"status\":\"" + status + "\"" + reason + ",\"version\":" + availabilityVersion(id) + "}", 200);
+        admin(patch(ADMIN_PRODUCTS + "/" + id + "/availability"), "{\"status\":\"" + status + "\"" + reason + ",\"version\":"
+                + availabilityVersion(id) + "}", 200);
     }
 
     private boolean canOrder(String name) throws Exception {
@@ -230,8 +234,10 @@ class PublicVisibilityLifecycleApiTests {
 
         assertEquals(List.of("Closed", "Out of stock", "Shown"), publicNames());
 
-        String management = mvc.perform(get(ADMIN_PRODUCTS + "?size=100").with(user("staff"))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertEquals(5, ((Number) JsonPath.read(management, "$.totalElements")).intValue(), "management sees drafts, archived, out of stock and closed too");
+        String management = mvc.perform(get(ADMIN_PRODUCTS + "?size=100").with(user("staff"))).andExpect(status().isOk()).andReturn()
+                .getResponse().getContentAsString();
+        assertEquals(5, ((Number) JsonPath.read(management, "$.totalElements")).intValue(),
+                "management sees drafts, archived, out of stock and closed too");
         List<Boolean> visible = JsonPath.read(management, "$.items[?(@.name=='Draft')].isVisibleToCustomer");
         assertEquals(List.of(false), visible);
         List<Boolean> outVisible = JsonPath.read(management, "$.items[?(@.name=='Out of stock')].isVisibleToCustomer");
@@ -239,6 +245,35 @@ class PublicVisibilityLifecycleApiTests {
         List<Boolean> outOrder = JsonPath.read(management, "$.items[?(@.name=='Out of stock')].canOrder");
         assertEquals(List.of(false), outOrder);
         mvc.perform(get(ADMIN_PRODUCTS + "/" + archived).with(user("staff"))).andExpect(status().isOk());
+    }
+
+    @Test
+    void theManagementResponseSaysWhetherTheCustomerMenuListsTheProduct() throws Exception {
+        UUID id = createDraft("Pide");
+        publish(id, true);
+        String listedJson = mvc.perform(get(ADMIN_PRODUCTS + "/" + id).with(user("staff"))).andReturn().getResponse().getContentAsString();
+        assertEquals(true, JsonPath.read(listedJson, "$.isVisibleToCustomer"));
+        assertEquals(true, JsonPath.read(listedJson, "$.isListedPublicly"));
+
+        jdbc.update("DELETE FROM product_availability WHERE product_id = ?", id);
+        String noRecord = mvc.perform(get(ADMIN_PRODUCTS + "/" + id).with(user("staff"))).andReturn().getResponse().getContentAsString();
+        assertEquals(true, JsonPath.read(noRecord, "$.isVisibleToCustomer"), "the management meaning is unchanged");
+        assertEquals(false, JsonPath.read(noRecord, "$.isListedPublicly"), "the customer menu fails closed without the record");
+        assertEquals(false, JsonPath.read(noRecord, "$.canOrder"));
+        assertEquals(List.of(), publicNames());
+    }
+
+    @Test
+    void anArchivedOrHiddenProductIsNeitherVisibleNorListed() throws Exception {
+        UUID id = createDraft("Pide");
+        String draft = mvc.perform(get(ADMIN_PRODUCTS + "/" + id).with(user("staff"))).andReturn().getResponse().getContentAsString();
+        assertEquals(false, JsonPath.read(draft, "$.isVisibleToCustomer"));
+        assertEquals(false, JsonPath.read(draft, "$.isListedPublicly"));
+        publish(id, true);
+        archive(id, false);
+        String archived = mvc.perform(get(ADMIN_PRODUCTS + "/" + id).with(user("staff"))).andReturn().getResponse().getContentAsString();
+        assertEquals(false, JsonPath.read(archived, "$.isVisibleToCustomer"));
+        assertEquals(false, JsonPath.read(archived, "$.isListedPublicly"));
     }
 
     // ---- paging counts only what a customer can see ----
@@ -279,14 +314,16 @@ class PublicVisibilityLifecycleApiTests {
         String beyond = publicList("?size=7&page=3");
         assertEquals(List.of(), JsonPath.<List<Object>>read(beyond, "$.items"));
         assertEquals(20, ((Number) JsonPath.read(beyond, "$.totalElements")).intValue());
-        String management = mvc.perform(get(ADMIN_PRODUCTS + "?size=100").with(user("staff"))).andReturn().getResponse().getContentAsString();
+        String management = mvc.perform(get(ADMIN_PRODUCTS + "?size=100").with(user("staff"))).andReturn().getResponse()
+                .getContentAsString();
         assertEquals(100, ((Number) JsonPath.read(management, "$.totalElements")).intValue());
     }
 
     @Test
     void sixtyOfAHundredAreListedWithTheRightTotalAndFullPages() throws Exception {
         for (int i = 0; i < 100; i++) {
-            PublicMenuFixture.Spec spec = i < 60 ? PublicMenuFixture.Spec.visible() : (i % 2 == 0 ? PublicMenuFixture.Spec.visible().archived()
+            PublicMenuFixture.Spec spec = i < 60 ? PublicMenuFixture.Spec.visible() : (i % 2 == 0 ? PublicMenuFixture.Spec.visible()
+                    .archived()
                     : PublicMenuFixture.Spec.visible().unpublished());
             fixture.product(ALPHA, category, String.format("Item %03d", i), spec);
         }

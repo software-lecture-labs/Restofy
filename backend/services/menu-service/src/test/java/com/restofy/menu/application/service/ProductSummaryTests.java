@@ -67,7 +67,8 @@ class ProductSummaryTests {
         String summary = ProductSummary.of(text);
         assertEquals(140, length(summary));
         assertTrue(summary.endsWith("…"));
-        assertFalse(Character.isLowSurrogate(summary.charAt(summary.length() - 2)) && !Character.isHighSurrogate(summary.charAt(summary.length() - 3)));
+        assertFalse(Character.isLowSurrogate(summary.charAt(summary.length() - 2))
+                && !Character.isHighSurrogate(summary.charAt(summary.length() - 3)));
         for (int i = 0; i < summary.length(); i++) {
             char c = summary.charAt(i);
             if (Character.isHighSurrogate(c)) {

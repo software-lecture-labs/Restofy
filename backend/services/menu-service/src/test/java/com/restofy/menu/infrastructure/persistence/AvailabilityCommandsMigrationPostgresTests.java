@@ -26,7 +26,8 @@ class AvailabilityCommandsMigrationPostgresTests {
             .withDatabaseName("commands_control");
 
     private static final String OLD_ROWS = "SELECT status, reason_code, version FROM product_availability ORDER BY product_id";
-    private static final String OLD_HISTORY = "SELECT from_status, to_status, reason_code, changed_by_user_id FROM product_availability_history ORDER BY id";
+    private static final String OLD_HISTORY = "SELECT from_status, to_status, reason_code, changed_by_user_id FROM "
+            + "product_availability_history ORDER BY id";
 
     @BeforeAll
     static void start() {
@@ -58,7 +59,9 @@ class AvailabilityCommandsMigrationPostgresTests {
 
     private List<String> rows(String url, String sql) throws Exception {
         var result = new ArrayList<String>();
-        try (var connection = connect(url); var statement = connection.createStatement(); var set = statement.executeQuery(sql)) {
+        try (var connection = connect(url);
+                var statement = connection.createStatement();
+                var set = statement.executeQuery(sql)) {
             int columns = set.getMetaData().getColumnCount();
             while (set.next()) {
                 var row = new StringBuilder();
@@ -70,7 +73,8 @@ class AvailabilityCommandsMigrationPostgresTests {
     }
 
     private void execute(String url, String sql) throws Exception {
-        try (var connection = connect(url); var statement = connection.createStatement()) {
+        try (var connection = connect(url);
+                var statement = connection.createStatement()) {
             statement.execute(sql);
         }
     }
@@ -87,9 +91,11 @@ class AvailabilityCommandsMigrationPostgresTests {
         UUID category = UUID.randomUUID();
         execute(url, "INSERT INTO categories (id, restaurant_id, name) VALUES ('" + category + "', '" + seed.restaurant() + "', 'Main')");
         execute(url, "INSERT INTO products (id, restaurant_id, category_id, name, base_price, currency, vat_rate, price_includes_vat, "
-                + "created_by_user_id, updated_by_user_id) VALUES ('" + seed.product() + "', '" + seed.restaurant() + "', '" + category + "', '"
+                + "created_by_user_id, updated_by_user_id) VALUES ('" + seed.product() + "', '" + seed.restaurant() + "', '" + category
+                        + "', '"
                 + name + "', 5, 'TRY', 10, TRUE, '" + seed.actor() + "', '" + seed.actor() + "')");
-        execute(url, "INSERT INTO product_availability (id, restaurant_id, product_id, status, reason_code, changed_at, changed_by_user_id) "
+        execute(url,
+                "INSERT INTO product_availability (id, restaurant_id, product_id, status, reason_code, changed_at, changed_by_user_id) "
                 + "VALUES ('" + UUID.randomUUID() + "', '" + seed.restaurant() + "', '" + seed.product() + "', '" + status + "', "
                 + (reason == null ? "NULL" : "'" + reason + "'") + ", now(), '" + seed.actor() + "')");
         execute(url, "INSERT INTO product_availability_history (id, restaurant_id, product_id, from_status, to_status, reason_code, "
@@ -100,7 +106,8 @@ class AvailabilityCommandsMigrationPostgresTests {
 
     private String command(Seed seed, UUID commandId, String status, String reason) {
         return "INSERT INTO product_availability_commands (restaurant_id, command_id, product_id, source, target_status, reason_code, "
-                + "outcome, resulting_version, requested_by_user_id, created_at) VALUES ('" + seed.restaurant() + "', '" + commandId + "', '"
+                + "outcome, resulting_version, requested_by_user_id, created_at) VALUES ('" + seed.restaurant() + "', '" + commandId
+                        + "', '"
                 + seed.product() + "', 'KITCHEN', '" + status + "', " + (reason == null ? "NULL" : "'" + reason + "'")
                 + ", 'APPLIED', 1, '" + seed.actor() + "', now())";
     }
@@ -149,7 +156,8 @@ class AvailabilityCommandsMigrationPostgresTests {
         execute(url, command(other, commandId, "OUT_OF_STOCK", "SOLD_OUT"));
         assertRejected(url, "pk_product_availability_commands", command(seed, commandId, "OUT_OF_STOCK", "SOLD_OUT"));
         // A product of another restaurant cannot be named by this restaurant's command.
-        String crossTenant = command(seed, UUID.randomUUID(), "OUT_OF_STOCK", "SOLD_OUT").replace(seed.product().toString(), other.product().toString());
+        String crossTenant = command(seed, UUID.randomUUID(), "OUT_OF_STOCK", "SOLD_OUT").replace(seed.product().toString(),
+                other.product().toString());
         assertRejected(url, "fk_product_availability_commands_product", crossTenant);
         assertEquals(List.of("2"), rows(url, "SELECT count(*) FROM product_availability_commands"));
     }
@@ -161,9 +169,12 @@ class AvailabilityCommandsMigrationPostgresTests {
         Seed seed = seedProduct(url, "tea", "AVAILABLE", null);
         assertRejected(url, "ck_product_availability_commands_closed_reason", command(seed, UUID.randomUUID(), "OUT_OF_STOCK", null));
         assertRejected(url, "ck_product_availability_commands_status", command(seed, UUID.randomUUID(), "BROKEN", "X"));
-        assertRejected(url, "ck_product_availability_commands_source", command(seed, UUID.randomUUID(), "AVAILABLE", null).replace("'KITCHEN'", "'ORDER'"));
-        assertRejected(url, "ck_product_availability_commands_outcome", command(seed, UUID.randomUUID(), "AVAILABLE", null).replace("'APPLIED'", "'MAYBE'"));
-        assertRejected(url, "ck_product_availability_commands_versions", command(seed, UUID.randomUUID(), "AVAILABLE", null).replace("'APPLIED', 1", "'APPLIED', -1"));
+        assertRejected(url, "ck_product_availability_commands_source", command(seed, UUID.randomUUID(), "AVAILABLE",
+                null).replace("'KITCHEN'", "'ORDER'"));
+        assertRejected(url, "ck_product_availability_commands_outcome", command(seed, UUID.randomUUID(), "AVAILABLE",
+                null).replace("'APPLIED'", "'MAYBE'"));
+        assertRejected(url, "ck_product_availability_commands_versions", command(seed, UUID.randomUUID(), "AVAILABLE",
+                null).replace("'APPLIED', 1", "'APPLIED', -1"));
         execute(url, command(seed, UUID.randomUUID(), "AVAILABLE", null));
     }
 
@@ -177,10 +188,14 @@ class AvailabilityCommandsMigrationPostgresTests {
         execute(url, command(seed, commandId, "OUT_OF_STOCK", "SOLD_OUT"));
 
         String history = "INSERT INTO product_availability_history (id, restaurant_id, product_id, from_status, to_status, reason_code, "
-                + "changed_by_user_id, changed_at, command_id) VALUES ('%s', '%s', '%s', 'AVAILABLE', 'OUT_OF_STOCK', 'SOLD_OUT', '%s', now(), '%s')";
-        assertRejected(url, "fk_product_availability_history_command", String.format(history, UUID.randomUUID(), other.restaurant(), other.product(), other.actor(), commandId));
-        assertRejected(url, "fk_product_availability_history_command", String.format(history, UUID.randomUUID(), seed.restaurant(), seed.product(), seed.actor(), UUID.randomUUID()));
+                + "changed_by_user_id, changed_at, command_id) VALUES ('%s', '%s', '%s', 'AVAILABLE', 'OUT_OF_STOCK', 'SOLD_OUT', '%s', "
+                        + "now(), '%s')";
+        assertRejected(url, "fk_product_availability_history_command", String.format(history, UUID.randomUUID(), other.restaurant(),
+                other.product(), other.actor(), commandId));
+        assertRejected(url, "fk_product_availability_history_command", String.format(history, UUID.randomUUID(), seed.restaurant(),
+                seed.product(), seed.actor(), UUID.randomUUID()));
         execute(url, String.format(history, UUID.randomUUID(), seed.restaurant(), seed.product(), seed.actor(), commandId));
-        assertRejected(url, "uq_product_availability_history_command", String.format(history, UUID.randomUUID(), seed.restaurant(), seed.product(), seed.actor(), commandId));
+        assertRejected(url, "uq_product_availability_history_command", String.format(history, UUID.randomUUID(), seed.restaurant(),
+                seed.product(), seed.actor(), commandId));
     }
 }

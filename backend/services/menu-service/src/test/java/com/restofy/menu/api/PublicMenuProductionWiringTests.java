@@ -60,7 +60,8 @@ class PublicMenuProductionWiringTests {
     @Test
     void everyPublicEndpointAnswers404AndLeaksNothing() throws Exception {
         for (String ref : new String[] {RESTAURANT.toString(), "alpha-menu", "unknown"}) {
-            for (String path : new String[] {"/categories", "/products", "/products?q=secret", "/products?categoryId=" + UUID.randomUUID()}) {
+            for (String path : new String[] {"/categories", "/products", "/products?q=secret", "/products?categoryId="
+                    + UUID.randomUUID()}) {
                 String body = mvc.perform(get("/api/v1/menu/public/restaurants/" + ref + path)
                                 .header("X-Restaurant-Id", RESTAURANT).header("X-Role", "ADMIN").header("X-User-Id", UUID.randomUUID()))
                         .andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString();
@@ -86,8 +87,10 @@ class PublicMenuProductionWiringTests {
 
     @Test
     void theAnswerIsTheSameForARealAndAnUnknownReference() throws Exception {
-        String real = mvc.perform(get("/api/v1/menu/public/restaurants/" + RESTAURANT + "/products")).andReturn().getResponse().getContentAsString();
-        String unknown = mvc.perform(get("/api/v1/menu/public/restaurants/" + UUID.randomUUID() + "/products")).andReturn().getResponse().getContentAsString();
+        String real = mvc.perform(get("/api/v1/menu/public/restaurants/" + RESTAURANT + "/products")).andReturn().getResponse()
+                .getContentAsString();
+        String unknown = mvc.perform(get("/api/v1/menu/public/restaurants/" + UUID.randomUUID() + "/products")).andReturn().getResponse()
+                .getContentAsString();
         for (String field : new String[] {"status", "title", "detail"}) {
             assertEquals((Object) JsonPath.read(real, "$." + field), JsonPath.read(unknown, "$." + field), field);
         }
@@ -98,7 +101,8 @@ class PublicMenuProductionWiringTests {
         String base = "/api/v1/menu/public/restaurants/" + RESTAURANT;
         mvc.perform(get(base + "/products?q=x")).andExpect(status().isNotFound());
         mvc.perform(get(base + "/products?q=" + "x".repeat(60))).andExpect(status().isNotFound());
-        mvc.perform(get(base + "/products?categoryId=" + UUID.randomUUID() + "&subcategoryId=" + UUID.randomUUID())).andExpect(status().isNotFound());
+        mvc.perform(get(base + "/products?categoryId=" + UUID.randomUUID() + "&subcategoryId=" + UUID.randomUUID()))
+                .andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/menu/public/restaurants/" + "x".repeat(500) + "/categories")).andExpect(status().isNotFound());
     }
 }

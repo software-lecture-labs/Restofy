@@ -7,6 +7,9 @@ import com.restofy.menu.support.PublicMenuFixture;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestPublicScopeConfiguration;
 import com.restofy.menu.support.TestRatingSummaryPort;
+import jakarta.persistence.EntityManagerFactory;
+import org.hamcrest.Matchers;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,8 +24,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,7 +54,8 @@ class PublicProductDetailApiTests {
     private static final UUID ALPHA = TestPublicScopeConfiguration.RESTAURANT_ALPHA;
     private static final UUID BETA = TestPublicScopeConfiguration.RESTAURANT_BETA;
     private static final String ALPHA_BASE = "/api/v1/menu/public/restaurants/" + TestPublicScopeConfiguration.ALPHA_REF + "/products/";
-    private static final Set<String> DETAIL_KEYS = Set.of("id", "name", "description", "ingredientsText", "imageUrl", "category", "subcategory",
+    private static final Set<String> DETAIL_KEYS = Set.of("id", "name", "description", "ingredientsText", "imageUrl", "category",
+            "subcategory",
             "basePrice", "currency", "priceIncludesVat", "calories", "weightGrams", "estimatedPrepMinutes", "availability", "canOrder",
             "includedIngredients", "extras", "rating");
     private static final String NOT_FOUND = "The requested menu was not found.";
@@ -57,7 +64,7 @@ class PublicProductDetailApiTests {
     @Autowired JdbcTemplate jdbc;
     @Autowired TestRatingSummaryPort rating;
     @Autowired PublicProductDetailService detailService;
-    @Autowired jakarta.persistence.EntityManagerFactory entityManagerFactory;
+    @Autowired EntityManagerFactory entityManagerFactory;
 
     private PublicMenuFixture fixture;
     private UUID main;
@@ -93,12 +100,15 @@ class PublicProductDetailApiTests {
 
     @Test
     void aVisibleAvailableProductIsReturnedWithEveryDetailFieldAndNothingElse() throws Exception {
-        UUID id = fixture.product(ALPHA, sub, "Mercimek", PublicMenuFixture.Spec.visible().described("Kırmızı mercimek,\nlimon ile servis edilir.").priced("42.5"));
-        jdbc.update("UPDATE products SET image_url = 'https://img.example/a.png', ingredients_text = 'Mercimek, soğan, havuç', calories = 180, "
+        UUID id = fixture.product(ALPHA, sub, "Mercimek",
+                PublicMenuFixture.Spec.visible().described("Kırmızı mercimek,\nlimon ile servis edilir.").priced("42.5"));
+        jdbc.update("UPDATE products SET image_url = 'https://img.example/a.png', ingredients_text = 'Mercimek, soğan, havuç', calories "
+                + "= 180, "
                 + "weight_grams = 250.5, estimated_prep_minutes = 7 WHERE id = ?", id);
 
         String json = detail(id).andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store"))).andReturn().getResponse().getContentAsString();
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store"))).andReturn().getResponse()
+                        .getContentAsString();
 
         Map<String, Object> body = JsonPath.read(json, "$");
         assertEquals(DETAIL_KEYS, body.keySet());
@@ -165,8 +175,10 @@ class PublicProductDetailApiTests {
         UUID id = fixture.product(ALPHA, main, "Pide", PublicMenuFixture.Spec.visible().availability("OUT_OF_STOCK"));
         fixture.extra(ALPHA, id, "Peynir", "5", 2, 0, true);
         String json = body(id);
-        for (String forbidden : new String[] {"restaurantId", "version", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "isPublished",
-                "reasonCode", "reasonText", "SOLD_OUT", "commandId", "vatRate", "sortOrder", "minQuantity", ALPHA.toString(), "cccccccc-0000", "isVisibleToCustomer"}) {
+        for (String forbidden : new String[] {"restaurantId", "version", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive",
+                "isPublished",
+                "reasonCode", "reasonText", "SOLD_OUT", "commandId", "vatRate", "sortOrder", "minQuantity", ALPHA.toString(),
+                "cccccccc-0000", "isVisibleToCustomer"}) {
             assertFalse(json.contains(forbidden), forbidden + " leaked: " + json);
         }
     }
@@ -179,7 +191,8 @@ class PublicProductDetailApiTests {
         UUID id = fixture.product(ALPHA, main, "Pide", PublicMenuFixture.Spec.visible().availability(status));
         fixture.included(ALPHA, id, "Hamur", false, 0, true);
         fixture.extra(ALPHA, id, "Peynir", "5", 2, 0, true);
-        detail(id).andExpect(status().isOk()).andExpect(jsonPath("$.availability").value(status)).andExpect(jsonPath("$.canOrder").value(canOrder))
+        detail(id).andExpect(status().isOk()).andExpect(jsonPath("$.availability").value(status)).andExpect(jsonPath("$.canOrder")
+                .value(canOrder))
                 .andExpect(jsonPath("$.includedIngredients.length()").value(1)).andExpect(jsonPath("$.extras.length()").value(1));
     }
 
@@ -187,7 +200,8 @@ class PublicProductDetailApiTests {
 
     private String notFoundBody(UUID id) throws Exception {
         String json = detail(id).andExpect(status().isNotFound())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store"))).andReturn().getResponse().getContentAsString();
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store"))).andReturn().getResponse()
+                        .getContentAsString();
         assertEquals(NOT_FOUND, JsonPath.read(json, "$.detail"));
         return json;
     }
@@ -197,14 +211,17 @@ class PublicProductDetailApiTests {
         UUID archived = fixture.product(ALPHA, main, "Archived", PublicMenuFixture.Spec.visible().archived());
         UUID draft = fixture.product(ALPHA, main, "Draft", PublicMenuFixture.Spec.visible().unpublished());
         UUID noAvailability = fixture.product(ALPHA, main, "None", PublicMenuFixture.Spec.visible().availability(null));
-        UUID inactiveCategory = fixture.product(ALPHA, fixture.category(ALPHA, null, "Off", 3, false), "In off", PublicMenuFixture.Spec.visible());
-        UUID inactiveParent = fixture.product(ALPHA, fixture.category(ALPHA, fixture.category(ALPHA, null, "Off parent", 4, false), "Sub", 0, true),
+        UUID inactiveCategory = fixture.product(ALPHA, fixture.category(ALPHA, null, "Off", 3, false), "In off",
+                PublicMenuFixture.Spec.visible());
+        UUID inactiveParent = fixture.product(ALPHA, fixture.category(ALPHA, fixture.category(ALPHA, null, "Off parent", 4, false), "Sub",
+                0, true),
                 "In sub of off", PublicMenuFixture.Spec.visible());
-        UUID inactiveSub = fixture.product(ALPHA, fixture.category(ALPHA, main, "Off sub", 5, false), "In off sub", PublicMenuFixture.Spec.visible());
+        UUID inactiveSub = fixture.product(ALPHA, fixture.category(ALPHA, main, "Off sub", 5, false), "In off sub",
+                PublicMenuFixture.Spec.visible());
         UUID foreign = fixture.visible(BETA, fixture.root(BETA, "Beta"), "Beta kebab");
         UUID unknown = UUID.randomUUID();
 
-        List<String> bodies = new java.util.ArrayList<>();
+        List<String> bodies = new ArrayList<>();
         for (UUID id : new UUID[] {archived, draft, noAvailability, inactiveCategory, inactiveParent, inactiveSub, foreign, unknown}) {
             bodies.add(notFoundBody(id));
         }
@@ -226,7 +243,8 @@ class PublicProductDetailApiTests {
     @ParameterizedTest
     @ValueSource(strings = {"abc", "1", "00000000-0000-0000-0000-00000000000g", "%27%20OR%201=1", "not-a-uuid"})
     void aMalformedProductIdIs400AndTheValueIsNotEchoed(String raw) throws Exception {
-        String json = mvc.perform(get(java.net.URI.create(ALPHA_BASE + raw))).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        String json = mvc.perform(get(URI.create(ALPHA_BASE + raw))).andExpect(status().isBadRequest()).andReturn().getResponse()
+                .getContentAsString();
         assertEquals("A request parameter has an invalid value.", JsonPath.read(json, "$.detail"), "a fixed message, not the value");
         assertEquals(List.of(), rating.calls());
     }
@@ -234,10 +252,12 @@ class PublicProductDetailApiTests {
     @Test
     void forgedIdentityHeadersGiveNothing() throws Exception {
         UUID foreign = fixture.visible(BETA, fixture.root(BETA, "Beta"), "Beta kebab");
-        mvc.perform(get(ALPHA_BASE + foreign).header("X-Restaurant-Id", BETA).header("X-Role", "ADMIN").header("X-User-Id", UUID.randomUUID()))
+        mvc.perform(get(ALPHA_BASE + foreign).header("X-Restaurant-Id", BETA).header("X-Role", "ADMIN").header("X-User-Id",
+                UUID.randomUUID()))
                 .andExpect(status().isNotFound());
         UUID own = listed("Pide");
-        String json = mvc.perform(get(ALPHA_BASE + own).header("X-Restaurant-Id", BETA).header("X-Role", "ADMIN")).andExpect(status().isOk())
+        String json = mvc.perform(get(ALPHA_BASE + own).header("X-Restaurant-Id", BETA).header("X-Role",
+                "ADMIN")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertEquals("Pide", JsonPath.read(json, "$.name"));
     }
@@ -277,10 +297,12 @@ class PublicProductDetailApiTests {
         Map<String, Object> extra = JsonPath.read(json, "$.extras[0]");
         assertEquals(Set.of("id", "name", "priceDelta", "maxQuantity"), extra.keySet());
         assertEquals(cheese.toString(), extra.get("id"));
-        assertEquals(0, new BigDecimal("7.5").compareTo(new BigDecimal(extra.get("priceDelta").toString())), "the price difference is carried as stored");
+        assertEquals(0, new BigDecimal("7.5").compareTo(new BigDecimal(extra.get("priceDelta").toString())),
+                "the price difference is carried as stored");
         assertEquals(3, extra.get("maxQuantity"));
         assertEquals(free.toString(), JsonPath.read(json, "$.extras[1].id"));
-        assertEquals(0, BigDecimal.ZERO.compareTo(new BigDecimal(JsonPath.read(json, "$.extras[1].priceDelta").toString())), "a free extra is 0");
+        assertEquals(0, BigDecimal.ZERO.compareTo(new BigDecimal(JsonPath.read(json, "$.extras[1].priceDelta").toString())),
+                "a free extra is 0");
     }
 
     @Test
@@ -325,7 +347,8 @@ class PublicProductDetailApiTests {
         List<String> extras = JsonPath.read(json, "$.extras[*].name");
         assertEquals("Last by order", extras.get(extras.size() - 1), "a higher sort order comes last");
         assertTrue(extras.indexOf("Ananas") < extras.indexOf("Çilek") && extras.indexOf("Çilek") < extras.indexOf("First by order")
-                && extras.indexOf("İzmir") > extras.indexOf("Ilık süt") && extras.indexOf("Zeytin") > extras.indexOf("İzmir"), extras.toString());
+                && extras.indexOf("İzmir") > extras.indexOf("Ilık süt")
+                        && extras.indexOf("Zeytin") > extras.indexOf("İzmir"), extras.toString());
         assertEquals(extras, JsonPath.<List<String>>read(body(id), "$.extras[*].name"), "the order is stable");
     }
 
@@ -342,7 +365,7 @@ class PublicProductDetailApiTests {
     // ---- statements ----
 
     private long statementsFor(UUID id) throws Exception {
-        var statistics = entityManagerFactory.unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
         detail(id).andExpect(status().isOk());
@@ -376,7 +399,8 @@ class PublicProductDetailApiTests {
     void noRatingsIsNotRatedWithCountZeroAndNoAverage() throws Exception {
         UUID id = listed("Pide");
         rating.answer(RatingSummary.notRated());
-        detail(id).andExpect(jsonPath("$.rating.status").value("NOT_RATED")).andExpect(jsonPath("$.rating.averageRating").value((Object) null))
+        detail(id).andExpect(jsonPath("$.rating.status").value("NOT_RATED")).andExpect(jsonPath("$.rating.averageRating")
+                .value((Object) null))
                 .andExpect(jsonPath("$.rating.ratingCount").value(0));
     }
 
@@ -384,7 +408,8 @@ class PublicProductDetailApiTests {
     void anUnavailableSourceIsUnavailableWithNoNumbersNotZero() throws Exception {
         UUID id = listed("Pide");
         detail(id).andExpect(status().isOk()).andExpect(jsonPath("$.rating.status").value("UNAVAILABLE"))
-                .andExpect(jsonPath("$.rating.averageRating").value((Object) null)).andExpect(jsonPath("$.rating.ratingCount").value((Object) null));
+                .andExpect(jsonPath("$.rating.averageRating").value((Object) null)).andExpect(jsonPath("$.rating.ratingCount")
+                        .value((Object) null));
         Map<String, Object> ratingJson = JsonPath.read(body(id), "$.rating");
         assertEquals(Set.of("status", "averageRating", "ratingCount"), ratingJson.keySet());
     }
@@ -394,7 +419,7 @@ class PublicProductDetailApiTests {
         UUID id = fixture.product(ALPHA, main, "Pide", PublicMenuFixture.Spec.visible().described("Full text"));
         fixture.extra(ALPHA, id, "Peynir", "5", 2, 0, true);
         for (RuntimeException failure : new RuntimeException[] {new IllegalStateException("secret-internal-host:8080 down"),
-                new org.springframework.web.client.ResourceAccessException("timed out"), new NullPointerException(), new UnsupportedOperationException()}) {
+                new ResourceAccessException("timed out"), new NullPointerException(), new UnsupportedOperationException()}) {
             rating.failWith(failure);
             String json = detail(id).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
             assertEquals("UNAVAILABLE", JsonPath.read(json, "$.rating.status"));
@@ -414,13 +439,15 @@ class PublicProductDetailApiTests {
     }
 
     @ParameterizedTest
-    @CsvSource({"RATED,4.5,-3", "RATED,4.5,0", "RATED,0,5", "RATED,0.99,5", "RATED,5.01,5", "RATED,6,5", "RATED,-1,5", "RATED,,5", "RATED,4.5,",
+    @CsvSource({"RATED,4.5,-3", "RATED,4.5,0", "RATED,0,5", "RATED,0.99,5", "RATED,5.01,5", "RATED,6,5", "RATED,-1,5", "RATED,,5",
+            "RATED,4.5,",
             "NOT_RATED,,5", "NOT_RATED,4,0", "NOT_RATED,,", "NOT_RATED,,-1", "UNAVAILABLE,4,3"})
     void aSelfContradictingOrInvalidRatingAnswerIsNeverShown(String status, String average, Long count) throws Exception {
         UUID id = listed("Pide");
         rating.answer(new RatingSummary(RatingSummary.Status.valueOf(status), average == null ? null : new BigDecimal(average), count));
         detail(id).andExpect(status().isOk()).andExpect(jsonPath("$.rating.status").value("UNAVAILABLE"))
-                .andExpect(jsonPath("$.rating.averageRating").value((Object) null)).andExpect(jsonPath("$.rating.ratingCount").value((Object) null));
+                .andExpect(jsonPath("$.rating.averageRating").value((Object) null)).andExpect(jsonPath("$.rating.ratingCount")
+                        .value((Object) null));
     }
 
     @Test
@@ -432,14 +459,16 @@ class PublicProductDetailApiTests {
         assertEquals(ALPHA, calls.get(0).restaurantId(), "the restaurant the resolver verified");
         assertEquals(id, calls.get(0).productId());
         assertFalse(calls.get(0).inTransaction(), "no database transaction is open while the rating source is asked");
-        assertFalse(PublicProductDetailService.class.isAnnotationPresent(Transactional.class), "the orchestration itself is not transactional");
+        assertFalse(PublicProductDetailService.class.isAnnotationPresent(Transactional.class),
+                "the orchestration itself is not transactional");
     }
 
     @Test
     void anotherRestaurantsRatingIsNeverUsed() throws Exception {
         UUID alphaProduct = listed("Pide");
         UUID betaProduct = fixture.visible(BETA, fixture.root(BETA, "Beta"), "Beta kebab");
-        rating.answerWith(call -> BETA.equals(call.restaurantId()) ? RatingSummary.rated(new BigDecimal("5"), 99) : RatingSummary.notRated());
+        rating.answerWith(call -> BETA.equals(call.restaurantId()) ? RatingSummary.rated(new BigDecimal("5"),
+                99) : RatingSummary.notRated());
 
         detail(alphaProduct).andExpect(jsonPath("$.rating.status").value("NOT_RATED"));
         detail(betaProduct).andExpect(status().isNotFound());

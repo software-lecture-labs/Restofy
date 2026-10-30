@@ -42,6 +42,9 @@ public record PublicProductDetailResponse(
     /** An optional extra: its price difference and how many may be added. */
     public record Extra(UUID id, String name, BigDecimal priceDelta, int maxQuantity) { }
 
-    /** {@code averageRating} and {@code ratingCount} are {@code null} unless the status says there is data (RATED, or NOT_RATED with count 0). */
+    /**
+     * {@code averageRating} and {@code ratingCount} are {@code null} unless the status says there is data (RATED, or
+     * NOT_RATED with count 0).
+     */
     public record Rating(RatingSummary.Status status, BigDecimal averageRating, Long ratingCount) { }
 }

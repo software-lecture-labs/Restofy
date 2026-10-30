@@ -3,6 +3,7 @@ package com.restofy.menu.api;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
 import com.restofy.menu.support.TestPublicScopeConfiguration;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,14 +69,16 @@ class MenuSecurityChainApiTests {
             mvc.perform(put(path).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
             mvc.perform(patch(path).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
             mvc.perform(delete(path).with(csrf())).andExpect(status().isForbidden());
-            mvc.perform(post(path).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+            mvc.perform(post(path).with(user("staff")).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isForbidden());
         }
     }
 
     @Test
     void theOpeningDoesNotSpreadToNeighbouringPaths() throws Exception {
         String id = UUID.randomUUID().toString();
-        for (String path : new String[] {"/api/v1/menu/publicx", "/api/v1/menu/products", "/api/v1/menu/products/" + id, "/api/v1/menu/categories",
+        for (String path : new String[] {"/api/v1/menu/publicx", "/api/v1/menu/products", "/api/v1/menu/products/"
+                + id, "/api/v1/menu/categories",
                 "/api/v1/menu/categories/" + id, "/api/v1/menu/products/" + id + "/options", "/api/v1/menu/subcategories/" + id,
                 "/api/v1/menu", "/api/v1/menu/", "/api/v1/other", "/nothing"}) {
             mvc.perform(get(path)).andExpect(status().isUnauthorized());
@@ -86,17 +89,21 @@ class MenuSecurityChainApiTests {
     @Test
     void theAdminEndpointsStillNeedAnAuthenticatedRequestAndKeepCsrf() throws Exception {
         String body = "{\"name\":\"X\"}";
-        mvc.perform(post("/api/v1/menu/products").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/products").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/menu/products").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
-        mvc.perform(post("/api/v1/menu/products").with(user("staff")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
-        mvc.perform(patch("/api/v1/menu/products/" + UUID.randomUUID()).with(user("staff")).contentType(MediaType.APPLICATION_JSON).content(body))
+        mvc.perform(post("/api/v1/menu/products").with(user("staff")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v1/menu/products/" + UUID.randomUUID()).with(user("staff")).contentType(MediaType.APPLICATION_JSON)
+                .content(body))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void aLoggedInRequestWithoutAVerifiedActorIsStillRefusedOnAdminEndpoints() throws Exception {
         mvc.perform(get("/api/v1/menu/products").with(user("staff"))).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/menu/categories").with(user("staff")).header("X-Role", "ADMIN").header("X-Restaurant-Id", UUID.randomUUID()))
+        mvc.perform(get("/api/v1/menu/categories").with(user("staff")).header("X-Role", "ADMIN").header("X-Restaurant-Id",
+                UUID.randomUUID()))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -118,6 +125,6 @@ class MenuSecurityChainApiTests {
     @Test
     void theUnauthorizedAnswerStillAsksForBasicCredentialsAsBefore() throws Exception {
         mvc.perform(get("/api/v1/menu/products")).andExpect(status().isUnauthorized())
-                .andExpect(header().string("WWW-Authenticate", org.hamcrest.Matchers.startsWith("Basic")));
+                .andExpect(header().string("WWW-Authenticate", Matchers.startsWith("Basic")));
     }
 }

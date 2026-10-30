@@ -84,8 +84,10 @@ class PublicProductAccessPolicyTests {
         UUID archived = product(PublicMenuFixture.Spec.visible().archived());
         UUID draft = product(PublicMenuFixture.Spec.visible().unpublished());
         UUID noAvailability = product(PublicMenuFixture.Spec.visible().availability(null));
-        UUID inactiveCategory = fixture.product(ALPHA, fixture.category(ALPHA, null, "Off", 3, false), "Hidden", PublicMenuFixture.Spec.visible());
-        UUID inactiveParent = fixture.product(ALPHA, fixture.category(ALPHA, fixture.category(ALPHA, null, "Off parent", 4, false), "Sub", 0, true),
+        UUID inactiveCategory = fixture.product(ALPHA, fixture.category(ALPHA, null, "Off", 3, false), "Hidden",
+                PublicMenuFixture.Spec.visible());
+        UUID inactiveParent = fixture.product(ALPHA, fixture.category(ALPHA, fixture.category(ALPHA, null, "Off parent", 4, false), "Sub",
+                0, true),
                 "Hidden sub", PublicMenuFixture.Spec.visible());
         for (UUID id : new UUID[] {archived, draft, noAvailability, inactiveCategory, inactiveParent}) {
             assertNotFound(ALPHA_REF, id);

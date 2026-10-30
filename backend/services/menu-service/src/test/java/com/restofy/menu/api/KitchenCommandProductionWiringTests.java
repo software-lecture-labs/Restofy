@@ -15,6 +15,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.util.UUID;
 
@@ -87,11 +88,14 @@ class KitchenCommandProductionWiringTests {
     @Test
     void thereIsNoHttpRouteForKitchenCommandsAndForgedHeadersOpenNothing() throws Exception {
         String before = state();
-        String body = "{\"commandId\":\"" + UUID.randomUUID() + "\",\"productId\":\"" + product + "\",\"targetStatus\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\"}";
+        String body = "{\"commandId\":\"" + UUID.randomUUID() + "\",\"productId\":\"" + product
+                + "\",\"targetStatus\":\"OUT_OF_STOCK\",\"reasonCode\":\"SOLD_OUT\"}";
         for (String path : new String[] {"/api/v1/menu/internal/availability-commands", "/internal/v1/menu/availability-commands",
-                "/api/v1/menu/availability-commands", "/api/v1/menu/kitchen/availability", "/api/v1/menu/products/" + product + "/kitchen-availability"}) {
-            for (var request : new org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder[] {
-                    post(path).with(csrf()), post(path).with(user("kitchen")).with(csrf()), put(path).with(user("kitchen")).with(csrf()), get(path)}) {
+                "/api/v1/menu/availability-commands", "/api/v1/menu/kitchen/availability", "/api/v1/menu/products/" + product
+                        + "/kitchen-availability"}) {
+            for (var request : new MockHttpServletRequestBuilder[] {
+                    post(path).with(csrf()), post(path).with(user("kitchen")).with(csrf()), put(path).with(user("kitchen"))
+                            .with(csrf()), get(path)}) {
                 int status = mvc.perform(request.header("X-Role", "KITCHEN").header("X-Restaurant-Id", RESTAURANT)
                         .header("X-Service-Name", "kitchen-service").header("X-User-Id", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse().getStatus();

@@ -3,11 +3,11 @@ package com.restofy.menu.api;
 import com.restofy.menu.application.service.KitchenAvailabilityCommand;
 import com.restofy.menu.application.service.KitchenAvailabilityCommandService;
 import com.restofy.menu.application.service.KitchenAvailabilityResult;
-import com.restofy.menu.application.service.KitchenAvailabilityResult.Outcome;
 import com.restofy.menu.application.service.PublicMenuService;
 import com.restofy.menu.application.service.PublicProductQuery;
 import com.restofy.menu.application.service.PublicProductSort;
 import com.restofy.menu.domain.enums.AvailabilityStatus;
+import com.restofy.menu.domain.enums.CommandOutcome;
 import com.restofy.menu.domain.exception.CommandIdConflictException;
 import com.restofy.menu.domain.exception.InvalidProductException;
 import com.restofy.menu.domain.exception.ProductAvailabilityMissingException;
@@ -38,6 +38,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.IntFunction;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -90,7 +91,8 @@ class KitchenAvailabilityCommandServiceTests {
     }
 
     private Map<String, Object> availability(UUID productId) {
-        return jdbc.queryForMap("SELECT status, reason_code, version, changed_by_user_id FROM product_availability WHERE product_id = ?", productId);
+        return jdbc.queryForMap("SELECT status, reason_code, version, changed_by_user_id FROM product_availability WHERE product_id = ?",
+                productId);
     }
 
     private long version(UUID productId) {
@@ -125,7 +127,7 @@ class KitchenAvailabilityCommandServiceTests {
 
         KitchenAvailabilityResult result = kitchen.handle(command);
 
-        assertEquals(Outcome.APPLIED, result.outcome());
+        assertEquals(CommandOutcome.APPLIED, result.outcome());
         assertFalse(result.replayed());
         assertEquals(to, result.status());
         assertEquals(before + 1, result.version());
@@ -164,24 +166,27 @@ class KitchenAvailabilityCommandServiceTests {
         setState(product, status.name());
         long before = version(product);
         int historyBefore = count("product_availability_history");
-        KitchenAvailabilityCommand command = command(UUID.randomUUID(), product, status, status == AvailabilityStatus.AVAILABLE ? null : "SEED");
+        KitchenAvailabilityCommand command = command(UUID.randomUUID(), product, status,
+                status == AvailabilityStatus.AVAILABLE ? null : "SEED");
 
         KitchenAvailabilityResult result = kitchen.handle(command);
 
-        assertEquals(Outcome.NO_CHANGE, result.outcome());
+        assertEquals(CommandOutcome.NO_CHANGE, result.outcome());
         assertFalse(result.replayed());
         assertEquals(before, result.version());
         assertEquals(before, version(product), "no new version");
         assertEquals(historyBefore, count("product_availability_history"), "no history entry");
-        assertEquals("NO_CHANGE", jdbc.queryForObject("SELECT outcome FROM product_availability_commands WHERE command_id = ?", String.class, command.commandId()),
+        assertEquals("NO_CHANGE", jdbc.queryForObject("SELECT outcome FROM product_availability_commands WHERE command_id = ?",
+                String.class, command.commandId()),
                 "the command is still recorded so that repeating it is recognised");
     }
 
     @Test
     void theSameStatusWithAnotherReasonIsARealChange() {
         kitchen.handle(command(UUID.randomUUID(), product, AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT"));
-        KitchenAvailabilityResult result = kitchen.handle(command(UUID.randomUUID(), product, AvailabilityStatus.OUT_OF_STOCK, "SUPPLIER_DELAY"));
-        assertEquals(Outcome.APPLIED, result.outcome());
+        KitchenAvailabilityResult result = kitchen.handle(command(UUID.randomUUID(), product, AvailabilityStatus.OUT_OF_STOCK,
+                "SUPPLIER_DELAY"));
+        assertEquals(CommandOutcome.APPLIED, result.outcome());
         assertEquals("SUPPLIER_DELAY", availability(product).get("reason_code"));
     }
 
@@ -224,10 +229,10 @@ class KitchenAvailabilityCommandServiceTests {
     @Test
     void aRepeatedNoChangeCommandIsRecognisedAsWell() {
         KitchenAvailabilityCommand open = close(AvailabilityStatus.AVAILABLE);
-        assertEquals(Outcome.NO_CHANGE, kitchen.handle(open).outcome());
+        assertEquals(CommandOutcome.NO_CHANGE, kitchen.handle(open).outcome());
         KitchenAvailabilityResult again = kitchen.handle(open);
         assertTrue(again.replayed());
-        assertEquals(Outcome.NO_CHANGE, again.outcome());
+        assertEquals(CommandOutcome.NO_CHANGE, again.outcome());
         assertEquals(1, count("product_availability_commands"));
         assertEquals(0, count("product_availability_history"), "a no-change command writes no history");
     }
@@ -269,7 +274,8 @@ class KitchenAvailabilityCommandServiceTests {
     void reasonCodesAreComparedAfterNormalisation() {
         UUID id = UUID.randomUUID();
         kitchen.handle(new KitchenAvailabilityCommand(id, product, AvailabilityStatus.OUT_OF_STOCK, "  SOLD_OUT ", "  text ", null));
-        KitchenAvailabilityResult again = kitchen.handle(new KitchenAvailabilityCommand(id, product, AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", "text", null));
+        KitchenAvailabilityResult again = kitchen.handle(new KitchenAvailabilityCommand(id, product, AvailabilityStatus.OUT_OF_STOCK,
+                "SOLD_OUT", "text", null));
         assertTrue(again.replayed());
     }
 
@@ -280,7 +286,7 @@ class KitchenAvailabilityCommandServiceTests {
         long version = version(product);
         KitchenAvailabilityResult result = kitchen.handle(new KitchenAvailabilityCommand(UUID.randomUUID(), product,
                 AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", null, version));
-        assertEquals(Outcome.APPLIED, result.outcome());
+        assertEquals(CommandOutcome.APPLIED, result.outcome());
         assertEquals(version + 1, version(product));
     }
 
@@ -291,7 +297,8 @@ class KitchenAvailabilityCommandServiceTests {
         int history = count("product_availability_history");
         int commands = count("product_availability_commands");
         UUID id = UUID.randomUUID();
-        KitchenAvailabilityCommand stale = new KitchenAvailabilityCommand(id, product, AvailabilityStatus.AVAILABLE, null, null, version - 1);
+        KitchenAvailabilityCommand stale = new KitchenAvailabilityCommand(id, product, AvailabilityStatus.AVAILABLE, null, null,
+                version - 1);
 
         assertThrows(ProductAvailabilityVersionConflictException.class, () -> kitchen.handle(stale));
 
@@ -300,20 +307,22 @@ class KitchenAvailabilityCommandServiceTests {
         assertEquals(history, count("product_availability_history"));
         assertEquals(commands, count("product_availability_commands"), "a rejected command is not remembered");
 
-        KitchenAvailabilityResult retried = kitchen.handle(new KitchenAvailabilityCommand(id, product, AvailabilityStatus.AVAILABLE, null, null, version));
-        assertEquals(Outcome.APPLIED, retried.outcome(), "the id can be used again with the right version");
+        KitchenAvailabilityResult retried = kitchen.handle(new KitchenAvailabilityCommand(id, product, AvailabilityStatus.AVAILABLE, null,
+                null, version));
+        assertEquals(CommandOutcome.APPLIED, retried.outcome(), "the id can be used again with the right version");
         assertFalse(retried.replayed());
     }
 
     @Test
     void aReplayIsNotTreatedAsStaleEvenThoughTheVersionMovedOn() {
         long version = version(product);
-        KitchenAvailabilityCommand command = new KitchenAvailabilityCommand(UUID.randomUUID(), product, AvailabilityStatus.OUT_OF_STOCK, "SOLD_OUT", null, version);
+        KitchenAvailabilityCommand command = new KitchenAvailabilityCommand(UUID.randomUUID(), product, AvailabilityStatus.OUT_OF_STOCK,
+                "SOLD_OUT", null, version);
         kitchen.handle(command);
         kitchen.handle(close(AvailabilityStatus.AVAILABLE));
         KitchenAvailabilityResult replay = kitchen.handle(command);
         assertTrue(replay.replayed());
-        assertEquals(Outcome.APPLIED, replay.outcome());
+        assertEquals(CommandOutcome.APPLIED, replay.outcome());
     }
 
     @Test
@@ -386,7 +395,7 @@ class KitchenAvailabilityCommandServiceTests {
         caller.actAs(BETA, STAFF);
         KitchenAvailabilityResult beta = kitchen.handle(command(shared, betaProduct, AvailabilityStatus.TEMPORARILY_CLOSED, "CLEANING"));
 
-        assertEquals(Outcome.APPLIED, beta.outcome());
+        assertEquals(CommandOutcome.APPLIED, beta.outcome());
         assertFalse(beta.replayed(), "another restaurant's command id is a different command");
         assertEquals("OUT_OF_STOCK", availability(product).get("status"));
         assertEquals("TEMPORARILY_CLOSED", availability(betaProduct).get("status"));
@@ -406,7 +415,8 @@ class KitchenAvailabilityCommandServiceTests {
 
     @Test
     void ifTheHistoryEntryCannotBeWrittenNothingIsCommitted() {
-        jdbc.execute("CREATE OR REPLACE FUNCTION fail_command_history() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'simulated history failure'; END $$ LANGUAGE plpgsql");
+        jdbc.execute("CREATE OR REPLACE FUNCTION fail_command_history() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'simulated history "
+                + "failure'; END $$ LANGUAGE plpgsql");
         jdbc.execute("CREATE TRIGGER fail_command_history BEFORE INSERT ON product_availability_history FOR EACH ROW "
                 + "WHEN (NEW.command_id IS NOT NULL) EXECUTE FUNCTION fail_command_history()");
         try {
@@ -454,14 +464,17 @@ class KitchenAvailabilityCommandServiceTests {
 
     @Test
     void aCommandChangesAvailabilityOnlyAndNeverThePriceOrTheOtherAxes() {
-        Map<String, Object> before = jdbc.queryForMap("SELECT name, base_price, vat_rate, category_id, is_active, is_published, version FROM products WHERE id = ?", product);
+        Map<String, Object> before = jdbc.queryForMap("SELECT name, base_price, vat_rate, category_id, is_active, is_published, version "
+                + "FROM products WHERE id = ?", product);
         kitchen.handle(close(AvailabilityStatus.OUT_OF_STOCK));
-        assertEquals(before, jdbc.queryForMap("SELECT name, base_price, vat_rate, category_id, is_active, is_published, version FROM products WHERE id = ?", product));
+        assertEquals(before,
+                jdbc.queryForMap("SELECT name, base_price, vat_rate, category_id, is_active, is_published, version FROM products WHERE "
+                + "id = ?", product));
     }
 
     // ---- concurrency ----
 
-    private List<Object> race(int contenders, java.util.function.IntFunction<Object> attempt) throws Exception {
+    private List<Object> race(int contenders, IntFunction<Object> attempt) throws Exception {
         var ready = new CountDownLatch(contenders);
         var go = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(contenders);
@@ -523,7 +536,8 @@ class KitchenAvailabilityCommandServiceTests {
         assertEquals(6, winners + conflicts + replays, "no other outcome");
         assertEquals(1L, version(product));
         assertEquals(1, count("product_availability_commands"));
-        String storedStatus = jdbc.queryForObject("SELECT target_status FROM product_availability_commands WHERE command_id = ?", String.class, id);
+        String storedStatus = jdbc.queryForObject("SELECT target_status FROM product_availability_commands WHERE command_id = ?",
+                String.class, id);
         assertEquals(storedStatus, availability(product).get("status"), "the stored command and the live state agree");
     }
 
@@ -533,13 +547,16 @@ class KitchenAvailabilityCommandServiceTests {
         List<Object> outcomes = race(12, i -> kitchen.handle(command(UUID.randomUUID(), product, statuses[i % 3],
                 statuses[i % 3] == AvailabilityStatus.AVAILABLE ? null : "REASON_" + i % 2)));
 
-        long applied = outcomes.stream().filter(o -> o instanceof KitchenAvailabilityResult r && r.outcome() == Outcome.APPLIED).count();
-        long unchanged = outcomes.stream().filter(o -> o instanceof KitchenAvailabilityResult r && r.outcome() == Outcome.NO_CHANGE).count();
+        long applied = outcomes.stream().filter(o -> o instanceof KitchenAvailabilityResult r && r.outcome() == CommandOutcome.APPLIED)
+                .count();
+        long unchanged = outcomes.stream().filter(o -> o instanceof KitchenAvailabilityResult r && r.outcome() == CommandOutcome.NO_CHANGE)
+                .count();
         assertEquals(12, applied + unchanged, "every command succeeded, none failed");
         assertEquals(applied, version(product), "one version per real change");
         assertEquals(applied, count("product_availability_history"));
         assertEquals(12, count("product_availability_commands"));
-        assertEquals(applied, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE command_id IS NOT NULL", Long.class));
+        assertEquals(applied, jdbc.queryForObject("SELECT count(*) FROM product_availability_history WHERE command_id IS NOT NULL",
+                Long.class));
     }
 
     @Test

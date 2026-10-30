@@ -4,6 +4,9 @@ import com.jayway.jsonpath.JsonPath;
 import com.restofy.menu.support.PublicMenuFixture;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestPublicScopeConfiguration;
+import jakarta.persistence.EntityManagerFactory;
+import org.hamcrest.Matchers;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,8 +21,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -71,7 +79,7 @@ class PublicMenuApiTests {
 
     private ResultActions products(String query) throws Exception {
         // A URI object, not a template: a template would encode the already percent-encoded query a second time.
-        return mvc.perform(get(java.net.URI.create(ALPHA_BASE + "/products" + query)));
+        return mvc.perform(get(URI.create(ALPHA_BASE + "/products" + query)));
     }
 
     private List<String> names(String query) throws Exception {
@@ -81,7 +89,7 @@ class PublicMenuApiTests {
 
     /** Percent-encoding for a query value; a space is %20 (MockMvc does not turn a plus sign back into a space). */
     private static String encode(String value) {
-        return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private UUID visible(UUID category, String name) {
@@ -115,7 +123,8 @@ class PublicMenuApiTests {
 
         String body = products("").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertEquals(List.of("A open", "B out", "C closed"), JsonPath.<List<String>>read(body, "$.items[*].name"));
-        assertEquals(List.of("AVAILABLE", "OUT_OF_STOCK", "TEMPORARILY_CLOSED"), JsonPath.<List<String>>read(body, "$.items[*].availability"));
+        assertEquals(List.of("AVAILABLE", "OUT_OF_STOCK", "TEMPORARILY_CLOSED"), JsonPath.<List<String>>read(body,
+                "$.items[*].availability"));
         assertEquals(List.of(true, false, false), JsonPath.<List<Boolean>>read(body, "$.items[*].canOrder"));
     }
 
@@ -173,7 +182,7 @@ class PublicMenuApiTests {
         fixture.category(ALPHA, food, "Salatalar", 1, true);
 
         String body = mvc.perform(get(ALPHA_BASE + "/categories")).andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store")))
                 .andReturn().getResponse().getContentAsString();
         assertEquals(List.of("Yemekler", "İçecekler"), JsonPath.<List<String>>read(body, "$.categories[*].name"));
         assertEquals(List.of("Çorbalar", "Salatalar"), JsonPath.<List<String>>read(body, "$.categories[0].subcategories[*].name"));
@@ -225,7 +234,8 @@ class PublicMenuApiTests {
         catalogue();
         assertEquals(List.of("Lentil soup"), names("?categoryId=" + food + "&q=lentil"));
         assertEquals(List.of(), names("?categoryId=" + drinks + "&q=lentil"));
-        String body = products("?categoryId=" + food + "&size=2&page=1").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String body = products("?categoryId=" + food + "&size=2&page=1").andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString();
         assertEquals(List.of("Lentil soup"), JsonPath.<List<String>>read(body, "$.items[*].name"));
         assertEquals(3, ((Number) JsonPath.read(body, "$.totalElements")).intValue());
         assertEquals(2, ((Number) JsonPath.read(body, "$.totalPages")).intValue());
@@ -246,7 +256,8 @@ class PublicMenuApiTests {
         UUID inactiveSub = fixture.category(ALPHA, food, "Inactive sub", 5, false);
         UUID foreign = fixture.root(BETA, "Foreign");
         List<String> bodies = new ArrayList<>();
-        for (String query : new String[] {"?categoryId=" + UUID.randomUUID(), "?subcategoryId=" + UUID.randomUUID(), "?categoryId=" + foreign,
+        for (String query : new String[] {"?categoryId=" + UUID.randomUUID(), "?subcategoryId=" + UUID.randomUUID(), "?categoryId="
+                + foreign,
                 "?categoryId=" + inactiveRoot, "?subcategoryId=" + subOfInactive, "?subcategoryId=" + inactiveSub}) {
             bodies.add(products(query).andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString());
         }
@@ -256,7 +267,8 @@ class PublicMenuApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"?categoryId=abc", "?subcategoryId=1", "?categoryId=00000000-0000-0000-0000-00000000000g", "?categoryId=%27%20OR%201=1"})
+    @ValueSource(strings = {"?categoryId=abc", "?subcategoryId=1", "?categoryId=00000000-0000-0000-0000-00000000000g",
+            "?categoryId=%27%20OR%201=1"})
     void aMalformedCategoryIdIsA400AndTheValueIsNotEchoed(String query) throws Exception {
         String body = products(query).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
         assertFalse(body.contains("OR 1"), body);
@@ -265,12 +277,15 @@ class PublicMenuApiTests {
     // ---- search ----
 
     @ParameterizedTest
-    @CsvSource({"cay,Çay", "ÇAY,Çay", "çay,Çay", "Cay,Çay", "iskender,İskender", "ISKENDER,İskender", "İSKENDER,İskender", "ıskender,İskender",
+    @CsvSource({"cay,Çay", "ÇAY,Çay", "çay,Çay", "Cay,Çay", "iskender,İskender", "ISKENDER,İskender", "İSKENDER,İskender",
+            "ıskender,İskender",
             "isik,Işık çorbası", "ışık,Işık çorbası", "ISIK,Işık çorbası", "ordek,Ördek konfi", "ÖRDEK,Ördek konfi", "uzum,Üzümlü kek",
-            "ÜZÜM,Üzümlü kek", "gozleme,Gözleme", "GÖZLEME,Gözleme", "sis,Şiş kebap", "ŞİŞ,Şiş kebap", "kofte,Izgara köfte", "KÖFTE,Izgara köfte",
+            "ÜZÜM,Üzümlü kek", "gozleme,Gözleme", "GÖZLEME,Gözleme", "sis,Şiş kebap", "ŞİŞ,Şiş kebap",
+            "kofte,Izgara köfte", "KÖFTE,Izgara köfte",
             "izgara,Izgara köfte", "ızgara,Izgara köfte", "yagmur,Yağmur tatlısı", "YAĞMUR,Yağmur tatlısı"})
     void theSearchIgnoresCaseAndTurkishLetters(String query, String expected) throws Exception {
-        for (String name : new String[] {"Çay", "İskender", "Işık çorbası", "Ördek konfi", "Üzümlü kek", "Gözleme", "Şiş kebap", "Izgara köfte",
+        for (String name : new String[] {"Çay", "İskender", "Işık çorbası", "Ördek konfi", "Üzümlü kek", "Gözleme", "Şiş kebap",
+                "Izgara köfte",
                 "Yağmur tatlısı", "Ayran"}) {
             visible(food, name);
         }
@@ -379,15 +394,17 @@ class PublicMenuApiTests {
 
     @Test
     void theDefaultOrderIsTheNameWithTurkishLettersAtTheirAlphabeticalPlace() throws Exception {
-        for (String name : new String[] {"Zeytin", "Çay", "Ayran", "Şiş", "Dolma", "Sütlaç", "Ispanak", "Işık", "İskender", "Ördek", "Gözleme"}) {
+        for (String name : new String[] {"Zeytin", "Çay", "Ayran", "Şiş", "Dolma", "Sütlaç", "Ispanak", "Işık", "İskender", "Ördek",
+                "Gözleme"}) {
             visible(food, name);
         }
         // Turkish letters are ordered as their base letter (Ç with C, Ş with S, İ and ı with I): a deliberate, collation-independent key.
-        assertEquals(List.of("Ayran", "Çay", "Dolma", "Gözleme", "Işık", "İskender", "Ispanak", "Ördek", "Şiş", "Sütlaç", "Zeytin"), names(""));
+        assertEquals(List.of("Ayran", "Çay", "Dolma", "Gözleme", "Işık", "İskender", "Ispanak", "Ördek", "Şiş", "Sütlaç", "Zeytin"),
+                names(""));
         assertEquals(names(""), names("?sort=name"));
         assertEquals(names(""), names("?sort=name,asc"));
         List<String> reversed = new ArrayList<>(names(""));
-        java.util.Collections.reverse(reversed);
+        Collections.reverse(reversed);
         assertEquals(reversed, names("?sort=name,desc"));
     }
 
@@ -411,7 +428,8 @@ class PublicMenuApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"id", "restaurantId", "isActive", "version", "name,sideways", "name,asc,extra", "name;drop table products", "NAME",
+    @ValueSource(strings = {"id", "restaurantId", "isActive", "version", "name,sideways", "name,asc,extra", "name;drop table products",
+            "NAME",
             "basePrice desc", "p.name", "1", ",asc", "name,", "createdAt,ASC", "(select 1)"})
     void anySortOutsideTheAllowlistIsA400(String sort) throws Exception {
         visible(food, "Pide");
@@ -451,11 +469,13 @@ class PublicMenuApiTests {
         Instant same = Instant.parse("2026-02-02T08:00:00Z");
         Set<String> expected = new TreeSet<>();
         for (int i = 0; i < 25; i++) {
-            expected.add(fixture.product(ALPHA, food, "Same name", PublicMenuFixture.Spec.visible().priced("7").createdAt(same)).toString());
+            expected.add(fixture.product(ALPHA, food, "Same name", PublicMenuFixture.Spec.visible().priced("7").createdAt(same))
+                    .toString());
         }
         List<String> seen = new ArrayList<>();
         for (int page = 0; page < 4; page++) {
-            String body = products("?size=7&page=" + page + "&sort=" + sort).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            String body = products("?size=7&page=" + page + "&sort=" + sort).andExpect(status().isOk()).andReturn().getResponse()
+                    .getContentAsString();
             seen.addAll(JsonPath.<List<String>>read(body, "$.items[*].id"));
             assertEquals(25, ((Number) JsonPath.read(body, "$.totalElements")).intValue());
         }
@@ -474,11 +494,12 @@ class PublicMenuApiTests {
 
     @Test
     void aCardHasExactlyTheCustomerFieldsAndNoManagementData() throws Exception {
-        UUID id = fixture.product(ALPHA, soups, "Mercimek", PublicMenuFixture.Spec.visible().described("Red lentil soup").priced("42.5").availability("OUT_OF_STOCK"));
+        UUID id = fixture.product(ALPHA, soups, "Mercimek", PublicMenuFixture.Spec.visible().described("Red lentil soup").priced("42.5")
+                .availability("OUT_OF_STOCK"));
         jdbc.update("UPDATE products SET image_url = 'https://img.example/a.png', ingredients_text = 'Lentil', calories = 120, "
                 + "weight_grams = 250, estimated_prep_minutes = 5 WHERE id = ?", id);
         String body = products("").andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(header().string("Cache-Control", Matchers.containsString("no-store")))
                 .andReturn().getResponse().getContentAsString();
         Map<String, Object> card = JsonPath.read(body, "$.items[0]");
         assertEquals(CARD_KEYS, card.keySet());
@@ -489,15 +510,17 @@ class PublicMenuApiTests {
         assertEquals(true, card.get("priceIncludesVat"));
         assertEquals("OUT_OF_STOCK", card.get("availability"));
         assertEquals(false, card.get("canOrder"));
-        assertEquals(0, new java.math.BigDecimal("42.5").compareTo(new java.math.BigDecimal(card.get("basePrice").toString())));
+        assertEquals(0, new BigDecimal("42.5").compareTo(new BigDecimal(card.get("basePrice").toString())));
         assertEquals(Map.of("id", food.toString(), "name", "Yemekler"), card.get("category"));
         assertEquals(Map.of("id", soups.toString(), "name", "Çorbalar"), card.get("subcategory"));
-        for (String forbidden : new String[] {"restaurantId", "version", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive", "isPublished",
+        for (String forbidden : new String[] {"restaurantId", "version", "createdAt", "updatedAt", "createdBy", "updatedBy", "isActive",
+                "isPublished",
                 "reasonCode", "reasonText", "ingredientsText", "calories", "weightGrams", "estimatedPrepMinutes", "vatRate", "SOLD_OUT",
                 ALPHA.toString(), "cccccccc-0000"}) {
             assertFalse(body.contains(forbidden), forbidden + " leaked: " + body);
         }
-        assertEquals(Set.of("items", "page", "size", "totalElements", "totalPages"), JsonPath.<Map<String, Object>>read(body, "$").keySet());
+        assertEquals(Set.of("items", "page", "size", "totalElements", "totalPages"), JsonPath.<Map<String,
+                Object>>read(body, "$").keySet());
     }
 
     @Test
@@ -525,9 +548,11 @@ class PublicMenuApiTests {
     @Test
     void anAvailabilityOrStateChangeShowsOnTheNextRead() throws Exception {
         UUID id = visible(food, "Pide");
-        products("").andExpect(jsonPath("$.items[0].availability").value("AVAILABLE")).andExpect(jsonPath("$.items[0].canOrder").value(true));
+        products("").andExpect(jsonPath("$.items[0].availability").value("AVAILABLE")).andExpect(jsonPath("$.items[0].canOrder")
+                .value(true));
         jdbc.update("UPDATE product_availability SET status = 'OUT_OF_STOCK', reason_code = 'SOLD_OUT' WHERE product_id = ?", id);
-        products("").andExpect(jsonPath("$.items[0].availability").value("OUT_OF_STOCK")).andExpect(jsonPath("$.items[0].canOrder").value(false));
+        products("").andExpect(jsonPath("$.items[0].availability").value("OUT_OF_STOCK")).andExpect(jsonPath("$.items[0].canOrder")
+                .value(false));
         jdbc.update("UPDATE products SET is_active = FALSE WHERE id = ?", id);
         products("").andExpect(jsonPath("$.totalElements").value(0));
         jdbc.update("UPDATE products SET is_active = TRUE WHERE id = ?", id);
@@ -538,7 +563,7 @@ class PublicMenuApiTests {
     @Test
     void successAndErrorAnswersAreNeverCached() throws Exception {
         visible(food, "Pide");
-        var noStore = org.hamcrest.Matchers.containsString("no-store");
+        var noStore = Matchers.containsString("no-store");
         products("").andExpect(status().isOk()).andExpect(header().string("Cache-Control", noStore));
         products("?q=p").andExpect(status().isBadRequest()).andExpect(header().string("Cache-Control", noStore));
         products("?categoryId=" + UUID.randomUUID()).andExpect(status().isNotFound()).andExpect(header().string("Cache-Control", noStore));
@@ -560,10 +585,10 @@ class PublicMenuApiTests {
         assertEquals(few, statementsFor(""), "the statement count must not depend on the page size");
     }
 
-    @Autowired jakarta.persistence.EntityManagerFactory entityManagerFactory;
+    @Autowired EntityManagerFactory entityManagerFactory;
 
     private long statementsFor(String query) throws Exception {
-        var statistics = entityManagerFactory.unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.setStatisticsEnabled(true);
         statistics.clear();
         products(query).andExpect(status().isOk());

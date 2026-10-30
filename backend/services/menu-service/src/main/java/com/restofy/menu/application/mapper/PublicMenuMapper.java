@@ -65,10 +65,12 @@ public final class PublicMenuMapper {
                 Objects.requireNonNull(view.availability(), "availability").getStatus(),
                 view.eligibility().canOrder(),
                 detail.listed().includedIngredients().stream()
-                        .map(option -> new PublicProductDetailResponse.IncludedIngredient(option.getId(), option.getName(), option.getMinQuantity() == 0))
+                        .map(option -> new PublicProductDetailResponse.IncludedIngredient(option.getId(), option.getName(),
+                                option.getMinQuantity() == 0))
                         .toList(),
                 detail.listed().extras().stream()
-                        .map(option -> new PublicProductDetailResponse.Extra(option.getId(), option.getName(), option.getPriceDelta(), option.getMaxQuantity()))
+                        .map(option -> new PublicProductDetailResponse.Extra(option.getId(), option.getName(), option.getPriceDelta(),
+                                option.getMaxQuantity()))
                         .toList(),
                 new PublicProductDetailResponse.Rating(rating.status(), rating.averageRating(), rating.ratingCount()));
     }
