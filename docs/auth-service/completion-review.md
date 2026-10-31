@@ -1,5 +1,19 @@
 # Auth kapsam kapanışı — 30 Ekim 2026
 
+## Güncel çalışma sırası
+
+- Sonraki kullanıcı talebiyle ilk frontend `/login` sayfası uygulandı; landing/MFA/reset ve
+  panel ekranları sonraki aşamadır. [Frontend durumu](frontend/README.md).
+  Servis sahiplerinin somut Auth talepleri geldikçe backend üzerinden de ilerlenir.
+- İstek geldiğinde çağıran servis, beklenen işlem/DTO, rol/restoran ve hata davranışı mevcut
+  sözleşmeyle karşılaştırılır; eksik Auth işi uygulanır, tüketici adapter işi ilgili serviste kalır.
+- Mevcut kapsamda yeni doğrulanmış Auth engeli yok; varsayımsal endpoint veya Saga eklenmez.
+- Mail ayrı geliştirme konusu olarak takip edilir. Mevcut gönderim, şifreli kalıcılık ve recovery
+  kodu vardır; bu durum Mail'in bütün ürün kapsamının veya gerçek SMTP işletiminin tamamlandığı anlamına gelmez.
+- Minör değişikliklerden sonra test tekrarları yapılmaz. Biriken değişiklikler sonunda ilgili
+  doğrulama birlikte yapılır; o zamana kadar yeni değişiklikler test edilmiş diye raporlanmaz.
+- Yerel commit yapılabilir; kullanıcı izin vermeden push/PR/issue/merge/deploy yapılmaz.
+
 ## Sonuç
 
 **Mevcut tek restoran/personel AUTH-01..04 ve onaylanan entegrasyon/sağlamlaştırma teslimi yerelde tamam.**
