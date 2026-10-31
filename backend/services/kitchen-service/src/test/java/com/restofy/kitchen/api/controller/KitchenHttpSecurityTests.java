@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -95,7 +96,7 @@ class KitchenHttpSecurityTests {
 		assertEquals(401, spoofed.statusCode());
 
 		HttpResponse<String> basic = get("/api/v1/kitchen/orders",
-				"Authorization", "Basic " + java.util.Base64.getEncoder().encodeToString("admin:admin".getBytes()));
+				"Authorization", "Basic " + Base64.getEncoder().encodeToString("admin:admin".getBytes()));
 		assertEquals(401, basic.statusCode());
 		HttpResponse<String> bearer = get("/api/v1/kitchen/orders", "Authorization", "Bearer not-a-real-token");
 		assertEquals(401, bearer.statusCode());

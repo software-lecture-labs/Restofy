@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -129,7 +131,8 @@ class KitchenReadyEventApiTests {
 		assertEquals(((Timestamp) order.get("ready_at")).toInstant(), message.payload().readyAt());
 
 		Map<String, Object> delivery = jdbc.queryForMap(
-				"SELECT destination, status, attempt_count, delivered_at, next_attempt_at FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'", restaurant);
+				"SELECT destination, status, attempt_count, delivered_at, next_attempt_at FROM outbox_deliveries WHERE restaurant_id = ? AND "
+						+ "destination = 'ORDER'", restaurant);
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals("PENDING", delivery.get("status"));
 		assertEquals(0, delivery.get("attempt_count"));
@@ -198,7 +201,8 @@ class KitchenReadyEventApiTests {
 		UUID actor = UUID.randomUUID();
 		UUID orderId = prepared(restaurant, actor);
 
-		List<Integer> sameKey = runParallel(8, i -> command("mark-ready", orderId, restaurant, actor, UUID.fromString("0b9d2f71-3a55-4a0e-8f51-2c5e8e3d7a22")));
+		List<Integer> sameKey = runParallel(8,
+				i -> command("mark-ready", orderId, restaurant, actor, UUID.fromString("0b9d2f71-3a55-4a0e-8f51-2c5e8e3d7a22")));
 		assertTrue(sameKey.stream().allMatch(code -> code == 200), sameKey.toString());
 		assertEquals(1, events(restaurant));
 
@@ -237,7 +241,7 @@ class KitchenReadyEventApiTests {
 		UUID orderId = prepared(restaurant, actor);
 		mvc.perform(command("mark-ready", orderId, restaurant, actor, UUID.randomUUID())).andExpect(status().isOk());
 
-		org.junit.jupiter.api.Assertions.assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update("""
+		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
 				INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version, event_type,
 				    schema_version, payload, occurred_at) VALUES (?, ?, 'KITCHEN_ORDER', ?, 9, 'KitchenOrderReady', 1, '{}'::jsonb, now())
 				""", UUID.randomUUID(), restaurant, orderId));

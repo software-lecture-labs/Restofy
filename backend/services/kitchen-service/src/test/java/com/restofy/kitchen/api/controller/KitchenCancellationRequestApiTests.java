@@ -1,5 +1,6 @@
 package com.restofy.kitchen.api.controller;
 
+import com.jayway.jsonpath.JsonPath;
 import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.support.KitchenOrderSeeder;
@@ -12,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -123,7 +125,8 @@ class KitchenCancellationRequestApiTests {
 		return jdbc.queryForMap("""
 				SELECT o.status, o.started_at, o.ready_at, o.cancelled_at, o.cancellation_reason, o.version,
 				       (SELECT count(*) FROM kitchen_status_history h WHERE h.kitchen_order_id = o.id) AS history,
-				       (SELECT count(*) FROM outbox_events e WHERE e.restaurant_id = o.restaurant_id AND e.event_type = 'KitchenOrderReady') AS ready_events
+				       (SELECT count(*) FROM outbox_events e
+				        WHERE e.restaurant_id = o.restaurant_id AND e.event_type = 'KitchenOrderReady') AS ready_events
 				FROM kitchen_orders o WHERE o.restaurant_id = ? AND o.order_id = ?
 				""", restaurant, orderId);
 	}
@@ -166,7 +169,8 @@ class KitchenCancellationRequestApiTests {
 				.andExpect(jsonPath("$.decidedAt").value((Object) null)).andExpect(jsonPath("$.decisionReasonCode").value((Object) null))
 				.andReturn().getResponse().getContentAsString();
 
-		assertFalse(response.contains("cancelledAt") || response.contains("\"CANCELLED\""), "a request is never shown as a cancellation: " + response);
+		assertFalse(response.contains("cancelledAt") || response.contains("\"CANCELLED\""),
+				"a request is never shown as a cancellation: " + response);
 		assertEquals(before, orderState(restaurant, orderId), "the order, its history and its events are untouched");
 		Map<String, Object> stored = jdbc.queryForMap("SELECT * FROM cancellation_requests WHERE restaurant_id = ?", restaurant);
 		assertEquals("REQUESTED", stored.get("status"));
@@ -194,7 +198,8 @@ class KitchenCancellationRequestApiTests {
 		UUID restaurant = UUID.randomUUID();
 		for (String reason : List.of("OUT_OF_STOCK", "CUSTOMER_REQUEST", "KITCHEN_ERROR", "OTHER")) {
 			UUID orderId = order(restaurant);
-			send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), bodyFor(restaurant, orderId, reason, "   ")).andExpect(status().isAccepted())
+			send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), bodyFor(restaurant, orderId, reason, "   "))
+					.andExpect(status().isAccepted())
 					.andExpect(jsonPath("$.reasonCode").value(reason)).andExpect(jsonPath("$.reasonText").value((Object) null));
 		}
 		assertEquals(4, requests(restaurant));
@@ -208,19 +213,23 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = order(restaurant);
 		UUID key = UUID.randomUUID();
 
-		String requestId = com.jayway.jsonpath.JsonPath.read(send(restaurant, UUID.randomUUID(), orderId, key,
-				bodyFor(restaurant, orderId, "OUT_OF_STOCK", "Tavuk bitti, bu not olaya girmez")).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString(),
+		String requestId = JsonPath.read(send(restaurant, UUID.randomUUID(), orderId, key,
+				bodyFor(restaurant, orderId, "OUT_OF_STOCK", "Tavuk bitti, bu not olaya girmez")).andExpect(status().isAccepted())
+						.andReturn().getResponse().getContentAsString(),
 				"$.requestId");
 
-		Map<String, Object> event = jdbc.queryForMap("SELECT * FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenCancellationRequested'", restaurant);
+		Map<String, Object> event = jdbc.queryForMap("SELECT * FROM outbox_events WHERE restaurant_id = ? AND event_type = "
+				+ "'KitchenCancellationRequested'", restaurant);
 		assertEquals("CANCELLATION_REQUEST", event.get("aggregate_type"));
 		assertEquals(UUID.fromString(requestId), event.get("aggregate_id"));
 		assertEquals(key, event.get("causation_id"));
 		assertEquals(1, event.get("schema_version"));
 		String payload = event.get("payload").toString();
-		assertTrue(payload.contains(orderId.toString()) && payload.contains("OUT_OF_STOCK") && payload.contains(productOf(restaurant, orderId).toString()), payload);
+		assertTrue(payload.contains(orderId.toString()) && payload.contains("OUT_OF_STOCK") && payload.contains(productOf(restaurant,
+				orderId).toString()), payload);
 		assertFalse(payload.contains("Tavuk") || payload.contains("not olaya"), "the free text never leaves Kitchen: " + payload);
-		Map<String, Object> delivery = jdbc.queryForMap("SELECT destination, status, attempt_count FROM outbox_deliveries WHERE restaurant_id = ? AND event_id = ?",
+		Map<String, Object> delivery = jdbc.queryForMap("SELECT destination, status, attempt_count FROM outbox_deliveries WHERE "
+				+ "restaurant_id = ? AND event_id = ?",
 				restaurant, event.get("id"));
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals("PENDING", delivery.get("status"));
@@ -267,9 +276,11 @@ class KitchenCancellationRequestApiTests {
 				body("OTHER", "line\\nbreak"), "{\"reasonCode\":", "[]", "\"OTHER\"", "", "not json")) {
 			send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), json).andExpect(status().isBadRequest());
 		}
-		mvc.perform(post(path(orderId)).header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
+		mvc.perform(post(path(orderId)).header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf()))
+				.andExpect(status().isBadRequest());
 		mvc.perform(post("/api/v1/kitchen/orders/not-a-uuid/cancellation-requests").header(KEY, UUID.randomUUID().toString())
-				.contentType("application/json").content(body("OTHER", null)).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
+				.contentType("application/json").content(body("OTHER", null)).with(kitchen(restaurant)).with(csrf()))
+						.andExpect(status().isBadRequest());
 		assertEquals(0, requests(restaurant));
 		assertEquals(0, events(restaurant));
 	}
@@ -280,7 +291,8 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = order(restaurant);
 		String json = body("OTHER", null);
 
-		mvc.perform(post(path(orderId)).contentType("application/json").content(json).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
+		mvc.perform(post(path(orderId)).contentType("application/json").content(json).with(kitchen(restaurant)).with(csrf()))
+				.andExpect(status().isBadRequest());
 		mvc.perform(post(path(orderId)).contentType("application/json").content(json).header(KEY, UUID.randomUUID().toString())
 				.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
 		for (String bad : List.of("not-a-uuid", "{}", "null", "x".repeat(5_000), " 0b9d2f71-3a55-4a0e-8f51-2c5e8e3d7a22x",
@@ -380,7 +392,8 @@ class KitchenCancellationRequestApiTests {
 		mvc.perform(ask(orderId, UUID.randomUUID(), json).with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());
 		mvc.perform(ask(orderId, UUID.randomUUID(), json).with(kitchen(restaurant))).andExpect(status().isForbidden());
 		for (var request : List.of(put(path(orderId)), patch(path(orderId)), delete(path(orderId)))) {
-			mvc.perform(request.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().is4xxClientError());
+			mvc.perform(request.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf()))
+					.andExpect(status().is4xxClientError());
 		}
 		// Another restaurant, or an order that does not exist, looks identical: not found.
 		UUID intruder = UUID.randomUUID();
@@ -407,7 +420,7 @@ class KitchenCancellationRequestApiTests {
 		Map<String, Object> stored = jdbc.queryForMap("SELECT * FROM cancellation_requests WHERE restaurant_id = ?", restaurant);
 		assertEquals("REQUESTED", stored.get("status"));
 		assertNull(stored.get("decided_at"));
-		assertTrue(((java.sql.Timestamp) stored.get("requested_at")).toInstant().isAfter(Instant.parse("2020-01-01T00:00:00Z")));
+		assertTrue(((Timestamp) stored.get("requested_at")).toInstant().isAfter(Instant.parse("2020-01-01T00:00:00Z")));
 	}
 
 	// ---- races ---------------------------------------------------------------------------------------------------
@@ -449,7 +462,8 @@ class KitchenCancellationRequestApiTests {
 
 		List<Integer> statuses = fire(2, n -> n == 0
 				? ask(orderId, UUID.randomUUID(), body("OTHER", null)).with(kitchen(restaurant, actor)).with(csrf())
-				: patch("/api/v1/kitchen/orders/" + orderId + "/mark-ready").header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant, actor)).with(csrf()));
+				: patch("/api/v1/kitchen/orders/" + orderId + "/mark-ready").header(KEY, UUID.randomUUID().toString())
+						.with(kitchen(restaurant, actor)).with(csrf()));
 
 		// Whichever came first: mark-ready always succeeds (a request does not block it); the request is accepted only if it won.
 		Map<String, Object> state = orderState(restaurant, orderId);

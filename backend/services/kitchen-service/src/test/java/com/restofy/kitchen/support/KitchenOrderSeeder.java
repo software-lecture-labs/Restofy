@@ -2,6 +2,7 @@ package com.restofy.kitchen.support;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -29,7 +30,7 @@ public final class KitchenOrderSeeder {
 				    source_order_version, source_event_id)
 				VALUES (?, ?, ?, ?, 'T1', ?, ?, ?, ?, ?, ?, 1, ?)
 				""", kitchenId, restaurantId, orderId, UUID.randomUUID(), "S-" + status, status,
-				java.sql.Timestamp.from(receivedAt), ts(startedAt), ts(readyAt), ts(cancelledAt), UUID.randomUUID());
+				Timestamp.from(receivedAt), ts(startedAt), ts(readyAt), ts(cancelledAt), UUID.randomUUID());
 		return orderId;
 	}
 
@@ -37,7 +38,7 @@ public final class KitchenOrderSeeder {
 		return seed(restaurantId, UUID.randomUUID(), status, receivedAt);
 	}
 
-	private static java.sql.Timestamp ts(Instant instant) {
-		return instant == null ? null : java.sql.Timestamp.from(instant);
+	private static Timestamp ts(Instant instant) {
+		return instant == null ? null : Timestamp.from(instant);
 	}
 }

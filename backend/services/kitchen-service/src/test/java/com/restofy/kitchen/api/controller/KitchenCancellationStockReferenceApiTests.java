@@ -1,7 +1,9 @@
 package com.restofy.kitchen.api.controller;
 
+import com.jayway.jsonpath.JsonPath;
 import com.restofy.kitchen.application.contract.OrderAcceptedMessage;
 import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -55,7 +57,8 @@ class KitchenCancellationStockReferenceApiTests {
 		UUID lineOne = UUID.randomUUID();
 		UUID lineTwo = UUID.randomUUID();
 		UUID lineThree = UUID.randomUUID();
-		ingest.ingest(new OrderAcceptedMessage(UUID.randomUUID(), 1, Instant.now(), "corr", restaurant, orderId, 1L, "A-1", UUID.randomUUID(), "T1",
+		ingest.ingest(new OrderAcceptedMessage(UUID.randomUUID(), 1, Instant.now(), "corr", restaurant, orderId, 1L, "A-1", UUID.randomUUID(),
+				"T1",
 				List.of(new OrderAcceptedMessage.Item(lineOne, burger, "Burger", 2, null, List.of()),
 						new OrderAcceptedMessage.Item(lineTwo, burger, "Burger", 1, "az pişmiş", List.of()),
 						new OrderAcceptedMessage.Item(lineThree, ayran, "Ayran", 3, null, List.of()))));
@@ -96,13 +99,16 @@ class KitchenCancellationStockReferenceApiTests {
 		UUID key = UUID.randomUUID();
 
 		send(restaurant, UUID.randomUUID(), order.orderId(), key, stock(order.ayran(), order.ayranLine())).andExpect(status().isAccepted())
-				.andExpect(jsonPath("$.productId").value(order.ayran().toString())).andExpect(jsonPath("$.orderItemId").value(order.ayranLine().toString()))
+				.andExpect(jsonPath("$.productId").value(order.ayran().toString()))
+						.andExpect(jsonPath("$.orderItemId").value(order.ayranLine().toString()))
 				.andExpect(jsonPath("$.reasonCode").value("OUT_OF_STOCK"));
 
-		Map<String, Object> stored = jdbc.queryForMap("SELECT product_id, order_item_id FROM cancellation_requests WHERE restaurant_id = ?", restaurant);
+		Map<String, Object> stored = jdbc.queryForMap("SELECT product_id, order_item_id FROM cancellation_requests WHERE restaurant_id = ?",
+				restaurant);
 		assertEquals(order.ayran(), stored.get("product_id"));
 		assertEquals(order.ayranLine(), stored.get("order_item_id"));
-		String payload = jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenCancellationRequested'",
+		String payload = jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE restaurant_id = ? AND event_type = "
+				+ "'KitchenCancellationRequested'",
 				String.class, restaurant);
 		assertTrue(payload.contains(order.ayran().toString()) && payload.contains(order.ayranLine().toString()), payload);
 	}
@@ -117,14 +123,19 @@ class KitchenCancellationStockReferenceApiTests {
 				.andExpect(jsonPath("$.orderItemId").value((Object) null));
 		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ?", restaurant);
 		// Either burger line is a valid reference.
-		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(order.burger(), order.burgerLine())).andExpect(status().isAccepted());
-		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = 'REQUESTED'", restaurant);
-		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(order.burger(), order.burgerLineTwo())).andExpect(status().isAccepted());
-		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = 'REQUESTED'", restaurant);
+		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(order.burger(), order.burgerLine()))
+				.andExpect(status().isAccepted());
+		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = "
+				+ "'REQUESTED'", restaurant);
+		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(order.burger(), order.burgerLineTwo()))
+				.andExpect(status().isAccepted());
+		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = "
+				+ "'REQUESTED'", restaurant);
 		assertEquals(3, requests(restaurant));
 
 		// The ayran line does not carry the burger.
-		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(order.burger(), order.ayranLine())).andExpect(status().isBadRequest())
+		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(order.burger(), order.ayranLine()))
+				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_STOCK_REFERENCE"));
 		assertEquals(3, requests(restaurant));
 	}
@@ -136,7 +147,8 @@ class KitchenCancellationStockReferenceApiTests {
 
 		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(null, null)).andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_STOCK_REFERENCE")).andExpect(jsonPath("$.retryable").value(false));
-		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(null, order.burgerLine())).andExpect(status().isBadRequest())
+		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), stock(null, order.burgerLine()))
+				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_STOCK_REFERENCE"));
 
 		assertEquals(0, requests(restaurant));
@@ -151,11 +163,13 @@ class KitchenCancellationStockReferenceApiTests {
 		Received sameRestaurantOther = receive(restaurant);
 		Received foreign = receive(otherRestaurant);
 
-		String unknown = send(restaurant, UUID.randomUUID(), mine.orderId(), UUID.randomUUID(), stock(UUID.randomUUID(), null)).andExpect(status().isBadRequest())
+		String unknown = send(restaurant, UUID.randomUUID(), mine.orderId(), UUID.randomUUID(), stock(UUID.randomUUID(), null))
+				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_STOCK_REFERENCE")).andReturn().getResponse().getContentAsString();
 		String otherOrder = send(restaurant, UUID.randomUUID(), mine.orderId(), UUID.randomUUID(), stock(sameRestaurantOther.burger(), null))
 				.andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
-		String otherOrderLine = send(restaurant, UUID.randomUUID(), mine.orderId(), UUID.randomUUID(), stock(mine.burger(), sameRestaurantOther.burgerLine()))
+		String otherOrderLine = send(restaurant, UUID.randomUUID(), mine.orderId(), UUID.randomUUID(),
+				stock(mine.burger(), sameRestaurantOther.burgerLine()))
 				.andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
 		String otherTenant = send(restaurant, UUID.randomUUID(), mine.orderId(), UUID.randomUUID(), stock(foreign.burger(), foreign.burgerLine()))
 				.andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
@@ -170,7 +184,7 @@ class KitchenCancellationStockReferenceApiTests {
 	}
 
 	private static String detail(String problem) {
-		return com.jayway.jsonpath.JsonPath.read(problem, "$.detail");
+		return JsonPath.read(problem, "$.detail");
 	}
 
 	@Test
@@ -185,8 +199,10 @@ class KitchenCancellationStockReferenceApiTests {
 			send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(),
 					"{\"reasonCode\":\"" + reason + "\",\"orderItemId\":\"" + order.burgerLine() + "\"}").andExpect(status().isBadRequest());
 			// Without a reference those reasons are fine.
-			send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"" + reason + "\"}").andExpect(status().isAccepted());
-			jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = 'REQUESTED'", restaurant);
+			send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"" + reason + "\"}")
+					.andExpect(status().isAccepted());
+			jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = "
+					+ "'REQUESTED'", restaurant);
 		}
 		assertEquals(3, requests(restaurant));
 	}
@@ -227,13 +243,15 @@ class KitchenCancellationStockReferenceApiTests {
 		UUID restaurant = UUID.randomUUID();
 		UUID actor = UUID.randomUUID();
 		Received order = receive(restaurant);
-		send(restaurant, actor, order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"OTHER\",\"reasonText\":\"ilk\"}").andExpect(status().isAccepted());
+		send(restaurant, actor, order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"OTHER\",\"reasonText\":\"ilk\"}")
+				.andExpect(status().isAccepted());
 		// The Order service rejected it (written by hand here: the decision flow is a later task).
-		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now(), decision_reason_code = 'ORDER_ALREADY_SERVED' WHERE restaurant_id = ?", restaurant);
+		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now(), decision_reason_code = "
+				+ "'ORDER_ALREADY_SERVED' WHERE restaurant_id = ?", restaurant);
 		send(restaurant, actor, order.orderId(), UUID.randomUUID(), stock(order.ayran(), order.ayranLine())).andExpect(status().isAccepted());
 
 		mvc.perform(get("/api/v1/kitchen/orders/" + order.orderId() + "/cancellation-requests").with(kitchen(restaurant)))
-				.andExpect(status().isOk()).andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+				.andExpect(status().isOk()).andExpect(header().string("Cache-Control", Matchers.containsString("no-store")))
 				.andExpect(jsonPath("$.length()").value(2))
 				.andExpect(jsonPath("$[0].status").value("REQUESTED")).andExpect(jsonPath("$[0].reasonCode").value("OUT_OF_STOCK"))
 				.andExpect(jsonPath("$[0].productId").value(order.ayran().toString())).andExpect(jsonPath("$[0].decidedAt").value((Object) null))
@@ -253,7 +271,8 @@ class KitchenCancellationStockReferenceApiTests {
 		mvc.perform(get(path).with(admin(restaurant))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
 		mvc.perform(get(path)).andExpect(status().isUnauthorized());
 		mvc.perform(get(path).with(kitchen(UUID.randomUUID()))).andExpect(status().isNotFound());
-		mvc.perform(get("/api/v1/kitchen/orders/" + UUID.randomUUID() + "/cancellation-requests").with(kitchen(restaurant))).andExpect(status().isNotFound());
+		mvc.perform(get("/api/v1/kitchen/orders/" + UUID.randomUUID() + "/cancellation-requests").with(kitchen(restaurant)))
+				.andExpect(status().isNotFound());
 		// An order without any request has an empty history, not an error.
 		Received quiet = receive(restaurant);
 		mvc.perform(get("/api/v1/kitchen/orders/" + quiet.orderId() + "/cancellation-requests").with(kitchen(restaurant)))

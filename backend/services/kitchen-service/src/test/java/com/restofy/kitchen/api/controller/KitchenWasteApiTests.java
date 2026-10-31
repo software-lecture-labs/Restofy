@@ -1,6 +1,7 @@
 package com.restofy.kitchen.api.controller;
 
 import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
 
 import static com.restofy.kitchen.support.KitchenTestAuth.admin;
 import static com.restofy.kitchen.support.KitchenTestAuth.kitchen;
@@ -108,7 +110,7 @@ class KitchenWasteApiTests {
 				""", UUID.randomUUID(), restaurant, UUID.randomUUID(), product, quantity, reason, Timestamp.from(recordedAt), UUID.randomUUID());
 	}
 
-	private List<Integer> fire(int threads, java.util.function.IntFunction<MockHttpServletRequestBuilder> request) throws Exception {
+	private List<Integer> fire(int threads, IntFunction<MockHttpServletRequestBuilder> request) throws Exception {
 		ExecutorService pool = Executors.newFixedThreadPool(threads);
 		CountDownLatch start = new CountDownLatch(1);
 		List<Future<Integer>> futures = new ArrayList<>();
@@ -148,7 +150,7 @@ class KitchenWasteApiTests {
 		Map<String, Object> stored = row(restaurant, key);
 		assertEquals(3, stored.get("quantity"));
 		assertEquals(actor, stored.get("recorded_by_user_id"));
-		Instant recordedAt = ((java.sql.Timestamp) stored.get("recorded_at")).toInstant();
+		Instant recordedAt = ((Timestamp) stored.get("recorded_at")).toInstant();
 		assertFalse(recordedAt.isBefore(before.minusSeconds(1)) || recordedAt.isAfter(Instant.now().plusSeconds(1)), "the server's own time");
 		assertNull(stored.get("product_name_snapshot"), "no name Kitchen knows, so none is invented");
 	}
@@ -204,7 +206,8 @@ class KitchenWasteApiTests {
 		for (String json : bad) {
 			send(restaurant, UUID.randomUUID(), UUID.randomUUID(), json).andExpect(status().isBadRequest());
 		}
-		mvc.perform(post(PATH).header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
+		mvc.perform(post(PATH).header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf()))
+				.andExpect(status().isBadRequest());
 		assertEquals(0, rows(restaurant));
 	}
 
@@ -213,7 +216,8 @@ class KitchenWasteApiTests {
 		UUID restaurant = UUID.randomUUID();
 		UUID product = UUID.randomUUID();
 
-		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "1", "OTHER", "ş".repeat(500), null)).andExpect(status().isCreated());
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "1", "OTHER", "ş".repeat(500), null))
+				.andExpect(status().isCreated());
 		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "10000", "OTHER", "   ", null)).andExpect(status().isCreated())
 				.andExpect(jsonPath("$.description").value((Object) null));
 		assertEquals(2, rows(restaurant));
@@ -234,7 +238,7 @@ class KitchenWasteApiTests {
 
 		Map<String, Object> stored = row(restaurant, key);
 		assertEquals(actor, stored.get("recorded_by_user_id"));
-		assertTrue(((java.sql.Timestamp) stored.get("recorded_at")).toInstant().isAfter(Instant.parse("2020-01-01T00:00:00Z")));
+		assertTrue(((Timestamp) stored.get("recorded_at")).toInstant().isAfter(Instant.parse("2020-01-01T00:00:00Z")));
 		assertEquals(1, rows(restaurant));
 	}
 
@@ -267,7 +271,8 @@ class KitchenWasteApiTests {
 
 		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "1", "SPOILAGE", null, mine[0])).andExpect(status().isCreated());
 		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "1", "SPOILAGE", null, foreign[0])).andExpect(status().isNotFound());
-		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "1", "SPOILAGE", null, UUID.randomUUID())).andExpect(status().isNotFound());
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), body(product, "1", "SPOILAGE", null, UUID.randomUUID()))
+				.andExpect(status().isNotFound());
 		assertEquals(1, rows(restaurant));
 		assertEquals(0, rows(other));
 	}
@@ -286,7 +291,8 @@ class KitchenWasteApiTests {
 		mvc.perform(entry(UUID.randomUUID(), body(product)).with(kitchen(restaurant))).andExpect(status().isForbidden());
 		for (var request : List.of(put(PATH), patch(PATH), delete(PATH))) {
 			mvc.perform(request.header(KEY, UUID.randomUUID().toString()).with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());
-			mvc.perform(request.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().isMethodNotAllowed());
+			mvc.perform(request.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf()))
+					.andExpect(status().isMethodNotAllowed());
 		}
 		assertEquals(0, rows(restaurant));
 	}
@@ -298,7 +304,8 @@ class KitchenWasteApiTests {
 		UUID restaurant = UUID.randomUUID();
 		String json = body(UUID.randomUUID());
 
-		mvc.perform(post(PATH).contentType("application/json").content(json).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
+		mvc.perform(post(PATH).contentType("application/json").content(json).with(kitchen(restaurant)).with(csrf()))
+				.andExpect(status().isBadRequest());
 		mvc.perform(post(PATH).contentType("application/json").content(json).header(KEY, UUID.randomUUID().toString())
 				.header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf())).andExpect(status().isBadRequest());
 		for (String bad : List.of("not-a-uuid", "{}", "null", "x".repeat(5_000), " 0b9d2f71-3a55-4a0e-8f51-2c5e8e3d7a22x")) {
@@ -332,8 +339,10 @@ class KitchenWasteApiTests {
 		UUID key = UUID.randomUUID();
 		send(restaurant, actor, key, body(product, "4", "SPOILAGE", "Bozuldu", null)).andExpect(status().isCreated());
 
-		for (String different : List.of(body(UUID.randomUUID(), "4", "SPOILAGE", "Bozuldu", null), body(product, "5", "SPOILAGE", "Bozuldu", null),
-				body(product, "4", "OTHER", "Bozuldu", null), body(product, "4", "SPOILAGE", "Başka", null), body(product, "4", "SPOILAGE", null, null))) {
+		for (String different : List.of(body(UUID.randomUUID(), "4", "SPOILAGE", "Bozuldu", null),
+				body(product, "5", "SPOILAGE", "Bozuldu", null),
+				body(product, "4", "OTHER", "Bozuldu", null), body(product, "4", "SPOILAGE", "Başka", null),
+						body(product, "4", "SPOILAGE", null, null))) {
 			send(restaurant, actor, key, different).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("COMMAND_ID_CONFLICT"));
 		}
 		send(restaurant, UUID.randomUUID(), key, body(product, "4", "SPOILAGE", "Bozuldu", null)).andExpect(status().isConflict());
@@ -377,8 +386,9 @@ class KitchenWasteApiTests {
 		mvc.perform(get(PATH).with(kitchen(restaurant))).andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3))
 				.andExpect(jsonPath("$.content[0].quantity").value(3)).andExpect(jsonPath("$.content[1].quantity").value(2))
 				.andExpect(jsonPath("$.content[2].quantity").value(1))
-				.andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
-		mvc.perform(get(PATH + "?productId=" + burger).with(admin(restaurant))).andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2));
+				.andExpect(header().string("Cache-Control", Matchers.containsString("no-store")));
+		mvc.perform(get(PATH + "?productId=" + burger).with(admin(restaurant))).andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalElements").value(2));
 		// [from, to): the lower bound is inside, the upper bound is outside.
 		mvc.perform(get(PATH + "?recordedFrom=" + t0.plusSeconds(60) + "&recordedTo=" + t0.plusSeconds(120)).with(kitchen(restaurant)))
 				.andExpect(jsonPath("$.totalElements").value(1)).andExpect(jsonPath("$.content[0].quantity").value(2));

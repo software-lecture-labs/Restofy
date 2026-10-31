@@ -69,7 +69,8 @@ class OutboundMessageContractTests {
 				KitchenCancellationRequestedMessage.TYPE, 1, T, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1, null, null,
 				new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OTHER", null, null)))).toLowerCase(Locale.ROOT);
 
-		for (String forbidden : List.of("table", "user", "email", "phone", "price", "note", "reasontext", "productname", "customer", "token", "secret")) {
+		for (String forbidden : List.of("table", "user", "email", "phone", "price", "note", "reasontext", "productname", "customer", "token",
+				"secret")) {
 			assertFalse(everything.contains(forbidden), "an event must not carry '" + forbidden + "': " + everything);
 		}
 		assertTrue(everything.contains("eventid"), everything);

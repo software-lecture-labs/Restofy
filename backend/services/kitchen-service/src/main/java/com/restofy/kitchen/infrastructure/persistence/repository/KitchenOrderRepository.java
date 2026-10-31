@@ -39,7 +39,7 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, UUID
 	 * same order are serialized. The lock wait is bounded; a timeout surfaces as a locking failure (409).
 	 */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
-	@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+	@QueryHints(@QueryHint(name = RowLocks.TIMEOUT_HINT, value = RowLocks.TIMEOUT_MILLIS))
 	@Query("select o from KitchenOrder o where o.restaurantId = :restaurantId and o.orderId = :orderId")
 	Optional<KitchenOrder> findForUpdate(@Param("restaurantId") UUID restaurantId, @Param("orderId") UUID orderId);
 }

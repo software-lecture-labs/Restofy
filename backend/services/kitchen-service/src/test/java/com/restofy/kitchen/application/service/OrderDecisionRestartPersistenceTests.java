@@ -44,7 +44,8 @@ class OrderDecisionRestartPersistenceTests {
 			requestId = first.getBean(CancellationRequestService.class).request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
 					new RequestOrderCancellationRequest(CancellationReason.CUSTOMER_REQUEST, null)).request().getId();
 			draftHolder[0] = approved(restaurant, orderId, requestId, 2);
-			assertEquals(DecisionOutcome.CANCELLED, first.getBean(OrderDecisionService.class).apply(SOURCE_ORDER, draftHolder[0].message()).outcome());
+			assertEquals(DecisionOutcome.CANCELLED,
+					first.getBean(OrderDecisionService.class).apply(SOURCE_ORDER, draftHolder[0].message()).outcome());
 		}
 
 		try (ConfigurableApplicationContext second = start()) {

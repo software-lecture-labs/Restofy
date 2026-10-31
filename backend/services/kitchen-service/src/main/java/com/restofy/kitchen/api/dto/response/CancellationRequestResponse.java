@@ -29,7 +29,7 @@ public record CancellationRequestResponse(
 
 	public static CancellationRequestResponse from(CancellationRequest request) {
 		return new CancellationRequestResponse(request.getId(), request.getOrderId(), request.getStatus(), request.getReasonCode(),
-				request.getReasonText(), request.getProductId(), request.getOrderItemId(), request.getRequestedAt(), request.getRequestedByUserId(), request.getDecidedAt(),
-				request.getDecisionReasonCode());
+				request.getReasonText(), request.getProductId(), request.getOrderItemId(), request.getRequestedAt(),
+				request.getRequestedByUserId(), request.getDecidedAt(), request.getDecisionReasonCode());
 	}
 }

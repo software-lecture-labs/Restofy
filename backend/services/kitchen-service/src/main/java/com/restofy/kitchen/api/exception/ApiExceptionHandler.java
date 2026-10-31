@@ -105,7 +105,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 				return problem(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND", false, "Product not found");
 			}
 			case PRODUCT_INACTIVE -> {
-				return problem(HttpStatus.CONFLICT, "PRODUCT_INACTIVE", false, "The product is passive in the catalogue and its availability cannot be changed");
+				return problem(HttpStatus.CONFLICT, "PRODUCT_INACTIVE", false,
+						"The product is passive in the catalogue and its availability cannot be changed");
 			}
 			case INVALID_COMMAND -> {
 				return problem(HttpStatus.BAD_REQUEST, "INVALID_COMMAND", false, "The Menu service rejected the command");

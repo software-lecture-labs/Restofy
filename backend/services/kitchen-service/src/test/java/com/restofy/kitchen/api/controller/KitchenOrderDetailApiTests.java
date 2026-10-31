@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static com.restofy.kitchen.support.KitchenTestAuth.admin;
@@ -20,6 +21,7 @@ import static com.restofy.kitchen.support.OrderMessages.message;
 import static com.restofy.kitchen.support.OrderMessages.withVersion;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -53,7 +55,7 @@ class KitchenOrderDetailApiTests {
 		var corba = item("Çorba", 3, "  tuzsuz  ");
 		ingest.ingest(message(restaurant, orderId, session, "12", "A-100", 1, UUID.randomUUID(), burger, ayran, corba));
 
-		for (var auth : java.util.List.of(kitchen(restaurant), admin(restaurant))) {
+		for (var auth : List.of(kitchen(restaurant), admin(restaurant))) {
 			mvc.perform(get(URL + orderId).with(auth))
 					.andExpect(status().isOk())
 					.andExpect(jsonPath("$.orderId").value(orderId.toString()))
@@ -89,10 +91,10 @@ class KitchenOrderDetailApiTests {
 				.andReturn().getResponse().getContentAsString();
 
 		// The keys must be present with a JSON null (not omitted) so clients can rely on a stable shape.
-		org.junit.jupiter.api.Assertions.assertTrue(body.contains("\"startedAt\":null"), body);
-		org.junit.jupiter.api.Assertions.assertTrue(body.contains("\"readyAt\":null"), body);
-		org.junit.jupiter.api.Assertions.assertTrue(body.contains("\"note\":null"), body);
-		org.junit.jupiter.api.Assertions.assertTrue(body.contains("\"options\":[]"), body);
+		assertTrue(body.contains("\"startedAt\":null"), body);
+		assertTrue(body.contains("\"readyAt\":null"), body);
+		assertTrue(body.contains("\"note\":null"), body);
+		assertTrue(body.contains("\"options\":[]"), body);
 	}
 
 	@Test

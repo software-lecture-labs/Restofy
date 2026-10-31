@@ -1,5 +1,6 @@
 package com.restofy.kitchen.api.controller;
 
+import com.jayway.jsonpath.JsonPath;
 import com.restofy.kitchen.api.dto.response.DailyKitchenReportResponse;
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
@@ -17,6 +18,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.Date;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -90,7 +92,7 @@ class KitchenEndToEndSimulationTests {
 
 		// Order 2: the kitchen asks to cancel it while it is being prepared. Nothing is cancelled by asking.
 		command(restaurant, cancelled, "start-preparation");
-		String requestId = com.jayway.jsonpath.JsonPath.read(mvc.perform(post("/api/v1/kitchen/orders/" + cancelled + "/cancellation-requests")
+		String requestId = JsonPath.read(mvc.perform(post("/api/v1/kitchen/orders/" + cancelled + "/cancellation-requests")
 				.header(KEY, UUID.randomUUID().toString()).contentType("application/json").content("{\"reasonCode\":\"KITCHEN_ERROR\"}")
 				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("REQUESTED"))
 				.andReturn().getResponse().getContentAsString(), "$.requestId");
@@ -108,7 +110,7 @@ class KitchenEndToEndSimulationTests {
 
 		// The day report counts what really happened, and nothing else.
 		LocalDate day = jdbc.queryForObject("SELECT (received_at AT TIME ZONE 'UTC')::date FROM kitchen_orders WHERE order_id = ?",
-				java.sql.Date.class, ready).toLocalDate();
+				Date.class, ready).toLocalDate();
 		DailyKitchenReportResponse report = reports.daily(restaurant, day, ZoneOffset.UTC);
 		assertEquals(2, report.orders().received());
 		assertEquals(1, report.orders().currentStatusOfReceived().ready());
@@ -117,7 +119,8 @@ class KitchenEndToEndSimulationTests {
 		assertEquals(1, report.orders().duringDay().cancelled());
 
 		// Every message that left Kitchen went through a fake: nothing real was contacted.
-		List<String> destinations = jdbc.queryForList("SELECT destination || ':' || status FROM outbox_deliveries WHERE restaurant_id = ? ORDER BY 1",
+		List<String> destinations = jdbc.queryForList("SELECT destination || ':' || status FROM outbox_deliveries WHERE restaurant_id = "
+				+ "? ORDER BY 1",
 				String.class, restaurant);
 		assertEquals(List.of("NOTIFICATION:DELIVERED", "ORDER:DELIVERED", "ORDER:DELIVERED"), destinations,
 				"the ready event reached both fakes, the cancellation request reached the Order fake only, and the cancelled order never became ready");

@@ -135,7 +135,8 @@ class CancellationRequestSchemaTests {
 	private UUID openRequest(UUID restaurant, UUID orderId) {
 		UUID command = UUID.randomUUID();
 		open(restaurant, orderId, command);
-		return jdbc.queryForObject("SELECT id FROM cancellation_requests WHERE restaurant_id = ? AND command_id = ?", UUID.class, restaurant, command);
+		return jdbc.queryForObject("SELECT id FROM cancellation_requests WHERE restaurant_id = ? AND command_id = ?", UUID.class, restaurant,
+				command);
 	}
 
 	@Test
@@ -147,11 +148,13 @@ class CancellationRequestSchemaTests {
 		for (String change : new String[] { "reason_code = 'KITCHEN_ERROR'", "reason_text = 'başka'", "requested_by_user_id = gen_random_uuid()",
 				"requested_at = now() + interval '1 hour'", "command_id = gen_random_uuid()", "order_id = gen_random_uuid()",
 				"restaurant_id = gen_random_uuid()", "id = gen_random_uuid()", "product_id = gen_random_uuid()" }) {
-			assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE cancellation_requests SET " + change + " WHERE id = ?", id), change);
+			assertThrows(DataIntegrityViolationException.class,
+					() -> jdbc.update("UPDATE cancellation_requests SET " + change + " WHERE id = ?", id), change);
 		}
 		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("DELETE FROM cancellation_requests WHERE id = ?", id));
 		// Nothing was lost by the refused attempts.
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM cancellation_requests WHERE id = ? AND reason_code = 'OTHER' AND status = 'REQUESTED'",
+		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM cancellation_requests WHERE id = ? AND reason_code = 'OTHER' AND "
+				+ "status = 'REQUESTED'",
 				Integer.class, id));
 	}
 
@@ -166,12 +169,16 @@ class CancellationRequestSchemaTests {
 				    decision_order_version = 7, decision_event_id = gen_random_uuid(), version = version + 1 WHERE id = ?
 				""", id));
 
-		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE cancellation_requests SET status = 'APPROVED' WHERE id = ?", id));
-		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE cancellation_requests SET decision_reason_code = 'X' WHERE id = ?", id));
-		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE cancellation_requests SET decided_at = now() WHERE id = ?", id));
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.update("UPDATE cancellation_requests SET status = 'APPROVED' WHERE id = ?", id));
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.update("UPDATE cancellation_requests SET decision_reason_code = 'X' WHERE id = ?", id));
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.update("UPDATE cancellation_requests SET decided_at = now() WHERE id = ?", id));
 		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("DELETE FROM cancellation_requests WHERE id = ?", id));
 		assertEquals("REJECTED", jdbc.queryForObject("SELECT status FROM cancellation_requests WHERE id = ?", String.class, id));
-		assertEquals("ALREADY_SERVED", jdbc.queryForObject("SELECT decision_reason_code FROM cancellation_requests WHERE id = ?", String.class, id));
+		assertEquals("ALREADY_SERVED",
+				jdbc.queryForObject("SELECT decision_reason_code FROM cancellation_requests WHERE id = ?", String.class, id));
 	}
 
 	@Test
@@ -181,7 +188,8 @@ class CancellationRequestSchemaTests {
 
 		assertDoesNotThrow(() -> jdbc.update("UPDATE cancellation_requests SET status = 'APPROVED', decided_at = now() WHERE id = ?", id));
 
-		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED' WHERE id = ?", id));
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED' WHERE id = ?", id));
 	}
 
 	private void assertInvalidOpen(UUID restaurant, UUID orderId, UUID command) {

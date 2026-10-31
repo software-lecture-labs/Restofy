@@ -79,7 +79,8 @@ class OrderCancellationDecisionMessageTests {
 				DecisionOutcome.ALREADY_DECIDED, DecisionOutcome.NEEDS_RECONCILIATION }) {
 			assertTrue(outcome.isRecorded(), outcome.name());
 		}
-		for (DecisionOutcome outcome : new DecisionOutcome[] { DecisionOutcome.UNKNOWN, DecisionOutcome.INVALID, DecisionOutcome.SOURCE_NOT_TRUSTED }) {
+		for (DecisionOutcome outcome : new DecisionOutcome[] { DecisionOutcome.UNKNOWN, DecisionOutcome.INVALID,
+				DecisionOutcome.SOURCE_NOT_TRUSTED }) {
 			assertFalse(outcome.isRecorded(), outcome.name());
 		}
 	}

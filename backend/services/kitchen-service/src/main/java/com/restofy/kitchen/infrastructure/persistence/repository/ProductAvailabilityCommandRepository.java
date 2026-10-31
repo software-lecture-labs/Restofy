@@ -44,6 +44,9 @@ public interface ProductAvailabilityCommandRepository extends JpaRepository<Prod
 
 	/** No reliable answer: stays UNCONFIRMED and keeps a short safe code of why. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
-	@Query("update versioned ProductAvailabilityCommand c set c.outcomeCode = :code where c.id = :id and c.outcome = com.restofy.kitchen.domain.enums.CommandOutcome.UNCONFIRMED")
+	@Query("""
+			update versioned ProductAvailabilityCommand c set c.outcomeCode = :code
+			where c.id = :id and c.outcome = com.restofy.kitchen.domain.enums.CommandOutcome.UNCONFIRMED
+			""")
 	int markUnconfirmed(@Param("id") UUID id, @Param("code") String code);
 }

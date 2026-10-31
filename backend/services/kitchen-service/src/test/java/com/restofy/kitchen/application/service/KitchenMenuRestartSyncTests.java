@@ -144,7 +144,8 @@ class KitchenMenuRestartSyncTests {
 		}
 		int callsAfterFailure = menu.commandCalls();
 		Map<String, Object> unconfirmed = jdbc.queryForMap(
-				"SELECT outcome, attempt_count, outcome_code FROM product_availability_commands WHERE restaurant_id = ? AND command_id = ?", restaurant, key);
+				"SELECT outcome, attempt_count, outcome_code FROM product_availability_commands WHERE restaurant_id = ? AND command_id = ?",
+						restaurant, key);
 		assertEquals("UNCONFIRMED", unconfirmed.get("outcome"));
 		assertEquals(1, unconfirmed.get("attempt_count"));
 
@@ -157,7 +158,8 @@ class KitchenMenuRestartSyncTests {
 					"SELECT outcome FROM product_availability_commands WHERE restaurant_id = ? AND command_id = ?", String.class, restaurant, key));
 
 			// Only the client's retry with the same Idempotency-Key settles it, once.
-			second.getBean(ProductAvailabilityService.class).change(restaurant, actor, key, product, request(ProductAvailabilityStatus.OUT_OF_STOCK, null));
+			second.getBean(ProductAvailabilityService.class).change(restaurant, actor, key, product,
+					request(ProductAvailabilityStatus.OUT_OF_STOCK, null));
 			assertEquals(ProductAvailabilityStatus.OUT_OF_STOCK, menu.statusOf(product));
 			assertEquals(1L, menu.versionOf(product));
 			Map<String, Object> settled = jdbc.queryForMap(

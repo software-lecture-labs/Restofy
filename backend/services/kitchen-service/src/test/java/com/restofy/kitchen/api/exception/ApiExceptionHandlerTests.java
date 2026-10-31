@@ -6,6 +6,7 @@ import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -82,7 +83,7 @@ class ApiExceptionHandlerTests {
 		}
 		assertNull(property(notFound, "code"), "a plain 404 carries no state-machine code");
 		// the exception types used by the handler are the ones Spring raises for a PostgreSQL lock timeout
-		assertTrue(org.springframework.dao.PessimisticLockingFailureException.class.isAssignableFrom(CannotAcquireLockException.class));
+		assertTrue(PessimisticLockingFailureException.class.isAssignableFrom(CannotAcquireLockException.class));
 		assertTrue(ObjectOptimisticLockingFailureException.class.getSimpleName().contains("Optimistic"));
 	}
 }

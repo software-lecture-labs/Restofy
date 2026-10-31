@@ -114,7 +114,8 @@ class CancellationRequestBackstopTests {
 		Instant now = Instant.parse("2026-10-20T10:00:00Z");
 
 		var unknown = OutboxEvent.create(aggregate, new OutboxEvent.EventData("SomethingElse", 1, null, null, "{}", now), now);
-		var broken = OutboxEvent.create(aggregate, new OutboxEvent.EventData("KitchenCancellationRequested", 1, null, null, "{ not json", now), now);
+		var broken = OutboxEvent.create(aggregate,
+				new OutboxEvent.EventData("KitchenCancellationRequested", 1, null, null, "{ not json", now), now);
 
 		assertThrows(IllegalStateException.class, () -> recorder.toMessage(unknown));
 		assertThrows(IllegalStateException.class, () -> recorder.toMessage(broken));

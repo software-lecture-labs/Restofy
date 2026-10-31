@@ -1,5 +1,6 @@
 package com.restofy.kitchen.api.controller;
 
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -76,7 +77,8 @@ class KitchenDailyReportApiTests {
 		order(restaurant, "WAITING", "2025-10-20T20:59:59.999Z", null, null, null);        // F: last instant of the day
 		order(restaurant, "WAITING", "2025-10-20T21:00:00Z", null, null, null);            // G: first instant of the next day
 		order(restaurant, "WAITING", "2025-10-20T22:00:00Z", null, null, null);            // K: next day in Istanbul, same day in UTC
-		order(restaurant, "READY", "2025-10-19T12:00:00Z", "2025-10-19T12:01:00Z", "2025-10-20T08:00:00Z", null); // H: received before, ready inside
+		order(restaurant, "READY", "2025-10-19T12:00:00Z", "2025-10-19T12:01:00Z", "2025-10-20T08:00:00Z",
+				null); // H: received before, ready inside
 		order(restaurant, "CANCELLED", "2025-10-19T12:00:00Z", null, null, "2025-10-20T09:00:00Z"); // I: received before, cancelled inside
 		order(other, "READY", "2025-10-20T10:00:00Z", "2025-10-20T10:01:00Z", "2025-10-20T10:02:00Z", null); // another restaurant
 		waste(restaurant, 3, "SPOILAGE", "2025-10-20T10:00:00Z");
@@ -113,7 +115,7 @@ class KitchenDailyReportApiTests {
 				.andExpect(jsonPath("$.waste.byReason[2].reasonCode").value("DROPPED_OR_DAMAGED"))
 				.andExpect(jsonPath("$.waste.byReason[3].reasonCode").value("WASTE_AFTER_CANCELLATION"))
 				.andExpect(jsonPath("$.waste.byReason[4].reasonCode").value("OTHER")).andExpect(jsonPath("$.waste.byReason[4].quantity").value(0))
-				.andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+				.andExpect(header().string("Cache-Control", Matchers.containsString("no-store")));
 	}
 
 	@Test
@@ -132,7 +134,7 @@ class KitchenDailyReportApiTests {
 		UUID restaurant = seedIstanbulDay();
 
 		report(restaurant, "?date=2025-10-20&timeZone=Europe/Istanbul").andExpect(jsonPath("$.orders.received")
-				.value(org.hamcrest.Matchers.greaterThan(0)));
+				.value(Matchers.greaterThan(0)));
 		report(UUID.randomUUID(), "?date=2025-10-20&timeZone=Europe/Istanbul").andExpect(status().isOk())
 				.andExpect(jsonPath("$.orders.received").value(0)).andExpect(jsonPath("$.orders.currentStatusOfReceived.waiting").value(0))
 				.andExpect(jsonPath("$.orders.currentStatusOfReceived.preparing").value(0))
@@ -166,7 +168,8 @@ class KitchenDailyReportApiTests {
 		UUID restaurant = UUID.randomUUID();
 
 		report(restaurant, "?date=2020-01-01&timeZone=Europe/Istanbul").andExpect(jsonPath("$.dayComplete").value(true));
-		report(restaurant, "?date=2099-12-31&timeZone=Europe/Istanbul").andExpect(status().isOk()).andExpect(jsonPath("$.dayComplete").value(false));
+		report(restaurant, "?date=2099-12-31&timeZone=Europe/Istanbul").andExpect(status().isOk())
+				.andExpect(jsonPath("$.dayComplete").value(false));
 	}
 
 	@Test
@@ -189,7 +192,8 @@ class KitchenDailyReportApiTests {
 		String query = "?date=2025-10-20&timeZone=Europe/Istanbul";
 
 		mvc.perform(get(PATH + query)).andExpect(status().isUnauthorized());
-		mvc.perform(get(PATH + query).header("X-Role", "KITCHEN").header("X-Restaurant-Id", restaurant.toString())).andExpect(status().isUnauthorized());
+		mvc.perform(get(PATH + query).header("X-Role", "KITCHEN").header("X-Restaurant-Id", restaurant.toString()))
+				.andExpect(status().isUnauthorized());
 		mvc.perform(get(PATH + query).with(admin(restaurant))).andExpect(status().isOk());
 		for (var request : List.of(post(PATH), put(PATH), patch(PATH), delete(PATH))) {
 			mvc.perform(request.with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());

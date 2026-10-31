@@ -75,7 +75,8 @@ class ChangeProductAvailabilityRequestTests {
 
 	@Test
 	void surroundingBlanksAreDroppedAndABlankDescriptionCountsAsNone() {
-		assertEquals("Tükendi", new ChangeProductAvailabilityRequest(ProductAvailabilityStatus.OUT_OF_STOCK, "OUT_OF_STOCK", "  Tükendi  ").reasonText());
+		assertEquals("Tükendi",
+				new ChangeProductAvailabilityRequest(ProductAvailabilityStatus.OUT_OF_STOCK, "OUT_OF_STOCK", "  Tükendi  ").reasonText());
 		assertNull(new ChangeProductAvailabilityRequest(ProductAvailabilityStatus.OUT_OF_STOCK, "OUT_OF_STOCK", "   ").reasonText());
 	}
 }

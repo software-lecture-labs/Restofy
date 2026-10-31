@@ -17,6 +17,8 @@ public final class QueryParams {
 
 	public static final int DEFAULT_SIZE = 20;
 	public static final int MAX_SIZE = 100;
+	private static final int MIN_REPORT_YEAR = 2000;
+	private static final int MAX_REPORT_YEAR = 2100;
 
 	private QueryParams() {
 	}
@@ -69,7 +71,7 @@ public final class QueryParams {
 		try {
 			if (value != null) {
 				LocalDate date = LocalDate.parse(value);
-				if (date.getYear() >= 2000 && date.getYear() <= 2100) {
+				if (date.getYear() >= MIN_REPORT_YEAR && date.getYear() <= MAX_REPORT_YEAR) {
 					return date;
 				}
 			}

@@ -101,7 +101,8 @@ public class OrderDecisionService {
 			return refuse(DecisionOutcome.UNKNOWN);
 		}
 		Instant now = clock.instant();
-		if (message.decidedAt().isBefore(order.getReceivedAt()) || message.decidedAt().isAfter(now.plus(OrderCancellationDecisionMessage.MAX_CLOCK_SKEW))) {
+		Instant latestPlausible = now.plus(OrderCancellationDecisionMessage.MAX_CLOCK_SKEW);
+		if (message.decidedAt().isBefore(order.getReceivedAt()) || message.decidedAt().isAfter(latestPlausible)) {
 			log.warn("Order decision refused: implausible time, eventId={}", message.eventId());
 			return refuse(DecisionOutcome.INVALID);
 		}

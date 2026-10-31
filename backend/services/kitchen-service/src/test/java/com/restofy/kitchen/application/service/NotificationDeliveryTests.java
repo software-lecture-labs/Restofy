@@ -69,7 +69,8 @@ class NotificationDeliveryTests {
 	}
 
 	private UUID deliveryOf(UUID restaurant, String destination) {
-		return jdbc.queryForObject("SELECT id FROM outbox_deliveries WHERE restaurant_id = ? AND destination = ?", UUID.class, restaurant, destination);
+		return jdbc.queryForObject("SELECT id FROM outbox_deliveries WHERE restaurant_id = ? AND destination = ?", UUID.class, restaurant,
+				destination);
 	}
 
 	private void makeDue(UUID deliveryId) {
@@ -81,16 +82,19 @@ class NotificationDeliveryTests {
 	}
 
 	private String orderStatus(Ready ready) {
-		return jdbc.queryForObject("SELECT status FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", String.class, ready.restaurant(), ready.orderId());
+		return jdbc.queryForObject("SELECT status FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", String.class,
+				ready.restaurant(), ready.orderId());
 	}
 
 	@Test
 	void oneReadyEventHasExactlyTwoDeliveriesOneForEachInterestedService() {
 		Ready ready = readyOrder();
 
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, ready.restaurant()), "never a second event");
+		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, ready.restaurant()),
+				"never a second event");
 		assertEquals(List.of("NOTIFICATION", "ORDER"), jdbc.queryForList(
-				"SELECT destination FROM outbox_deliveries WHERE restaurant_id = ? AND event_id = ? ORDER BY destination", String.class, ready.restaurant(), ready.eventId()));
+				"SELECT destination FROM outbox_deliveries WHERE restaurant_id = ? AND event_id = ? ORDER BY destination", String.class,
+						ready.restaurant(), ready.eventId()));
 		assertEquals("PENDING", row(ready.orderDelivery()).get("status"));
 		assertEquals("PENDING", row(ready.notificationDelivery()).get("status"));
 		assertEquals(0, row(ready.notificationDelivery()).get("attempt_count"), "nothing was sent: there is no real Notification service");
@@ -120,7 +124,8 @@ class NotificationDeliveryTests {
 		FakeOrderEventSink order = new FakeOrderEventSink();
 		FakeNotificationSink notification = new FakeNotificationSink();
 
-		assertEquals(Optional.empty(), delivery.attempt(ready.notificationDelivery(), order), "an Order sink cannot deliver a Notification delivery");
+		assertEquals(Optional.empty(), delivery.attempt(ready.notificationDelivery(), order),
+				"an Order sink cannot deliver a Notification delivery");
 		assertEquals(Optional.empty(), delivery.attempt(ready.orderDelivery(), notification), "and the other way round");
 		assertTrue(order.received().isEmpty() && notification.received().isEmpty());
 		assertEquals(0, row(ready.orderDelivery()).get("attempt_count"));
@@ -199,7 +204,8 @@ class NotificationDeliveryTests {
 		UUID requestId = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
 				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
 
-		assertEquals(List.of("ORDER"), jdbc.queryForList("SELECT destination FROM outbox_deliveries WHERE restaurant_id = ?", String.class, restaurant));
+		assertEquals(List.of("ORDER"),
+				jdbc.queryForList("SELECT destination FROM outbox_deliveries WHERE restaurant_id = ?", String.class, restaurant));
 		int eventsBefore = jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant);
 
 		decisions.apply(SOURCE_ORDER, approved(restaurant, orderId, requestId, 2).message());
@@ -207,7 +213,8 @@ class NotificationDeliveryTests {
 		assertEquals(eventsBefore, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant),
 				"the Order service announces its own cancellation; Kitchen emits no OrderCancelled");
 		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ?", Integer.class, restaurant));
-		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'NOTIFICATION'", Integer.class, restaurant));
+		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'NOTIFICATION'",
+				Integer.class, restaurant));
 	}
 
 	@Test
@@ -215,6 +222,7 @@ class NotificationDeliveryTests {
 		assertTrue(context.getBeansOfType(EventSink.class).isEmpty(), "no sink of any kind is a bean");
 		assertTrue(context.getBeansOfType(OrderEventSink.class).isEmpty());
 		assertTrue(context.getBeansOfType(NotificationEventSink.class).isEmpty());
-		assertEquals(1, context.getBeansOfType(OutboxDeliveryService.class).size(), "the service exists but is only driven by whoever holds a sink");
+		assertEquals(1, context.getBeansOfType(OutboxDeliveryService.class).size(),
+				"the service exists but is only driven by whoever holds a sink");
 	}
 }

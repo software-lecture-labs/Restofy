@@ -51,7 +51,8 @@ class CancellationRequestRestartPersistenceTests {
 		}
 
 		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM cancellation_requests WHERE restaurant_id = ?", Integer.class, restaurant));
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenCancellationRequested'",
+		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = "
+				+ "'KitchenCancellationRequested'",
 				Integer.class, restaurant));
 		assertEquals("PENDING", jdbc.queryForObject("SELECT status FROM outbox_deliveries WHERE restaurant_id = ?", String.class, restaurant),
 				"nothing was sent by the restart");

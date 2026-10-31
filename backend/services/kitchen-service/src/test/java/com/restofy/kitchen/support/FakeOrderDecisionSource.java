@@ -21,47 +21,58 @@ public final class FakeOrderDecisionSource {
 			Instant decidedAt, String reasonCode, String correlationId, String eventType, int schemaVersion) {
 
 		public Draft eventId(UUID value) {
-			return new Draft(value, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(value, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft restaurant(UUID value) {
-			return new Draft(eventId, value, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, value, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft order(UUID value) {
-			return new Draft(eventId, restaurantId, value, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, value, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft request(UUID value) {
-			return new Draft(eventId, restaurantId, orderId, value, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, value, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft version(long value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, value, decision, decidedAt, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, requestId, value, decision, decidedAt, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft at(Instant value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, value, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, value, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft reason(String value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, value, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, value, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public Draft correlation(String value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, value, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, value, eventType,
+					schemaVersion);
 		}
 
 		public Draft type(String value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, value, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, value,
+					schemaVersion);
 		}
 
 		public Draft schema(int value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType, value);
+			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, decision, decidedAt, reasonCode, correlationId, eventType,
+					value);
 		}
 
 		public Draft decision(OrderDecision value) {
-			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, value, decidedAt, reasonCode, correlationId, eventType, schemaVersion);
+			return new Draft(eventId, restaurantId, orderId, requestId, orderVersion, value, decidedAt, reasonCode, correlationId, eventType,
+					schemaVersion);
 		}
 
 		public OrderCancellationDecisionMessage message() {
@@ -79,6 +90,7 @@ public final class FakeOrderDecisionSource {
 	/** The Order service refuses; its own reason code says why. */
 	public static Draft rejected(UUID restaurantId, UUID orderId, UUID requestId, long orderVersion) {
 		return new Draft(UUID.randomUUID(), restaurantId, orderId, requestId, orderVersion, OrderDecision.REJECTED, Instant.now(),
-				"ORDER_ALREADY_SERVED", "corr-order-1", OrderCancellationDecisionMessage.TYPE_REJECTED, OrderCancellationDecisionMessage.SCHEMA_VERSION);
+				"ORDER_ALREADY_SERVED", "corr-order-1", OrderCancellationDecisionMessage.TYPE_REJECTED,
+						OrderCancellationDecisionMessage.SCHEMA_VERSION);
 	}
 }

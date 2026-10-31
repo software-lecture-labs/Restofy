@@ -2,6 +2,7 @@ package com.restofy.kitchen.api.controller;
 
 import com.restofy.kitchen.domain.enums.ProductAvailabilityStatus;
 import com.restofy.kitchen.support.FakeMenuCatalogue;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -204,7 +205,7 @@ class KitchenProductAvailabilityFlowTests {
 		List<String> seen = new ArrayList<>();
 		for (int page = 0; page < 3; page++) {
 			String body = closedList(restaurant, "?size=2&page=" + page).andExpect(status().isOk())
-					.andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+					.andExpect(header().string("Cache-Control", Matchers.containsString("no-store")))
 					.andExpect(jsonPath("$.totalElements").value(5)).andExpect(jsonPath("$.totalPages").value(3))
 					.andExpect(jsonPath("$.page").value(page)).andExpect(jsonPath("$.size").value(2))
 					.andReturn().getResponse().getContentAsString();

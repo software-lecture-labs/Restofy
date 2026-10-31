@@ -5,6 +5,7 @@ import com.restofy.kitchen.application.contract.ClosedProductsPage;
 import com.restofy.kitchen.application.contract.ClosedProductsQuery;
 import com.restofy.kitchen.application.port.MenuClosedProductsPort;
 import com.restofy.kitchen.domain.enums.ProductAvailabilityStatus;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,8 +95,10 @@ class KitchenClosedProductsApiTests {
 
 		ArgumentCaptor<ClosedProductsQuery> captor = ArgumentCaptor.forClass(ClosedProductsQuery.class);
 		verify(menu, times(2)).list(captor.capture());
-		assertEquals(new ClosedProductsQuery(restaurant, EnumSet.of(ProductAvailabilityStatus.OUT_OF_STOCK), 2, 100), captor.getAllValues().get(0));
-		assertEquals(new ClosedProductsQuery(restaurant, EnumSet.of(ProductAvailabilityStatus.TEMPORARILY_CLOSED), 0, 1), captor.getAllValues().get(1));
+		assertEquals(new ClosedProductsQuery(restaurant, EnumSet.of(ProductAvailabilityStatus.OUT_OF_STOCK), 2, 100),
+				captor.getAllValues().get(0));
+		assertEquals(new ClosedProductsQuery(restaurant, EnumSet.of(ProductAvailabilityStatus.TEMPORARILY_CLOSED), 0, 1),
+				captor.getAllValues().get(1));
 	}
 
 	@Test
@@ -114,7 +117,8 @@ class KitchenClosedProductsApiTests {
 	void whatMenuReportsIsPassedOnExactlyIncludingMissingNameAndUnknownPublication() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		ClosedProduct named = product(ProductAvailabilityStatus.OUT_OF_STOCK, T.plusSeconds(10));
-		ClosedProduct bare = new ClosedProduct(UUID.randomUUID(), null, ProductAvailabilityStatus.TEMPORARILY_CLOSED, null, null, T, null, 1L, null);
+		ClosedProduct bare = new ClosedProduct(UUID.randomUUID(), null, ProductAvailabilityStatus.TEMPORARILY_CLOSED, null, null, T, null, 1L,
+				null);
 		menuAnswers(List.of(named, bare), 7);
 
 		read(restaurant, "?size=2").andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(7))
@@ -129,7 +133,7 @@ class KitchenClosedProductsApiTests {
 				.andExpect(jsonPath("$.content[1].reasonText").value((Object) null))
 				.andExpect(jsonPath("$.content[1].changedByUserId").value((Object) null))
 				.andExpect(jsonPath("$.content[1].published").value((Object) null))
-				.andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+				.andExpect(header().string("Cache-Control", Matchers.containsString("no-store")));
 	}
 
 	@Test
@@ -181,8 +185,10 @@ class KitchenClosedProductsApiTests {
 		List<ClosedProduct> withNull = new ArrayList<>();
 		withNull.add(null);
 		contradictions.add(new ClosedProductsPage(withNull, 1));
-		contradictions.add(new ClosedProductsPage(List.of(new ClosedProduct(null, "x", ProductAvailabilityStatus.OUT_OF_STOCK, null, null, T, null, 1L, null)), 1));
-		contradictions.add(new ClosedProductsPage(List.of(new ClosedProduct(UUID.randomUUID(), "x", ProductAvailabilityStatus.OUT_OF_STOCK, null, null, null, null, 1L, null)), 1));
+		contradictions.add(new ClosedProductsPage(List.of(new ClosedProduct(null, "x", ProductAvailabilityStatus.OUT_OF_STOCK, null, null, T,
+				null, 1L, null)), 1));
+		contradictions.add(new ClosedProductsPage(List.of(new ClosedProduct(UUID.randomUUID(), "x", ProductAvailabilityStatus.OUT_OF_STOCK,
+				null, null, null, null, 1L, null)), 1));
 
 		for (ClosedProductsPage page : contradictions) {
 			doReturn(MenuClosedProductsPort.Result.ok(page)).when(menu).list(any());

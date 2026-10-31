@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
 
 import static com.restofy.kitchen.application.service.OrderDecisionService.SOURCE_ORDER;
 import static com.restofy.kitchen.support.FakeOrderDecisionSource.approved;
@@ -94,7 +95,8 @@ class OrderDecisionServiceTests {
 		return jdbc.queryForMap("""
 				SELECT o.status, o.started_at, o.ready_at, o.cancelled_at, o.cancellation_reason, o.source_order_version, o.version,
 				       (SELECT count(*) FROM kitchen_status_history h WHERE h.kitchen_order_id = o.id) AS history,
-				       (SELECT count(*) FROM outbox_events e WHERE e.restaurant_id = o.restaurant_id AND e.event_type = 'KitchenOrderReady') AS ready_events
+				       (SELECT count(*) FROM outbox_events e
+				        WHERE e.restaurant_id = o.restaurant_id AND e.event_type = 'KitchenOrderReady') AS ready_events
 				FROM kitchen_orders o WHERE o.restaurant_id = ? AND o.order_id = ?
 				""", a.restaurant(), a.orderId());
 	}
@@ -173,7 +175,8 @@ class OrderDecisionServiceTests {
 		assertEquals("ORDER_ALREADY_SERVED", req.get("decision_reason_code"));
 		assertEquals(refusal.eventId(), req.get("decision_event_id"));
 		assertNotNull(req.get("decided_at"));
-		assertEquals("REQUEST_REJECTED", jdbc.queryForObject("SELECT outcome FROM inbox_events WHERE restaurant_id = ?", String.class, a.restaurant()));
+		assertEquals("REQUEST_REJECTED",
+				jdbc.queryForObject("SELECT outcome FROM inbox_events WHERE restaurant_id = ?", String.class, a.restaurant()));
 	}
 
 	@Test
@@ -195,7 +198,8 @@ class OrderDecisionServiceTests {
 		assertEquals(before, order(a), "READY stays READY, its ready event and history are untouched");
 		assertEquals("READY", order(a).get("status"));
 		assertEquals("REQUESTED", request(a).get("status"), "the request is not shown as approved while the order is not cancelled");
-		assertEquals("NEEDS_RECONCILIATION", jdbc.queryForObject("SELECT outcome FROM inbox_events WHERE restaurant_id = ?", String.class, restaurant));
+		assertEquals("NEEDS_RECONCILIATION",
+				jdbc.queryForObject("SELECT outcome FROM inbox_events WHERE restaurant_id = ?", String.class, restaurant));
 		// The same event again is a repeat, not a second record.
 		assertEquals(new DecisionResult(DecisionOutcome.NEEDS_RECONCILIATION, true), apply(decision));
 		assertEquals(1, inbox(restaurant));
@@ -291,7 +295,8 @@ class OrderDecisionServiceTests {
 	@Test
 	void malformedUnsupportedOrImplausibleDecisionsAreRefusedWithoutAnyTrace() {
 		Asked a = asked();
-		Instant receivedAt = ((Timestamp) jdbc.queryForObject("SELECT received_at FROM kitchen_orders WHERE order_id = ?", Timestamp.class, a.orderId())).toInstant();
+		Instant receivedAt = ((Timestamp) jdbc.queryForObject("SELECT received_at FROM kitchen_orders WHERE order_id = ?", Timestamp.class,
+				a.orderId())).toInstant();
 
 		for (Draft draft : List.of(
 				approve(a, 2).schema(2), approve(a, 2).type("OrderCancellationRejected"), approve(a, 2).version(-1),
@@ -349,7 +354,7 @@ class OrderDecisionServiceTests {
 
 	// ---- parallel consumers ---------------------------------------------------------------------------------------------
 
-	private List<DecisionResult> fire(int threads, java.util.function.IntFunction<Draft> draft) throws Exception {
+	private List<DecisionResult> fire(int threads, IntFunction<Draft> draft) throws Exception {
 		ExecutorService pool = Executors.newFixedThreadPool(threads);
 		CountDownLatch start = new CountDownLatch(1);
 		List<Future<DecisionResult>> futures = new ArrayList<>();
@@ -389,7 +394,8 @@ class OrderDecisionServiceTests {
 
 		List<DecisionResult> results = fire(2, n -> n == 0 ? approve(a, 2) : reject(a, 2));
 
-		assertEquals(1, results.stream().filter(r -> r.outcome() == DecisionOutcome.CANCELLED || r.outcome() == DecisionOutcome.REQUEST_REJECTED).count(), results.toString());
+		assertEquals(1, results.stream().filter(r -> r.outcome() == DecisionOutcome.CANCELLED
+				|| r.outcome() == DecisionOutcome.REQUEST_REJECTED).count(), results.toString());
 		assertEquals(1, results.stream().filter(r -> r.outcome() == DecisionOutcome.ALREADY_DECIDED).count(), results.toString());
 		String status = (String) request(a).get("status");
 		assertEquals("APPROVED".equals(status) ? "CANCELLED" : "WAITING", order(a).get("status"), "the order follows the one decision that won");

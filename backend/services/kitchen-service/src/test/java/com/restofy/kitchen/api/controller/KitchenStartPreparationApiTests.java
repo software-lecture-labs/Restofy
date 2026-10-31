@@ -22,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.IntFunction;
 
 import static com.restofy.kitchen.support.KitchenTestAuth.admin;
 import static com.restofy.kitchen.support.KitchenTestAuth.kitchen;
@@ -403,7 +404,7 @@ class KitchenStartPreparationApiTests {
 		assertEquals(2L, row.get("history"));
 	}
 
-	private List<Integer> runParallel(int threads, java.util.function.IntFunction<MockHttpServletRequestBuilder> request)
+	private List<Integer> runParallel(int threads, IntFunction<MockHttpServletRequestBuilder> request)
 			throws Exception {
 		ExecutorService pool = Executors.newFixedThreadPool(threads);
 		CountDownLatch go = new CountDownLatch(1);

@@ -488,7 +488,7 @@ class KitchenProductAvailabilityApiTests {
 	void anInconsistentConfirmationIsNeverReportedAsSuccess() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		UUID product = UUID.randomUUID();
-		record Case(String name, java.util.function.Function<MenuAvailabilityCommand, Result> answer, int status, String code) {
+		record Case(String name, Function<MenuAvailabilityCommand, Result> answer, int status, String code) {
 		}
 		for (Case c : List.of(
 				new Case("no state", cmd -> new Result(Kind.APPLIED, null, null), 503, "INCONSISTENT_RESPONSE"),
@@ -706,7 +706,8 @@ class KitchenProductAvailabilityApiTests {
 		UUID codeOnly = UUID.randomUUID();
 		UUID textOnly = UUID.randomUUID();
 
-		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), codeOnly, "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"EQUIPMENT_FAILURE\"}")
+		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), codeOnly,
+				"{\"status\":\"TEMPORARILY_CLOSED\",\"reasonCode\":\"EQUIPMENT_FAILURE\"}")
 				.andExpect(status().isOk());
 		send(restaurant, UUID.randomUUID(), UUID.randomUUID(), textOnly, "{\"status\":\"TEMPORARILY_CLOSED\",\"reasonText\":\"Fritöz bozuldu\"}")
 				.andExpect(status().isOk());
@@ -741,7 +742,8 @@ class KitchenProductAvailabilityApiTests {
 		UUID actor = UUID.randomUUID();
 		UUID product = UUID.randomUUID();
 		menuConfirmsEverything();
-		String json = closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu").replace("}", ",\"changedAt\":\"1999-01-01T00:00:00Z\",\"closedUntil\":\"2999-01-01T00:00:00Z\"}");
+		String json = closeBody("EQUIPMENT_FAILURE", "Fritöz bozuldu").replace("}",
+				",\"changedAt\":\"1999-01-01T00:00:00Z\",\"closedUntil\":\"2999-01-01T00:00:00Z\"}");
 
 		mvc.perform(change(product, UUID.randomUUID(), json).with(csrf())).andExpect(status().isUnauthorized());
 		mvc.perform(change(product, UUID.randomUUID(), json).with(admin(restaurant)).with(csrf())).andExpect(status().isForbidden());

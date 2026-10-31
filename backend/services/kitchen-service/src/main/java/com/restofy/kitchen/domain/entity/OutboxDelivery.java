@@ -35,6 +35,8 @@ public class OutboxDelivery implements Persistable<UUID> {
 	public static final int MAX_ATTEMPTS = 8;
 	static final Duration BASE_DELAY = Duration.ofSeconds(5);
 	static final Duration MAX_DELAY = Duration.ofHours(1);
+	/** Doubling stops here so the shift can never overflow, long before MAX_DELAY is the real limit. */
+	private static final int MAX_BACKOFF_DOUBLINGS = 20;
 	public static final String MAX_ATTEMPTS_EXCEEDED = "MAX_ATTEMPTS_EXCEEDED";
 
 	@Id
@@ -140,7 +142,7 @@ public class OutboxDelivery implements Persistable<UUID> {
 
 	/** 5 s, 10 s, 20 s ... doubling, never more than one hour. */
 	static Duration backoff(int attempt) {
-		long factor = 1L << Math.min(attempt - 1, 20);
+		long factor = 1L << Math.min(attempt - 1, MAX_BACKOFF_DOUBLINGS);
 		Duration delay = BASE_DELAY.multipliedBy(factor);
 		return delay.compareTo(MAX_DELAY) > 0 ? MAX_DELAY : delay;
 	}

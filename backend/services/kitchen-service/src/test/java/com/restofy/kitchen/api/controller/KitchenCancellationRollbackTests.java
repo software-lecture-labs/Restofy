@@ -52,6 +52,7 @@ class KitchenCancellationRollbackTests {
 		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM cancellation_requests WHERE restaurant_id = ?", Integer.class, restaurant),
 				"no request without its event");
 		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant));
-		assertEquals(before, jdbc.queryForMap("SELECT status, version FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", restaurant, orderId));
+		assertEquals(before, jdbc.queryForMap("SELECT status, version FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?",
+				restaurant, orderId));
 	}
 }

@@ -110,8 +110,10 @@ class InboxEventSchemaTests {
 		UUID eventId = UUID.randomUUID();
 		insert(a, "ORDER", eventId, "APPROVED", "NEEDS_RECONCILIATION", 2, 1);
 
-		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE inbox_events SET outcome = 'CANCELLED' WHERE event_id = ?", eventId));
-		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE inbox_events SET order_version = 99 WHERE event_id = ?", eventId));
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.update("UPDATE inbox_events SET outcome = 'CANCELLED' WHERE event_id = ?", eventId));
+		assertThrows(DataIntegrityViolationException.class,
+				() -> jdbc.update("UPDATE inbox_events SET order_version = 99 WHERE event_id = ?", eventId));
 		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("DELETE FROM inbox_events WHERE event_id = ?", eventId));
 		assertEquals("NEEDS_RECONCILIATION", jdbc.queryForObject("SELECT outcome FROM inbox_events WHERE event_id = ?", String.class, eventId));
 	}

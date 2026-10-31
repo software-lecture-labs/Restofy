@@ -44,14 +44,16 @@ class KitchenOutboxIntegrityTests {
 		Map<String, Object> order = jdbc.queryForMap(
 				"SELECT version, ready_at, started_at FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", restaurant, orderId);
 		Map<String, Object> event = jdbc.queryForMap(
-				"SELECT aggregate_version, occurred_at, aggregate_id, event_type, schema_version FROM outbox_events WHERE restaurant_id = ?", restaurant);
+				"SELECT aggregate_version, occurred_at, aggregate_id, event_type, schema_version FROM outbox_events WHERE restaurant_id = ?",
+						restaurant);
 
 		assertEquals(((Number) order.get("version")).longValue(), ((Number) event.get("aggregate_version")).longValue());
 		assertEquals(order.get("ready_at"), event.get("occurred_at"));
 		assertEquals(orderId, event.get("aggregate_id"));
 		assertEquals("KitchenOrderReady", event.get("event_type"));
 		assertEquals(1, event.get("schema_version"));
-		Map<String, Object> delivery = jdbc.queryForMap("SELECT status, destination, attempt_count FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'", restaurant);
+		Map<String, Object> delivery = jdbc.queryForMap("SELECT status, destination, attempt_count FROM outbox_deliveries WHERE "
+				+ "restaurant_id = ? AND destination = 'ORDER'", restaurant);
 		assertEquals("PENDING", delivery.get("status"));
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals(0, delivery.get("attempt_count"));
@@ -77,13 +79,15 @@ class KitchenOutboxIntegrityTests {
 		UUID arrayPayloadEventId = UUID.randomUUID();
 		UUID arrayPayloadAggregateId = UUID.randomUUID();
 		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
-				INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version, event_type, schema_version, payload, occurred_at)
+				INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version, event_type,
+				                           schema_version, payload, occurred_at)
 				VALUES (?, ?, 'KITCHEN_ORDER', ?, 1, 'Other', 1, '[]'::jsonb, now())
 				""", arrayPayloadEventId, restaurant, arrayPayloadAggregateId));
 		UUID invalidSchemaEventId = UUID.randomUUID();
 		UUID invalidSchemaAggregateId = UUID.randomUUID();
 		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
-				INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version, event_type, schema_version, payload, occurred_at)
+				INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version, event_type,
+				                           schema_version, payload, occurred_at)
 				VALUES (?, ?, 'KITCHEN_ORDER', ?, 1, 'Other', 0, '{}'::jsonb, now())
 				""", invalidSchemaEventId, restaurant, invalidSchemaAggregateId));
 
@@ -93,7 +97,8 @@ class KitchenOutboxIntegrityTests {
 	}
 
 	private void insertDelivery(UUID restaurant, UUID eventId, String destination, String status, String nextAttemptSql, String deliveredSql) {
-		jdbc.update("INSERT INTO outbox_deliveries (id, restaurant_id, event_id, destination, status, next_attempt_at, delivered_at) VALUES (?, ?, ?, ?, ?, "
+		jdbc.update("INSERT INTO outbox_deliveries (id, restaurant_id, event_id, destination, status, next_attempt_at, delivered_at) "
+				+ "VALUES (?, ?, ?, ?, ?, "
 				+ (nextAttemptSql == null ? "NULL" : nextAttemptSql) + ", " + (deliveredSql == null ? "NULL" : deliveredSql) + ")",
 				UUID.randomUUID(), restaurant, eventId, destination, status);
 	}

@@ -63,7 +63,8 @@ class OutboxDeliveryServiceTests {
 		ingest.ingest(message(restaurant, orderId, UUID.randomUUID(), "1", "A-1", 1, UUID.randomUUID(), item("Burger", 1, null)));
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
-		UUID deliveryId = jdbc.queryForObject("SELECT id FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'", UUID.class, restaurant);
+		UUID deliveryId = jdbc.queryForObject("SELECT id FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'",
+				UUID.class, restaurant);
 		return new Ready(restaurant, orderId, deliveryId);
 	}
 
@@ -72,7 +73,8 @@ class OutboxDeliveryServiceTests {
 	}
 
 	private Map<String, Object> delivery(UUID deliveryId) {
-		return jdbc.queryForMap("SELECT status, attempt_count, next_attempt_at, delivered_at, last_error_code FROM outbox_deliveries WHERE id = ?", deliveryId);
+		return jdbc.queryForMap("SELECT status, attempt_count, next_attempt_at, delivered_at, last_error_code FROM outbox_deliveries "
+				+ "WHERE id = ?", deliveryId);
 	}
 
 	/** Everything about the order itself that a delivery problem must never touch. */
@@ -148,7 +150,8 @@ class OutboxDeliveryServiceTests {
 		assertEquals("NO_RESULT", delivery(ready.deliveryId()).get("last_error_code"));
 
 		makeDue(ready.deliveryId());
-		assertEquals(Optional.of(DeliveryStatus.PENDING), delivery.attempt(ready.deliveryId(), message -> OrderEventSink.Result.retry("HTTP_503 secret")));
+		assertEquals(Optional.of(DeliveryStatus.PENDING),
+				delivery.attempt(ready.deliveryId(), message -> OrderEventSink.Result.retry("HTTP_503 secret")));
 		assertEquals("HTTP_503_secret", delivery(ready.deliveryId()).get("last_error_code"), "codes are sanitised");
 		assertEquals(2, delivery(ready.deliveryId()).get("attempt_count"));
 	}

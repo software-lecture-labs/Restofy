@@ -56,7 +56,8 @@ class KitchenQueueParameterValidationTests {
 				assertBadRequest(restaurant, "?" + name + "=" + value);
 			}
 			// Also when the empty parameter is combined with otherwise valid ones, in either position.
-			assertBadRequest(restaurant, "?" + name + "=&status=ACTIVE&page=0&size=5".replace("&status=ACTIVE", name.equals("status") ? "" : "&status=ACTIVE"));
+			assertBadRequest(restaurant,
+					"?" + name + "=&status=ACTIVE&page=0&size=5".replace("&status=ACTIVE", name.equals("status") ? "" : "&status=ACTIVE"));
 			assertBadRequest(restaurant, "?page=0&size=5&" + name + "=");
 		}
 		assertBadRequest(restaurant, "?receivedFrom=&receivedTo=&page=&size=");

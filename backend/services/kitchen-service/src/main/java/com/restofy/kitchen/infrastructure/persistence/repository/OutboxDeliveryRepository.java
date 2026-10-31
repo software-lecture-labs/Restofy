@@ -28,7 +28,7 @@ public interface OutboxDeliveryRepository extends JpaRepository<OutboxDelivery, 
 	List<UUID> findDueIds(@Param("now") Instant now, @Param("destination") String destination, Pageable limit);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
-	@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+	@QueryHints(@QueryHint(name = RowLocks.TIMEOUT_HINT, value = RowLocks.TIMEOUT_MILLIS))
 	@Query("select d from OutboxDelivery d where d.id = :id")
 	Optional<OutboxDelivery> findForUpdate(@Param("id") UUID id);
 }

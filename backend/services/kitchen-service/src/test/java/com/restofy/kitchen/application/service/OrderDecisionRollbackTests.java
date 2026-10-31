@@ -8,6 +8,7 @@ import com.restofy.kitchen.domain.enums.DecisionOutcome;
 import com.restofy.kitchen.infrastructure.persistence.repository.InboxEventRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenStatusHistoryRepository;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -99,9 +100,10 @@ class OrderDecisionRollbackTests {
 		var message = decision.message();
 		doThrow(new DataIntegrityViolationException("simulated failure")).when(inbox).saveAndFlush(any(InboxEvent.class));
 		assertThrows(DataIntegrityViolationException.class, () -> decisions.apply(SOURCE_ORDER, message));
-		org.mockito.Mockito.reset(inbox);
+		Mockito.reset(inbox);
 
-		assertEquals(new OrderDecisionService.DecisionResult(DecisionOutcome.CANCELLED, false), decisions.apply(SOURCE_ORDER, decision.message()));
+		assertEquals(new OrderDecisionService.DecisionResult(DecisionOutcome.CANCELLED, false),
+				decisions.apply(SOURCE_ORDER, decision.message()));
 
 		assertEquals("CANCELLED", state(a).get("status"));
 		assertEquals(1, ((Number) state(a).get("inbox")).intValue());
