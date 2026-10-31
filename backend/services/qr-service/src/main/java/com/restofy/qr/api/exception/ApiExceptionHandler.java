@@ -17,6 +17,14 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+    @ExceptionHandler(StaffClosureException.class)
+    ProblemDetail staffClosure(StaffClosureException exception) {
+        var detail = problem(exception.status(), exception.getMessage());
+        detail.setProperty("code", exception.code().name());
+        detail.setProperty("blockers", java.util.List.of());
+        return detail;
+    }
+
     @ExceptionHandler({QrImageUnavailableException.class, SessionClosureUnavailableException.class})
     ProblemDetail unavailable(RuntimeException exception) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());

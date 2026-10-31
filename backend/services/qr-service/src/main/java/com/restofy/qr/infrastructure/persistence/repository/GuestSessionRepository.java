@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface GuestSessionRepository extends JpaRepository<GuestSession, UUID> {
+    long countByRestaurantIdAndTableSessionId(UUID restaurantId, UUID tableSessionId);
+    long countByRestaurantIdAndTableSessionIdAndStatus(UUID restaurantId, UUID tableSessionId, GuestSessionStatus status);
     List<GuestSession> findByRestaurantIdAndTableSessionIdAndStatus(UUID restaurantId, UUID tableSessionId, GuestSessionStatus status);
 
     @Query("select count(g) from GuestSession g where g.restaurantId = :restaurantId and g.tableSessionId = :tableSessionId "

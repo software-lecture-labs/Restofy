@@ -2,10 +2,14 @@ package com.restofy.qr.application.service;
 
 import com.restofy.qr.domain.IdleWindow;
 import com.restofy.qr.domain.OrderSessionState;
+import com.restofy.qr.domain.StaffClosure;
 import com.restofy.qr.domain.SessionTransition.*;
 import com.restofy.qr.domain.entity.*;
 import com.restofy.qr.domain.enums.*;
 import com.restofy.qr.domain.exception.SessionClosureConflictException;
+import com.restofy.qr.domain.exception.SessionClosureUnavailableException;
+import com.restofy.qr.domain.exception.StaffClosureException;
+import com.restofy.qr.domain.exception.StaffClosureException.Code;
 import com.restofy.qr.infrastructure.persistence.repository.*;
 import java.time.Instant;
 import java.util.*;
@@ -60,6 +64,60 @@ public class SessionTransitionTransactions {
 
     public record Attempt(Command command, Stage stage, int previousAttempts, LocalResult result) { }
 
+    /** Existing request JSON keeps the verified actor/reason immutable without changing applied SQL migrations. */
+    @Transactional
+    public UUID beginStaff(StaffClosure.Request request, StaffClosure.Origin origin, OrderSessionState state) {
+        var parent = contexts.lockSession(request.restaurantId(), request.tableSessionId());
+        if (!parent.table().getId().equals(request.tableId())) { throw new StaffClosureException(Code.SESSION_TABLE_MISMATCH); }
+        var existing = operations.findByRestaurantIdAndId(request.restaurantId(), request.commandId());
+        if (existing.isPresent()) {
+            requireSameStaffIntent(command(existing.orElseThrow()), request, origin);
+            return request.commandId();
+        }
+        var main = parent.main();
+        var now = parent.checkedAt();
+        requireStaffTarget(request, parent);
+        if (operations.findByRestaurantIdAndSessionIdAndStageIn(request.restaurantId(), main.getId(), ACTIVE).isPresent()) {
+            throw new StaffClosureException(Code.COMMAND_CONFLICT);
+        }
+        if (!protection.current(state, request.restaurantId(), main.getId(), now)) { throw new SessionClosureUnavailableException(); }
+        if (state.knowledge() != OrderSessionState.Knowledge.SETTLED) { throw new StaffClosureException(Code.CLOSURE_BLOCKED); }
+        if (active(parent).stream().anyMatch(guest -> guest.getJoinedAt().isAfter(now)
+                || guest.getLastActivityAt().isAfter(now) || guest.getLastActivityAt().isAfter(main.getLastActivityAt()))) {
+            throw new StaffClosureException(Code.CLOSURE_BLOCKED);
+        }
+        main.beginClosingAt(now);
+        sessions.flush();
+        var command = new Command(request.commandId(), Purpose.SETTLED, snapshot(parent), IdleWindow.storedTime(now),
+                new StaffClosure.Initiator(request, origin));
+        operations.saveAndFlush(new SessionTransitionOperation(command, json.writeValueAsString(command)));
+        return command.operationId();
+    }
+
+    private static void requireStaffTarget(StaffClosure.Request request, GuestSessionContextReader.LockedSession parent) {
+        var main = parent.main();
+        if (main.getStatus() == TableSessionStatus.CLOSED) { throw new StaffClosureException(Code.SESSION_ALREADY_CLOSED); }
+        if (main.getStatus() != TableSessionStatus.OPEN || !parent.table().isActive()
+                || parent.table().getOperationalStatus() != TableOperationalStatus.OCCUPIED) {
+            throw new StaffClosureException(Code.SESSION_NOT_OPEN);
+        }
+        if (request.expectedVersion() != main.getVersion()) { throw new StaffClosureException(Code.SESSION_VERSION_CONFLICT); }
+        if (request.requestedAt().isAfter(parent.checkedAt()) || main.getLastActivityAt().isAfter(parent.checkedAt())) {
+            throw new IllegalArgumentException("Invalid staff closure time.");
+        }
+    }
+
+    public static void requireSameStaffIntent(Command stored, StaffClosure.Request request, StaffClosure.Origin origin) {
+        if (stored.initiatedBy() == null || !stored.initiatedBy().equals(new StaffClosure.Initiator(request, origin))) {
+            throw new StaffClosureException(Code.COMMAND_CONFLICT);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Command> findCommand(UUID restaurantId, UUID operationId) {
+        return operations.findByRestaurantIdAndId(restaurantId, operationId).map(this::command);
+    }
+
     @Transactional
     public Attempt attempt(UUID restaurantId, UUID operationId) {
         var locked = lock(restaurantId, operationId);
@@ -89,7 +147,10 @@ public class SessionTransitionTransactions {
         var active = active(parent);
         switch (authority.effect()) {
             case SETTLED_CLOSE -> {
-                active.forEach(guest -> guest.endWithMainAt(now)); main.closeAt(now); parent.table().beginCleaning();
+                active.forEach(guest -> guest.endWithMainAt(now));
+                UUID actor = command.initiatedBy() == null ? null : command.initiatedBy().request().requestedByUserId();
+                main.closeAt(now, actor);
+                parent.table().beginCleaning();
             }
             case IDLE_MAIN -> {
                 if (main.getIdleExpiresAt() == null || main.getIdleExpiresAt().isAfter(now)) {

@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Standalone mapping, not real Auth success E2E. Automatic closure has no browser/personnel close endpoint. */
+/** Standalone cleaning mapping, not real Auth success E2E. Staff closure has its own controller and contract tests. */
 class SessionLifecycleApiTests {
     private static MockMvc mvc(TableSessionClosureService service) {
         return MockMvcBuilders.standaloneSetup(new TableSessionLifecycleController(service))
@@ -37,7 +37,7 @@ class SessionLifecycleApiTests {
         verify(service).cleaned(id, 1);
     }
 
-    @Test void oldManualCloseRouteCannotInvokeAutomaticLifecycle() throws Exception {
+    @Test void cleaningControllerDoesNotHandleTheSeparateStaffClosureContract() throws Exception {
         var service = mock(TableSessionClosureService.class);
         mvc(service).perform(post("/api/v1/qr/table-sessions/{id}/close", UUID.randomUUID())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))

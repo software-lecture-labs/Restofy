@@ -38,15 +38,28 @@ public final class SessionTransition {
         }
     }
 
-    public record Command(UUID operationId, Purpose purpose, Snapshot snapshot, Instant requestedAt) {
+    public record Command(UUID operationId, Purpose purpose, Snapshot snapshot, Instant requestedAt,
+                          StaffClosure.Initiator initiatedBy) {
+        public Command(UUID operationId, Purpose purpose, Snapshot snapshot, Instant requestedAt) {
+            this(operationId, purpose, snapshot, requestedAt, null);
+        }
         public Command {
             Objects.requireNonNull(operationId); Objects.requireNonNull(purpose);
             Objects.requireNonNull(snapshot); Objects.requireNonNull(requestedAt);
             if (requestedAt.isBefore(snapshot.lastActivityAt())) { throw new IllegalArgumentException("Invalid lifecycle time."); }
+            if (initiatedBy != null && (!operationId.equals(initiatedBy.request().commandId())
+                    || purpose != Purpose.SETTLED || !snapshot.restaurantId().equals(initiatedBy.request().restaurantId())
+                    || !snapshot.tableId().equals(initiatedBy.request().tableId())
+                    || !snapshot.sessionId().equals(initiatedBy.request().tableSessionId())
+                    || initiatedBy.request().requestedAt().isAfter(requestedAt))) {
+                throw new IllegalArgumentException("Staff intent does not match the lifecycle command.");
+            }
         }
 
         public String digest() {
             String canonical = "QR_LIFECYCLE_V1|" + operationId + "|" + purpose + "|" + snapshot + "|" + requestedAt;
+            // Preserve pre-existing automatic command digests and JSON without initiatedBy.
+            if (initiatedBy != null) { canonical += "|STAFF_V1|" + initiatedBy.canonical(); }
             try {
                 return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                         .digest(canonical.getBytes(StandardCharsets.UTF_8)));

@@ -104,11 +104,15 @@ public class TableSession {
     }
 
     public void closeAt(Instant now) {
+        closeAt(now, null);
+    }
+
+    public void closeAt(Instant now, UUID verifiedStaffUserId) {
         if (status != TableSessionStatus.CLOSING || closingAt == null || closedAt != null
                 || now.isBefore(lastActivityAt) || now.isBefore(closingAt)) { throw new SessionClosureConflictException(); }
         status = TableSessionStatus.CLOSED;
         closedAt = IdleWindow.storedTime(now);
-        closedByUserId = null; // Automatic lifecycle actor is the durable operation, never a fabricated staff ID.
+        closedByUserId = verifiedStaffUserId; // Null for automatic closure; otherwise the verified immutable intent actor.
     }
 
     public void expireClosingAt(Instant now) {

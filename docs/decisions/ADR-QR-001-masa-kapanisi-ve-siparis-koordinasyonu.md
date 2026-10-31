@@ -1,10 +1,10 @@
 # ADR-QR-001 — Masa kapanışı, sipariş kabulü ve finansal güvenlik sınırı
 
-- **Durum:** A yaklaşımı ve K1–K9 kabul edildi. QR tarafı A'ya uyarlandı; gerçek Order/Payment/Auth entegrasyonu ve GitHub reviewer onayı bekliyor.
-- **Oluşturulma:** 29 Ekim 2026. **Karar tarihi:** 30 Ekim 2026.
-- **Sahipler:** QR ve Payment — Alper; Order — Hamza. Katılım ve ortak yanıtlar kullanıcı tarafından bu şekilde bildirildi.
-- **Kaynak:** [PR #11 review](https://github.com/software-lecture-labs/Restofy/pull/11#pullrequestreview-5695894632) ve devamındaki merge öncesi karar/ADR yerleşimi geri bildirimi.
-- **İncelenen Order:** `feature/order-service`, [7acc43f](https://github.com/software-lecture-labs/Restofy/commit/7acc43f116b76d4026879de4c44d06814c6aa55e). GitHub üzerinden salt okunur incelendi; yerel dala çekilmedi ve değiştirilmedi.
+- **Durum:** A modeli korunur. K1–K9'a 31 Ekim 2026 QR/Payment sahibi kararıyla K10–K12 eklendi: nakit/online ödeme, yetkili garson kapanışı ve gelecekte gerekçeli yönetici kurtarması. QR normal staff kapanışı kodlandı; gerçek servis entegrasyonu ve karşı servislerin yeni ekleri teyidi bekliyor.
+- **Oluşturulma:** 29 Ekim 2026. **İlk karar:** 30 Ekim 2026. **Son güncelleme:** 31 Ekim 2026.
+- **Sahipler ve teyit:** QR/Payment — Alper; Order — Hamza (`HmzT270`). Hamza A/K1–K9 ortak kararını ve Order çalışmalarını [kendi PR yorumunda](https://github.com/software-lecture-labs/Restofy/pull/13#issuecomment-6535867981) teyit etti. Waiter — Umut: kod sözleşmesi incelendi; yeni K11/K12 için Umut'un ve etkilenen Order tarafının ayrıca yazılı teyidi henüz alınmadı.
+- **Kaynak:** [İlk QR review](https://github.com/software-lecture-labs/Restofy/pull/11#pullrequestreview-5695894632), [31 Ekim QR review — Order/Waiter/yönetici yolu](https://github.com/software-lecture-labs/Restofy/pull/11#pullrequestreview-5721966492), [31 Ekim Order review — CLOSED teyidi](https://github.com/software-lecture-labs/Restofy/pull/13#pullrequestreview-5722290865).
+- **İncelenen kod:** Order PR #13, [e01fd03](https://github.com/software-lecture-labs/Restofy/commit/e01fd03352115bbb5709fcfeca8f74aa4a0ef852); Waiter PR #14, [5dcb64b](https://github.com/software-lecture-labs/Restofy/commit/5dcb64b8209d8266bf68f5e6565131ba0af16a31). Salt okunur incelendi; dallar çekilmedi ve bu servislerin kodu değiştirilmedi.
 
 Bu belge kararları ve bunları uygulayacak işleri kaydeder. Kararın kabulü kodun değiştiği, migration'ın uygulandığı, yeni API açıldığı veya testlerin geçtiği anlamına gelmez. Mevcut kod ile seçilen hedef aşağıda ayrı gösterilir. Önceki `docs/ADR/` konumundan repository'nin `docs/decisions/` düzenine taşınmıştır.
 
@@ -15,11 +15,11 @@ Bu belge kararları ve bunları uygulayacak işleri kaydeder. Kararın kabulü k
 Karar sonrası güncel QR kodu ile uzak Order incelemesinin durumu:
 
 - **QR:** Eski admission ve ayrıntılı iş/finans projeksiyonu kaldırıldı. [V29](../../backend/services/qr-service/src/main/resources/db/migration/V29__create_session_transition_operations.sql) yalnız QR'ın kalıcı lifecycle komut/sonucunu, [V30](../../backend/services/qr-service/src/main/resources/db/migration/V30__guard_session_transition_history.sql) değişmez geçmiş ve stage geçişlerini kurar. QR sipariş/Payment defteri tutmaz.
-- **QR kapanışı:** [TableSessionClosureService](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/TableSessionClosureService.java) aynı kalıcı komutla Order prepare/status/ACK/abort sınırını kullanır. Otomatik kapanış personel istemez; ayrı temizlendi staff yetkisinde kalır. Main/guest/masa değişiklikleri yerelde atomiktir. Eski close HTTP controller metodu kaldırıldı, diğer HTTP iş API'leri kapalıdır.
+- **QR kapanışı:** [Otomatik koordinatör](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/TableSessionClosureService.java) korunur. [StaffClosureService](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/StaffClosureService.java) ile doğrulanmış WAITER/ADMIN'in aynı güvenli kapanışı istemesi ve sonucunu sorgulaması geri eklendi. Gerçek aktör/gerekçe değişmez komutta tutulur; main/guest/masa yerelde atomiktir. Staff veya Waiter isteği Order/Payment doğrulamasını atlayamaz. HTTP sınırları kapalıdır.
 - **QR idle/guest:** [OrderSessionAccess](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/port/OrderSessionAccess.java) varsayılan UNKNOWN/unavailable döndürür. Geçici Order okuması koruma/iptal zamanı içindir; fiziksel expiry kalıcı gate izni gerektirir. Bağımsız guest süreleri ve tokenla gerçek bağlam çözümü uygulanmıştır; gerçek ağ/aktivite aktarımı yoktur.
-- **Order checkout:** [OrderCheckoutService](https://github.com/software-lecture-labs/Restofy/blob/7acc43f116b76d4026879de4c44d06814c6aa55e/backend/services/order-service/src/main/java/com/restofy/order/application/service/OrderCheckoutService.java#L170) QR oturumunu kontrol edip ayrı yerel transaction'da siparişi kaydeder. Kontrol ile commit arasında masa kapanabilir; K8 koordinasyonu mevcut değildir.
-- **Order kimlik ve ödeme:** [QrSessionPort](https://github.com/software-lecture-labs/Restofy/blob/7acc43f116b76d4026879de4c44d06814c6aa55e/backend/services/order-service/src/main/java/com/restofy/order/application/port/QrSessionPort.java) token ile bağlam çözmeyi bekler; gerçek QR adaptörü yoktur. Payment bildirimi alan internal API vardır; seçilen Order → Payment sorgusu ve QR'a tam oturum kapanış uygunluğu sözleşmesi yoktur.
-- **Order durum/teslimat:** Fulfillment COMPLETED ödeme olmadan mümkündür. A'da Order bu bilgiyi Payment mali uygunluğuyla birleştirir; eski QR birleşik iş/finans enum'u kaldırılmıştır. [OutboxEventWriter](https://github.com/software-lecture-labs/Restofy/blob/7acc43f116b76d4026879de4c44d06814c6aa55e/backend/services/order-service/src/main/java/com/restofy/order/infrastructure/messaging/OutboxEventWriter.java#L16) olay kaydeder; dispatcher yoktur. Kaynak aggregateVersion, başka bir servisin kesintisiz event sequence'ı sayılmaz.
+- **Order checkout:** İncelenen yeni PR #13'te checkout ve kapanış hazırlığı restoran/main kapsamında PostgreSQL shared/exclusive advisory lock ile sıralanıyor; V48 PREPARED/COMPLETED kaydı sonraki checkout'ı 409 ile engelliyor. Bu, önceki 7acc43f incelemesinden sonra eklenen gerçek Order kodudur; gerçek QR adaptörü ve çoklu gerçek servis E2E henüz doğrulanmadı.
+- **Order kimlik ve ödeme:** Token çözümü için QrSessionPort ve prepare/status/confirmation internal kapanış API'leri var. Payment'ın olaylarından Order'da tutulan durum kullanılıyor; ADR'deki gerçek Order → Payment sorgusu uygulanmamış. Guest bazlı koruma/idle kaynağı ve gerçek servis adaptörleri eksik.
+- **Order durum/teslimat:** COMPLETED ödeme durumundan bağımsız. Bütün main siparişleri üzerinden kapanış uygunluğu, V48 kalıcı operationId ve CartActivityRecorded outbox yazımı var; dispatcher yok. CLOSED teyidini sonradan kapsam değişti diye reddetme sorunu §5.1'de açık bırakıldı; bütün protokol tamamlanmış sayılmıyor.
 - **Payment:** İncelenen yerel çalışma ağacında başlangıç altyapısı vardır; gerçek sorgu, tahsilat ve uzlaştırma entegrasyonu bu incelemede doğrulanmadı. Bu belge bunları uygulanmış kabul etmez.
 
 ## 2. Mimari seçim ve alternatifler
@@ -34,11 +34,11 @@ Karar sonrası güncel QR kodu ile uzak Order incelemesinin durumu:
 
 A, tek bir GET veya tekrar kullanılabilen `canClose=true` cevabına indirgenmez. Checkout ile kapanışın sıralanması, tam kaynak kapsamı ve kalıcı sonucu öğrenme K8/K9'un zorunlu parçalarıdır. QR'da minimal oturum/işlem kimliği ve sürüm tutmak ikinci bir sipariş/finans otoritesi kurmak anlamına gelmez.
 
-## 3. Kararlar — K1–K9
+## 3. Kararlar — K1–K12
 
-### K1 — Normal kapanış otomatik olacak
+### K1 — Otomatik kapanış ve yetkili personel isteği birlikte desteklenecek
 
-Masa oturumunun tamamlanma ve mali koşulları sağlandığında ana oturum ve bütün bağlı aktif guest oturumları otomatik kapanır. Ayrıca garson/admin onayı aranmaz. Bu karar önceki zorunlu personel kapanış onayını değiştirir. Kalıcı masa QR kimliğinin silinmesi veya pasifleştirilmesi söz konusu değildir.
+Masa oturumunun tamamlanma ve mali koşulları sağlandığında main ve bağlı aktif guest'ler otomatik kapanabilir. 31 Ekim ek kararıyla aynı restoranın doğrulanmış WAITER/ADMIN kullanıcısı da normal kapanış isteyebilir (K11). Otomatik kapanış için ayrıca personel onayı şart değildir; personel isteği de mali/iş koşullarını atlamaz. Kalıcı QR kimliğini değiştirmek bu normal kapanış işleminin parçası değildir.
 
 ### K2 — Siparişlerin tamamlanması ve ödeme birlikte aranacak
 
@@ -56,7 +56,7 @@ Müşterinin ödeme yetkisi kendi doğrulanmış guest oturumuna bağlı sipari�
 
 Kimliği doğrulanmış Order servisi guest tokenıyla QR'a başvurur. QR tokenın gerçek kaydından `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId` bilgilerini çözüp güncel kullanılabilirliği doğrular. Masa aktifliği, main/guest durumu, süreler ve sipariş koruması birlikte değerlendirilir; ham `ACTIVE` veya istemci kimlik beyanı yeterli değildir.
 
-Doğrulama süreyi yenilemez ve tek başına sipariş kabul izni değildir. Geçersiz token ile QR erişilemiyor durumu ayrılır; belirsizlikte erişim açılmaz. Ham token loga/olaya yazılmaz. Mevcut Java guard'ının token + beklenen kimlik sözleşmesi gerçek iç servis sınırına uyarlanacaktır.
+Doğrulama süreyi yenilemez ve tek başına sipariş kabul izni değildir. Geçersiz token ile QR erişilemiyor durumu ayrılır; belirsizlikte erişim açılmaz. Ham token loga/olaya yazılmaz. QR'ın token-only ve token + beklenen kimlik Java guard'ları vardır; gerçek iç HTTP doğrulama ve taşıma adaptörü henüz yoktur.
 
 ### K6 — Gerçek menü/sepet etkileşimi 15 dakikayı yenileyecek
 
@@ -89,6 +89,51 @@ Sonuç bilinmiyorsa oturum kapanmış varsayılmaz. Başlamış kapanış da tim
 
 Tekrar mekanizması yalnız kapanış koordinasyonunu tamamlar; müşteriden tekrar ödeme istemez, yeni tahsilat başlatmaz. Yeniden denemeler aralıklı ve kaynak sınırlarıyla yürütülür; süresiz sıkı döngü kurulmaz. Çelişkili kaynak kayıtları sessizce çözülmez, operasyonel uzlaştırma gerektirir. Mevcut genel POST çağrılarına kör otomatik retry eklenmez.
 
+
+### K10 — Payment nakit ve online yöntemleri destekleyecek
+
+Payment Service geliştirmesinde nakit ve online seçenekleri bulunacak. Nakit için aynı restoranın yetkili personelinin Payment'ta kaydedilmiş teyidi; online için doğrulanmış sağlayıcı/işlem kanıtı esas alınır. QR veya Waiter'ın gönderdiği bir `paid=true`, serbest metin ya da başarı ekranı ödeme kanıtı değildir. Yöntem farkı borcu, guest sahipliğini, tekrar güvenliğini ve Order'ın tam oturum doğrulamasını kaldırmaz.
+
+Bu bir ürün/entegrasyon kararıdır; bu görevde Payment API'si, sağlayıcı veya nakit tahsilat kaydı uygulanmadı. “Nakit aldım” gerekçesiyle QR doğrudan ödeme durumu değiştirmez.
+
+### K11 — Garson/admin normal kapanış komutu geri eklendi
+
+Kapanış özelliği Payment entegrasyonu sonrasına bırakılmak istenmişti; review sonrasında normal personel komutu şimdiden QR'a geri eklendi. Doğrulanmış WAITER/ADMIN kendi restoranında belirli table/main, görülen main version ve kalıcı commandId ile istekte bulunur. İstemci restaurantId veya requestedByUserId beyanı yetki değildir. Waiter yolu ayrıca doğrulanmış servis kimliği ve personel delegasyonu gerektirir.
+
+Staff komutu otomatik akışla aynı Order prepare/status/ACK/abort protokolünü kullanır. Açık/ödenmemiş/belirsiz iş zorla kapatılamaz. Order entegrasyonu yokken olumlu cevap uydurulmaz. Nakit ve online akışın farkı Payment'tadır; QR'ın kapanış koşulu ikisi için de aynıdır.
+
+- Başlangıç isteği `Idempotency-Key == commandId` taşır. Aynı kimlik + farklı aktör, hedef, version, gerekçe veya istek zamanı 409 olur.
+- Gerçek aktör, normalize opsiyonel gerekçe, kaynak STAFF/WAITER_SERVICE ve hedef değişmez komut JSON'una bağlanır. Kullanıcı kimliği staff kapanışında mevcut closed_by_user_id alanına da yazılır. Yeni migration veya finans tablosu eklenmedi; eski otomatik komut/digest biçimi okunabilir kalır.
+- 200 CLOSED yalnız yerel main ve bütün aktif guest'ler bitmişse döner; 202 CLOSING sonuç henüz kesinleşmemiş demektir. Yerel kapanış tamamlanıp Order ACK'i kaybolduysa sonuç CLOSED, iç uzlaştırma APPLIED kalabilir.
+- Sonuç GET'i salt okumadır; komutu yeniden çalıştırmaz veya Order çağırmaz. Aynı POST eski kapanışın makbuzunu döndürür; yeni ziyareti kapatmaz.
+- Waiter kendi çağrılarını ancak QR'ın kesin CLOSED sonucundan sonra kapatır. Otomatik kapanışların Waiter'a dayanıklı bildirimle aktarımı ayrı entegrasyon işidir.
+
+**Uygulanan yollar (HTTP hâlâ denyAll):**
+
+| Method | Yol | Yetki sınırı |
+| --- | --- | --- |
+| POST | `/api/v1/qr/table-sessions/{sessionId}/close` | Doğrulanmış WAITER/ADMIN |
+| GET | `/api/v1/qr/table-sessions/{sessionId}/close-commands/{commandId}?tableId=...` | Aynı restoranın doğrulanmış staff'ı |
+| POST | `/api/v1/internal/tables/{tableId}/sessions/{sessionId}/close` | Waiter servis kimliği + aktif staff delegasyonu |
+| GET | `/api/v1/internal/tables/{tableId}/sessions/{sessionId}/close-commands/{commandId}?restaurantId=...` | Aynı doğrulanmış servis/delegasyon kapsamı |
+
+İncelenen Waiter PR #14 ile komut/sonuç alanları, 200/202 anlamları, tüm guest'lerin sonlanma kanıtı ve commandId eşleşmesi hizalandı. Waiter'ın mevcut `/internal/v1` taslak prefix'i bu projenin `/api/v1` standardına uymuyor; kendi client'ında yukarıdaki canonical yola geçirilmesi ve gerçek servis/personel doğrulamasının bağlanması gerekiyor. Taslak yolu doğrudan public alias olarak açmadık. Waiter tablo/guest okuma ve cleaned/status taslak endpoint'lerinin tamamının bu görevde uygulandığı iddia edilmez.
+
+### K12 — Yönetici uyarıyla, gerekçeyle ve ayrı onayla zorla QR yenileyebilecek (GELECEK GELİŞTİRME)
+
+Kullanıcı 31 Ekim'de şu ürün davranışını açıkça seçti: yönetici QR'ı yenilerken masada açık sipariş olup olmadığı/sonlanıp sonlanmadığı gösterilir; anlık kesinti veya problem varsa yönetici zorla yenileyip hedef oturumu sonlandırabilir. Bu, K11'deki normal garson kapanışından ve mevcut sıradan QR rotate işleminden ayrı bir kurtarma eylemidir.
+
+**Planlanan akış:**
+
+1. Aynı restoranın doğrulanmış ADMIN kullanıcısı gerçek table/main ve görülen sürümleri seçer. QR, Order/Payment kapsamını kontrol etmeye çalışır; açık sipariş veya doğrulanamayan durum açık uyarı olarak gösterilir. Kesinti “sipariş yok” veya “ödendi” kabul edilmez.
+2. Yöneticiye etkilenen oturumun kapanacağı, eski guest erişimlerinin biteceği ve mali kayıtların korunacağı açıklanır. Zorla işlem ayrı seçim, zorunlu gerekçe ve ikinci açık onay gerektirir; yalnız popup'ı görmek backend yetkisi değildir.
+3. Ayrı kalıcı kurtarma commandId'si, gerçek admin kimliği, tenant/main/table, gerekçe, kaynak durumunun bilinirliği, zaman ve önceki işlemlerle ilişki audit'e yazılır. QR kendi transaction'ında eski QR'ı geçersizleştirme, yeni credential üretme ve hedef main/aktif guest sonlandırmasını birlikte yapacak şekilde geliştirilir. Eski mali/operasyonel geçmiş silinmez.
+4. Kapanış borcu silmez, siparişi iptal/COMPLETED yapmaz, ödemeyi PAID göstermez ve otomatik iade/tahsilat başlatmaz. Mali durum ile operasyonel zorla sonlandırma ayrı kalır; çözülemeyen yükümlülükler zorunlu uzlaştırma kaydıyla izlenir.
+5. Uzak Order/Payment erişilemiyorsa iki DB atomikliği veya uzaktaki uçuştaki checkout'ın durduğu garanti edilemez. Geç gelen kabul/ödeme sonucu korunup aynı kurtarma işlemiyle uzlaştırılır. Masa yeni ziyarete hemen açılmaz: CLEANING/kurtarma engeli korunur; uzlaştırma/gate doğrulanmadan temizlendi ile AVAILABLE yapma ve yeni sipariş kabulü engellenmelidir.
+6. Kaynak geri geldiğinde aynı işlem kimliğiyle kesin durum sorgulanır; eski kabul edilmiş komut/sonuç yeniden yazılmaz, kapanmış eski oturum kendiliğinden açılmaz ve yeni müşterinin oturumuna müdahale edilmez.
+
+**NOT IMPLEMENTED:** Admin paneli, force API, kalıcı kurtarma/uzlaştırma kaydı ve ona ait masa kullanım engeli bu PR'da kodlanmadı. Bunlar yeni güvenlik/servis sözleşmesi ve gerekirse yeni QR migration aralığıyla ayrı küçük geliştirme işidir. Mevcut `/rotate` yalnız credential'ı değiştirir; mevcut guest/main'leri kendiliğinden kapatmaz. K12 varmış gibi `force` alanı normal staff/rotate isteğine gönderilemez; normal close sözleşmesi bu alanları reddeder.
+
 ## 4. Korunan önceki kurallar
 
 - Güvenli biçimde tamamen iptal edilen son sipariş sonrası ilgili guest için, bütün siparişler güvenli iptal edildiyse main için doğrulanmış iptal anından yeni 15 dakika kuralı korunur. Ödeme belirsizliği veya gerekli ama doğrulanmamış iade varken bu koruma otomatik kaldırılmaz; iptal talebi gerçekleşmiş iade sayılmaz. Bu ADR yeni bir otomatik iade politikası getirmez.
@@ -108,6 +153,22 @@ Tekrar mekanizması yalnız kapanış koordinasyonunu tamamlar; müşteriden tek
 
 **İç sözleşmelerin uygulama yükümlülükleri:** Guest doğrulama, guest/main sipariş koruması ve sipariş yokluğu, kapanış hazırlığı/uygunluğu, sonuç sorgusu ve teyit; bütününde doğrulanmış servis kimliği, tenant kapsamı, sürümlenmiş DTO, tekrar güvenliği, kaynak tamlığı/tazeliği ve güvenli hata yanıtı gerekir. Kesin HTTP yolları/DTO adları henüz uygulanmadı; çalışan endpoint gibi belgelenmez. Aktarımın restart/kayıp yanıt güvencesi kalıcı iş kayıtlarıyla sağlanmalıdır. Order outbox'ının yalnız yazıcı olması teslimat garantisi vermez; gereken işleyici/gönderici uygulama kapsamına alınır. Broker seçimi D-10'u bu ADR genel olarak kapatmaz.
 
+
+### 5.1 Order teyidindeki açık uyuşmazlık ve karşı servis yükümlülüğü
+
+31 Ekim'de incelenen Order kodu, QR yerelde kapatıp CLOSED bildirdikten sonra scopeFingerprint değişmişse `CLOSURE_SCOPE_CHANGED` ile teyidi reddedip PREPARED bırakabiliyor. QR ise APPLIED/CLOSED geçmişini geri açmıyor. Yeni staff API veya gelecekteki force-rotate bu protokol uyuşmazlığını tek başına çözmez.
+
+Order sahibiyle merge öncesi kesinleştirilmesi gereken seçenekler: hazırlık boyunca kapsamı değiştirebilen bütün ilgili işlemleri güvenli biçimde engellemek veya kesin QR CLOSED kanıtını kabul edip sonradan oluşan sapmayı ayrı uzlaştırma kaydıyla izlemek. QR/Payment tarafının önerisi ikinci yaklaşımı değerlendirmektir; **Hamza'nın onayı ve Order kod/test değişikliği olmadan kabul edilmiş/uygulanmış karar olarak yazılmaz.** Gerçek HTTP DTO, sürüm/tazelik, kapatma/idle ayrımı ve ACK/abort mapping'i ortak sözleşmede tamamlanmalıdır.
+
+### 5.2 Review sorularına yanıt ve açık teyitler
+
+| Review konusu | Kaydedilen yanıt / gerçek sınır |
+| --- | --- |
+| Order onayı | Hamza'nın PR #13 kendi yorumu A/K1–K9'u teyit ediyor. PR #11'de istenen doğrudan sahiplik teyidi yine kendi hesabından verilmelidir. |
+| Waiter etkisi | Normal garson kapanışı K11 ile geri eklendi; komut/sonuç semantiği PR #14'e göre test ediliyor. Umut'un kararı görüp teyit etmesi, canonical prefix ve gerçek servis/personel güveni değişiklikleri kendi PR'ında yapılmalı. |
+| Yönetici müdahalesi | K12, açık sipariş/UNKNOWN uyarısı + ayrı onay/gerekçe + audit ile gelecekte zorla yenileme/oturum sonlandırma kararını kaydeder. Normal nakit teyidi Payment'tadır. Kurtarma API'si/paneli henüz yoktur. |
+| CLOSED sonrası kapsam sapması | §5.1 hâlâ ortak karar ve Order uygulaması bekliyor; QR tarafında olmuş gibi gösterilmez. |
+
 ## 6. Migration ve merge öncesi koşullar
 
 Reviewer, V29/V30'un yalnız bu branch'te olduğunu ve paylaşılan ortamda uygulanmadığını belirtti. Bu çalışma ekipteki bütün veritabanlarının `flyway_schema_history` kayıtlarını doğrulamadı. Önceki "V29/V30 zaten uygulanmış, değiştirilemez" ifadesi bu ayrımı yapmadığı için düzeltildi.
@@ -115,17 +176,17 @@ Reviewer, V29/V30'un yalnız bu branch'te olduğunu ve paylaşılan ortamda uygu
 - Ölçüt yalnız production değildir. Paylaşılan/güvenilen Flyway geçmişine girmiş migration sessizce yeniden yazılmaz. Dev merge'i SQL'i kendi başına çalıştırmaz; ekip QR'ı başlattığında ortak şema yükümlülüğü oluşabilir.
 - A seçildiği için eski ayrıntılı şema ve bağlı kod kaldırıldı; V29/V30 yalnız QR lifecycle işleminin değişmez komut/sonucunu tutacak şekilde revize edildi. Reviewer'ın paylaşılan ortamda uygulanmadığı bildirimi ve kullanıcının yalnız bu branch'in V29/V30'unu değiştirme açık onayı esas alındı. V21–V28 değiştirilmedi.
 - Yerel QR DB'de eski V29/V30 checksum'ları bulundu. Kullanıcı yerel veri resetini açıkça onayladı; yalnız doğrulanmış QR veritabanı sıfırlanıp yeni imajla migration uygulandı. Eski QR verileri taşınmadı; diğer servis DB'leri ve PostgreSQL/Sonar volume'leri silinmedi. Ekipte eski QR geçmişi varsa kendi açık onaylı geçişi gerekir. Bu istisna başka migration/paylaşılan geçmiş için izin değildir.
-- [Sürüm dağılımı](migrations.md) geçerlidir. QR V21–V30, Payment V31–V40, Order V41–V50'dir. Order'ın mevcut aralığı doludur; yeni kalıcı koordinasyon şeması gerekirse ekip yeni aralık tahsis etmelidir. V31 Payment'a, V51 Notification'a aittir; ödünç alınmaz.
+- [Sürüm dağılımı](migrations.md) geçerlidir: QR V21–V30, Payment V31–V40, Order V41–V50. Yeni Order PR #13 zinciri V41–V48 kullanıyor; V49/V50 boş. Önceki "Order aralığı dolu" tespiti eskidi. Yeni sürüm kullanılmadan mevcut geçmiş ve ekip kararı doğrulanır; V31 veya V51 ödünç alınmaz. Bu staff kapanış düzenlemesinde SQL/migration değiştirilmedi.
 - PR #11'in A'ya uyarlanmış kod/migration ve ilgili testleriyle review edilmesi gerekir. Bu belge tek başına "merge hazır" sonucu değildir. QR-04 uzun sürerse QR-01–QR-03'ü gerçekten bağımsızlaştırıp test ederek ayrı PR'a ayırmak alternatif olarak kalır; böyle bir ayırma yapılmış değildir.
 
 ## 7. Servis bazında uygulama ve doğrulama planı
 
 | Sorumlu | Yapılacak iş | Bu karar çalışmasındaki durum |
 | --- | --- | --- |
-| QR / Alper | Admission/outcome kaldırma; Order kaynak sınırı, K5 token çözümü, otomatik kapanış/idle, K9 kalıcı komut/teyit ve bounded retry | IMPLEMENTED — yerel QR kodu/SQL ve PostgreSQL testleri; gerçek Order adaptörü kapalı |
-| Order / Hamza | Gerçek QR adaptörü, K6 sepet aktivitesi, K8 checkout'la ortak kalıcı koordinasyon, Payment sorgusu, tam kapsam uygunluk ve K9 sonuç/teyit; yeni şema gerekirse migration aralığı kararı | NOT IMPLEMENTED — uzak branch'e yazılmadı |
-| Payment / Alper | K4 sahiplik; Order'a yetkili mali durum, bekleyen girişim/tahsilat/iptal-iade ve uzlaştırma bilgisini işlem/kapsam/sürümle sağlamak | NOT VERIFIED — gerçek uygulama ve entegrasyon doğrulanmadı |
-| Frontend / ilgili geliştirici | Gerçek menü aktivitesi, güvenli guest taşıması, kendi sipariş kapsamı, otomatik kapanış ve belirsiz işlem görünümü | NOT IMPLEMENTED — bu çalışma frontend içermez |
+| QR / Alper | A koordinasyonu; K11 staff/Waiter komut ve durum API'leri, değişmez gerçek aktör/gerekçe; K12 kurtarma tasarımı | IMPLEMENTED — normal staff kapanışı ve testleri; admin force API/paneli NOT IMPLEMENTED; gerçek kaynak/Auth adaptörleri kapalı |
+| Order / Hamza | K8 kalıcı checkout koordinasyonu, K9 işlem; Payment sorgusu, guest/idle kaynağı ve §5.1 CLOSED teyidi | PARTIALLY IMPLEMENTED — incelenen PR #13'te V48/kilit/prepare-status-confirm var; gerçek Payment sorgusu/adaptörler ve CLOSED sapması çözümü bekliyor |
+| Payment / Alper | Nakit + online; yetkili teyit/sağlayıcı kanıtı, K4 sahiplik, Order'a güncel mali kapsam ve uzlaştırma | PLANNED — ürün kararı kaydedildi; gerçek Payment uygulaması/E2E bu görevde yapılmadı |
+| Frontend / ilgili geliştirici | Foreground aktivite, guest taşıması, garson komutu; yönetici uyarı/ikinci onay ve kurtarma görünümü | NOT IMPLEMENTED — bu görev frontend geliştirmesi veya testi içermez |
 | Ortak / servis sahipleri | Gerçek kaynak/tenant/checkout yarışı ve Payment kapsamı E2E; gerçek servis kimliği | NOT VERIFIED — QR testlerinde Order otoritesi kontrollü; gerçek servisler arası E2E çalıştırılmadı |
 | Dokümantasyon / Alper | Kararlar, yeni konum, mimari/gereksinim ve güncel entegrasyon rehberi | IMPLEMENTED — GitHub işlemleri geliştiriciye bırakıldı |
 
@@ -145,6 +206,10 @@ Uygulama PR'ları ortak sözleşme ve koordinasyon, QR sadeleştirme/geçiş, Pa
 | Kendi siparişi / aynı masadaki başkası / başka restoran | K4 sahipliği doğrulanır; yetkisiz sipariş/ödeme erişimi reddedilir |
 | Yeni checkout önce / kapanış hazırlığı önce | Önceki sipariş kapsamda; önce kapanışsa yeni checkout 409; çoklu instance'ta aynı sonuç |
 | Uygunluk sorgusundan sonra kaynak sürümü/kapsamı değişir | Eski kanıtla kapanış olmaz; yeni ödeme/iptal/belirsizlik göz ardı edilmez |
+| Yetkili staff / sahte tenant-user / eski version / aynı commandId farklı içerik | Normal izinli kapanış; sahte kapsam reddi; 409 ve değişmez audit |
+| Staff prepare/ACK yanıtı kayıp / GET durum sorgusu | 202 veya kesin yerel CLOSED; GET salt okuma, aynı işlem uzlaştırılır |
+| Nakit teyidi yok / istemci paid=true / online callback belirsiz | Normal kapanışa kanıt sayılmaz |
+| Gelecek admin force kurtarması | Uyarı + ADMIN + gerekçe + ayrı onay; borçlar korunur, yeni ziyaret uzlaştırmaya kadar engellenir; henüz test edilmiş özellik değil |
 | Kayıp ACK, QR/Order kesintisi, süreç yeniden başlatma | Aynı kalıcı kimlikle sonuç öğrenilir; çift kapanış, yeni tahsilat veya kör yeniden açma olmaz |
 | Güvenli tam iptal / ödeme belirsizliği / iade bekliyor | Önceki güvenli iptal süre kuralı korunur; belirsiz durumda otomatik serbest bırakma olmaz |
 | SQL hatası ve kapanış sonrası temizlendi | Main/guest/masa birlikte rollback/commit; temizlik ayrı; eski işlem yeni main'e dokunmaz |
@@ -152,11 +217,11 @@ Uygulama PR'ları ortak sözleşme ve koordinasyon, QR sadeleştirme/geçiş, Pa
 
 Bu tablo ortak E2E test planıdır. QR'ın yerel davranışları PostgreSQL 17, kontrollü Order yanıtı ve gerçek Flyway ile test edilir; bu testler gerçek Order gate'i veya Payment mali doğruluğu kanıtı değildir. Backend pre-push ve Sonar sonuçları görev raporuna gerçek koşular tamamlandığında kaydedilir; frontend bu görevde çalıştırılmaz.
 
-## 9. Verdiğimiz kararların son özeti
+## 9. Kararların son özeti ve teyit durumu
 
 | Karar | Kabul edilen davranış |
 | --- | --- |
-| K1 | Personel onayı olmadan otomatik normal kapanış |
+| K1 | Otomatik kapanış korunur; aynı güvenli koşullarla yetkili personel de isteyebilir |
 | K2 | Gerçek siparişler tamamlanmış ve mali koşullar sağlanmış olacak |
 | K3 | Siparişsiz guest ödeme beklenen kişi sayılmayacak; main ile kapanacak |
 | K4 | MVP'de müşteri yalnız kendi guest siparişlerini ödeyecek |
@@ -164,6 +229,9 @@ Bu tablo ortak E2E test planıdır. QR'ın yerel davranışları PostgreSQL 17, 
 | K6 | Gerçek menü/sepet aktivitesi 15 dakikayı yenileyecek; polling yenilemeyecek |
 | K7 | A seçildi: Order Payment'ı doğrulayıp QR'a uygunluk sağlayacak; QR sadeleşecek |
 | K8 | Checkout ve kapanış hazırlığını Order kalıcı sıralayacak; önce kapanışsa yeni checkout 409 |
-| K9 | Kesinti/kayıp yanıt aynı kalıcı kimlikle sorgulanıp tamamlanacak; tekrar ödeme veya kör yeniden açma olmayacak |
+| K9 | Kesinti/kayıp yanıt aynı kalıcı kimlikle uzlaştırılır; §5.1 Order CLOSED sapması açık |
+| K10 | Nakit ve online ödeme Payment yetkili kanıtıyla, QR'da paid beyanı olmadan |
+| K11 | Yetkili normal garson/admin komutu ve salt okunur durum API'si; Order/Payment koşulları korunur |
+| K12 | Gelecekte ADMIN uyarı + gerekçe + ikinci onayla force-rotate/oturum sonlandırabilir; borç/audit/uzlaştırma korunur |
 
-**Karar görüşmesi tamamlandı.** QR'ın yerel A uyarlaması yapıldı; gerçek Order/Payment/Auth bağlantıları, ortak E2E ve reviewer onayı ayrı işlerdir. Commit/push, PR/comment güncelleme, review talebi ve merge geliştirici tarafından yapılır.
+**Teyit ve uygulama sınırı:** A/K1–K9 için Hamza'nın PR #13'te kendi teyidi vardır; PR #11'de istenen doğrudan teyidi geliştirici eklemelidir. 31 Ekim K10–K12 ekleri QR/Payment sahibinin açık talebidir. Umut/Order'ın etkilenen ekleri onayladığı veya K12'nin çalıştığı iddia edilmez. Commit/push, PR/comment, review ve merge kullanıcı tarafından yapılır.

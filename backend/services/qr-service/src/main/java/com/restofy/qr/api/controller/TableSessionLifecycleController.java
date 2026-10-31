@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/qr/table-sessions/{sessionId}")
-@Tag(name = "Table cleaning", description = "Closed staff boundary for the separate cleaned action. Normal closure is automatic through Order authority.")
+@Tag(name = "Table cleaning", description = "Closed staff boundary for the separate cleaned action. Automatic and staff-requested closure use Order authority.")
 public class TableSessionLifecycleController {
     private final TableSessionClosureService service;
     public TableSessionLifecycleController(TableSessionClosureService service) { this.service = service; }

@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Cleaning remains a staff action; automatic closure uses SessionTransition and its durable operation identity. */
+/** Verified staff context for normal closure/cleaning; SessionTransition preserves the durable actor and operation. */
 public final class SessionClosure {
     private SessionClosure() { }
     public record Staff(UUID restaurantId, UUID userId) {

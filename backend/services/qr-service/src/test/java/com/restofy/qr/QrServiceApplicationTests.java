@@ -22,6 +22,29 @@ class QrServiceApplicationTests {
     @Autowired com.restofy.qr.application.service.GuestSessionContextReader contexts;
     @Autowired com.restofy.qr.application.port.OrderSessionAccess orders;
     @Autowired com.restofy.qr.application.service.TableSessionClosureService closure;
+    @Autowired com.restofy.qr.infrastructure.security.WaiterLifecycleAccess waiterClosure;
+
+    @Test
+    void defaultWaiterBoundaryCannotTrustAClaimedStaffOrServiceIdentity() {
+        assertThatThrownBy(waiterClosure::requireStaff)
+                .isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+    }
+
+    @Test
+    void internalCloseAndStatusRemainDeniedToForgedCredentialsAndDefaultRoles() throws Exception {
+        String base = "/api/v1/internal/tables/00000000-0000-0000-0000-000000000001/sessions/00000000-0000-0000-0000-000000000002";
+        mvc.perform(post(base + "/close").with(csrf()).header("Authorization", "Service forged")
+                .header("X-Role", "WAITER").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(base + "/close").with(csrf()).with(user("test-staff").roles("WAITER"))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(base + "/close").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(base + "/close-commands/00000000-0000-0000-0000-000000000003")
+                .param("restaurantId", "00000000-0000-0000-0000-000000000001").with(user("test-staff").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     void neitherAClaimedStaffRoleNorAPaymentReferenceSuppliesLifecycleAuthority() {

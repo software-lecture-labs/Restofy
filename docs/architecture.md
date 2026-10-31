@@ -1,7 +1,7 @@
 # Restofy — Mimari Analizi ve Hedef Tasarım
 
 **Tarih:** 15 Ekim 2026. Kaynak: nihai gereksinim Word belgesi ve repository.  
-**Durum:** Tarihli altyapı analizi + mimari kararlar/öneriler. 30 Ekim 2026 QR güncellemesi: ADR-QR-001/A'nın QR kodu ve V29/V30'u uyarlandı; gerçek Order/Payment/Auth entegrasyonu yapılmadı. Diğer servislerin aşağıdaki eski mevcut-durum tespitleri güncel kod incelemesi yerine geçmez.
+**Durum:** Tarihli altyapı analizi + mimari kararlar/öneriler. 31 Ekim 2026 QR güncellemesi: ADR-QR-001/A ve K11 normal staff kapanışı QR kodunda mevcut; K10 nakit/online ile K12 yönetici kurtarması kaydedildi. Gerçek Order/Payment/Auth bağlantıları ve admin force API/paneli henüz yoktur. Diğer servislerin aşağıdaki eski mevcut-durum tespitleri güncel kod incelemesi yerine geçmez.
 
 İlgili belgeler: [gereksinimler ve açık kararlar](requirements.md), [veri modeli](database.md), [ER](er-diagram.md), [klasörler](folder-structure.md).
 
@@ -62,7 +62,7 @@ Restoran kaydı, zaman dilimi ve sipariş/ödeme yöntem ayarları. Yönetim ekr
 
 ### QR
 
-Masa, masaya özel QR kimlik bilgisi, ana masa oturumu, guest oturumu, masa kapanışı ve idle expiry. [ADR-QR-001](decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) ile seçilen A modelinde QR oturumları sonlandırır; sipariş ve Payment kaynaklı mali uygunluğu Order sağlar. Yeni checkout ve kapanış hazırlığını Order kendi kalıcı kabul işlemiyle sıralar; QR bu protokole katılır. QR'daki ayrıntılı sipariş/finans kopyası kaldırıldı ve yerel kod A'ya uyarlandı; gerçek Order koordinasyonu ve servis adaptörleri henüz uygulanmadı. Üç saatlik Wi-Fi süresiyle karıştırılmaz.
+Masa, masaya özel QR kimlik bilgisi, ana masa oturumu, guest oturumu, masa kapanışı ve idle expiry. [ADR-QR-001](decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) ile seçilen A modelinde QR oturumları sonlandırır; sipariş ve Payment kaynaklı mali uygunluğu Order sağlar. Yeni checkout ve kapanış hazırlığını Order kendi kalıcı kabul işlemiyle sıralar; QR bu protokole katılır. QR'daki ayrıntılı sipariş/finans kopyası kaldırıldı. Otomatik kapanışa ek olarak K11 yetkili staff komut/durum API'leri vardır; gerçek servis adaptörleri kapalıdır. İncelenen Order PR #13'te kalıcı kapanış koordinasyonu eklenmiştir; ortak protokolün CLOSED teyidi ve Payment sorgusu eksikleri ADR'de ayrıca belirtilir. Üç saatlik Wi-Fi süresiyle karıştırılmaz.
 
 ### Menu
 
@@ -78,7 +78,7 @@ V1 sipariş bazlı hazırlık, salt okunur ürün/seçenek snapshot'ı, startedA
 
 ### Waiter
 
-Garson çağrıları, sahiplenme/çözüm ve restoran operasyon görünümü. Teslim isteğini Order'a, restoranda ödeme teyidini Payment'a yönlendirir. ADR-QR-001 hedefinde normal masa kapanışı tamamlanmış siparişler ve doğrulanmış ödeme koşullarıyla otomatik yapılır; ayrıca garson/admin kapanış onayı aranmaz. Temizlendi işlemi ayrı yetkili komuttur. Bu kayıtların ikinci iş otoritesi Waiter olmaz; hedef entegrasyon henüz uygulanmadı.
+Garson çağrıları, sahiplenme/çözüm ve restoran operasyon görünümü. Teslim isteğini Order'a, restoranda ödeme teyidini Payment'a yönlendirir. ADR-QR-001 K1/K11 uyarınca masa uygunluk doğrulandığında otomatik veya yetkili WAITER/ADMIN isteğiyle kapanabilir. Waiter yalnız idempotent komutu iletir; QR aynı Order/Payment koşullarını korur ve sonucu sorgulanabilir kaydeder. Temizlendi ayrı yetkili komuttur. Waiter'ın taslak path/kimlik modelini QR'ın canonical sözleşmesine uyarlaması ve gerçek E2E henüz tamamlanmadı.
 
 ### Payment
 
@@ -150,9 +150,11 @@ Bu akış ADR-QR-001 ile seçilen hedeftir, mevcut entegre kod davranışı değ
 
 Sadece “oturum açık mı?” GET'i yeterli değildir: kontrol ile Order commit'i arasında masa kapanabilir. Önceki QR admission rezervasyonu önerisinin yerine [ADR-QR-001 K7–K9](decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) ile A seçildi. Order, restoran + ana oturum kapsamında checkout commit'i ile kapanış hazırlığını aynı kalıcı koordinasyon üzerinden sıralayacaktır. Sipariş önce kabul edilmişse kapsamda değerlendirilir; kapanış hazırlığı önce kesinleşmişse yeni checkout 409 ile reddedilir.
 
-Order bütün sipariş kapsamını ve Payment'ın yetkili mali durumunu doğrular. Siparişler tamamlanmış ve mali koşullar sağlanmışsa QR, ayrıca personel onayı olmadan main/aktif guest'leri kapatıp masayı CLEANING yapacaktır. Siparişsiz guest'ten ödeme beklenmez; hiç sipariş verilmemiş oturumda gerçek menü/sepet hareketiyle yenilenen 15 dakika idle kuralı sürer. Müşteri MVP'de yalnız kendi siparişlerini öder.
+Order bütün sipariş kapsamını ve Payment'ın yetkili mali durumunu doğrular. Uygunluk varsa QR otomatik veya doğrulanmış staff isteğiyle main/aktif guest'leri kapatıp masayı CLEANING yapar; staff isteği ödeme kanıtı veya force değildir. Siparişsiz guest'ten ödeme beklenmez; hiç sipariş verilmemiş oturumda gerçek menü/sepet hareketiyle yenilenen 15 dakika idle kuralı sürer. Müşteri MVP'de yalnız kendi siparişlerini öder.
 
-Kapanış kalıcı işlem kimliğiyle izlenir. Kayıp yanıt veya restart sonrasında aynı işlem sorgulanıp tamamlanır; belirsizlikte kör kapanış/yeniden açma veya yeni tahsilat yapılmaz. Kaynak kapsamı/sürümü/tazeliği ve doğrulanmış servis kimliği zorunludur. Uzak sorgu ile yerel commit servisler arasında atomik değildir. QR bu hedefe uyarlandı: V29/V30 yalnız lifecycle komut/sonucunu tutar; kalıcı REQUESTED/APPLIED/ABORTING durumları ve 60 saniyelik bounded retry vardır. Uzak Order adaptörü UNKNOWN/unavailable kalır; gerçek Order gate'i ve Payment sorgusu henüz uygulanmadı. Tek boolean, ağ sırası veya bellek kilidi güvenli koordinasyon garantisi vermez.
+Kapanış kalıcı işlem kimliğiyle izlenir. Kayıp yanıt veya restart sonrasında aynı işlem sorgulanıp tamamlanır; belirsizlikte kör kapanış/yeniden açma veya yeni tahsilat yapılmaz. Kaynak kapsamı/sürümü/tazeliği ve doğrulanmış servis kimliği zorunludur. Uzak sorgu ile yerel commit servisler arasında atomik değildir. QR bu hedefe uyarlandı: V29/V30 yalnız lifecycle komut/sonucunu tutar; kalıcı REQUESTED/APPLIED/ABORTING durumları ve 60 saniyelik bounded retry vardır. Uzak Order adaptörü UNKNOWN/unavailable kalır; gerçek kaynak adaptörü/Payment sorgusu ve Order'ın CLOSED teyidi uyuşmazlığı tamamlanmadı; incelenen Order PR #13'te advisory lock + V48 koordinasyonu vardır. Tek boolean, ağ sırası veya bellek kilidi güvenli koordinasyon garantisi vermez.
+
+31 Ekim K10/K12 ekleri: Payment nakit ve online olarak geliştirilecek; nakit teyidi Payment'taki yetkili personele, online kanıt sağlayıcı doğrulamasına dayanır. Gelecekte ADMIN açık sipariş/kesinti uyarısı, gerekçe ve ayrı onayla force-rotate/oturum sonlandırma isteyebilir. Bu operasyon borç silmez veya ödeme kanıtı üretmez; audit/uzlaştırma ve yeni ziyaret engeliyle ayrı kurtarma akışıdır. Admin paneli/force API henüz uygulanmadı. Sıradan QR rotate mevcut oturumları kapatmaz; [ADR K10–K12](decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md) esas alınır.
 
 ### 5.2 Menü değişimi ve checkout yarışı
 
