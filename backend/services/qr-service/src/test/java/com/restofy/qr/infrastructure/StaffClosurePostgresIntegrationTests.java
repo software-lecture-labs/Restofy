@@ -167,7 +167,7 @@ class StaffClosurePostgresIntegrationTests extends TransitionIntegrationSupport 
         lifecycle.cleaned(main(fixture), receipt.table().version());
         time.set(time.get().plusSeconds(1));
         var next = opening.open(fixture.code().qrToken());
-        doReturn(true).when(source).acknowledge(any(), any());
+        doAnswer(invocation -> confirmed(invocation.getArgument(0), invocation.getArgument(1))).when(source).acknowledge(any(), any());
         assertThat(staffClosure.close(request, Origin.STAFF).table().operationalStatus()).isEqualTo(TableOperationalStatus.CLEANING);
         var status = staffClosure.status(tenant, request.tableId(), request.tableSessionId(), request.commandId(), Origin.STAFF);
         assertThat(status.state()).isEqualTo(State.CLOSED);
@@ -180,9 +180,9 @@ class StaffClosurePostgresIntegrationTests extends TransitionIntegrationSupport 
         var fixture = create(); state(fixture, Knowledge.SETTLED, Set.of());
         var request = request(fixture);
         doAnswer(call -> authority(call.getArgument(0), SourceStatus.BLOCKED, Effect.NONE, Set.of())).when(source).prepare(any());
-        doReturn(false).when(source).abort(any());
+        doReturn(null).when(source).abort(any());
         assertThat(staffClosure.close(request, Origin.STAFF).state()).isEqualTo(State.CLOSING);
-        doReturn(true).when(source).abort(any());
+        doAnswer(invocation -> released(invocation.getArgument(0))).when(source).abort(any());
         assertThat(staffClosure.close(request, Origin.STAFF).state()).isEqualTo(State.REJECTED);
         assertThat(sessions.findById(main(fixture)).orElseThrow().getStatus()).isEqualTo(TableSessionStatus.OPEN);
     }

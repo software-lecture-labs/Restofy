@@ -83,7 +83,7 @@ class QrLifecyclePostgresIntegrationTests {
     @Test
     void forwardMigrationAllowsInactiveStateWithNoRevocationTimestamp() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("30");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
         var code = create();
         change(code, false, 0);
         assertThat(codes.findById(code.id()).orElseThrow().getRevokedAt()).isNull();

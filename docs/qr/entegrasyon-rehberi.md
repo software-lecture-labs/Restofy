@@ -15,7 +15,7 @@ QR masa, QR kimliği ve main/guest oturumlarının sahibidir. Sipariş kabulü/i
 
 **IMPLEMENTED:** QR tarafındaki A koordinatörü, kısa yerel transaction'lar, değişmez işlem/sonuç kaydı, bounded retry işi, yeni V29/V30 ve PostgreSQL testleri. Eski `OrderAdmissionService`, `OrderBusinessOutcomeService` ve sipariş/finans tabloları kaldırıldı. Personel kapanış komutu 31 Ekim K11 kararıyla güvenli Order protokolüne bağlı biçimde geri eklendi.
 
-**NOT IMPLEMENTED:** Gerçek Auth üyelik/rol ve servis kimliği adaptörleri; Order → Payment sorgusu ve gerçek QR/Order transport'u; frontend aktivitesi/guest taşıması, rate limit ve downstream bildirimleri; K12 yönetici force-rotate/kurtarma API'si ve paneli. Order PR #13'te kalıcı checkout/kapanış gate'i vardır; QR'a gerçek bağlantısı ve CLOSED teyidindeki kapsam değişikliği davranışı henüz tamamlanmış ortak protokol değildir.
+**NOT IMPLEMENTED:** Gerçek Auth üyelik/rol ve servis kimliği adaptörleri; Order → Payment sorgusu ve gerçek QR/Order transport'u; frontend aktivitesi/guest taşıması, rate limit ve downstream bildirimleri; K12 yönetici force-rotate/kurtarma API'si ve paneli. Order PR #13 fd4e7a9'da gate, order-state, izin yenileme/geri çekme ve K13 sapma kaydı vardır; QR yerel sonuç işlemesi buna uyarlandı, gerçek bağlantı/E2E yoktur.
 
 **NOT VERIFIED:** Gerçek Auth → Gateway → QR → Order → Payment başarı/yarış E2E, çoklu gerçek Order instance gate'i, gerçek ödeme ve mobil kamera. Testlerde PostgreSQL/Flyway gerçektir; Order otoritesi test double'ıdır.
 
@@ -209,12 +209,16 @@ Kaynak: [SessionTransition](../../backend/services/qr-service/src/main/java/com/
 3. `Authority` tam komutu, SourceStatus, Effect, pozitif sourceRevision, verifiedAt/validUntil, complete, checkoutFenced ve gerekiyorsa idleGuestIds içerir. AUTHORISED yalnız kalıcı checkout engeli ve tam güncel mali kapsam sağlanmışsa verilir. Sadece PAID, boolean, JVM kilidi, sayfalı/active sipariş listesi yeterli değildir.
 4. QR yeni kısa transaction'da tam komut, kapsam, tazelik, fence ve güncel yerel snapshot'ı tekrar doğrular. SETTLED_CLOSE main + tüm aktif guest + CLEANING; IDLE_MAIN due main + guest expiry + AVAILABLE; IDLE_GUESTS yalnız kaynakça uygun ve yerelde süresi dolmuş guest'ler + main'in yenilenmeden OPEN olmasıdır.
 5. Yerel sonuç ile APPLIED aynı transaction'da kalıcılaşır. `LocalResult` operationId/kapsam, etki, main/table durum ve version, completedAt, expiredGuests içerir. Sonradan değiştirilemez.
-6. Transaction dışında `acknowledge(command, localResult)` yapılır. Doğrulanmış kesin ACK gelirse COMPLETED olur. Order, kapanmış main'e yeni checkout kabul etmez; IDLE_GUESTS veya kesin abort durumunda gate'i buna göre güvenli açar.
-7. Kaynak BLOCKED veya yerel snapshot değişmişse QR ABORTING'e geçer. Yalnız `abort(command)` kesin true ile Order'daki abort doğrulanınca OPEN/ABORTED olur. Timeout veya bilinmeyen sonuç kendiliğinden yeniden açmaz.
+6. Transaction dışında `acknowledge(command, localResult)` yapılır. `Confirmation` kimlik/digest/amaç/etki, tamlık, pozitif kaynak sürümü ve doğrulama zamanı denetlenir. Doğrulanmış COMPLETED teyidi V121 `session_source_confirmations` içine kaydedilir ve QR işlemi aynı transaction'da COMPLETED olur. scopeDrift varsa da yerel sonuç korunur; IDLE_GUESTS bütün main'i kapatan bir işlem değildir.
+7. Güncel/tam BLOCKED veya UNKNOWN + NONE sonucu ya da yerel snapshot değişikliği QR'ı ABORTING'e geçirir. `abort(command)` aynı komut için doğrulanmış RELEASED veya digest'i eşleşen NOT_STARTED döndürünce OPEN/ABORTED olur. Timeout, null, eksik veya yanlış kapsamlı yanıt kendiliğinden yeniden açmaz.
 
-Order `status(command)` ile aynı işlem sonucunu döndürür. Kayıp prepare yanıtından sonra yeni işlem ID'si yaratılmaz. Yalnız yetkili, güncel ve tam NOT_STARTED yanıtı aynı komutun prepare edilmesini sağlar. UNKNOWN/eksik/stale yanıt REQUESTED/CLOSING'i korur; kalıcı gate bir yanıtın geçerlilik süresi doldu diye kalkmamalıdır. QR permit süresini geçirdiyse yeniden status ile yetkili güncel kanıt almalıdır.
+Order `status(command)` ile aynı işlem sonucunu döndürür. Kayıp prepare yanıtından sonra yeni işlem ID'si yaratılmaz. Yalnız yetkili, güncel ve tam NOT_STARTED yanıtı aynı komutun prepare edilmesini sağlar. Ağda bilinmeyen/eksik/stale yanıt REQUESTED/CLOSING'i korur; tam ve güncel UNKNOWN + NONE ise NOT_CLOSED abort yoludur. Kalıcı gate izin süresi doldu diye kalkmaz. QR süresi geçmiş izni aynı işlemle bir kez status üzerinden yeniler; kilit beklerken süre dolarsa uygulamayı erteleyip REQUESTED bırakır. İşlem başına sıkı yenileme döngüsü yoktur.
 
-Kaynak status BLOCKED/NOT_STARTED için de komut, kapsam ve tazelik doğrulanır. ACK/abort boolean'ı wire body'den kör alınmaz; gerçek adaptör exact komut, kimlik ve kalıcı kaynak sonucunu doğrulamadan true üretemez. Kaynak iç tutarsızlığı operasyonel uzlaştırmadır; retry yeni tahsilat başlatmaz.
+Kaynak status BLOCKED/UNKNOWN/NOT_STARTED için de komut, kapsam ve tazelik doğrulanır. ACK/abort artık boolean değildir. `Confirmation` operationId, restaurantId, sessionId, purpose, commandDigest, kaynak state/effect/revision/verifiedAt/complete ve scopeDrift/driftBlockers taşır. NOT_STARTED abort'unun purpose alanı null olabilir; diğer sonuçlarda amaç eşleşmelidir. Gerçek wire adaptörü her status/confirmation'a commandDigest göndermeli, bilinmeyen ek JSON alanlarını tolere etmeli ve yanlış kimlik/digest'ten olumlu sonuç üretmemelidir. HTTP IDEMPOTENCY_CONFLICT ve hatalı makbuz operasyonel uzlaştırmadır; kör POST retry edilmez. Bu ağ adaptörü henüz uygulanmadı.
+
+### K13 — Kaynak kapsam sapması
+
+Doğru PREPARED işleme ait CLOSED teyidinde Order artık CLOSURE_SCOPE_CHANGED ile reddetmez; COMPLETED + scopeDrift/driftBlockers döndürür ve kendi V49 kaydını tutar. QR teyidi yerelde değişmez saklar; oturumu yeniden açmaz, tahsilat/iade başlatmaz. Staff/Waiter yanıtında CLOSED korunur; bilinen sapma mevcut blockers alanında yalnız sabit RECONCILIATION_REQUIRED olarak görünür. Ayrıntılı kaynak kodları yerel teyit kaydındadır. ACK kaybolduğunda bilgi henüz bilinmeyebilir; APPLIED işlem aynı kimlikle uzlaştırılır. Yönetici ekranı/raporu ve Order sapma olayı bu görevde yoktur.
 
 ### Transaction ve retry sınırı
 
@@ -270,12 +274,12 @@ Admin panelinden açık sipariş veya kaynak kesintisi uyarısı sonrası ayrı 
 | Waiter | K11 normal close + read-only status request/response alanları QR'da mevcut; canonical prefix ve gerçek servis/staff delegasyonuna client'ı uyarlamak; CLOSED sonrası çağrılarını bitirmek. Internal cleaned/okuma ve otomatik kapanış bildirimi ayrıca geliştirilecek |
 | Notification / diğer tüketiciler | Kapanış/temizlik olayları ve dayanıklı teslim ayrıca geliştirilir; mevcut QR retry işi bildirim teslimi sağlamaz |
 
-Order PR #13'ün incelenen `e01fd03` sürümünde V48 kalıcı kapanış, PostgreSQL advisory lock, prepare/status/confirmation ve sepet aktivitesi outbox yazımı vardır. Gerçek Payment sorgusu ve QR guest/idle kaynağı yoktur; CLOSED teyidinde kapsam değişmişse reddetme sorunu ADR §5.1'de açık kalır. V41–V48 kullanılır; V49/V50 boştur. Waiter PR #14 `5dcb64b` salt okunur incelendi. Bu çalışmada uzak servis kodları değiştirilmedi.
+Order PR #13'ün incelenen `fd4e7a9` sürümünde V48 kalıcı işlem/gate, prepare/status/confirmation, order-state, izin yenileme/idle ve V49 değişmez sapma kaydı vardır. K13, önceki CLOSED uyuşmazlığını çözer. Gerçek Payment sorgusu, QR adaptörü, outbox dispatcher ve sapma ekranı/raporu/olayı yoktur. V41–V49 kullanılır; V50 boştur. Waiter PR #14 `5dcb64b` salt okunur incelendi. Uzak servis kodları değiştirilmedi; gerçek servisler arası E2E çalıştırılmadı.
 
 ## 8. Bağlama ve ortak doğrulama sırası
 
 1. Gerçek Auth personel/servis güvenini küçük PR'larla kurun; önce ortak rol/tenant matrisi ve negatif testler.
-2. Order'ın gate ve sürümlü wire sözleşmesini Payment yetkili sorgusuyla uygulayın. İncelenen yeni Order zinciri V41–V48 kullanıyor; sonraki numarayı güncel geçmiş ve ekip aralığına göre seçin, başka servisin aralığını kullanmayın.
+2. Mevcut Order gate ve sürümlü wire sözleşmesini gerçek Payment sorgusuyla tamamlayın. İncelenen Order zinciri V41–V49 kullanıyor; sonraki numara için güncel geçmiş ve ekip aralığı esas alınır.
 3. QR'ın kapalı `OrderSessionAccess` sınırını gerçek adaptörle değiştirin; read authority ile mutation permit'i karıştırmayın.
 4. Gerçek token doğrulama ve foreground aktivite taşımasını kurun; müşteri taramaları açılmadan rate limit'i ekleyin.
 5. Checkout-kapanış yarışları, kayıp ACK/restart, Order/Payment kesintisi, tenant/guest sahipliği ve SQL rollback için ortak E2E çalıştırın.
@@ -285,9 +289,10 @@ Order PR #13'ün incelenen `e01fd03` sürümünde V48 kalıcı kapanış, Postgr
 
 - Yeni uygulama ENV'si veya bağımlılık eklenmedi. `QR_PAYLOAD_ENCRYPTION_KEY` mevcut Base64 32-byte AES anahtarıdır; kaybolursa eski QR içerikleri çözülemez. Gerçek değer Git/log dışında, `.env.example` boş tutulur. [Anahtar rehberi](qr-key-uretimi.md).
 - `QR_PUBLIC_ENTRY_URL` boşsa görsel 503. HTTPS, userinfo/query/fragment yok; loopback HTTP yalnız dev/test. Payload `entryUrl#token=<qrToken>`; fragment sunucu isteğine gitmez. Gerçek müşteri sayfası/üretim URL'si henüz bağlı değildir.
-- 31 Ekim staff düzenlemesinde hiçbir migration/ENV değiştirilmedi veya DB sıfırlanmadı. İsteğe bağlı initiatedBy bilgisi mevcut değişmez komut JSON'una eklenir; eski otomatik komutun digest'i ve eksik-field JSON'u okunabilir kalır. Staff kullanıcı kimliği mevcut closed_by_user_id alanında da tutulur.
-- V21–V28 korunmuştur. V29 artık `session_transition_operations`, V30 onun değişmez komut/sonuç ve geçerli stage geçiş trigger'ını kurar. Eski admission/business/financial tabloları ve onlara bağlı Java kodu kaldırıldı. Yeni tablo yalnız QR komut snapshot'ı ve kendi sonucunu tutar.
+- Önceki staff düzenlemesinde (9c7ac86) migration/ENV değiştirilmedi veya DB sıfırlanmadı. İsteğe bağlı initiatedBy bilgisi mevcut değişmez komut JSON'una eklenir; eski otomatik komutun digest'i ve eksik-field JSON'u okunabilir kalır. Staff kullanıcı kimliği mevcut closed_by_user_id alanında da tutulur. Sonraki K13 şema birleştirmesi aşağıdadır.
+- Branch-only CREATE birleştirmesi kullanıcı tarafından 31 Ekim'de açıkça istendi: V21/V22/V26/V28'de nihai kısıtlar birleştirildi, V23–V25 ara dosyaları kaldırıldı. Mevcut zincir V21, V22, V26–V30 ve V121'dir. V29 yerel komut/sonuç, V30 değişmez geçmiş, V121 değişmez kaynak teyidi/sapma makbuzudur. Sipariş/finans projeksiyonu eklenmedi. QR SQL migration'larında ALTER TABLE adımı kalmadı. Bu genel production migration politikası değildir.
 - V29/V30 değişimi bu branch için merge öncesi açık kullanıcı izniyle yapıldı. Eski checksum'lı **yalnız yerel QR DB** yine açık izinle sıfırlandı; geçmiş QR verileri taşınmadı. Diğer servis DB'leri ve ortak PostgreSQL/Sonar volume'leri korunmuştur. Bu istisna paylaşılan ortama veya başka migration'a genellenmez; ekipte eski QR geçmişi olanlar kendi onaylı geçişini planlamalıdır.
+- Ek QR aralığı V121–V130 kullanıcı onayıyla [sürüm dağılımına](../decisions/migrations.md) kaydedildi. V121 kullanılır, V122–V130 boştur. Başka servisin aralığı kullanılmaz. K13 için yalnız yerel restofy_qr DB'si sıfırlanıp yeni zincir/JPA validate/health 200 doğrulandı; önceki mevcut tablo sütun/kısıt/indeks katalogları korundu, diğer DB kimlikleri değişmedi. QR verileri taşınmadı; ortak volume silinmedi.
 - JPA `ddl-auto=validate` korunur; otomatik repair/clean yoktur. Yeni dağıtım/paylaşılan geçmiş sonrası migration değişimi yeni sürümle yapılır.
 
 ## 10. Auth entegrasyonuna başlarken

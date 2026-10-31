@@ -11,6 +11,7 @@ CREATE TABLE table_sessions (
     closed_by_user_id UUID,
     version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT uq_table_sessions_restaurant_id UNIQUE (restaurant_id, id),
+    CONSTRAINT uq_table_sessions_restaurant_table_id UNIQUE (restaurant_id, table_id, id),
     CONSTRAINT fk_table_sessions_restaurant_table FOREIGN KEY (restaurant_id, table_id)
         REFERENCES dining_tables (restaurant_id, id),
     CONSTRAINT ck_table_sessions_status CHECK (status IN ('OPEN', 'CLOSING', 'CLOSED', 'EXPIRED')),

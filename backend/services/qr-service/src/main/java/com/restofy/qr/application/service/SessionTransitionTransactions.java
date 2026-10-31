@@ -25,14 +25,17 @@ public class SessionTransitionTransactions {
     private final TableSessionRepository sessions;
     private final GuestSessionRepository guests;
     private final SessionTransitionOperationRepository operations;
+    private final SessionSourceConfirmationRepository confirmations;
     private final SessionOrderProtection protection;
     private final JsonMapper json;
 
     public SessionTransitionTransactions(GuestSessionContextReader contexts, TableSessionRepository sessions,
                                          GuestSessionRepository guests, SessionTransitionOperationRepository operations,
-                                         SessionOrderProtection protection, JsonMapper json) {
+                                         SessionOrderProtection protection, JsonMapper json,
+                                         SessionSourceConfirmationRepository confirmations) {
         this.contexts = contexts; this.sessions = sessions; this.guests = guests;
         this.operations = operations; this.protection = protection; this.json = json;
+        this.confirmations = confirmations;
     }
 
     @Transactional
@@ -128,20 +131,21 @@ public class SessionTransitionTransactions {
         return new Attempt(command, operation.getStage(), previous, receipt(operation));
     }
 
-    /** False means the local scope changed: first obtain a definitive source abort, never apply a stale permit. */
+    /** Expired permission is refreshed; a changed local snapshot requires definitive source abort before reopening. */
     @Transactional
-    public boolean apply(UUID restaurantId, UUID operationId, Authority authority) {
+    public ApplyOutcome apply(UUID restaurantId, UUID operationId, Authority authority) {
         var locked = lock(restaurantId, operationId);
         var operation = locked.operation();
         var parent = locked.parent();
         var main = parent.main();
-        if (operation.getStage() == Stage.APPLIED || operation.getStage() == Stage.COMPLETED) { return true; }
-        if (operation.getStage() != Stage.REQUESTED) { return false; }
+        if (operation.getStage() == Stage.APPLIED || operation.getStage() == Stage.COMPLETED) { return ApplyOutcome.APPLIED; }
+        if (operation.getStage() != Stage.REQUESTED) { return ApplyOutcome.ABORT_REQUIRED; }
         var command = command(operation);
         var now = parent.checkedAt();
+        if (authority != null && authority.expiredFor(command, now)) { return ApplyOutcome.REFRESH_REQUIRED; }
         if (authority == null || !authority.permits(command, now)) { throw new SessionClosureConflictException(); }
         if (!matchesSnapshot(parent, command)) {
-            operation.requireAbort(); return false;
+            operation.requireAbort(); return ApplyOutcome.ABORT_REQUIRED;
         }
         int expired = 0;
         var active = active(parent);
@@ -154,7 +158,7 @@ public class SessionTransitionTransactions {
             }
             case IDLE_MAIN -> {
                 if (main.getIdleExpiresAt() == null || main.getIdleExpiresAt().isAfter(now)) {
-                    operation.requireAbort(); return false;
+                    operation.requireAbort(); return ApplyOutcome.ABORT_REQUIRED;
                 }
                 active.forEach(guest -> guest.expireWithMainAt(now)); expired = active.size();
                 main.expireClosingAt(now); parent.table().releaseAfterIdle();
@@ -171,7 +175,7 @@ public class SessionTransitionTransactions {
                 IdleWindow.storedTime(now), expired);
         operation.apply(json.writeValueAsString(result));
         operations.flush();
-        return true;
+        return ApplyOutcome.APPLIED;
     }
 
     @Transactional
@@ -193,15 +197,24 @@ public class SessionTransitionTransactions {
     }
 
     @Transactional
-    public void acknowledge(UUID restaurantId, UUID operationId) {
+    public void acknowledge(UUID restaurantId, UUID operationId, Confirmation confirmation) {
         var locked = lock(restaurantId, operationId);
-        if (locked.operation().getStage() != Stage.COMPLETED) { locked.operation().acknowledge(); }
+        var operation = locked.operation();
+        if (operation.getStage() == Stage.COMPLETED) { return; }
+        if (confirmation == null || !confirmation.confirms(command(operation), receipt(operation), locked.parent().checkedAt())) {
+            throw new SessionClosureConflictException();
+        }
+        confirmations.saveAndFlush(new SessionSourceConfirmation(confirmation, json.writeValueAsString(confirmation),
+                IdleWindow.storedTime(locked.parent().checkedAt())));
+        operation.acknowledge();
     }
 
     @Transactional(readOnly = true)
     public OperationView view(UUID restaurantId, UUID operationId) {
         var operation = operations.findByRestaurantIdAndId(restaurantId, operationId).orElseThrow(SessionClosureConflictException::new);
-        return new OperationView(operationId, operation.getStage(), receipt(operation));
+        var confirmation = confirmations.findByRestaurantIdAndOperationId(restaurantId, operationId)
+                .map(row -> json.readValue(row.getConfirmationJson(), Confirmation.class)).orElse(null);
+        return new OperationView(operationId, operation.getStage(), receipt(operation), confirmation);
     }
 
     private record Locked(GuestSessionContextReader.LockedSession parent, SessionTransitionOperation operation) { }

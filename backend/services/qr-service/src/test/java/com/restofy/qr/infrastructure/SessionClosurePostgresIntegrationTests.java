@@ -90,7 +90,7 @@ class SessionClosurePostgresIntegrationTests extends TransitionIntegrationSuppor
         String receipt = op.getResultJson();
         var table = tables.get(f.code().tableId()); lifecycle.cleaned(main(f), table.version());
         time.set(time.get().plusSeconds(1)); var next = opening.open(f.code().qrToken());
-        doReturn(true).when(source).acknowledge(any(), any());
+        doAnswer(invocation -> confirmed(invocation.getArgument(0), invocation.getArgument(1))).when(source).acknowledge(any(), any());
         var result = lifecycle.resume(tenant, op.getId());
         assertThat(result.stage()).isEqualTo(Stage.COMPLETED);
         assertThat(operations.findById(op.getId()).orElseThrow().getResultJson()).isEqualTo(receipt);
@@ -101,6 +101,10 @@ class SessionClosurePostgresIntegrationTests extends TransitionIntegrationSuppor
     @ParameterizedTest @ValueSource(strings = {"null", "expired", "future", "foreign", "incomplete", "unfenced", "unknown", "wrongMode", "foreignGuest"})
     void invalidAuthorityNeverEndsGuestsOrBlindlyReopens(String kind) {
         var f = create(); state(f, OrderSessionState.Knowledge.SETTLED, Set.of());
+        if (kind.equals("expired")) {
+            doAnswer(invocation -> new Authority(invocation.getArgument(0), SourceStatus.AUTHORISED, Effect.SETTLED_CLOSE,
+                    1, time.get().minusSeconds(1), time.get(), true, true, Set.of())).when(source).status(any());
+        }
         doAnswer(invocation -> {
             Command c = invocation.getArgument(0); outsideTransaction();
             if (kind.equals("null")) { return null; }
@@ -124,11 +128,11 @@ class SessionClosurePostgresIntegrationTests extends TransitionIntegrationSuppor
             Command c = invocation.getArgument(0); jdbc.update("update table_sessions set version=version+1 where id=?", main(f));
             return permit(c);
         }).when(source).prepare(any());
-        doReturn(false).when(source).abort(any());
+        doReturn(null).when(source).abort(any());
         var view = lifecycle.evaluate(tenant, main(f), Purpose.SETTLED);
         assertThat(view.stage()).isEqualTo(Stage.ABORTING);
         assertThat(sessions.findById(main(f)).orElseThrow().getStatus()).isEqualTo(TableSessionStatus.CLOSING);
-        doReturn(true).when(source).abort(any());
+        doAnswer(invocation -> released(invocation.getArgument(0))).when(source).abort(any());
         assertThat(lifecycle.resume(tenant, view.operationId()).stage()).isEqualTo(Stage.ABORTED);
         assertThat(sessions.findById(main(f)).orElseThrow().getStatus()).isEqualTo(TableSessionStatus.OPEN);
     }

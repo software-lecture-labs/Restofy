@@ -17,6 +17,8 @@ public final class SessionTransition {
     public enum Stage { REQUESTED, APPLIED, ABORTING, COMPLETED, ABORTED }
     public enum SourceStatus { NOT_STARTED, UNKNOWN, BLOCKED, AUTHORISED }
     public enum Effect { NONE, SETTLED_CLOSE, IDLE_MAIN, IDLE_GUESTS }
+    public enum SourceState { NOT_STARTED, NOT_PREPARED, PREPARED, COMPLETED, RELEASED }
+    public enum ApplyOutcome { APPLIED, ABORT_REQUIRED, REFRESH_REQUIRED }
 
     public record GuestTarget(long version, GuestSessionStatus status, Instant lastActivityAt, Instant expiresAt) {
         public GuestTarget {
@@ -84,9 +86,16 @@ public final class SessionTransition {
         }
 
         public boolean isCurrent(Command expected, Instant now) {
+            return boundTo(expected, now) && validUntil.isAfter(now);
+        }
+
+        public boolean expiredFor(Command expected, Instant now) {
+            return boundTo(expected, now) && !validUntil.isAfter(now);
+        }
+
+        private boolean boundTo(Command expected, Instant now) {
             return command.equals(expected) && complete && sourceRevision > 0 && verifiedAt != null
-                    && validUntil != null && !verifiedAt.isAfter(now) && validUntil.isAfter(now)
-                    && validUntil.isAfter(verifiedAt)
+                    && validUntil != null && !verifiedAt.isAfter(now) && validUntil.isAfter(verifiedAt)
                     && command.snapshot().guests().keySet().containsAll(idleGuestIds);
         }
 
@@ -94,6 +103,42 @@ public final class SessionTransition {
             if (!isCurrent(expected, now) || status != SourceStatus.AUTHORISED || !checkoutFenced) { return false; }
             return expected.purpose() == Purpose.SETTLED ? effect == Effect.SETTLED_CLOSE && idleGuestIds.isEmpty()
                     : effect == Effect.IDLE_MAIN || effect == Effect.IDLE_GUESTS;
+        }
+    }
+
+    /** Verified source receipt, not a new permit. Wire adapters must validate every identity and digest before mapping. */
+    public record Confirmation(UUID operationId, UUID restaurantId, UUID sessionId, Purpose purpose,
+                               String commandDigest, SourceState state, Effect effect, long sourceRevision,
+                               Instant verifiedAt, boolean complete, boolean scopeDrift, List<String> driftBlockers) {
+        public Confirmation {
+            Objects.requireNonNull(operationId); Objects.requireNonNull(restaurantId); Objects.requireNonNull(sessionId);
+            Objects.requireNonNull(commandDigest); Objects.requireNonNull(state); Objects.requireNonNull(effect);
+            driftBlockers = List.copyOf(new TreeSet<>(driftBlockers));
+            if (!commandDigest.matches("[0-9a-f]{64}") || sourceRevision < 0 || driftBlockers.size() > 32
+                    || driftBlockers.stream().anyMatch(code -> !code.matches("[A-Z][A-Z0-9_]{0,63}"))
+                    || (!scopeDrift && !driftBlockers.isEmpty()) || (scopeDrift && state != SourceState.COMPLETED)) {
+                throw new IllegalArgumentException("Invalid source confirmation.");
+            }
+        }
+
+        public boolean confirms(Command expected, LocalResult result, Instant now) {
+            return matches(expected, now) && purpose == expected.purpose() && state == SourceState.COMPLETED
+                    && result != null && result.operationId().equals(operationId) && result.restaurantId().equals(restaurantId)
+                    && result.sessionId().equals(sessionId) && result.tableId().equals(expected.snapshot().tableId())
+                    && effect == result.effect() && !result.completedAt().isAfter(verifiedAt);
+        }
+
+        public boolean confirmsAbort(Command expected, Instant now) {
+            return matches(expected, now) && effect == Effect.NONE && !scopeDrift
+                    && ((state == SourceState.RELEASED && purpose == expected.purpose())
+                    || (state == SourceState.NOT_STARTED && purpose == null));
+        }
+
+        private boolean matches(Command expected, Instant now) {
+            return operationId.equals(expected.operationId()) && restaurantId.equals(expected.snapshot().restaurantId())
+                    && sessionId.equals(expected.snapshot().sessionId()) && commandDigest.equals(expected.digest())
+                    && complete && sourceRevision > 0 && verifiedAt != null && !verifiedAt.isAfter(now)
+                    && !verifiedAt.isBefore(expected.requestedAt());
         }
     }
 
@@ -110,5 +155,5 @@ public final class SessionTransition {
         }
     }
 
-    public record OperationView(UUID operationId, Stage stage, LocalResult result) { }
+    public record OperationView(UUID operationId, Stage stage, LocalResult result, Confirmation confirmation) { }
 }

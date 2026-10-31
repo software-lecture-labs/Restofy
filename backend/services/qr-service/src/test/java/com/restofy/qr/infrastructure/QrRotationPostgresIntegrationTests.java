@@ -89,8 +89,8 @@ class QrRotationPostgresIntegrationTests {
     @Test
     void migrationPreservesUniqueIndexAndAddsRevocationConsistency() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("30");
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='23' and success", Integer.class)).isEqualTo(1);
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='22' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select indexdef from pg_indexes where indexname='uq_qr_codes_active_table'", String.class))
                 .contains("UNIQUE", "restaurant_id, table_id", "ACTIVE");
         assertThat(jdbc.queryForObject("select count(*) from pg_constraint where conname='ck_qr_codes_revocation'", Integer.class)).isEqualTo(1);

@@ -10,6 +10,7 @@ CREATE TABLE dining_tables (
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT uq_dining_tables_restaurant_number UNIQUE (restaurant_id, table_number),
+    CONSTRAINT uq_dining_tables_restaurant_id UNIQUE (restaurant_id, id),
     CONSTRAINT ck_dining_tables_number CHECK (table_number ~ '[^[:space:]]'
         AND table_number !~ '^[[:space:]]|[[:space:]]$'),
     CONSTRAINT ck_dining_tables_name CHECK (display_name IS NULL OR

@@ -45,7 +45,8 @@ public class StaffClosureViews {
         }
         Table responseTable = originalReceipt ? table(table, result.tableStatus(), result.tableVersion(), null) : currentTable(table);
         return new StaffClosureResponse(commandId, State.CLOSED, tableId, sessionId, result.completedAt(),
-                new GuestSessions(total, total), responseTable, null, List.of());
+                new GuestSessions(total, total), responseTable, null,
+                view.confirmation() != null && view.confirmation().scopeDrift() ? List.of("RECONCILIATION_REQUIRED") : List.of());
     }
 
     private static State state(OperationView view) {

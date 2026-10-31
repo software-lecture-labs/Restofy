@@ -70,8 +70,8 @@ abstract class TransitionIntegrationSupport {
         });
         when(source.prepare(any())).thenAnswer(invocation -> permit(invocation.getArgument(0)));
         when(source.status(any())).thenAnswer(invocation -> permit(invocation.getArgument(0)));
-        when(source.acknowledge(any(), any())).thenAnswer(invocation -> { outsideTransaction(); return true; });
-        when(source.abort(any())).thenAnswer(invocation -> { outsideTransaction(); return true; });
+        when(source.acknowledge(any(), any())).thenAnswer(invocation -> confirmed(invocation.getArgument(0), invocation.getArgument(1)));
+        when(source.abort(any())).thenAnswer(invocation -> released(invocation.getArgument(0)));
     }
 
     Authority permit(Command command) {
@@ -98,6 +98,22 @@ abstract class TransitionIntegrationSupport {
 
     Authority authority(Command command, SourceStatus status, Effect effect, Set<UUID> due) {
         return new Authority(command, status, effect, 1, time.get(), time.get().plusSeconds(30), true, true, due);
+    }
+
+    Confirmation confirmed(Command command, LocalResult result) {
+        outsideTransaction();
+        return confirmation(command, SourceState.COMPLETED, result.effect(), false, List.of());
+    }
+
+    Confirmation released(Command command) {
+        outsideTransaction();
+        return confirmation(command, SourceState.RELEASED, Effect.NONE, false, List.of());
+    }
+
+    Confirmation confirmation(Command command, SourceState state, Effect effect, boolean drift, List<String> blockers) {
+        return new Confirmation(command.operationId(), command.snapshot().restaurantId(), command.snapshot().sessionId(),
+                state == SourceState.NOT_STARTED ? null : command.purpose(), command.digest(), state, effect,
+                1, time.get(), true, drift, blockers);
     }
 
     void outsideTransaction() { assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse(); }

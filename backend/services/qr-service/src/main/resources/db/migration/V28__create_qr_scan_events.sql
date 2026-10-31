@@ -1,8 +1,3 @@
-ALTER TABLE qr_codes
-    ADD CONSTRAINT uq_qr_codes_restaurant_table_id UNIQUE (restaurant_id, table_id, id);
-ALTER TABLE table_sessions
-    ADD CONSTRAINT uq_table_sessions_restaurant_table_id UNIQUE (restaurant_id, table_id, id);
-
 CREATE TABLE qr_scan_events (
     id UUID PRIMARY KEY,
     restaurant_id UUID NOT NULL,

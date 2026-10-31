@@ -39,21 +39,22 @@ public class TableSessionClosureService {
         var command = attempt.command();
         if (attempt.stage() == Stage.COMPLETED || attempt.stage() == Stage.ABORTED) { return transitions.view(restaurantId, operationId); }
         if (attempt.stage() == Stage.APPLIED) {
-            if (orders.acknowledge(command, attempt.result())) { transitions.acknowledge(restaurantId, operationId); }
+            acknowledge(command, attempt.result());
             return transitions.view(restaurantId, operationId);
         }
         if (attempt.stage() == Stage.ABORTING) { return abort(command); }
-        var authority = attempt.previousAttempts() == 0 ? orders.prepare(command) : orders.status(command);
+        var authority = permission(attempt);
         if (!current(authority, command)) { return transitions.view(restaurantId, operationId); }
-        if (authority.status() == SourceStatus.NOT_STARTED) { authority = orders.prepare(command); }
-        if (!current(authority, command)) { return transitions.view(restaurantId, operationId); }
-        if (authority.status() == SourceStatus.BLOCKED) {
+        if ((authority.status() == SourceStatus.BLOCKED || authority.status() == SourceStatus.UNKNOWN)
+                && authority.effect() == Effect.NONE && authority.idleGuestIds().isEmpty()) {
             transitions.requireAbort(restaurantId, operationId); return abort(command);
         }
         if (!authority.permits(command, clock.instant())) { return transitions.view(restaurantId, operationId); }
-        if (!transitions.apply(restaurantId, operationId, authority)) { return abort(command); }
+        var applied = transitions.apply(restaurantId, operationId, authority);
+        if (applied == ApplyOutcome.ABORT_REQUIRED) { return abort(command); }
+        if (applied == ApplyOutcome.REFRESH_REQUIRED) { return transitions.view(restaurantId, operationId); }
         var view = transitions.view(restaurantId, operationId);
-        if (orders.acknowledge(command, view.result())) { transitions.acknowledge(restaurantId, operationId); }
+        acknowledge(command, view.result());
         return transitions.view(restaurantId, operationId);
     }
 
@@ -61,10 +62,27 @@ public class TableSessionClosureService {
         return authority != null && authority.isCurrent(command, clock.instant());
     }
 
+    private Authority permission(SessionTransitionTransactions.Attempt attempt) {
+        var command = attempt.command();
+        var authority = attempt.previousAttempts() == 0 ? orders.prepare(command) : orders.status(command);
+        if (authority != null && authority.expiredFor(command, clock.instant())) { authority = orders.status(command); }
+        return current(authority, command) && authority.status() == SourceStatus.NOT_STARTED ? orders.prepare(command) : authority;
+    }
+
     private OperationView abort(Command command) {
         var restaurantId = command.snapshot().restaurantId();
-        if (orders.abort(command)) { transitions.abortConfirmed(restaurantId, command.operationId()); }
+        var confirmation = orders.abort(command);
+        if (confirmation != null && confirmation.confirmsAbort(command, clock.instant())) {
+            transitions.abortConfirmed(restaurantId, command.operationId());
+        }
         return transitions.view(restaurantId, command.operationId());
+    }
+
+    private void acknowledge(Command command, LocalResult result) {
+        var confirmation = orders.acknowledge(command, result);
+        if (confirmation != null && confirmation.confirms(command, result, clock.instant())) {
+            transitions.acknowledge(command.snapshot().restaurantId(), command.operationId(), confirmation);
+        }
     }
 
     @Transactional(propagation = Propagation.NEVER)

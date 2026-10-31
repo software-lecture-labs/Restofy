@@ -196,7 +196,7 @@ class QrValidationPostgresIntegrationTests {
     @Test
     void forwardMigrationRetainsUnboundedCodesAndChecksOptionalExpiry() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("30");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
         var code = create("1");
         assertThat(codes.findById(code.id()).orElseThrow().getExpiresAt()).isNull();
         UUID id = code.id();

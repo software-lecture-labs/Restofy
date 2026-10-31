@@ -22,9 +22,9 @@ public class OrderSessionAccess {
     /** Read the SAME durable operation after an ambiguous response; do not invent a new command. */
     public Authority status(Command command) { throw new SessionClosureUnavailableException(); }
 
-    /** A true result must be a verified receipt for this exact command and local outcome. */
-    public boolean acknowledge(Command command, LocalResult result) { throw new SessionClosureUnavailableException(); }
+    /** A COMPLETED receipt may include scope drift; local closure is never rolled back for that drift. */
+    public Confirmation acknowledge(Command command, LocalResult result) { throw new SessionClosureUnavailableException(); }
 
     /** Only a definitive, durable abort permits QR to leave its closing state. Timeout is not abort. */
-    public boolean abort(Command command) { throw new SessionClosureUnavailableException(); }
+    public Confirmation abort(Command command) { throw new SessionClosureUnavailableException(); }
 }
