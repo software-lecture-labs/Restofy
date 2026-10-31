@@ -104,6 +104,9 @@ public class InternalTableSessionController {
                     + "prepared, or not authorised) it is a safe 200 'nothing to abort'. Repeating the same "
                     + "confirmation is safe and returns the same answer; the opposite one after the operation is final "
                     + "is 409 INVALID_STATUS_TRANSITION. CLOSED for an operation that was never prepared is 404. "
+                    + "commandDigest (the digest of the exact command) is required and must be the one the operation "
+                    + "was prepared with (409 IDEMPOTENCY_CONFLICT otherwise); it is echoed in every answer, also "
+                    + "the 'nothing to abort' one. "
                     + "Nothing here pays, refunds or closes anything: it only records the outcome.")
     @ApiResponse(responseCode = "200", description = "COMPLETED (maybe with scopeDrift) or RELEASED, also when repeated")
     @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")

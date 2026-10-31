@@ -135,8 +135,9 @@ class TableSessionClosureConcurrencyTests extends AbstractOrderStatusApiTest {
                 store.lockForClosure(RESTAURANT, SESSION);
                 holding.countDown();
                 await(release);
-                store.insertPrepared(operation, RESTAURANT, SESSION, ClosurePurpose.SETTLED, ClosureEffect.SETTLED_CLOSE,
-                        "d".repeat(64), Set.of(), 1, "c".repeat(64), Instant.now());
+                store.insertPrepared(new TableSessionClosureStore.Prepared(operation, RESTAURANT, SESSION,
+                        ClosurePurpose.SETTLED, ClosureEffect.SETTLED_CLOSE, "d".repeat(64), Set.of(), 1,
+                        "c".repeat(64)), Instant.now());
             }));
             assertTrue(holding.await(10, TimeUnit.SECONDS));
 

@@ -2,6 +2,8 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Duration;
@@ -12,7 +14,9 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -202,6 +206,27 @@ class TableSessionPermitApiTests extends AbstractClosureApiTest {
         confirmCommand(UUID.randomUUID(), "NOT_CLOSED", "XYZ").andExpect(status().isUnprocessableEntity());
     }
 
+    @Test
+    void aConfirmationWithoutTheDigestIsRefusedAndNothingChanges() throws Exception {
+        finishedAndPaidOrder(DevFixtures.TOKEN_A1);
+        UUID operation = UUID.randomUUID();
+        prepare(operation).andExpect(jsonPath("$.state").value("PREPARED"));
+
+        for (String outcome : new String[]{"CLOSED", "NOT_CLOSED"}) {
+            // for the operation that is held, and for one this service never saw (whose answer needs the digest most)
+            for (UUID id : new UUID[]{operation, UUID.randomUUID()}) {
+                mvc.perform(post(preparations(SESSION) + "/" + id + "/confirmation")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(toJson(Map.of("restaurantId", RESTAURANT, "outcome", outcome)))
+                                .header(HttpHeaders.AUTHORIZATION, QR))
+                        .andExpect(status().isUnprocessableEntity());
+            }
+        }
+
+        lookup(operation).andExpect(jsonPath("$.state").value("PREPARED"));
+        assertEquals(1, closures());
+    }
+
     // ---- the receipt --------------------------------------------------------------------------------------------------
 
     @Test
@@ -218,7 +243,7 @@ class TableSessionPermitApiTests extends AbstractClosureApiTest {
         assertEquals(3L, row.get("receipt_session_version"));
         assertEquals(7L, row.get("receipt_table_version"));
         assertEquals(2, row.get("receipt_expired_guests"));
-        assertTrue(row.get("receipt_completed_at") != null);
+        assertNotNull(row.get("receipt_completed_at"));
     }
 
     @Test

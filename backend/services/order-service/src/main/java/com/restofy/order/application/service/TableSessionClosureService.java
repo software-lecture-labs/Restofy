@@ -131,11 +131,11 @@ public class TableSessionClosureService {
                 log.info("Table session operation not authorised: service={} restaurantId={} tableSessionId={}"
                                 + " purpose={} status={} blockers={}", service.name(), restaurantId, tableSessionId,
                         request.purpose(), decision.status(), decision.blockers());
-                return notPrepared(request, tableSessionId, decision, facts, now);
+                return notPrepared(request, tableSessionId, decision, now);
             }
-            closures.insertPrepared(request.operationId(), restaurantId, tableSessionId, request.purpose(),
-                    decision.effect(), request.commandDigest(), decision.idleGuests(), decision.orderCount(),
-                    decision.fingerprint(), now);
+            closures.insertPrepared(new TableSessionClosureStore.Prepared(request.operationId(), restaurantId,
+                    tableSessionId, request.purpose(), decision.effect(), request.commandDigest(),
+                    decision.idleGuests(), decision.orderCount(), decision.fingerprint()), now);
             log.info("Table session operation prepared: service={} operationId={} restaurantId={} tableSessionId={}"
                             + " purpose={} effect={} orders={}", service.name(), request.operationId(), restaurantId,
                     tableSessionId, request.purpose(), decision.effect(), decision.orderCount());
@@ -345,7 +345,7 @@ public class TableSessionClosureService {
 
     /** A command that was not authorised: nothing is stored or held, and the permit says why. */
     private ClosureResponse notPrepared(PrepareClosureRequest request, UUID tableSessionId, Decision decision,
-                                        List<OrderClosureFacts> facts, Instant now) {
+                                        Instant now) {
         return new ClosureResponse(request.operationId(), request.restaurantId(), tableSessionId, request.purpose(),
                 request.commandDigest(), NOT_PREPARED, decision.status(), ClosureEffect.NONE, decision.outcome(), sorted(decision.blockers()),
                 decision.orderCount(), decision.fingerprint(),
@@ -387,7 +387,10 @@ public class TableSessionClosureService {
         return closure;
     }
 
-    /** A question or confirmation that names the command's digest must name the one the operation was prepared with. */
+    /**
+     * A question or confirmation that names the command's digest must name the one the operation was prepared with
+     * (a confirmation always names it; a question may leave it out).
+     */
     private static Closure requireSameDigest(Closure closure, String commandDigest) {
         if (commandDigest != null && !closure.commandDigest().equals(commandDigest)) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,

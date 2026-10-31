@@ -106,6 +106,7 @@ abstract class AbstractClosureApiTest extends AbstractOrderStatusApiTest {
         Map<String, Object> body = new HashMap<>();
         body.put("restaurantId", restaurant);
         body.put("outcome", outcome);
+        body.put("commandDigest", DIGEST);
         if (receipt != null) {
             body.put("receipt", receipt);
         }

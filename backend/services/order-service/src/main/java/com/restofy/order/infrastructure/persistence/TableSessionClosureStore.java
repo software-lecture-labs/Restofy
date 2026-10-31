@@ -2,7 +2,6 @@ package com.restofy.order.infrastructure.persistence;
 
 import com.restofy.order.domain.closure.ClosureBlocker;
 import com.restofy.order.domain.closure.ClosureEffect;
-import com.restofy.order.domain.closure.ClosureEligibility;
 import com.restofy.order.domain.closure.ClosureOutcome;
 import com.restofy.order.domain.closure.ClosurePurpose;
 import com.restofy.order.domain.closure.OrderClosureFacts;
@@ -104,16 +103,21 @@ public class TableSessionClosureStore {
                 (rs, row) -> map(rs), restaurantId, tableSessionId).stream().findFirst();
     }
 
+    /** An authorised operation about to be stored (state PREPARED). */
+    public record Prepared(UUID operationId, UUID restaurantId, UUID tableSessionId, ClosurePurpose purpose,
+                           ClosureEffect effect, String commandDigest, Collection<UUID> idleGuestIds, int orderCount,
+                           String scopeFingerprint) {
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
-    public void insertPrepared(UUID operationId, UUID restaurantId, UUID tableSessionId, ClosurePurpose purpose,
-                               ClosureEffect effect, String commandDigest, Collection<UUID> idleGuestIds,
-                               int orderCount, String scopeFingerprint, Instant now) {
+    public void insertPrepared(Prepared op, Instant now) {
         jdbc.update("INSERT INTO table_session_closures (operation_id, restaurant_id, table_session_id, purpose, effect,"
                         + " command_digest, idle_guest_ids, status, order_count, scope_fingerprint, prepared_at)"
                         + " VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?, ?, ?)",
-                operationId, restaurantId, tableSessionId, purpose.name(), effect.name(), commandDigest,
-                idleGuestIds.stream().map(UUID::toString).sorted().collect(Collectors.joining(",")), orderCount,
-                scopeFingerprint, JdbcTimestamps.timestamp(now));
+                op.operationId(), op.restaurantId(), op.tableSessionId(), op.purpose().name(), op.effect().name(),
+                op.commandDigest(),
+                op.idleGuestIds().stream().map(UUID::toString).sorted().collect(Collectors.joining(",")),
+                op.orderCount(), op.scopeFingerprint(), JdbcTimestamps.timestamp(now));
     }
 
     /** Completes the operation; {@code receipt} is the QR Service's local result when it sent one (may be null). */
@@ -154,12 +158,6 @@ public class TableSessionClosureStore {
                 """, UUID.randomUUID(), closure.operationId(), closure.restaurantId(), closure.tableSessionId(),
                 closure.scopeFingerprint(), fingerprintAtConfirm, outcome.name(), names,
                 JdbcTimestamps.timestamp(now));
-    }
-
-    /** Convenience for the settled rule: the drift of a closure judged by the eligibility rule. */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void recordDrift(Closure closure, ClosureEligibility.Result current, Instant now) {
-        recordDrift(closure, current.fingerprint(), current.outcome(), current.blockers(), now);
     }
 
     public Optional<Drift> findDrift(UUID operationId) {
