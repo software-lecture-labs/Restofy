@@ -78,6 +78,8 @@ public class SecurityConfiguration {
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
                         .requestMatchers(HttpMethod.GET, "/api/v1/internal/table-sessions/*/closure-preparations/*")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/internal/table-sessions/*/order-state")
+                        .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/internal/table-sessions/*/closure-preparations/*/confirmation")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))

@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The whole chain V41-V48 runs from
+ * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The whole chain V41-V49 runs from
  * nothing, uses no number outside the Order range, passes Flyway's own validation (checksums, ordering) and leaves the
  * audit model in place: SERVICE is a real kind of author next to GUEST and STAFF, the staff member a service claims to act
  * for has a column of its own, and the guards keep both unchangeable.
@@ -66,8 +66,8 @@ class OrderCancellationsMigrationTests {
                 assertTrue(info.getState().isApplied() && info.getState().isResolved(), info.getVersion().toString());
                 versions.add(info.getVersion().toString());
             }
-            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48"), versions,
-                    "the consolidated chain V41-V48, inside the Order range V41-V50: no extra number was taken");
+            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49"), versions,
+                    "the consolidated chain V41-V49, inside the Order range V41-V50: no extra number was taken");
             assertEquals(0, flyway.info().pending().length);
             flyway.validate();                                  // checksums of every applied file still match
             assertEquals(0, flyway.migrate().migrationsExecuted, "a second run has nothing to do");
@@ -155,6 +155,6 @@ class OrderCancellationsMigrationTests {
             numbers.add(file.getName().substring(1, file.getName().indexOf("__")));
         }
         Collections.sort(numbers);
-        assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48"), numbers);
+        assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49"), numbers);
     }
 }

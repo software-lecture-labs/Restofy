@@ -18,6 +18,12 @@ public enum ClosureBlocker {
     REFUND_PENDING(Kind.DEFINITE),
     /** A payment attempt is in flight: its result is not known yet. */
     PAYMENT_IN_PROGRESS(Kind.UNCERTAIN),
+    /** The orders changed after the permit was issued, so the permit no longer describes them. */
+    SCOPE_CHANGED(Kind.DEFINITE),
+    /** Idle expiry only: an order still protects the session (or every guest named), so it may not expire. */
+    SESSION_PROTECTED_BY_ORDERS(Kind.DEFINITE),
+    /** Idle expiry only: no main session or guest of the command is both idle and unprotected. */
+    NOTHING_TO_EXPIRE(Kind.DEFINITE),
     /** A trusted PAID message waits for its PENDING and is not verified yet. */
     PAYMENT_VERIFICATION_PENDING(Kind.UNCERTAIN),
     /** Reported money that could not be applied exists: a human has to reconcile it first. */

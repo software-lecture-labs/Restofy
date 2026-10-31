@@ -237,7 +237,7 @@ public class OrderCheckoutService {
         // First statement of the transaction (ADR-QR-001 K8): order this checkout against closing the table session. A
         // closure prepared or completed first refuses the order here, before the idempotency key or anything else is
         // written; a checkout that got in first is part of the scope the closure then sees.
-        closures.requireOpenForCheckout(guest.restaurantId(), guest.tableSessionId());
+        closures.requireOpenForCheckout(guest.restaurantId(), guest.tableSessionId(), guest.guestSessionId());
         // PostgreSQL stores microseconds; truncating here keeps the first response identical to every replay.
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (!idempotency.tryClaim(guest.restaurantId(), actor, OPERATION, key, digest, orderId, CREATED, now,

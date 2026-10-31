@@ -59,7 +59,7 @@ abstract class AbstractCartApiTest {
         jdbc.execute("TRUNCATE order_status_history");
         jdbc.execute("TRUNCATE payment_reconciliation_cases, payment_captures");
         jdbc.execute("TRUNCATE order_cancellation_reasons, order_cancellation_items, order_cancellations");
-        jdbc.execute("TRUNCATE table_session_closures");
+        jdbc.execute("TRUNCATE table_session_closure_drifts, table_session_closures");
         for (String table : new String[]{"inbox_events", "outbox_deliveries", "outbox_events", "idempotency_records",
                 "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);

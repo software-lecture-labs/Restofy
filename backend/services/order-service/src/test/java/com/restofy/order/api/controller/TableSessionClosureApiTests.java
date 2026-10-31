@@ -1,116 +1,46 @@
 package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
-import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapter;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 
-import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * ADR-QR-001 (Order Service side): the QR Service asks whether a table session may be closed, the Order Service looks at
- * ALL orders of the session and, when eligible, refuses new orders for it until the QR Service confirms.
+ * ADR-QR-001 (Order Service side), settled closure: the QR Service asks whether a table session may be closed, the Order
+ * Service looks at ALL orders of the session and, when eligible, refuses new orders for it until the QR Service
+ * confirms. The permit shape, idle expiry and the order state have their own test classes.
  */
-class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
-
-    private static final UUID SESSION = DevFixtures.TABLE_SESSION_A1;
-    private static final UUID RESTAURANT = DevFixtures.RESTAURANT_A;
-    private static final String QR = service(InMemoryServiceIdentityAdapter.QR_CREDENTIAL);
-
-    private static String preparations(UUID session) {
-        return "/api/v1/internal/table-sessions/" + session + "/closure-preparations";
-    }
-
-    private ResultActions prepare(String authorization, UUID session, Object body) throws Exception {
-        var request = post(preparations(session)).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
-        return mvc.perform(request);
-    }
-
-    private ResultActions prepare(UUID operation) throws Exception {
-        return prepare(QR, SESSION, Map.of("restaurantId", RESTAURANT, "operationId", operation));
-    }
-
-    private ResultActions lookup(String authorization, UUID session, UUID operation, UUID restaurant) throws Exception {
-        var request = get(preparations(session) + "/" + operation).param("restaurantId", restaurant.toString());
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
-        return mvc.perform(request);
-    }
-
-    private ResultActions confirm(String authorization, UUID session, UUID operation, UUID restaurant, String outcome)
-            throws Exception {
-        var request = post(preparations(session) + "/" + operation + "/confirmation")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(toJson(Map.of("restaurantId", restaurant, "outcome", outcome)));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
-        return mvc.perform(request);
-    }
-
-    private ResultActions confirm(UUID operation, String outcome) throws Exception {
-        return confirm(QR, SESSION, operation, RESTAURANT, outcome);
-    }
-
-    /** A guest orders a salad; the kitchen and the waiter finish it and the payment service collects the money. */
-    private UUID finishedAndPaidOrder(String guestToken) throws Exception {
-        UUID orderId = placeSaladOrder(guestToken);
-        advanceTo(orderId, "COMPLETED");
-        pay(orderId, "PENDING", 30).andExpect(status().isOk());
-        pay(orderId, "PAID", 20).andExpect(status().isOk());
-        return orderId;
-    }
-
-    private List<String> blockersOf(ResultActions result) throws Exception {
-        List<String> blockers = new ArrayList<>();
-        body(result).path("blockers").forEach(b -> blockers.add(b.asString()));
-        return blockers;
-    }
-
-    private int closures() {
-        return count("table_session_closures");
-    }
-
-    private ResultActions orderAgain(String guestToken) throws Exception {
-        addItem(guestToken, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
-        return placeOrder(guestToken, newKey(), confirmedCheckout(guestToken));
-    }
+class TableSessionClosureApiTests extends AbstractClosureApiTest {
 
     // ---- who may ask ------------------------------------------------------------------------------------------------
 
     @Test
-    void onlyTheQrServiceMayUseTheClosureEndpoints() throws Exception {
+    void onlyTheQrServiceMayUseTheLifecycleEndpoints() throws Exception {
         UUID operation = UUID.randomUUID();
-        Map<String, Object> body = Map.of("restaurantId", RESTAURANT, "operationId", operation);
+        Map<String, Object> body = settledBody(RESTAURANT, operation, DIGEST);
 
-        prepare(null, SESSION, body).andExpect(status().isUnauthorized());
-        prepare(service("not-a-known-credential"), SESSION, body).andExpect(status().isUnauthorized());
-        prepare(guest(DevFixtures.TOKEN_A1), SESSION, body).andExpect(status().isForbidden());
-        prepare(staff(DevFixtures.STAFF_ADMIN_A), SESSION, body).andExpect(status().isForbidden());
-        prepare(service(KITCHEN_CREDENTIAL), SESSION, body).andExpect(status().isForbidden());
-        prepare(service(PAYMENT_CREDENTIAL), SESSION, body).andExpect(status().isForbidden());
+        prepareRaw(null, SESSION, body).andExpect(status().isUnauthorized());
+        prepareRaw(service("not-a-known-credential"), SESSION, body).andExpect(status().isUnauthorized());
+        prepareRaw(guest(DevFixtures.TOKEN_A1), SESSION, body).andExpect(status().isForbidden());
+        prepareRaw(staff(DevFixtures.STAFF_ADMIN_A), SESSION, body).andExpect(status().isForbidden());
+        prepareRaw(service(KITCHEN_CREDENTIAL), SESSION, body).andExpect(status().isForbidden());
+        prepareRaw(service(PAYMENT_CREDENTIAL), SESSION, body).andExpect(status().isForbidden());
 
         lookup(guest(DevFixtures.TOKEN_A1), SESSION, operation, RESTAURANT).andExpect(status().isForbidden());
         lookup(service(KITCHEN_CREDENTIAL), SESSION, operation, RESTAURANT).andExpect(status().isForbidden());
         confirm(staff(DevFixtures.STAFF_ADMIN_A), SESSION, operation, RESTAURANT, "CLOSED")
                 .andExpect(status().isForbidden());
-        confirm(service(PAYMENT_CREDENTIAL), SESSION, operation, RESTAURANT, "CLOSED").andExpect(status().isForbidden());
+        confirm(service(PAYMENT_CREDENTIAL), SESSION, operation, RESTAURANT, "CLOSED")
+                .andExpect(status().isForbidden());
+        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isForbidden());
 
         assertEquals(0, closures());
     }
@@ -124,16 +54,22 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
         patchStatus(QR, orderId, "PREPARING").andExpect(status().isForbidden());
         kitchenEvent(QR, kitchenBody(UUID.randomUUID(), RESTAURANT, orderId, "PREPARING"))
                 .andExpect(status().isForbidden());
-        paymentEvent(QR, paymentBody(UUID.randomUUID(), orderId, "PENDING", SALAD_DUE, "TRY",
-                java.time.Instant.now())).andExpect(status().isForbidden());
+        paymentEvent(QR, paymentBody(UUID.randomUUID(), orderId, "PENDING", SALAD_DUE, "TRY", Instant.now()))
+                .andExpect(status().isForbidden());
     }
 
     @Test
-    void aBodyWithoutAnOperationOrRestaurantIsRefused() throws Exception {
-        prepare(QR, SESSION, Map.of("restaurantId", RESTAURANT)).andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-        prepare(QR, SESSION, Map.of("operationId", UUID.randomUUID())).andExpect(status().isUnprocessableEntity());
-        confirm(QR, SESSION, UUID.randomUUID(), RESTAURANT, "MAYBE").andExpect(status().is4xxClientError());
+    void aCommandThatIsMissingRequiredFieldsIsRefused() throws Exception {
+        UUID operation = UUID.randomUUID();
+        for (String missing : List.of("restaurantId", "operationId", "purpose", "commandDigest")) {
+            Map<String, Object> body = settledBody(RESTAURANT, operation, DIGEST);
+            body.remove(missing);
+            prepareRaw(QR, SESSION, body).andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        prepareRaw(QR, SESSION, settledBody(RESTAURANT, operation, "not-a-digest"))
+                .andExpect(status().isUnprocessableEntity());
+        confirmRaw(QR, SESSION, UUID.randomUUID(), RESTAURANT, "MAYBE", null).andExpect(status().is4xxClientError());
 
         assertEquals(0, closures());
     }
@@ -144,6 +80,7 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
     void aTableSessionWithoutOrdersIsNotEligibleAndNothingIsHeld() throws Exception {
         prepare(UUID.randomUUID()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("NOT_PREPARED"))
+                .andExpect(jsonPath("$.sourceStatus").value("BLOCKED"))
                 .andExpect(jsonPath("$.outcome").value("NOT_ELIGIBLE"))
                 .andExpect(jsonPath("$.blockers[0]").value("NO_ORDERS"))
                 .andExpect(jsonPath("$.orderCount").value(0));
@@ -158,6 +95,7 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
 
         JsonNode prepared = body(prepare(operation).andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("PREPARED"))
+                .andExpect(jsonPath("$.sourceStatus").value("AUTHORISED"))
                 .andExpect(jsonPath("$.outcome").value("ELIGIBLE"))
                 .andExpect(jsonPath("$.operationId").value(operation.toString()))
                 .andExpect(jsonPath("$.restaurantId").value(RESTAURANT.toString()))
@@ -204,6 +142,7 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
 
         var result = prepare(UUID.randomUUID()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("NOT_PREPARED"))
+                .andExpect(jsonPath("$.sourceStatus").value("UNKNOWN"))
                 .andExpect(jsonPath("$.outcome").value("UNKNOWN"));
 
         assertEquals(List.of("PAYMENT_IN_PROGRESS"), blockersOf(result));
@@ -244,9 +183,7 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
     @Test
     void aCancelledOrderOwesNothingButAnotherUnpaidOneStillBlocks() throws Exception {
         UUID cancelled = placeSaladOrder(DevFixtures.TOKEN_A1);
-        mvc.perform(post("/api/v1/orders/" + cancelled + "/cancellations").contentType(MediaType.APPLICATION_JSON)
-                .header(HttpHeaders.AUTHORIZATION, guest(DevFixtures.TOKEN_A1)).header("Idempotency-Key", newKey())
-                .content(toJson(Map.of("cancelAll", true)))).andExpect(status().isCreated());
+        cancelAsGuest(cancelled, DevFixtures.TOKEN_A1);
         finishedAndPaidOrder(DevFixtures.TOKEN_A2);
 
         prepare(UUID.randomUUID()).andExpect(status().isOk())
@@ -259,7 +196,7 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
         finishedAndPaidOrder(DevFixtures.TOKEN_A1);
 
         // asking about the same session id under another restaurant sees no orders and holds nothing of restaurant A
-        prepare(QR, SESSION, Map.of("restaurantId", DevFixtures.RESTAURANT_B, "operationId", UUID.randomUUID()))
+        prepareRaw(QR, SESSION, settledBody(DevFixtures.RESTAURANT_B, UUID.randomUUID(), DIGEST))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("NOT_PREPARED"))
                 .andExpect(jsonPath("$.blockers[0]").value("NO_ORDERS"));
         assertEquals(0, closures());
@@ -318,10 +255,12 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
         finishedAndPaidOrder(DevFixtures.TOKEN_A1);
         UUID operation = UUID.randomUUID();
 
-        String first = prepare(operation).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String second = prepare(operation).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode first = body(prepare(operation).andExpect(status().isOk()));
+        JsonNode second = body(prepare(operation).andExpect(status().isOk()));
 
-        assertEquals(json.readTree(first), json.readTree(second));
+        assertEquals(first.path("state"), second.path("state"));
+        assertEquals(first.path("scopeFingerprint"), second.path("scopeFingerprint"));
+        assertEquals(first.path("sourceStatus"), second.path("sourceStatus"));
         assertEquals(1, closures());
     }
 
@@ -338,14 +277,20 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void anOperationIdCannotBeReusedForAnotherTableSession() throws Exception {
+    void anOperationIdCannotBeReusedForAnotherCommand() throws Exception {
         finishedAndPaidOrder(DevFixtures.TOKEN_A1);
         UUID operation = UUID.randomUUID();
         prepare(operation).andExpect(jsonPath("$.state").value("PREPARED"));
 
-        prepare(QR, DevFixtures.TABLE_SESSION_B1, Map.of("restaurantId", RESTAURANT, "operationId", operation))
+        prepareRaw(QR, DevFixtures.TABLE_SESSION_B1, settledBody(RESTAURANT, operation, DIGEST))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
-        prepare(QR, SESSION, Map.of("restaurantId", DevFixtures.RESTAURANT_B, "operationId", operation))
+        prepareRaw(QR, SESSION, settledBody(DevFixtures.RESTAURANT_B, operation, DIGEST))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        // the same id with another command digest is another command
+        prepareRaw(QR, SESSION, settledBody(RESTAURANT, operation, "e".repeat(64)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        // and so is the same id for another purpose
+        prepareRaw(QR, SESSION, idleBody(operation, Instant.now(), Instant.now().minusSeconds(60), List.of()))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
     }
 
@@ -353,16 +298,20 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
     void aQrServiceThatLostTheResponseCanAskWhatBecameOfTheOperation() throws Exception {
         finishedAndPaidOrder(DevFixtures.TOKEN_A1);
         UUID operation = UUID.randomUUID();
-        String prepared = prepare(operation).andReturn().getResponse().getContentAsString();
+        JsonNode prepared = body(prepare(operation));
 
-        String looked = lookup(QR, SESSION, operation, RESTAURANT).andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        assertEquals(json.readTree(prepared), json.readTree(looked));
+        JsonNode looked = body(lookup(operation).andExpect(status().isOk()));
+        assertEquals(prepared.path("state"), looked.path("state"));
+        assertEquals(prepared.path("scopeFingerprint"), looked.path("scopeFingerprint"));
+        assertEquals("AUTHORISED", looked.path("sourceStatus").asString());
 
-        lookup(QR, SESSION, UUID.randomUUID(), RESTAURANT).andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("CLOSURE_NOT_FOUND"));
-        lookup(QR, DevFixtures.TABLE_SESSION_B1, operation, RESTAURANT).andExpect(status().isNotFound());
-        lookup(QR, SESSION, operation, DevFixtures.RESTAURANT_B).andExpect(status().isNotFound());
+        // an operation the Order Service never saw, or one of another session or restaurant, is simply NOT_STARTED
+        lookup(UUID.randomUUID()).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("NOT_STARTED"))
+                .andExpect(jsonPath("$.sourceStatus").value("NOT_STARTED"));
+        lookup(QR, DevFixtures.TABLE_SESSION_B1, operation, RESTAURANT).andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceStatus").value("NOT_STARTED"));
+        lookup(QR, SESSION, operation, DevFixtures.RESTAURANT_B).andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceStatus").value("NOT_STARTED"));
     }
 
     @Test
@@ -378,7 +327,7 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
             jdbc.execute("ALTER TABLE table_session_closures ENABLE TRIGGER trg_table_session_closures_guard");
         }
 
-        lookup(QR, SESSION, operation, RESTAURANT).andExpect(jsonPath("$.state").value("PREPARED"));
+        lookup(operation).andExpect(jsonPath("$.state").value("PREPARED"));
         orderAgain(DevFixtures.TOKEN_A2).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TABLE_SESSION_CLOSING"));
     }
@@ -414,7 +363,8 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
                 .andExpect(status().isConflict());
 
         confirm(operation, "NOT_CLOSED").andExpect(status().isOk()).andExpect(jsonPath("$.state").value("RELEASED"))
-                .andExpect(jsonPath("$.releasedAt").isNotEmpty());
+                .andExpect(jsonPath("$.releasedAt").isNotEmpty()).andExpect(jsonPath("$.sourceStatus").value("BLOCKED"))
+                .andExpect(jsonPath("$.checkoutFenced").value(false));
         confirm(operation, "NOT_CLOSED").andExpect(status().isOk()).andExpect(jsonPath("$.state").value("RELEASED"));
         confirm(operation, "CLOSED").andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"));
@@ -426,33 +376,96 @@ class TableSessionClosureApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
-    void closedIsRefusedWhenTheOrdersChangedAfterThePreparationAndTheHoldStays() throws Exception {
+    void closedWithoutAnyChangeRecordsNoDrift() throws Exception {
+        finishedAndPaidOrder(DevFixtures.TOKEN_A1);
+        UUID operation = UUID.randomUUID();
+        prepare(operation);
+
+        confirm(operation, "CLOSED").andExpect(status().isOk()).andExpect(jsonPath("$.state").value("COMPLETED"))
+                .andExpect(jsonPath("$.scopeDrift").value(false)).andExpect(jsonPath("$.driftBlockers").isEmpty());
+
+        assertEquals(0, count("table_session_closure_drifts"));
+    }
+
+    @Test
+    void closedIsAlwaysAcceptedAndWhatChangedSincePreparationIsRecorded() throws Exception {
         UUID orderId = finishedAndPaidOrder(DevFixtures.TOKEN_A1);
         UUID operation = UUID.randomUUID();
         prepare(operation).andExpect(jsonPath("$.state").value("PREPARED"));
         // something about the money changed in between (here: the order owes money again)
         jdbc.update("UPDATE orders SET current_due_minor = 100 WHERE id = ?", orderId);
 
-        confirm(operation, "CLOSED").andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("CLOSURE_SCOPE_CHANGED"))
-                .andExpect(jsonPath("$.details.outcome").value("NOT_ELIGIBLE"));
+        JsonNode first = body(confirm(operation, "CLOSED").andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("COMPLETED")).andExpect(jsonPath("$.completedAt").isNotEmpty())
+                .andExpect(jsonPath("$.scopeDrift").value(true))
+                .andExpect(jsonPath("$.driftBlockers[0]").value("PAYMENT_NOT_SETTLED")));
 
-        lookup(QR, SESSION, operation, RESTAURANT).andExpect(jsonPath("$.state").value("PREPARED"));
+        var row = jdbc.queryForMap("SELECT outcome_at_confirm, blockers, restaurant_id, table_session_id"
+                + " FROM table_session_closure_drifts WHERE operation_id = ?", operation);
+        assertEquals("NOT_ELIGIBLE", row.get("outcome_at_confirm"));
+        assertEquals("PAYMENT_NOT_SETTLED", row.get("blockers"));
+        assertEquals(RESTAURANT, row.get("restaurant_id"));
+        assertEquals(SESSION, row.get("table_session_id"));
+
+        // asking again never writes a second record and returns the same drift, also through the lookup
+        JsonNode second = body(confirm(operation, "CLOSED").andExpect(status().isOk()));
+        assertEquals(first.path("scopeDrift"), second.path("scopeDrift"));
+        assertEquals(first.path("driftBlockers"), second.path("driftBlockers"));
+        lookup(operation).andExpect(jsonPath("$.state").value("COMPLETED"))
+                .andExpect(jsonPath("$.scopeDrift").value(true));
+        assertEquals(1, count("table_session_closure_drifts"));
+
+        // the operation is final and the table stays closed for orders
         orderAgain(DevFixtures.TOKEN_A2).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TABLE_SESSION_CLOSING"));
-        // the QR Service can still say it did not close, which releases the hold
-        confirm(operation, "NOT_CLOSED").andExpect(jsonPath("$.state").value("RELEASED"));
+        confirm(operation, "NOT_CLOSED").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"));
     }
 
     @Test
-    void confirmingAnUnknownOrForeignOperationIsNotFound() throws Exception {
+    void aMoneyReportThatArrivesAfterThePreparationIsRecordedAndDoesNotBlockTheClosing() throws Exception {
+        UUID orderId = finishedAndPaidOrder(DevFixtures.TOKEN_A1);
+        UUID operation = UUID.randomUUID();
+        prepare(operation).andExpect(jsonPath("$.state").value("PREPARED"));
+
+        // a DIFFERENT collection for the already paid order: the Payment Service's report is accepted and recorded
+        payWith(orderId, "PAID", 10, attemptOf(orderId), UUID.randomUUID()).andExpect(status().isOk())
+                .andExpect(jsonPath("$.reconciliationRequired").value(true));
+
+        confirm(operation, "CLOSED").andExpect(status().isOk()).andExpect(jsonPath("$.state").value("COMPLETED"))
+                .andExpect(jsonPath("$.scopeDrift").value(true))
+                .andExpect(jsonPath("$.driftBlockers[0]").value("RECONCILIATION_REQUIRED"));
+        assertEquals("UNKNOWN", jdbc.queryForObject("SELECT outcome_at_confirm FROM table_session_closure_drifts"
+                + " WHERE operation_id = ?", String.class, operation));
+    }
+
+    @Test
+    void notClosedAfterAChangeStillReleasesTheHoldWithoutADrift() throws Exception {
+        UUID orderId = finishedAndPaidOrder(DevFixtures.TOKEN_A1);
+        UUID operation = UUID.randomUUID();
+        prepare(operation).andExpect(jsonPath("$.state").value("PREPARED"));
+        jdbc.update("UPDATE orders SET current_due_minor = 100 WHERE id = ?", orderId);
+
+        confirm(operation, "NOT_CLOSED").andExpect(status().isOk()).andExpect(jsonPath("$.state").value("RELEASED"))
+                .andExpect(jsonPath("$.scopeDrift").value(false));
+
+        assertEquals(0, count("table_session_closure_drifts"), "the table did not close, so nothing drifted");
+    }
+
+    @Test
+    void confirmingAnUnknownOrForeignOperationIsNotFoundOrAHarmlessAbort() throws Exception {
         finishedAndPaidOrder(DevFixtures.TOKEN_A1);
         UUID operation = UUID.randomUUID();
         prepare(operation);
 
-        confirm(UUID.randomUUID(), "CLOSED").andExpect(status().isNotFound());
+        // closing something that was never prepared for this restaurant and session is not possible
+        confirm(UUID.randomUUID(), "CLOSED").andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CLOSURE_NOT_FOUND"));
         confirm(QR, DevFixtures.TABLE_SESSION_B1, operation, RESTAURANT, "CLOSED").andExpect(status().isNotFound());
         confirm(QR, SESSION, operation, DevFixtures.RESTAURANT_B, "CLOSED").andExpect(status().isNotFound());
-        lookup(QR, SESSION, operation, RESTAURANT).andExpect(jsonPath("$.state").value("PREPARED"));
+        // aborting something this Order Service holds nothing for is a safe "nothing to abort" and touches nothing
+        confirm(QR, DevFixtures.TABLE_SESSION_B1, operation, RESTAURANT, "NOT_CLOSED").andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceStatus").value("NOT_STARTED"));
+        lookup(operation).andExpect(jsonPath("$.state").value("PREPARED"));
     }
 }

@@ -4,6 +4,8 @@ import com.restofy.order.api.dto.request.PrepareClosureRequest;
 import com.restofy.order.api.dto.response.ClosureResponse;
 import com.restofy.order.application.port.ServiceActor;
 import com.restofy.order.application.service.TableSessionClosureService;
+import com.restofy.order.domain.closure.ClosureEffect;
+import com.restofy.order.domain.closure.ClosurePurpose;
 import com.restofy.order.domain.enums.ServiceName;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import com.restofy.order.infrastructure.persistence.TableSessionClosureStore;
@@ -14,6 +16,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -80,7 +83,7 @@ class TableSessionClosureConcurrencyTests extends AbstractOrderStatusApiTest {
             assertTrue(holding.await(10, TimeUnit.SECONDS));
 
             Future<ClosureResponse> preparation = pool.submit(() -> closures.prepare(QR_SERVICE, SESSION,
-                    new PrepareClosureRequest(RESTAURANT, UUID.randomUUID())));
+                    PrepareClosureRequest.settled(RESTAURANT, UUID.randomUUID(), "d".repeat(64))));
             awaitSomeoneWaitingForTheLock();
             assertFalse(preparation.isDone(), "the preparation must wait for the checkout in flight");
             assertEquals(0, count("table_session_closures"));
@@ -132,7 +135,8 @@ class TableSessionClosureConcurrencyTests extends AbstractOrderStatusApiTest {
                 store.lockForClosure(RESTAURANT, SESSION);
                 holding.countDown();
                 await(release);
-                store.insertPrepared(operation, RESTAURANT, SESSION, 1, "c".repeat(64), Instant.now());
+                store.insertPrepared(operation, RESTAURANT, SESSION, ClosurePurpose.SETTLED, ClosureEffect.SETTLED_CLOSE,
+                        "d".repeat(64), Set.of(), 1, "c".repeat(64), Instant.now());
             }));
             assertTrue(holding.await(10, TimeUnit.SECONDS));
 
