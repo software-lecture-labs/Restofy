@@ -50,6 +50,12 @@ Windows Türkçe klasör yolunda JaCoCo için son yerel koşuda `jacoco.destFile
 aynı, önceden mevcut olmayan ASCII geçici dosyaya CLI üzerinden yönlendirildi; aynı verify raporu üretti.
 Bu parametreler test/kalite kurallarını atlamaz ve CI dosyasını değiştirmez.
 
+31 Ekim güncellemesi: Sonar ve pre-push Maven verify komutları Windows'ta bu iki parametreyi
+`lib/quality-tools.mjs` üzerinden otomatik ekler. Her koşu yeni bir ASCII TEMP dosyası kullanır;
+XML/HTML raporları yine servislerin kendi `target/site/jacoco` dizinlerinde oluşur. ASCII olmayan
+TEMP yolu açık hata verir. Linux varsayılanı ve kalite eşikleri korunur. 72 betik testi geçti;
+tek mevcut servisle gerçek verify, Türkçe proje yolunda taze JaCoCo XML üretti.
+
 ```powershell
 $coverageFile = Join-Path $env:TEMP ('restofy-auth-' + [guid]::NewGuid().ToString('N') + '.exec')
 mvn -B -ntp -f backend/pom.xml -pl services/auth-service -am "-Djacoco.destFile=$coverageFile" "-Djacoco.dataFile=$coverageFile" clean verify

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { repositoryRoot, execute, generatedPath, freshFile, backendTests, backendResults, readModules, clearReports, withReportLock, withRunLog } from '../lib/quality-tools.mjs';
+import { repositoryRoot, execute, generatedPath, freshFile, backendTests, backendResults, readModules, clearReports, withReportLock, withRunLog, mavenCoverageArgs } from '../lib/quality-tools.mjs';
 import { requireMaven25 } from './backend-check.mjs';
 import { checkGitSecrets, checkBackendHealth, playwrightResults } from './runtime-checks.mjs';
 
@@ -41,7 +41,7 @@ export async function runQualityChecks({ root = repositoryRoot, profile = 'dev',
 
     await step('Backend Tests', async () => {
       await requireMaven25(run, mvn, root);
-      const result = await run(mvn, ['-B', '-ntp', '-f', 'backend/pom.xml', 'clean', 'verify']);
+      const result = await run(mvn, ['-B', '-ntp', '-f', 'backend/pom.xml', ...mavenCoverageArgs(), 'clean', 'verify']);
       rows['Backend Build'] = result.code === 0 ? 'PASS' : 'FAIL';
       return result.code === 0 && backendTests(root, modules, started) > 0;
     });

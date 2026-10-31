@@ -1,4 +1,4 @@
-import { repositoryRoot, execute, backendTests, backendResults, readModules, clearBackendReports } from '../lib/quality-tools.mjs';
+import { repositoryRoot, execute, backendTests, backendResults, readModules, clearBackendReports, mavenCoverageArgs } from '../lib/quality-tools.mjs';
 
 export async function requireMaven25(run, mvn, root) {
   const version = await run(mvn, ['-version'], root, true);
@@ -23,7 +23,7 @@ export async function runBackendChecks({ root = repositoryRoot, service = 'all',
     clearBackendReports(root, selected);
     const args = ['-B', '-ntp', '-f', 'backend/pom.xml', '--fail-at-end'];
     if (service !== 'all') args.push('-pl', selected[0]);
-    args.push('clean', 'verify');
+    args.push(...mavenCoverageArgs(), 'clean', 'verify');
     const result = await run(mvn, args);
     buildPassed = result.code === 0;
     if (!buildPassed) log('[ERROR] Maven verify failed with exit code ' + result.code);
