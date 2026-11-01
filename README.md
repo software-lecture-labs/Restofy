@@ -92,7 +92,7 @@ Aşağıdaki adımları sırayla izleyin.
 
 - **Git** — Repository'yi klonlamak için.
 - **Docker Desktop** (veya Docker Engine + Compose v2) — PostgreSQL ve 13 backend servisini çalıştırmak için. **Zorunlu.**
-- **Node.js 22.12+** ve **npm** — Frontend'i çalıştırmak için. **Zorunlu.**
+- **Node.js 22.12+** ve **npm** — Frontend için; Node.js ayrıca QR anahtar kurulum yardımcısını çalıştırır. **Zorunlu.**
 - **JDK 25** ve **Maven** — Yalnızca [Pre-Push kalite kontrolü](#-test-ve-kalite-kontrolleri) için. Backend Docker içinde derlendiğinden uygulamayı çalıştırmak için gerekmez.
 
 Pre-Push betikleri sistemdeki `mvn` komutunu kullanır ve Java 25 ile çalışan Maven bekler. Servis klasörlerindeki `mvnw` dosyaları bu akışta kullanılmaz. `JAVA_HOME` tanımsızsa veya başka bir Java sürümünü gösteriyorsa betik, kurulu bir JDK 25'i otomatik bulup yalnızca kendi Maven süreçlerinde kullanır.
@@ -157,6 +157,23 @@ openssl rand -hex 24
 > [!WARNING]
 > `POSTGRES_PASSWORD` yalnızca PostgreSQL volume'ü **ilk oluşturulurken** uygulanır. İlk `docker compose up` sonrasında şifreyi değiştirirseniz mevcut veritabanı eski şifreyle devam eder. Şifreyi **ilk başlatmadan önce** belirleyin. Veri silmeyi gerektiren sıfırlama adımları için [`ops/ops.md`](ops/ops.md) dosyasına bakın.
 
+#### QR şifreleme anahtarı — ilk kurulum
+
+QR Service için `.env.dev` içinde kalıcı, Base64 kodlanmış 32 byte anahtar gerekir. Profil dosyasını oluşturduktan sonra, proje kökünde Node.js ile çalıştırın:
+
+```powershell
+node ops/qr/qr-key.mjs init dev
+node ops/qr/qr-key.mjs check dev
+```
+
+Aynı komutlar macOS/Linux'ta da geçerlidir. `init`, yalnız eksik/boş anahtarı üretir; mevcut geçerli anahtarı değiştirmez ve değeri terminale yazmaz. `.env` yoksa seçilen profilin aktif kopyasını oluşturur; aynı profil zaten aktif ve eşleşiyorsa ikisini birlikte günceller. Başka aktif profili değiştirmez; `.env` ve profil ayrışmışsa hiçbirinin üzerine yazmadan hata verir.
+
+Boş QR anahtarı artık Compose modelinin tamamını engellemez; **QR Service boş/geçersiz anahtarla yine başlamaz**. Auth/Mail gibi diğer servislerin kendi zorunlu ayarları ayrıca doldurulmalıdır. Çalışan container yeni anahtarı kendiliğinden almaz; QR Service bir sonraki başlatma/yeniden oluşturma sırasında ENV'yi okur.
+
+**Bu komut anahtar kaybını veya rotasyonunu çözmez.** Mevcut QR kayıtları varsa kaybolan anahtarı yedekten geri getirin; yeni anahtar eski şifreli içerikleri açamaz. Gerçek anahtarlar ve ENV dosyaları Git dışında kalır; `.env.example` alanı boş tutulur.
+
+Ayrıntılı ilk kurulum, DEV/PROD, aktif `.env` eşitlemesi, hata kodları ve kurtarma adımları: [QR anahtar üretim rehberi](docs/qr/qr-key-uretimi.md).
+
 #### DEV / PROD profili seçimi
 
 Profil seçimi `ops/env` betiğiyle yapılır; betik `.env.dev` veya `.env.prod` dosyasını `.env` olarak kopyalar. **Docker başlatmaz veya durdurmaz.**
@@ -176,6 +193,8 @@ sh ./ops/env.sh status     # Aktif profili göster
 ```
 
 PROD için önce `.env.prod` dosyasını `.env.example` üzerinden oluşturun (`APP_ENV=prod`, `SPRING_PROFILES_ACTIVE=prod`, `COMPOSE_PROJECT_NAME=restofy-prod`, `SWAGGER_ENABLED=false`, gerçek URL/CORS değerleri ve production kimlik bilgileri gerekir), ardından `use prod` çalıştırın. PROD ayrıntıları için [`ops/ops.md`](ops/ops.md) dosyasına bakın. `.env.example` dosyasını doğrudan production secret dosyası olarak kullanmayın.
+
+> **DEV profili kimlik doğrulama yapmaz.** `SPRING_PROFILES_ACTIVE=dev` iken Order Service sabit yer tutucu misafir, personel (ADMIN dahil) ve servis kimliklerini kabul eder; bunlar API Gateway üzerinden gelen isteklerde de geçerlidir. Bu profil yalnızca kendi bilgisayarınızda kullanılmalıdır; paylaşılan, erişilebilir bir sunucuda veya production'da **asla** çalıştırmayın. Servis dev profiliyle başladığında günlüğe belirgin bir uyarı bloğu yazar. `dev` ve `test` dışındaki profillerde bu doğrulayıcılar kapalıdır (fail-closed, 503).
 
 Daha önce başka yöntemle oluşturulmuş bir `.env` varsa ve betik "`.env` differs" hatası verirse, mevcut dosya `.env.bak` olarak yedeklenerek geçiş yapılabilir:
 
