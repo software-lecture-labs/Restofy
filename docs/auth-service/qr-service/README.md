@@ -3,6 +3,9 @@
 Sahip: **Alper**. Dal: `feature/qr-service`; incelenen SHA: `b95371242e017d130940a3ff803cc95ea9867a1f`.
 Durum: **MEVCUT QR-01..04 domain/HTTP sınırları; EKSİK güven adapterları**. İnceleme: 29 Ekim 2026; kod/dal incelemesi, canlı entegrasyon testi değildir.
 
+PR #17 içindeki `ADR-QR-AUTH-001` Q1–Q9 soruları için Auth tarafının mevcut sözleşmeye dayalı
+yanıtı: [QR–Auth entegrasyonu için Auth yanıtı](../qr-auth-integration-response.md).
+
 ## Mevcut sınır
 
 28 Ekim QR rehberi güncel kaynaktır. TableManagementAccess, SessionLifecycleAccess, OrderAdmissionAccess, OrderOutcomeAccess, IdleExpiryOrderAccess ve SessionClosureEvidenceAccess kapalı/UNKNOWN/503 sınırlarıdır. Java reserve/confirm/reject ve outcome apply/inspect metotları HTTP endpoint değildir.
