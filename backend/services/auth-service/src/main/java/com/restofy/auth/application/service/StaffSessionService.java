@@ -180,9 +180,7 @@ public class StaffSessionService {
 
     public void revokeOtherSessions(Identity identity) {
         authenticate(identity);
-        sessions.findByStaffUserId(identity.userId()).stream()
-                .filter(session -> !session.getId().equals(identity.sessionId()))
-                .forEach(session -> revoke(session, clock.instant()));
+        revokeForUser(identity.userId(), identity.sessionId());
     }
 
     private UUID logoutSession(String refresh, String access, String pending) {
@@ -228,12 +226,19 @@ public class StaffSessionService {
     }
 
     private void revokeAll(UUID userId) {
-        sessions.findByStaffUserId(userId).forEach(session -> revoke(session, clock.instant()));
+        revokeForUser(userId, null);
+    }
+
+    /** Caller holds the staff identity lock. Keep replay history without loading it into the JVM. */
+    private void revokeForUser(UUID userId, UUID preservedSessionId) {
+        Instant now = clock.instant();
+        sessions.revokeForUser(userId, preservedSessionId, now);
+        refreshTokens.revokeForUser(userId, preservedSessionId, now);
     }
 
     private void revoke(UserSession session, Instant now) {
         session.revoke(now);
-        refreshTokens.findBySessionId(session.getId()).forEach(token -> token.revoke(now));
+        refreshTokens.revokeForSession(session.getId(), now);
     }
 
     public static String digest(String value) {

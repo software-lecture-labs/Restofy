@@ -94,6 +94,30 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void bulkRevocationPreservesCurrentDeviceReplayHistoryAndOriginalRevocationTime() {
+        var first = login();
+        var rotated = service.refresh(first.refresh());
+        var current = login();
+        var identity = jwt.verify(current.access(), false);
+        service.revokeOtherSessions(identity);
+        var revokedAt = sessions.findById(first.session().getId()).orElseThrow().getRevokedAt();
+        assertThat(revokedAt).isEqualTo(clock.instant());
+        assertThat(tokens.findBySessionId(first.session().getId())).hasSize(2)
+                .allSatisfy(token -> assertThat(token.getRevokedAt()).isEqualTo(revokedAt));
+        assertThat(tokens.findByTokenHash(StaffSessionService.digest(first.refresh())).orElseThrow().getUsedAt()).isNotNull();
+        assertThat(tokens.findBySessionId(current.session().getId())).hasSize(1)
+                .allSatisfy(token -> assertThat(token.getRevokedAt()).isNull());
+        assertThat(service.authenticate(identity).getRevokedAt()).isNull();
+        clock.advance(2);
+        service.revokeAllSessions(waiter.getId());
+        assertThat(sessions.findById(first.session().getId()).orElseThrow().getRevokedAt()).isEqualTo(revokedAt);
+        assertThat(tokens.findBySessionId(first.session().getId()))
+                .allSatisfy(token -> assertThat(token.getRevokedAt()).isEqualTo(revokedAt));
+        assertRefreshRejected(rotated);
+        assertRefreshRejected(current);
+    }
+
+    @Test
     void logoutCanUseAccessWithoutRefresh() {
         var grant = login();
         service.logout(null, grant.access(), null);
