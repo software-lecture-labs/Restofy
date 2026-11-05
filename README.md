@@ -114,28 +114,33 @@ Restofy'de iki ayrı ENV yapısı vardır. Birbirine karıştırılmamalıdır:
 #### Kök ENV dosyaları
 
 - **`.env.example`** — Şifre içermeyen, tam **DEV şablonu**. Kopyalayıp kendi dosyanızı üretmek içindir; doğrudan kullanılmaz. *Git'e girer.*
-- **`.env.dev`** — DEV profilinin gerçek değerleri. Siz oluşturursunuz. *Git'e girmez.*
+- **`.env.dev`** — DEV profilinin gerçek değerleri. Anahtar kurulum aracı yoksa şablondan oluşturur. *Git'e girmez.*
 - **`.env.prod`** — PROD profilinin gerçek değerleri. Yalnızca PROD gerekiyorsa oluşturulur. *Git'e girmez.*
-- **`.env`** — Seçilen profilin **aktif kopyası**. `ops/env` betiği yazar, elle düzenlenmez; Docker Compose bu dosyayı okur. *Git'e girmez.*
+- **`.env`** — Seçilen profilin **aktif kopyası**. `ops/env` veya DEV anahtar kurulumu yazar, elle düzenlenmez; Docker Compose bu dosyayı okur. *Git'e girmez.*
 
 Ayarlar her zaman `.env.dev` / `.env.prod` içinde düzenlenir; `.env` yalnızca seçilen profilin kopyasıdır.
 
-**Windows (PowerShell):**
+**Yeni, yerel DEV kurulumu — Windows / macOS / Linux (Node.js 20+):**
 
-```powershell
-Copy-Item .env.example .env.dev
+```sh
+node ops/auth/generate-keys.mjs
 ```
 
-**macOS / Linux:**
+Bu komut eksik Auth/Mail anahtarlarını `.env.dev` içine yazar ve aynı profili `.env` olarak
+etkinleştirir; ayrıca `env.ps1` çalıştırmak gerekmez. Dolu anahtarlar korunur, sırlar terminale
+yazılmaz. Personel ve Mail ayrı RSA çiftleri kullanır; diğer servislere verilecek personel
+public anahtarı `secrets/auth-staff-public.key` içindedir. Ayrıntılar: [anahtar kurulumu](docs/auth-service/key-setup.md).
 
-```bash
-cp .env.example .env.dev
-```
-
-Ardından `.env.dev` dosyasını açıp **`POSTGRES_PASSWORD`** değerini doldurun. Boş bırakılırsa Docker Compose başlamaz. Diğer varsayılanlar (portlar, veritabanı adları, URL'ler) yerel geliştirme için hazırdır.
+Mevcut/paylaşılan veritabanıyla çalışan ekip üyesi, o kurulumun mevcut sırlarını güvenli
+kanaldan alır; yeni anahtarlar mevcut şifreli verinin yerine geçmez. Ortak
+`AUTH_RESTAURANT_ID`, PostgreSQL parolası, bootstrap hesapları ve SMTP hesabı otomatik üretilmez.
+Komut eksik temel ayarların adlarını gösterir. Bunları `.env.dev` içinde tamamladıktan sonra
+`ops/env` ile profili yeniden etkinleştirin; farklı aktif kopyada yedekli `-Force` / `--force`
+geçişi aşağıda açıklanır. Komutun bitmesi Docker/SMTP bağlantısının doğrulandığı anlamına gelmez.
 
 - **`POSTGRES_PASSWORD`** *(zorunlu)* — PostgreSQL şifresi. **Mutlaka siz belirlemelisiniz.**
 - **`POSTGRES_USER`** *(zorunlu)* — Şablonda `restofy`.
+- **`AUTH_RESTAURANT_ID`** *(zorunlu)* — Tek restoranlı MVP'nin ekipçe belirlenmiş ortak UUID'si.
 - **`API_GATEWAY_HOST_PORT`** *(zorunlu)* — Gateway portu (`5050`).
 - **`*_SERVICE_URL`, `CORS_ALLOWED_ORIGINS`, `SPRING_PROFILES_ACTIVE`** *(zorunlu)* — Şablonda doğru DEV değerleriyle gelir; değiştirmeniz gerekmez.
 - **`SONAR_TOKEN`, `SONAR_DB_PASSWORD`** *(isteğe bağlı)* — Yalnızca [SonarQube](#sonarqube-isteğe-bağlı) kullanacaksanız. Boş bırakılabilir.

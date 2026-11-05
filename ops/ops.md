@@ -4,6 +4,12 @@
 
 `.env.dev` ve `.env.prod`, her ortamın tüm ayarlarını içerir. `.env`, seçilen profilin aktif kopyasıdır. Ayarları profil dosyalarında düzenleyin; `.env` dosyasına elle yazmayın.
 
+Yeni yerel Auth/Mail anahtar kurulumu için proje kökünde `node ops/auth/generate-keys.mjs`
+çalıştırın. Komut eksik anahtarları `.env.dev` içine doldurur ve DEV profilini `.env` olarak
+etkinleştirir; aynı işlem için ayrıca `env.ps1` gerekmez. Dolu anahtarlar korunur.
+Mevcut/paylaşılan DB kullanılıyorsa o kurulumun sırları kullanılmalıdır.
+[Kurulum, kalan ayarlar ve güvenli tekrar çalıştırma](../docs/auth-service/key-setup.md).
+
 Proje kökünde Windows komutları:
 
 ```powershell
