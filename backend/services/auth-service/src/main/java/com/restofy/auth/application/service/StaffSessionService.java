@@ -12,6 +12,9 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.restofy.auth.domain.entity.RefreshToken;
+import com.restofy.auth.application.service.revocation.RevocationTransactions;
+import com.restofy.auth.application.service.revocation.RevocationCoordinator;
+import com.restofy.auth.application.service.revocation.RevocationPendingException;
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.entity.UserSession;
 import com.restofy.auth.domain.enums.SessionAuthState;
@@ -26,9 +29,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Service
-@Transactional(noRollbackFor = BadCredentialsException.class)
+@Transactional(noRollbackFor = {BadCredentialsException.class, RevocationPendingException.class})
 public class StaffSessionService {
     /** How long after its first use a refresh token is still honoured for a concurrent refresh of the same client. */
     public static final long REFRESH_REUSE_GRACE_SECONDS = 10;
@@ -42,11 +46,14 @@ public class StaffSessionService {
     private final StaffJwtTokens jwt;
     private final AuthSettings settings;
     private final Clock clock;
+    private final RevocationTransactions revocations;
+    private final RevocationCoordinator coordinator;
     private final SecureRandom random = new SecureRandom();
 
     public StaffSessionService(StaffPasswordVerification passwords, StaffUserRepository users,
             UserSessionRepository sessions, RefreshTokenRepository refreshTokens, EntityManager entityManager,
-            StaffJwtTokens jwt, AuthSettings settings, Clock clock) {
+            StaffJwtTokens jwt, AuthSettings settings, Clock clock, RevocationTransactions revocations,
+            RevocationCoordinator coordinator) {
         this.passwords = passwords;
         this.users = users;
         this.sessions = sessions;
@@ -55,6 +62,8 @@ public class StaffSessionService {
         this.jwt = jwt;
         this.settings = settings;
         this.clock = clock;
+        this.revocations = revocations;
+        this.coordinator = coordinator;
     }
 
     public Grant login(String email, String password, String deviceLabel) {
@@ -102,7 +111,8 @@ public class StaffSessionService {
     }
 
     public UserSession authenticate(Identity identity) {
-        StaffUser user = lockUser(identity.userId());
+        StaffUser user = lockIdentity(identity.userId());
+        revocations.assertAuthenticationAllowed(identity.userId(), identity.sessionId());
         if (!user.isActive()) {
             revokeAll(user.getId());
             throw invalid();
@@ -131,6 +141,7 @@ public class StaffSessionService {
         return session;
     }
 
+    @Transactional(propagation = Propagation.NEVER)
     public void logout(String refresh, String access, String pending) {
         UUID sessionId = logoutSession(refresh, access, pending);
         if (sessionId == null) {
@@ -139,21 +150,20 @@ public class StaffSessionService {
         var found = sessions.findById(sessionId);
         if (found.isPresent()) {
             UserSession session = found.get();
-            lockUser(session.getStaffUserId());
-            entityManager.refresh(session);
-            revoke(session, clock.instant());
+            coordinator.logout(settings.restaurantId(), session.getStaffUserId(), session.getId());
         }
     }
 
     public void deactivate(UUID staffUserId) {
         StaffUser user = lockUser(staffUserId);
-        user.deactivate();
-        revokeAll(user.getId());
+        revocations.prepareLocked(settings.restaurantId(), user.getId(), RevocationTransactions.Action.DISABLE, null, coordinator.generation());
+        throw new RevocationPendingException();
     }
 
     public void revokeAllSessions(UUID staffUserId) {
         lockUser(staffUserId);
         revokeAll(staffUserId);
+        throw new RevocationPendingException();
     }
 
     public Grant completeMfa(Identity identity) {
@@ -165,10 +175,16 @@ public class StaffSessionService {
 
     public void revokeOtherSessions(Identity identity) {
         authenticate(identity);
-        sessions.findByStaffUserId(identity.userId()).stream()
-                .filter(session -> !session.getId().equals(identity.sessionId()))
-                .forEach(session -> revoke(session, clock.instant()));
+        revocations.businessFence(settings.restaurantId(), identity.userId(), identity.sessionId(), coordinator.generation(), "MFA", identity.sessionId());
     }
+
+    public void revokeForPasswordReset(UUID user, UUID requestId) {
+        revocations.businessFence(settings.restaurantId(), user, null, coordinator.generation(), "RESET", requestId);
+    }
+
+    public void requireSecuritySource() { revocations.requireSourceActive(); }
+    public boolean mayIssueSecurityProof(UUID user) { return revocations.securityProofAllowed(user); }
+    public void requireSecurityProofIssuance(UUID user) { revocations.assertIssuanceAllowed(user); }
 
     private UUID logoutSession(String refresh, String access, String pending) {
         if (refresh != null && refresh.matches("[A-Za-z0-9_-]{43}")) {
@@ -188,6 +204,13 @@ public class StaffSessionService {
     }
 
     private StaffUser lockUser(UUID id) {
+        StaffUser user = lockIdentity(id);
+        revocations.assertIssuanceAllowed(id);
+        return user;
+    }
+
+    private StaffUser lockIdentity(UUID id) {
+        revocations.requireSourceActive();
         users.lockIdentity(id).orElseThrow(StaffSessionService::invalid);
         StaffUser user = users.findById(id).orElseThrow(StaffSessionService::invalid);
         entityManager.refresh(user);
@@ -202,6 +225,7 @@ public class StaffSessionService {
     }
 
     private Grant grant(UserSession session, Instant now, long generation) {
+        revocations.assertIssuanceAllowed(session.getStaffUserId());
         String refresh = null;
         if (session.getAuthState() == SessionAuthState.AUTHENTICATED) {
             byte[] bytes = new byte[REFRESH_TOKEN_BYTES];
@@ -213,12 +237,14 @@ public class StaffSessionService {
     }
 
     private void revokeAll(UUID userId) {
-        sessions.findByStaffUserId(userId).forEach(session -> revoke(session, clock.instant()));
+        if (sessions.findByStaffUserId(userId).stream().anyMatch(session -> session.getRevokedAt()==null)) {
+            revocations.prepareLocked(settings.restaurantId(), userId, RevocationTransactions.Action.ALL, null, coordinator.generation());
+        }
     }
 
     private void revoke(UserSession session, Instant now) {
-        session.revoke(now);
-        refreshTokens.findBySessionId(session.getId()).forEach(token -> token.revoke(now));
+        if (session.getRevokedAt() == null) revocations.prepareLocked(settings.restaurantId(), session.getStaffUserId(),
+                RevocationTransactions.Action.SESSION, session.getId(), coordinator.generation());
     }
 
     public static String digest(String value) {
