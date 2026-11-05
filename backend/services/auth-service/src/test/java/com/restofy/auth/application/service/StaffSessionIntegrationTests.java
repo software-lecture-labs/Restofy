@@ -81,8 +81,8 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     void twoDevicesHaveSeparateSessionsAndLogoutIsIdempotent() {
         var first = login();
         var other = login();
-        service.logout(first.refresh(), first.access(), null);
-        service.logout(first.refresh(), first.access(), null);
+        coordinatedAuthFixture(() -> service.logout(first.refresh(), first.access(), null));
+        coordinatedAuthFixture(() -> service.logout(first.refresh(), first.access(), null));
         service.logout(null, "invalid", null);
         service.logout("unknown", null, null);
         assertRefreshRejected(first);
@@ -94,7 +94,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     @Test
     void logoutCanUseAccessWithoutRefresh() {
         var grant = login();
-        service.logout(null, grant.access(), null);
+        coordinatedAuthFixture(() -> service.logout(null, grant.access(), null));
         assertThat(sessions.findById(grant.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
     }
 
@@ -108,11 +108,13 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         String secondRefresh = second.refresh();
         jdbc.update("UPDATE staff_users SET is_active = false");
         assertThatThrownBy(() -> service.refresh(firstRefresh)).isInstanceOf(BadCredentialsException.class);
+        acknowledgePreparedRevocationsForAuthFixture();
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
         jdbc.update("UPDATE user_sessions SET revoked_at = NULL");
         jdbc.update("UPDATE refresh_tokens SET revoked_at = NULL");
         assertThatThrownBy(() -> service.authenticate(identity)).isInstanceOf(BadCredentialsException.class);
+        acknowledgePreparedRevocationsForAuthFixture();
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
         assertThatThrownBy(() -> service.refresh(secondRefresh)).isInstanceOf(BadCredentialsException.class);
@@ -124,7 +126,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         var pending = service.login(admin.getEmailNormalized(), PASSWORD, null);
         service.logout(null, pending.access(), null);
         assertThat(sessions.findById(pending.session().getId()).orElseThrow().getRevokedAt()).isNull();
-        service.logout(null, null, pending.access());
+        coordinatedAuthFixture(() -> service.logout(null, null, pending.access()));
         assertThat(sessions.findById(pending.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
         var other = login();
         service.logout(null, null, other.access());
@@ -187,7 +189,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     void disablesAllSessionsAndRejectsNewLoginAndRefresh() {
         var first = login();
         var second = login();
-        service.deactivate(waiter.getId());
+        coordinatedAuthFixture(() -> service.deactivate(waiter.getId()));
         assertThat(users.findById(waiter.getId()).orElseThrow().isActive()).isFalse();
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
@@ -293,15 +295,16 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     @Test
     void refreshCannotSurviveConcurrentDisable() throws Exception {
         var grant = login();
-        race(() -> refreshOutcome(grant.refresh()), () -> { service.deactivate(waiter.getId()); return true; });
+        race(() -> refreshOutcome(grant.refresh()), () -> { coordinatedAuthFixture(() -> service.deactivate(waiter.getId())); return true; });
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertRefreshRejected(grant);
     }
 
     @Test
     void loginCannotSurviveConcurrentDisable() throws Exception {
-        race(() -> { try { login(); return true; } catch (BadCredentialsException _) { return false; } },
-                () -> { service.deactivate(waiter.getId()); return true; });
+        race(() -> { try { login(); return true; } catch (BadCredentialsException _) { return false; }
+            catch (org.springframework.web.server.ResponseStatusException pending) { assertThat(pending.getStatusCode().value()).isEqualTo(503); return false; } },
+                () -> { coordinatedAuthFixture(() -> service.deactivate(waiter.getId())); return true; });
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThatThrownBy(this::login).isInstanceOf(BadCredentialsException.class);
     }
@@ -312,7 +315,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         var grant = service.login("admin@example.com", PASSWORD, null);
         String pendingAccess = grant.access();
         assertThatThrownBy(() -> jwt.verify(pendingAccess, false)).isInstanceOf(BadCredentialsException.class);
-        service.logout(null, null, grant.access());
+        coordinatedAuthFixture(() -> service.logout(null, null, grant.access()));
         assertThat(sessions.findById(grant.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
         assertThat(tokens.count()).isZero();
     }
@@ -320,16 +323,17 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     private void assertRefreshRejected(StaffSessionService.Grant grant) {
         String raw = grant.refresh();
         assertThatThrownBy(() -> service.refresh(raw)).isInstanceOf(BadCredentialsException.class);
+        acknowledgePreparedRevocationsForAuthFixture();
     }
 
     private void assertAccessRejected(StaffSessionService.Grant grant) {
         var identity = jwt.verify(grant.access(), false);
         assertThatThrownBy(() -> service.authenticate(identity)).isInstanceOf(BadCredentialsException.class);
+        acknowledgePreparedRevocationsForAuthFixture();
     }
 
     private void assertActivityRejected(StaffSessionService.Grant grant, boolean pending, Class<? extends Throwable> expected) {
-        var identity = jwt.verify(grant.access(), pending);
-        assertThatThrownBy(() -> service.activity(identity)).isInstanceOf(expected);
+        assertThatThrownBy(() -> service.activity(jwt.verify(grant.access(), pending))).isInstanceOf(expected);
     }
 
     private StaffSessionService.Grant login() { return service.login("waiter@example.com", PASSWORD, "Test browser"); }
@@ -338,6 +342,7 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     }
     private boolean refreshOutcome(String raw) {
         try { service.refresh(raw); return true; } catch (BadCredentialsException _) { return false; }
+        catch (org.springframework.web.server.ResponseStatusException pending) { return false; }
     }
     private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);

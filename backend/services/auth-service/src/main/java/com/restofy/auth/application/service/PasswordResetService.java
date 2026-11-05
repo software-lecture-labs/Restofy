@@ -23,7 +23,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
-@Transactional(noRollbackFor = {BadCredentialsException.class, LoginRateLimiter.LoginLimitException.class})
+@Transactional(noRollbackFor = {BadCredentialsException.class, LoginRateLimiter.LoginLimitException.class,
+        com.restofy.auth.application.service.revocation.RevocationPendingException.class})
 public class PasswordResetService {
     private static final Logger LOG = LoggerFactory.getLogger(PasswordResetService.class);
     private static final String COOKIE_PURPOSE = "cookie";
@@ -61,8 +62,10 @@ public class PasswordResetService {
         String cookie = codes.token();
         // Every eligible-format request pays the same cost-12 baseline; SMTP runs after commit.
         passwords.matches("invalid-credential", null);
+        sessions.requireSecuritySource();
         var found = users.findByEmailNormalized(email);
         StaffUser user = found.map(value -> lock(value.getId())).orElse(null);
+        if (user != null && !sessions.mayIssueSecurityProof(user.getId())) return cookie;
         var state = user == null ? null : mfa.findByStaffUserId(user.getId()).orElse(null);
         boolean eligible = user != null && user.isActive() && user.getRole() == StaffRole.ADMIN
                 && state != null && state.enabled();
@@ -98,6 +101,7 @@ public class PasswordResetService {
         if (request.status() != PasswordResetStatus.CODE_PENDING || !clock.instant().isBefore(request.codeExpiry())) {
             throw invalid();
         }
+        sessions.requireSecurityProofIssuance(request.userId());
         limiter.codeAttempt(request.userId());
         if (!codes.matches(request.codeDigest(), codes.digest("code:" + request.id(), supplied))) {
             requests.fail(request);
@@ -127,13 +131,18 @@ public class PasswordResetService {
         if (passwords.matches(password, user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         }
+        sessions.revokeForPasswordReset(user.getId(), request.id());
+        try {
         user.changePassword(passwords.hash(password), clock.instant());
         users.flush();
-        sessions.revokeAllSessions(user.getId());
         requests.complete(request.id(), clock.instant());
         dispatch(new Message(UUID.randomUUID(), "PASSWORD_CHANGED", user.getEmailNormalized(), request.locale(), null,
                 null, clock.instant().plus(PasswordResetPolicy.MAIL_DEADLINE)));
         audit("COMPLETED", user.getId());
+        } catch (RuntimeException failure) {
+            org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            throw failure;
+        }
     }
 
     private void dispatch(Message message) {
@@ -160,6 +169,7 @@ public class PasswordResetService {
     }
 
     private StaffUser lock(UUID id) {
+        sessions.requireSecuritySource();
         users.lockIdentity(id).orElseThrow(PasswordResetService::invalid);
         StaffUser user = users.findById(id).orElseThrow(PasswordResetService::invalid);
         entities.refresh(user);

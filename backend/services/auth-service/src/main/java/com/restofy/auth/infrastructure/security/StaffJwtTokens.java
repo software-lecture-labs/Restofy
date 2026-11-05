@@ -33,6 +33,7 @@ public class StaffJwtTokens {
         if (expiry.isAfter(session.getAbsoluteExpiresAt())) {
             expiry = session.getAbsoluteExpiresAt();
         }
+        if (expiry.isAfter(session.idleExpiresAt())) expiry = session.idleExpiresAt();
         return Jwts.builder().subject(session.getStaffUserId().toString()).issuer(settings.issuer())
                 .audience().add(pending ? "restofy-auth-mfa" : "restofy-staff-api").and()
                 .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(expiry))
@@ -40,6 +41,7 @@ public class StaffJwtTokens {
                 .claim("role", session.getRoleSnapshot().name()).claim("auth_state", session.getAuthState().name())
                 .claim("restaurant_id", settings.restaurantId().toString())
                 .claim("token_type", pending ? "mfa_pending" : "access")
+                .claim("auth_policy", "q5-idle-v1")
                 .signWith(settings.privateKey(), Jwts.SIG.RS256).compact();
     }
 

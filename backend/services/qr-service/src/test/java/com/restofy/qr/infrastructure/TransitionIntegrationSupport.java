@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
 
 /** Real PostgreSQL/Flyway/QR logic, with explicit test-only Order authority. Not real Order/Payment/Auth E2E. */
 @SpringBootTest(properties = {"qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "spring.datasource.hikari.maximum-pool-size=3"})
-abstract class TransitionIntegrationSupport {
+abstract class TransitionIntegrationSupport extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired TableManagementService tables;
     @Autowired QrCodeCreationService qr;
     @Autowired GuestSessionOpeningService opening;
