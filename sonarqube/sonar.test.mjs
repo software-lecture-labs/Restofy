@@ -29,21 +29,23 @@ async function fixture(options = {}) {
   write('frontend/node_modules/vitest/package.json', '{}');
   write('frontend/node_modules/@sonar/scan/package.json', '{}');
   const runCommand = async (command, args, settings) => {
-    calls.push({ command, args, env: settings.env });
+    calls.push({ command, args, env: { ...settings.env }, cwd: settings.cwd });
     if (args.includes('up') || args.includes('stop') || args.includes('ps')) return { code: 0, output: '' };
     if (options.missingTool && args.includes('-version')) return { code: 1, output: 'Maven unavailable' };
     if (args.includes('-version')) return { code: 0, output: 'Java version: 25.0.4' };
     if (args.includes('verify')) {
+      if (options.buildFail) return { code: 1, output: 'Build failed' };
       for (const name of modules) {
         const base = `backend/services/${name}/target`;
         write(`${base}/surefire-reports/TEST-context.xml`, `<testsuite tests="${options.missingTests ? 0 : 1}" failures="0" errors="0" skipped="0"/>`);
-        write(`${base}/site/jacoco/jacoco.xml`, `<report><counter type="LINE" missed="${options.lowCoverage ? 80 : 0}" covered="${options.lowCoverage ? 20 : 100}"/></report>`);
+        if (!(options.missingCoverage && name === 'waiter-service')) write(`${base}/site/jacoco/jacoco.xml`, `<report><counter type="LINE" missed="${options.lowCoverage ? 80 : 0}" covered="${options.lowCoverage ? 20 : 100}"/></report>`);
         if (options.staleCoverage) fs.utimesSync(path.join(root, `${base}/site/jacoco/jacoco.xml`), 0, 0);
         write(`${base}/site/jacoco/index.html`, 'report');
         write(`${base}/classes/App.class`, 'fixture');
       }
     }
     if (args[0] === 'run' && ['test', 'test:coverage'].includes(args[1])) {
+      if (options.reportRemovedBeforeAnalysis) fs.unlinkSync(path.join(root, 'backend/services/menu-service/target/site/jacoco/jacoco.xml'));
       write('frontend/test-results/vitest.json', JSON.stringify({ numTotalTests: 2, numFailedTests: 0, numPendingTests: 0 }));
       if (args[1] === 'test:coverage') {
         write('frontend/coverage/coverage-summary.json', JSON.stringify({ total: Object.fromEntries(['lines', 'branches', 'functions', 'statements'].map((key) => [key, { total: 10, covered: 10, pct: 100 }])) }));
@@ -104,6 +106,15 @@ test('a passing custom assigned gate is accepted and its actual conditions are r
   assert.ok(result.requests.includes('/api/qualitygates/show?name=RESTOFY%20Quality'));
 });
 
+test('backend reports are revalidated immediately before analysis', async () => {
+  const result = await fixture({ reportRemovedBeforeAnalysis: true });
+  assert.equal(result.rows['Backend Reports'], 'PASS');
+  assert.equal(result.rows['Backend Analysis'], 'FAIL');
+  assert.equal(result.rows['Quality Gate Backend'], 'SKIPPED');
+  assert.equal(result.rows['Overall Targets Backend'], 'SKIPPED');
+  assert.ok(!result.calls.some(call => call.args.includes('sonar:sonar')));
+});
+
 for (const option of ['tokenMissing', 'serverDown', 'starting']) {
   test(`${option} prevents tests and scanners from starting`, async () => {
     const result = await fixture({ [option]: true });
@@ -114,14 +125,16 @@ for (const option of ['tokenMissing', 'serverDown', 'starting']) {
   });
 }
 
-for (const [option, row] of [['gateFail','Quality Gate Backend'], ['missingTests','Backend Reports'], ['staleCoverage','Backend Reports'], ['missingTool','Backend Reports'], ['lowCoverage','Overall Targets Backend']]) {
+for (const [option, row] of [['gateFail','Backend Analysis'], ['missingTests','Backend Reports'], ['staleCoverage','Backend Reports'], ['missingCoverage','Backend Reports'], ['buildFail','Backend Reports'], ['missingTool','Backend Reports'], ['lowCoverage','Overall Targets Backend']]) {
   test(`${option} fails the independent scan`, async () => {
     const result = await fixture({ [option]: true });
     assert.equal(result.exitCode, 1);
     assert.equal(result.rows[row], 'FAIL');
     assert.ok(result.lines.some(line => line.includes('SONAR SCAN FAILED')));
-    if (['missingTests', 'staleCoverage', 'missingTool'].includes(option)) {
+    if (['missingTests', 'staleCoverage', 'missingCoverage', 'buildFail', 'missingTool'].includes(option)) {
       assert.ok(!result.calls.some(call => call.args.includes('sonar:sonar')));
+      assert.equal(result.rows['Quality Gate Backend'], 'SKIPPED');
+      assert.equal(result.rows['Overall Targets Backend'], 'SKIPPED');
     }
     if (option === 'lowCoverage') {
       assert.equal(result.rows['Backend Reports'], 'PASS');
@@ -136,8 +149,8 @@ for (const option of ['missingMetadata', 'processingFail', 'scannerFail']) {
     assert.equal(result.exitCode, 1);
     assert.equal(result.rows['Backend Analysis'], 'FAIL');
     assert.equal(result.rows['Frontend Analysis'], 'FAIL');
-    if (option === 'scannerFail') assert.equal(result.rows['Quality Gate Backend'], 'PASS');
-    else assert.equal(result.rows['Quality Gate Backend'], 'SKIPPED');
+    assert.equal(result.rows['Quality Gate Backend'], 'SKIPPED');
+    assert.equal(result.rows['Overall Targets Backend'], 'SKIPPED');
   });
 }
 

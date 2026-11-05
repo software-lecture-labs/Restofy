@@ -4,6 +4,8 @@ Bu manuel script testleri, coverage ve build sonuçlarını kontrol eder; Git ho
 
 Java 25 kullanan Maven, Node.js 22.12+ (veya 24/26+) ve kurulu frontend paketleri gerekir.
 
+Maven başka bir Java sürümüyle çalışıyorsa (örneğin `JAVA_HOME` tanımsızken Homebrew'ın en yeni JDK'sı seçildiğinde) script, makinede kurulu bir JDK 25'i otomatik arar (macOS: Homebrew `openjdk@25` ve `JavaVirtualMachines`; Linux: `/usr/lib/jvm`; Windows: `Program Files` altındaki JDK 25 klasörleri) ve yalnızca bu kontrolün Maven süreçleri için `JAVA_HOME` olarak kullanır. Kabuğunuzun `JAVA_HOME` değeri veya profil dosyalarınız değiştirilmez. JDK 25 bulunamazsa kontrol, Maven'in hangi Java sürümünü kullandığını belirten bir hatayla durur.
+
 Tam kontrolden önce frontend dizininde bir kez `npm run test:e2e:install` ile
 Chromium'u kurun. Seçilen profilin backend servisleri çalışıyor olmalıdır:
 
