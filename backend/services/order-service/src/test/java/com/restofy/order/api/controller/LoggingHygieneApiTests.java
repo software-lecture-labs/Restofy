@@ -3,7 +3,11 @@ package com.restofy.order.api.controller;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.logging.LogLevel;
+import org.springframework.boot.logging.LoggingSystem;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
@@ -19,6 +23,21 @@ class LoggingHygieneApiTests extends AbstractCartApiTest {
 
     private static final String SECRET_NOTE = "allergic to sesame - private note 7f3a";
     private static final String UNKNOWN_TOKEN = "unknown-token-should-not-appear-in-logs";
+    private static final String BODY_LOGGER =
+            "org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor";
+    private final LoggingSystem logging = LoggingSystem.get(getClass().getClassLoader());
+    private LogLevel previousLevel;
+
+    @BeforeEach
+    void enableBodyDebugLogging() {
+        previousLevel = logging.getLoggerConfiguration(BODY_LOGGER).getConfiguredLevel();
+        logging.setLogLevel(BODY_LOGGER, LogLevel.DEBUG);
+    }
+
+    @AfterEach
+    void restoreLogging() {
+        logging.setLogLevel(BODY_LOGGER, previousLevel);
+    }
 
     @Test
     void tokensAndGuestTextAreNeverLoggedOnAnyPath(CapturedOutput output) throws Exception {
