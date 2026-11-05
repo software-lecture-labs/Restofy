@@ -57,7 +57,27 @@ Slug normalize edilip benzersiz olmalı. Saat dilimi IANA adı olarak doğrulan�
 
 `UNIQUE(restaurant_id,business_date,metric_key,dimension_key)`; parasal metriklerde para birimi dimension_key içine de dahil edilir. Kaynak servis olayları inbox ile bir kez uygulanır. Kaynak gerçek yerine geçmeyen, yeniden üretilebilir projeksiyondur; farklı metrikler kör toplanmaz.
 
-## 4. Auth DB — personel ve kimlik
+## 4. Auth DB — güncel tek restoranlı MVP
+
+5 Kasım 2026: Güncel fiziksel şema Auth'un `src/main/resources/db/migration/` dizinindeki
+V1–V6 dosyalarıdır. Aşağıdaki çok restoranlı üyelik tasarımı tarihsel öneri olarak ayrıca ayrılmıştır.
+
+| Migration | Mevcut sorumluluk |
+|---|---|
+| V1 | `staff_users`: kimlik, benzersiz normalize e-posta, BCrypt hash, `ADMIN` / `WAITER` / `KITCHEN` rol CHECK'i |
+| V2 | `user_sessions`, `refresh_tokens`: oturum ve rotasyon/replay kayıtları |
+| V3 | `staff_mfa`, `mfa_recovery_codes`; ADMIN'in MFA sonrası tam oturumuna izin veren session CHECK değişikliği |
+| V4 | `password_changed_at`, `password_reset_requests`, `password_reset_limits` |
+| V5 | `auth_login_limits`, `auth_mfa_peer_limits` ortak sayaçları |
+| V6 | `auth_mail_outbox` şifreli, süreli Mail teslim kayıtları |
+
+MVP'de restoran `AUTH_RESTAURANT_ID` ile sabittir; `staff_memberships`, dinamik rol/izin
+tabloları ve çok restoran şeması yoktur. Bu mevcut kapsam için eksik migration değildir.
+Uygulanmış migration'lar birleştirilmez/değiştirilmez. Oturum iptali kimlik kilidi altında
+toplu UPDATE kullanır; replay geçmişi korunur. Saklama süresi ve otomatik silme bu sürümde yoktur.
+[Güncel sözleşme](auth-service/staff-contract.md).
+
+### Geleceğe yönelik çok restoran önerisi — MVP dışında
 
 ### `staff_users`
 
@@ -370,7 +390,7 @@ CHECK geçerli durum geçişini tek başına denetlemez. Örneğin mutfak WAITIN
 
 Her servis `src/main/resources/db/migration/V<version>__<description>.sql` altında bağımsız Flyway geçmişi tutar. `postgres/init-databases.sh` yalnız ilk boş volume kurulumunda DB oluşturur; tablo migration aracı değildir.
 
-`docs/decisions/migrations.md` mevcut ekip aralıkları: Mail V11–20; QR V21–30; Payment V31–40; Order V41–50; Notification V51–60; Menu V61–70; Timer V71–80; Kitchen V81–90; Rating V91–100; Waiter V101–110; Admin V111–120. **Auth aralığı bu listede bulunmuyor; V1–10 diye varsayılmamalıdır.**
+`docs/decisions/migrations.md` esas kaynaktır: Auth V1–10; Mail V11–20; QR V21–30; Payment V31–40; Order V41–50; Notification V51–60; Menu V61–70; Timer V71–80; Kitchen V81–90; Rating V91–100; Waiter V101–110; Admin V111–120. Auth'ta kullanılan sürümler V1–V6'dır; aralık dolmadan bile uygulanmış SQL yeniden yazılmaz.
 
 Aralıklar tek bir ortak DB migration zinciri anlamına gelmez; her DB bağımsızdır. Aralık dolduğunda genişletme politikası belirlenir. Uygulanmış dosya değiştirilmez, yeni migration eklenir. `clean`, `repair`, `baseline`, volume silme veya veri reseti bu analiz kapsamında yapılmaz. JPA şema üretimi yerine Flyway + validate yaklaşımı korunur.
 

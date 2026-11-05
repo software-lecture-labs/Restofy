@@ -8,6 +8,14 @@ Bu belge kaynak gereksinimleri kodla karşılaştırır. `[KARAR]` kaynakta beli
 
 İlgili belgeler: [mimari](architecture.md), [veritabanı](database.md), [ER diyagramları](er-diagram.md), [klasör yapısı](folder-structure.md).
 
+**5 Kasım 2026 Auth güncellemesi:** MVP tek restoranlıdır; çok restoran üyeliği bu sürümün
+gereksinimi değildir. Auth'ta personel yönetimi, `ADMIN` / `WAITER` / `KITCHEN` rol modeli,
+JWT/cookie/CSRF, refresh, ADMIN MFA, reset ve şifreli Mail outbox uygulanmıştır.
+Güncel kapsam [Auth paketi](auth-service/README.md), tüketici sorumlulukları
+[staff-v1](auth-service/staff-contract.md) içindedir. Aşağıdaki 15 Ekim mevcut-durum
+tespitleri tarihsel analizdir; bugün Auth'un uygulanmadığı anlamına gelmez. Çok restoranlı
+hedef mimari ileride ayrıca kararlaştırılabilir; MVP'nin tamamlanmasını bekleten iş değildir.
+
 ## 1. Kaynak önceliği ve inceleme sınırı
 
 1. Nihai belgenin normatif kararları ve içindeki Kitchen Service V1 bölümü.

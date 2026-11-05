@@ -3,6 +3,26 @@
 Bu sözleşme mevcut Auth üretimini tarif eder; tüketici uygulaması her servisin sahibindedir. API /api/v1/auth altında csrf, login, refresh, logout, session, activity, mfa/*, password-reset/* yollarını korur.
 Ek personel yönetimi ve dar Notification sorgusu [ayrı API sözleşmesinde](staff-directory-api.md) uygulanmıştır; mevcut JWT/cookie biçimi ve migration'lar değişmedi.
 
+## MVP kapsamı ve RBAC
+
+MVP **tek restoranlıdır**. `AUTH_RESTAURANT_ID` ekipçe belirlenen sabit restoran kimliğidir;
+çok restoranlı üyelik veya global yönetici bu sürümde yoktur ve MVP ön koşulu değildir.
+
+RBAC (rol bazlı yetkilendirme) mevcuttur: `StaffRole` enum'unda `ADMIN`, `WAITER`, `KITCHEN`;
+V1 migration'da `staff_users.role` ve aynı üç değeri kabul eden CHECK vardır. JWT bu rolü taşır.
+Auth personel yönetimini tam `ADMIN` oturumuyla sınırlar; `MFA_PENDING` iş yetkisi vermez.
+Rol/aktiflik güncellenince mevcut Auth oturumları iptal edilir. Roller hiyerarşik değildir.
+
+Bu üç rol için yeni migration, `roles` / `permissions` tablosu veya her serviste rol seed'i gerekmez.
+Diğer servis önce JWT imza/claim/tenant doğrulamasını yapar; sonra kendi endpoint'inde izin verilen
+rol ve kaynak sahipliğini kontrol eder. Rolü token'dan okumak bu endpoint yetkilendirmesinin
+yerine geçmez. Örneğin QR işlemlerinin hangi role açık olduğunu QR sahibi belirler; Auth rol
+claim'ini doğrulanabilir biçimde sağlar. Personel ve servis JWT'leri birbirinin yerine kullanılamaz.
+
+İlk kurulumda [DEV aracı](key-setup.md) `secrets/auth-staff-public.key` üretir; consumer'a yalnız
+bu public anahtar aktarılır. Consumer ENV adları ve Compose bağlantıları kendi entegrasyonunda
+netleştirilir; bu araç diğer servislerin yapılandırmasını değiştirmez.
+
 ## Personel JWTsi
 
 - Kaynak: HttpOnly `restofy_access` cookie, Path=/api/v1. İmza yalnız RS256; Auth X.509 RSA açık anahtarıyla yerel doğrulama. Özel signing/CSRF/MFA/reset anahtarları paylaşılmaz.

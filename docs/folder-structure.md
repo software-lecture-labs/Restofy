@@ -5,6 +5,22 @@
 
 İlgili belgeler: [gereksinimler](requirements.md), [mimari](architecture.md), [veritabanı](database.md), [ER](er-diagram.md).
 
+## Güncel Auth yerleşimi — 5 Kasım 2026
+
+- `backend/services/auth-service/`: mevcut `api/application/domain/infrastructure` katmanları;
+  migration dizininde V1–V6. Personel, session, MFA, reset ve Mail outbox uygulanmıştır.
+- `ops/auth/generate-keys.mjs`: tek komutluk DEV anahtar kurulumu ve profil etkinleştirme;
+  yanındaki `generate-keys.test.mjs` geçici dosyalarda güvenlik davranışını doğrular.
+- `docs/auth-service/README.md`: güncel Auth giriş noktası; `staff-contract.md` RBAC/JWT,
+  `key-setup.md` kurulum, `staff-directory-api.md` personel/Notification API'si.
+- `backend/libs/test-support/`: paylaşılan, yalnız test kapsamındaki PostgreSQL korumaları;
+  `backend/test-support/` ortak test kaynaklarını da içerir.
+
+MVP tek restoranlıdır. Aşağıdaki genel ağaç ve uygulanmamışlık tespitleri **15 Ekim snapshot'ıdır**;
+güncel Auth'un boş iskelet olduğu anlamına gelmez. Yeni klasör mimarisi veya çok restoran
+üyelik katmanı bu güncellemenin parçası değildir. Migration aralıklarının esas kaynağı
+`docs/decisions/migrations.md`: Auth V1–V10; mevcut kullanılan dosyalar V1–V6.
+
 ## 1. Mevcut repository ağacı
 
 Üretilen build/test çıktıları, bağımlılık dizinleri ve servislerde tekrarlanan dosyalar aşağıda kısaltılmıştır.
@@ -263,7 +279,7 @@ Gateway, Mail ve Timer için sırf backend servisi bulunduğundan frontend featu
 
 Bu beş dosya kullanıcının istediği masaüstü teslim paketidir. Repository içine ileride alınırsa önerilen konum `docs/analysis/` altında aynı isimlerle tutulmasıdır; bu konum mevcut değildir ve bu çalışmada eklenmemiştir. Birbirlerine göreli bağlantıları korunur.
 
-İş kuralı değiştiğinde requirements → architecture → database/ER → folder-structure sırası izlenerek tutarlılık kontrol edilir. Yeni migration uygulanmışsa geçmiş SQL yeniden yazılmaz. `docs/decisions/migrations.md` ekip sürüm aralıklarının mevcut kaynağıdır; Auth aralığı eksikliği karar kaydına alınmalıdır.
+İş kuralı değiştiğinde requirements → architecture → database/ER → folder-structure sırası izlenerek tutarlılık kontrol edilir. Yeni migration uygulanmışsa geçmiş SQL yeniden yazılmaz. `docs/decisions/migrations.md` ekip sürüm aralıklarının mevcut kaynağıdır; Auth V1–V10 aralığı bu belgede tanımlıdır.
 
 ## 7. İşletim sınırı
 

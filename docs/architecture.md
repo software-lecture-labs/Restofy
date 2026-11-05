@@ -5,6 +5,21 @@
 
 İlgili belgeler: [gereksinimler ve açık kararlar](requirements.md), [veri modeli](database.md), [ER](er-diagram.md), [klasörler](folder-structure.md).
 
+## Güncel Auth kapsamı — 5 Kasım 2026
+
+MVP **tek restoranlıdır**. Auth `AUTH_RESTAURANT_ID` ile tek restoranı temsil eder;
+çok restoranlı üyelik aşağıdaki tarihsel hedef tasarımdır, MVP teslim koşulu değildir.
+Personel CRUD, `ADMIN` / `WAITER` / `KITCHEN` RBAC, RS256 JWT, cookie/CSRF, refresh rotasyonu,
+ADMIN MFA, parola sıfırlama ve ayrı signer kullanan şifreli Auth→Mail outbox uygulanmıştır.
+Güncel API/güven sınırları için [Auth paketi](auth-service/README.md) ve
+[staff-v1](auth-service/staff-contract.md), kurulum için [DEV anahtarları](auth-service/key-setup.md) esas alınır.
+Tüketici servis kendi JWT doğrulayıcısı ve endpoint/kaynak yetkilendirmesini uygular.
+Auth'un uygulanmış olması bütün tüketici adapterlarının tamamlandığını göstermez.
+
+Aşağıdaki **15 Ekim tarihli** altyapı tespitleri tarihsel snapshot'tır; Auth'un bugün bulunmadığı
+veya outbox'ın hâlâ uygulanmadığı şeklinde yorumlanmaz. Diğer servislerin güncel durumu kendi
+kodundan doğrulanır. Yeni servis, rol tablosu veya çok restoran migration'ı bu güncellemede eklenmedi.
+
 ## 1. Mimari değerlendirme
 
 Repository, tek frontend ve 13 backend modülünden oluşan mikroservis monorepo'sudur. API Gateway'in arkasında 12 veri sahibi servis vardır. Tek PostgreSQL sunucusu üzerinde ayrı veritabanları kullanılır; bu yapı tek paylaşımlı iş şeması değildir. Ayrı veritabanı tek başına güvenlik izolasyonu sağlamaz: Compose şu anda tüm veri servislerine aynı `POSTGRES_USER` ve `POSTGRES_PASSWORD` değerlerini geçirir.

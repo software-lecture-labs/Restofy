@@ -4,6 +4,17 @@
 
 Sahip: Kerem Kalyoncu (Auth/Mail). Güncelleme: 29 Ekim 2026.
 
+**5 Kasım 2026 güncellemesi:** MVP tek restoranlıdır; çok restoranlı üyelik geliştirme ön koşulu
+değildir. `ADMIN`, `WAITER`, `KITCHEN` rolleri V1 şeması ve JWT'de mevcuttur; tüketici
+servislerin endpoint/kaynak yetkilendirmesi kendi sorumluluğundadır. Güncel başlangıç noktaları:
+[tek komutluk DEV kurulumu](key-setup.md), [RBAC ve personel sözleşmesi](staff-contract.md).
+Genel mimari/DB belgelerindeki 15 Ekim analizleri tarihsel hedef tasarımdır; mevcut Auth için
+bu paket, üretim kodu ve `docs/decisions/migrations.md` esas alınır.
+
+Oturum iptali, kimlik kilidi ve transaction sınırı korunarak toplu UPDATE kullanır; geçmiş
+oturum/tokenlar belleğe yüklenmez. Replay kayıtları silinmez; saklama süresi ve otomatik temizlik
+henüz belirlenmemiştir. Eski raporlardaki test sayıları tarihli sonuçlardır.
+
 [30 Ekim PR öncesi hoca yorumları denetimi](pre-pr-review.md): tüm PR'lar, tekrar bulunan
 hatalar, yerel düzeltmeler ve doğrulama sınırları. [Yeni anahtar kurulumu](key-setup.md).
 

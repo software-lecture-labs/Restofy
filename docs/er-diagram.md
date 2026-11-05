@@ -84,7 +84,25 @@ erDiagram
 
 daily_metrics yeniden üretilebilir rapor projeksiyonudur. Boyut ve para birimi tekilliği database.md'de tanımlıdır; operasyonel iş gerçeği değildir.
 
-## 4. Auth DB
+## 4. Auth DB — güncel MVP ve tarihsel hedef
+
+5 Kasım 2026: MVP tek restoranlıdır. Fiziksel ilişkiler:
+
+```mermaid
+erDiagram
+    staff_users ||--o{ user_sessions : "oturum"
+    user_sessions ||--o{ refresh_tokens : "rotasyon gecmisi"
+    staff_users ||--o| staff_mfa : "MFA durumu"
+    staff_users ||--o{ mfa_recovery_codes : "kurtarma"
+    staff_users ||--o{ password_reset_requests : "parola sifirlama"
+```
+
+`staff_mfa.pending_session_id`, aynı kullanıcının session'ına bileşik FK ile bağlıdır.
+`staff_users.role`, `ADMIN` / `WAITER` / `KITCHEN` ile kısıtlıdır. Restoran kimliği
+`AUTH_RESTAURANT_ID` yapılandırmasından gelir. Limiter tabloları ve `auth_mail_outbox`
+teknik kayıtlardır; başka servisin DB'sine fiziksel FK yoktur. DDL kaynağı V1–V6 migration'lardır.
+
+Aşağıdaki **çok restoranlı üyelik diyagramı tarihsel hedef önerisidir**, mevcut MVP şeması değildir:
 
 ```mermaid
 erDiagram

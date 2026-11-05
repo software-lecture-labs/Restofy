@@ -5,8 +5,19 @@ Güncel servisler arası sözleşme, bağlantı beklentileri, CI ve doğrulama k
 Hazır personel yönetimi ve Notification alıcı uçlarının DTO/yetki/anahtar sözleşmesi:
 [Personel API'si](../../../docs/auth-service/staff-directory-api.md).
 
+Yeni yerel DEV anahtarları için repository kökünde `node ops/auth/generate-keys.mjs`:
+boş Auth/Mail anahtarlarını `.env.dev` içine doldurur ve `.env` olarak etkinleştirir.
+Dolu sırları korur; mevcut/paylaşılan DB için o kurulumun anahtarları gerekir.
+[Kurulum ve eksik ayarlar](../../../docs/auth-service/key-setup.md).
+MVP tek restoranlıdır. `ADMIN` / `WAITER` / `KITCHEN` rolleri V1 şeması ve JWT'de mevcuttur;
+tüketici servis kendi endpoint/kaynak izinlerini ayrıca denetler. Yeni rol migration'ı gerekmez.
+
 AUTH-01; tek restoran kurulumu ve personel başına tek rol için personel/parola altyapısıdır.
 AUTH-02 aşağıdaki HTTP oturum sözleşmesini ekler. AUTH-03 ADMIN MFA sözleşmesi aşağıda açıklanmıştır.
+
+Oturum iptali kimlik kilidi altında toplu UPDATE kullanır; oturum/refresh geçmişi belleğe
+yüklenmez. Replay kayıtları ve ilk iptal zamanları korunur. Otomatik geçmiş silme yoktur;
+saklama süresi ekip/operasyon kararı bekler.
 Parola doğrulaması yalnız `PasswordProof` döndürür; `Authentication`, cookie veya token üretmez,
 SecurityContext'e kimlik yerleştirmez. Bu sonuç tam giriş/MFA kanıtı olarak kullanılamaz.
 
