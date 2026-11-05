@@ -175,6 +175,46 @@ try {
   };
   const qrStatus = async (token,peer=qrUrl) => (await response(`${peer}/api/v1/qr/tables`, { headers: { Cookie: `restofy_access=${token}` } })).status;
   const old = await login(); check(await qrStatus(old) === 200, 'Fresh local authorization failed');
+  // Real additional instances share the primary DB; a valid UUID is not sufficient source identity.
+  const correctAuthPort = await port();
+  const correctAuth = launch('auth-service',correctAuthPort,base);
+  const correctAuthUrl = `http://127.0.0.1:${correctAuthPort}`;
+  await wait('second correct Auth readiness',async () => (await response(`${correctAuthUrl}/actuator/health/readiness`)).status === 200);
+  const cookieHeader = () => [...jar].map(([key,value]) => `${key}=${value}`).join('; ');
+  for (const setting of ['AUTH_Q5_QR_GENERATION','AUTH_RESTAURANT_ID']) {
+    const badPort = await port(), badUrl = `http://127.0.0.1:${badPort}`;
+    const badAuth = launch('auth-service',badPort,{...base,[setting]:randomUUID()});
+    await wait('mismatched Auth startup',() => readyHttp(badUrl));
+    const csrfResponse = await response(`${badUrl}/api/v1/auth/csrf`);
+    check(csrfResponse.status === 200,'Mismatched instance did not finish HTTP startup');
+    const csrfCookies = csrfResponse.headers.getSetCookie().map(value => value.split(';')[0]);
+    const csrfToken = csrfCookies.find(value => value.startsWith('restofy_csrf='))?.slice('restofy_csrf='.length);
+    check(Boolean(csrfToken),'Mismatch login proof missing CSRF');
+    const denied = await response(`${badUrl}/api/v1/auth/login`,{method:'POST',headers:{Origin:'http://localhost:5000',
+      Cookie:csrfCookies.join('; '),'Content-Type':'application/json','X-CSRF-TOKEN':csrfToken},
+      body:JSON.stringify({email:'q5waiter@example.com',password})});
+    check(denied.status === 503,'Mismatched Auth minted credentials');
+    check((await response(`${badUrl}/actuator/health/readiness`)).status === 503,'Mismatched Auth is ready');
+    if (setting === 'AUTH_Q5_QR_GENERATION') {
+      const deniedLogout = await response(`${badUrl}/api/v1/auth/logout`,{method:'POST',headers:{Origin:'http://localhost:5000',
+        Cookie:cookieHeader(),'Content-Type':'application/json','X-CSRF-TOKEN':jar.get('restofy_csrf')}});
+      check(deniedLogout.status === 503,'Mismatched logout completed');
+    }
+    await sleep(5500); // Include at least one scheduled worker attempt, not only the HTTP path.
+    check(sql('q5_auth','SELECT count(*) FROM staff_revocation_operations') === '0','Mismatched instance poisoned the operation queue');
+    check(sql('q5_auth',"SELECT phase='ACTIVE' AND generation='"+base.AUTH_Q5_QR_GENERATION+"' AND restaurant_id='"+base.AUTH_RESTAURANT_ID+"' FROM staff_revocation_source_state") === 't','Mismatched worker changed the source identity');
+    check((await response(`${correctAuthUrl}/api/v1/auth/session`,{headers:{Cookie:cookieHeader()}})).status === 200,'Correct Auth instance was blocked');
+    await stop(badAuth);
+  }
+  await stop(correctAuth);
+  console.log('PASS real Auth instances reject wrong generation/restaurant without pending queue poisoning');
+  const wrongKeyPort = await port();
+  const wrongKeyQr = launch('qr-service',wrongKeyPort,{...base,MAIL_AUTH_PUBLIC_KEY:keys().public});
+  await wait('wrong staff peer key instance',() => readyHttp(`http://127.0.0.1:${wrongKeyPort}`));
+  check(await qrStatus(old,`http://127.0.0.1:${wrongKeyPort}`) === 401,'Wrong staff key accepted the actual Auth JWT');
+  check(await qrStatus(old) === 200,'Correct staff peer key stopped accepting the actual Auth JWT');
+  await stop(wrongKeyQr);
+  console.log('PASS wrong peer staff key fails real Auth JWT smoke; readiness is not peer provisioning proof');
   auth.kill(); await new Promise(resolve => auth.once('exit', resolve));
   await wait('Auth port is actually closed',async () => { try { await response(`${authUrl}/actuator/health/liveness`); return false; } catch { return true; } },15000);
   check(await qrStatus(old) === 200, 'QR depends on online Auth');

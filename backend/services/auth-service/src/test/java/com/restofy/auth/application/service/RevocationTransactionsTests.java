@@ -43,8 +43,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     @Autowired private StaffJwtTokens jwt;
     @Autowired private com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions bootstrap;
     private UUID user;
-    private final UUID restaurant = UUID.randomUUID();
-    private final UUID generation = UUID.randomUUID();
+    private final UUID restaurant = UUID.fromString("6c54daf0-9340-4a1c-981d-f9acc0261779");
+    private final UUID generation = Q5_GENERATION;
 
     @BeforeEach
     void setup() {
@@ -60,6 +60,49 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     void clearOperations() {
         jdbc.update("DELETE FROM staff_revocation_targets");
         jdbc.update("DELETE FROM staff_revocation_operations");
+    }
+
+    @Test
+    void sourceIdentityMismatchClosesReadinessAndCannotCreateAnOperation() {
+        UUID other = UUID.randomUUID();
+        for (String column : java.util.List.of("generation", "restaurant_id")) {
+            jdbc.update("UPDATE staff_revocation_source_state SET " + column + "=? WHERE singleton=true", other);
+            assertThat(bootstrap.active()).isFalse();
+            assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,generation))
+                    .isInstanceOf(ResponseStatusException.class);
+            assertThatThrownBy(() -> sessions.login("q5@example.com","Q5-test-password-01",null))
+                    .isInstanceOf(ResponseStatusException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
+            jdbc.update("UPDATE staff_revocation_source_state SET generation=?,restaurant_id=? WHERE singleton=true",generation,restaurant);
+        }
+        assertThat(bootstrap.active()).isTrue();
+        assertThat(sessions.login("q5@example.com","Q5-test-password-01",null)).isNotNull();
+    }
+
+    @Test
+    void mismatchedCommandIdentityCannotPoisonTheSharedSource() {
+        assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),UUID.randomUUID(),user,Action.ALL,null,null,generation))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> bootstrap.prepare(restaurant,UUID.randomUUID(),UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
+        assertThat(bootstrap.active()).isTrue();
+    }
+
+    @Test
+    void receiptsLongerThanThirtySecondsCannotAcknowledgeOrFinalize() {
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id,restaurant,user,Action.ALL,null,null,generation);
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(id,
+                acknowledgement(id, builder -> builder.expiration(Date.from(Instant.now().plusSeconds(60))))))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(id).status()).isEqualTo("PREPARED");
+        assertThatThrownBy(() -> revocations.finalizeOperation(id)).isInstanceOf(ResponseStatusException.class);
+        revocations.recordAcknowledgement(id,acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThat(revocations.load(id).status()).isEqualTo("COMPLETED");
     }
 
     @Test
@@ -422,7 +465,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         var operation = revocations.load(id);
         Instant now = Instant.now();
         var builder=Jwts.builder().issuer("qr-service").subject(id.toString()).audience().add("restofy-auth").and()
-                .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(60)))
+                .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(30)))
                 .id(UUID.randomUUID().toString()).claim("scope", "staff:revocation:ack").claim("token_type", "service")
                 .claim("restaurant_id", operation.restaurantId().toString()).claim("generation", operation.consumerGeneration().toString())
                 .claim("manifest", QrRevocationReceipts.manifestDigest(operation));

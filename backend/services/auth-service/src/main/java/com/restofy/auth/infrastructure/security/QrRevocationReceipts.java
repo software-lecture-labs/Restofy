@@ -50,7 +50,7 @@ public class QrRevocationReceipts {
                     || claims.getId() == null || claims.getIssuedAt().toInstant().isAfter(clock.instant())
                     || !clock.instant().isBefore(claims.getExpiration().toInstant())
                     || !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant())
-                    || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(60))) {
+                    || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(30))) {
                 throw new IllegalArgumentException();
             }
             UUID.fromString(claims.getId());

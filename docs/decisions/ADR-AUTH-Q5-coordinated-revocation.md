@@ -93,6 +93,8 @@ Bu anahtarlar başlangıçta doğrulanıp tekrar kullanılır. Auth command çif
 
 ## Alternatifler ve sınırlar
 
+P2 düzeltmesinde Auth kaynak bariyeri ve readiness, yerel restoran/generation ile kalıcı source identity'yi de eşleştirir; bağlı kimlik yeni bootstrap ile değiştirilemez. Yanlış-generation geçmiş PREPARED kayıtlar için otomatik bariyer kaldırma yoktur. [Manuel kurtarma önerisi, zorunlu peer-key deployment smoke kontrolü ve pending tanısı](../auth-service/q5-p2-recovery-and-peer-smoke.md) ayrı tanımlanmıştır. QR readiness tek başına staff peer anahtarının doğru dağıtıldığını kanıtlamaz; otomatik fingerprint bağlama bu düzeltmeye eklenmemiştir. Receipt kabul üst sınırı üreticiyle aynı 30 saniyedir.
+
 JWT ve service receipt kontrolleri için sunucu saatleri senkron tutulmalıdır. Clock skew toleransı eklenip idle sınırı sessizce uzatılmaz; saat/configuration hatası erişim açarak telafi edilmez. Development HTTP istisnası yalnız gelişim profile'ı ile gelişim APP_ENV birlikte doğrulandığında geçerlidir.
 
 - A: Her istekte Auth kontrolü daha küçük dağıtık durum maliyeti getirir, fakat istenen normal-istek bağımsızlığını sağlamaz.

@@ -191,3 +191,27 @@ Dev tabanına göre 67 dosya: 34 tracked değişiklik ve 33 untracked; staged do
 [Hazır PR taslağı ve checklist](q5-pr-review.md), [wire/entegrasyon sözleşmesi](q5-contract.md) ve [ADR önerisi](../decisions/ADR-AUTH-Q5-coordinated-revocation.md) yereldedir. Alper'in özellikle pending davranışı, reset/MFA retry, cold/restore re-login, dedicated trust/TLS, kapasite/retention ve migration sırasını incelemesi gerekir. Kodlar commit edilmemiştir; PR açılması ve ADR'nin kabulü kullanıcı/ekip onayındadır.
 
 P1 düzeltmeleri sonrası Draft PR teknik olarak hazırdır. Merge, ekip review'u ve servis/restore sözleşmesinin kabulüne bağlıdır. Production hazır değildir: gerçek key provisioning/TLS, deployment restore tatbikatı, minimum izleme ve operasyon sahipliği doğrulanmadı. Commit/push/merge/PR işlemi yapılmadı; orijinal Auth branch'i korunur.
+
+## Son yerel doğrulama — P2 bulgularının hedefli giderilmesi
+
+Bu bölüm önceki test/işlem durumlarının güncel ekidir. Taban `94f80e5`, değişikliklerin henüz commit edilmediği Q5 HEAD `805b77c` olarak kaldı. PR #18 Draft ve uzak branch değişmedi. Bu turda commit, push veya PR güncellemesi yapılmadı.
+
+- P2-1: Auth source kimliği restoran/generation ile aynı kaynak satırı kilidi altında eşleştiriliyor. Yanlış instance readiness, credential üretimi, PREPARE ve worker claim/teslim yolundan geçemiyor; bağlı source identity yeni bootstrap ile değiştirilemiyor.
+- İlk iki negatif regresyon testi düzeltme öncesi gerçekten kırmızıydı (`q5-p2-red.log`: 2 failure). Düzeltme sonrası mevcut yarışlar dahil `RevocationTransactionsTests`: 18 geçti. Test fixture'ının rastgele restoran/generation'ı gerçek test source kimliğiyle eşleştirildi; güvenlik assertion'ları kaldırılmadı.
+- Normal receipt kabul üst sınırı 60'tan 30 saniyeye indirildi. Uzun receipt'in PREPARED işlemi ACK/FINALIZE edemediği test edildi.
+- Worker/coordinator sabit aşama/kategori ve operation UUID'si logluyor; exception mesajı/cause veya credential loglanmıyor. Hatalı kimlikte peer/claim çağrısı yapılmadığı ve hassas exception metninin loga çıkmadığı ayrı testle doğrulandı.
+- P2-2 için otomatik fingerprint wire/manifest değişikliği yapılmadı. Yanlış staff key ile gerçek Auth JWT'sinin 401, doğru key ile 200 aldığı ağ regresyonu geçti. Readiness tek başına peer provisioning kanıtı değildir; [zorunlu deployment smoke ve geçmiş PREPARED kayıt için manuel kurtarma önerisi](q5-p2-recovery-and-peer-smoke.md) uygulanabilirlik/ekip incelemesi için yazıldı. Kurtarma önerisi gerçek veride uygulanmadı ve ayrı bir repair E2E testi yapılmadı.
+
+Son komutlar:
+
+```powershell
+mvn -o '-Dmaven.repo.local=C:\Users\gsker\.m2\repository' -f backend/services/auth-service/pom.xml verify -q
+mvn -o '-Dmaven.repo.local=C:\Users\gsker\.m2\repository' -f backend/pom.xml -pl services/qr-service,services/api-gateway verify -q
+node --check ops/tests/q5-network.mjs
+node ops/tests/q5-network.mjs
+git -c core.safecrlf=false diff --check
+```
+
+Sonuç: Auth **308**, QR **606**, Gateway **48** test; failure/error/skip **0/0/0**, iki Maven verify exit **0**. Gerçek ağ kabulü **15 aşama**, exit **0**: aynı primary DB'de doğru/yanlış yapılandırılmış gerçek Auth instance'ları, yanlış peer key, normal Auth bağımsızlığı ve önceki 13 aşamalı outage/ACK/crash/restore akışı. Loglar Git dışı `logs/q5-p2-auth-verify.log`, `q5-p2-qr-gateway-verify.log`, `q5-p2-network.log` içindedir.
+
+Dev `94f80e5` CI 41339093125 ve mevcut PR CI 42091225200, aynı Order `orders`/`carts` eksik tablo hatalarını içeriyor; Order/ortak test altyapısı değiştirilmedi. Yeni yerel kaynak için GitHub CI çalıştırılmadı. Mevcut CI kırmızısı ortadan kalkmış gibi raporlanmaz. Production hazırlığı ve peer smoke/kurtarma prosedürlerinin ekip kabulü tamamlanmış sayılmaz.

@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 @EnableScheduling
 @ConditionalOnProperty(name = "auth.q5.retry.enabled", havingValue = "true", matchIfMissing = true)
 public class RevocationRetryWorker {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RevocationRetryWorker.class);
     private final RevocationTransactions transactions;
     private final RevocationCoordinator coordinator;
     private final RevocationBootstrapTransactions bootstrap;
@@ -26,17 +27,28 @@ public class RevocationRetryWorker {
 
     @Scheduled(fixedDelay = 5000, initialDelay = 5000)
     public void retry() {
+        String stage = "SOURCE_IDENTITY";
         try {
+            bootstrap.verifyConfiguredIdentity();
+            stage = "CHALLENGE";
             var challenge = qr.challenge(settings.restaurantId(), coordinator.generation());
             if (challenge == null || challenge.nonce() == null) return;
             if (!challenge.ready() || !bootstrap.active()) {
+                stage = "BOOTSTRAP";
                 var baseline = bootstrap.prepare(settings.restaurantId(), coordinator.generation(), challenge.nonce());
                 bootstrap.finish(baseline, qr.baseline(baseline));
             }
+            stage = "CLAIM";
             for (var id : transactions.claimRetries()) {
                 try { coordinator.deliver(id); }
-                catch (RuntimeException unavailable) { /* Durable operation remains pending. No credentials in logs. */ }
+                catch (RuntimeException unavailable) { log.warn("Q5 retry deferred operation={} stage=DELIVERY category={}", id, category(unavailable)); }
             }
-        } catch (RuntimeException databaseUnavailable) { /* No claim and no finalization when the database is unavailable. */ }
+        } catch (RuntimeException unavailable) { log.warn("Q5 retry deferred stage={} category={}", stage, category(unavailable)); }
+    }
+
+    private static String category(RuntimeException failure) {
+        if (failure instanceof org.springframework.dao.DataAccessException) return "DATABASE";
+        if (failure instanceof org.springframework.web.server.ResponseStatusException response) return "HTTP_" + response.getStatusCode().value();
+        return "TRANSPORT_OR_PROTOCOL";
     }
 }

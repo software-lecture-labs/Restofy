@@ -32,7 +32,7 @@ public class RevocationTransactions {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Operation prepareLogout(UUID restaurant, UUID user, UUID sid, UUID generation) {
-        bootstrap.requireActive();
+        bootstrap.requireActive(restaurant, generation);
         var identity = jdbc.query("SELECT version FROM staff_users WHERE id=? FOR UPDATE", (rs, index) -> rs.getLong(1), user);
         if (identity.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         var pending = jdbc.query("SELECT id FROM staff_revocation_operations WHERE user_id=? AND status <> 'COMPLETED'",
@@ -62,7 +62,7 @@ public class RevocationTransactions {
 
     private Operation prepareCore(UUID operationId, UUID restaurantId, UUID userId, Action action,
             UUID selectedSessionId, StaffRole targetRole, UUID consumerGeneration) {
-        bootstrap.requireActive();
+        bootstrap.requireActive(restaurantId, consumerGeneration);
         if (operationId == null || restaurantId == null || userId == null || action == null
                 || consumerGeneration == null || ((action == Action.ROLE) != (targetRole != null))
                 || ((action == Action.SESSION || action == Action.OTHERS) != (selectedSessionId != null))) {
@@ -128,6 +128,7 @@ public class RevocationTransactions {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<UUID> claimRetries() {
+        bootstrap.requireActive();
         return jdbc.query("""
                 UPDATE staff_revocation_operations SET next_attempt_at=now()+interval '30 seconds',attempts=attempts+1
                 WHERE id IN (SELECT id FROM staff_revocation_operations WHERE status <> 'COMPLETED'
@@ -184,6 +185,7 @@ public class RevocationTransactions {
     public void recordAcknowledgement(UUID id, String signedReceipt) {
         bootstrap.requireActive();
         Operation operation = load(id);
+        bootstrap.requireActive(operation.restaurantId(), operation.consumerGeneration());
         receipts.verify(signedReceipt, operation);
         int changed = jdbc.update("""
                 UPDATE staff_revocation_operations SET status = 'ACKNOWLEDGED'
@@ -220,6 +222,7 @@ public class RevocationTransactions {
                 (rs, row) -> rs.getLong(1), first.userId());
         Operation operation = load(id);
         if (operation.status().equals("COMPLETED")) return;
+        bootstrap.requireActive(operation.restaurantId(), operation.consumerGeneration());
         if (!operation.status().equals("ACKNOWLEDGED")) throw new ResponseStatusException(HttpStatus.CONFLICT);
         if (versions.isEmpty() || versions.getFirst() != operation.expectedUserVersion()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Security transition requires reconciliation");

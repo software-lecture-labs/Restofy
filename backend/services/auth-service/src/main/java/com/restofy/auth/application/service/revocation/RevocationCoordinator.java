@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 /** Transport orchestration only: all database work lives behind short transaction proxies. */
 @Service
 public class RevocationCoordinator {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RevocationCoordinator.class);
     private final RevocationTransactions transactions;
     private final QrRevocationClient qr;
 
@@ -38,13 +39,17 @@ public class RevocationCoordinator {
         if (TransactionSynchronizationManager.isActualTransactionActive()) throw new IllegalStateException("HTTP inside transaction");
         var operation = transactions.load(id);
         if (operation.status().equals("COMPLETED")) return;
+        String stage = "TRANSPORT";
         try {
             // Redelivery deliberately obtains a fresh signed receipt for the same immutable manifest.
             String receipt = qr.persist(operation);
+            stage = "ACK_VALIDATION";
             transactions.recordAcknowledgement(id, receipt);
+            stage = operation.purpose().equals("AUTO") ? "FINALIZE" : "BUSINESS_EXPIRY";
             if (operation.purpose().equals("AUTO")) transactions.finalizeOperation(id);
             else transactions.expireBusiness(id);
         } catch (RuntimeException failure) {
+            log.warn("Q5 operation pending operation={} stage={}", id, stage);
             // PREPARE/ACK survives. Never imply completion or undo a possibly committed QR fence.
             throw pending();
         }
