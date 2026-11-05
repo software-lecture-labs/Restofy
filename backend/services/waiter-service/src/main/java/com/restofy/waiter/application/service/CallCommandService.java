@@ -153,6 +153,10 @@ public class CallCommandService {
             ServiceRequest call = calls.findByIdAndRestaurantId(callId, restaurantId)
                     .orElseThrow(() -> new ResourceNotFoundException("CALL_NOT_FOUND", "Call not found"));
             if (call.getVersion() != expectedVersion) {
+                // The same command may have committed between the first ledger lookup and this read; that makes
+                // this request a repeat of a finished command (replay), not a conflict with someone else.
+                Optional<IdempotencyRecord> raced = ledger.findIdempotency(restaurantId, scope, operation, key);
+                if (raced.isPresent()) return replay(restaurantId, raced.get(), digest);
                 throw new CallConflictException("VERSION_CONFLICT",
                         "The call was changed by someone else; reload it before trying again");
             }
