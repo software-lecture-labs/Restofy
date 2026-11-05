@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-class QrValidationPostgresIntegrationTests {
+class QrValidationPostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired QrCodeValidationService validation;
     @Autowired QrCodeCreationService creation;
     @Autowired QrCodeLifecycleService lifecycle;
@@ -196,7 +196,7 @@ class QrValidationPostgresIntegrationTests {
     @Test
     void forwardMigrationRetainsUnboundedCodesAndChecksOptionalExpiry() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("122");
         var code = create("1");
         assertThat(codes.findById(code.id()).orElseThrow().getExpiresAt()).isNull();
         UUID id = code.id();

@@ -204,6 +204,18 @@ class ApiGatewayRoutingTests {
     }
 
     @Test
+    void q5InternalCommandsAreNeverForwardedFromThePublicGateway() throws Exception {
+        for (String operation : new String[]{"challenge","bootstrap","revocations"}) {
+            String id=UUID.randomUUID().toString();
+            var response=send(gatewayRequest("/internal/q5/"+operation,id)
+                    .header("Authorization","Bearer fixture-not-a-service-credential").header("Content-Type","application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}")).build());
+            assertEquals(404,response.statusCode());
+            assertTrue(DOWNSTREAMS.requests(id).isEmpty());
+        }
+    }
+
+    @Test
     void gatewayHealthIsLocalAndDoesNotForwardToAnyDownstream() throws Exception {
         String id = UUID.randomUUID().toString();
         var response = send(gatewayRequest("/actuator/health", id).GET().build());
