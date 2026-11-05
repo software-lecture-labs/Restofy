@@ -1,6 +1,8 @@
 # Q5 — Koordineli personel erişimi iptali
 
-Durum: uygulama önerisi; Alper/ekip incelemesi bekliyor. Bu dosya PR #17'deki ADR-QR-003'ü GitHub üzerinde değiştirmez veya kapatmaz.
+Durum: PR #18'de uygulandı; QR teknik değerlendirmesi ve PR/reviewer onayı bekleniyor. Alper yaklaşımı olumlu değerlendirdi; bu, bütün uygulama ayrıntılarının kabulü veya production onayı değildir.
+
+6 Kasım 2026: [ADR-QR-003 Q1–Q5 ve §6](ADR-QR-003-qr-auth-entegrasyonu.md) bu revize yanıtla eşleştirildi. PR #17 ile dev'e alınan önceki kararlar korunur; Q5 uygulaması PR #18'de Draft olarak incelenir. [Alper'in değerlendirme kaydı](https://github.com/software-lecture-labs/Restofy/pull/18#issuecomment-6671475409) ve [güncel test/sınır raporu](../auth-service/q5-implementation-status.md) esas alınır. Bu belge güncellemesi uygulamayı merge etmez veya kalan entegrasyonları tamamlanmış saymaz.
 
 ## Kapsam ve garanti
 
