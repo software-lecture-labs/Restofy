@@ -41,8 +41,28 @@ export async function sonarRequest(host, endpoint, token) {
     redirect: 'error',
     signal: AbortSignal.timeout(10000),
   });
-  if (!response.ok) throw new Error(`SonarQube API returned HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`SonarQube API returned HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
+}
+
+// Assigned-gate configuration may require permissions that analysis tokens lack.
+// The actual analysis gate and measured overall targets remain mandatory.
+export async function readAssignedGatePolicy({host, project, token, request=sonarRequest}) {
+  let name;
+  try {
+    const assigned = await request(host, '/api/qualitygates/get_by_project?project=' + encodeURIComponent(project), token);
+    name = assigned.qualityGate?.name;
+    if (!name) throw new Error('Assigned Quality Gate is unavailable');
+    const policy = await request(host, '/api/qualitygates/show?name=' + encodeURIComponent(name), token);
+    return {status:'VERIFIED', name, conditions:policy.conditions ?? []};
+  } catch (error) {
+    if (error.status !== 403) throw error;
+    return {status:'NOT VERIFIED', ...(name ? {name} : {}), reason:'Assigned Quality Gate configuration returned HTTP 403'};
+  }
 }
 
 
@@ -139,14 +159,9 @@ export async function runScan({root=repositoryRoot, profile='dev', ambient=proce
         } while(Date.now()<deadline);
         if(task.status!=='SUCCESS' || !task.analysisId) throw new Error('Analysis processing failed/timed out: '+task.status);
         const gate=await request(host,'/api/qualitygates/project_status?analysisId='+encodeURIComponent(task.analysisId),env.SONAR_TOKEN);
-        const assigned=await request(host,'/api/qualitygates/get_by_project?project='+encodeURIComponent(keys[area]),env.SONAR_TOKEN);
         rows['Quality Gate '+area]=gatePassed(gate)?'PASS':'FAIL';
         details['gate_'+area]=gate.projectStatus;
-        say(area+' Quality Gate: '+(gate.projectStatus?.status ?? 'unknown')+'; '+(assigned.qualityGate?.name ?? 'unknown'));
-        if(!assigned.qualityGate?.name) throw new Error('Assigned Quality Gate is unavailable');
-        const policy=await request(host,'/api/qualitygates/show?name='+encodeURIComponent(assigned.qualityGate.name),env.SONAR_TOKEN);
-        details['gatePolicy_'+area]={name:assigned.qualityGate.name,conditions:policy.conditions ?? []};
-        say(area+' ASSIGNED GATE conditions: '+JSON.stringify(policy.conditions ?? []));
+        say(area+' Quality Gate: '+(gate.projectStatus?.status ?? 'unknown'));
         say('Required overall targets are enforced separately by this runner; built-in Sonar way checks do not prove assigned overall gate conditions.');
         const metrics=await request(host,'/api/measures/component?component='+encodeURIComponent(keys[area])+'&metricKeys='+metricKeys.join(','),env.SONAR_TOKEN);
         const measures=metrics.component?.measures ?? [];
@@ -156,6 +171,13 @@ export async function runScan({root=repositoryRoot, profile='dev', ambient=proce
         say(area+' OVERALL CODE metrics (rating 1=A): '+JSON.stringify(overall));
         say(area+' NEW CODE metrics: '+JSON.stringify(newCode));
         rows['Overall Targets '+area]=overallTargets(measures)?'PASS':'FAIL';
+        const policy=await readAssignedGatePolicy({host,project:keys[area],token:env.SONAR_TOKEN,request});
+        details['gatePolicy_'+area]=policy;
+        if(policy.status==='VERIFIED') {
+          say(area+' ASSIGNED GATE '+policy.name+' conditions: '+JSON.stringify(policy.conditions));
+        } else {
+          say('[WARNING] '+area+' assigned gate configuration NOT VERIFIED (HTTP 403); actual analysis gate and overall targets checked independently.');
+        }
         if(result.code!==0) say('[ERROR] '+area+' scanner exited with code '+result.code);
         return result.code===0;
       });

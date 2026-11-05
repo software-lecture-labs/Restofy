@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { gatePassed, loadSonarEnv, overallTargets, runScan, runSonar, sonarRequest, sonarWayPolicy } from './sonar.mjs';
 import { redact } from '../lib/quality-tools.mjs';
 
@@ -67,12 +68,26 @@ async function fixture(options = {}) {
     if (options.serverDown) throw new Error('Connection refused');
     if (endpoint === '/api/system/status') return { status: options.starting ? 'STARTING' : 'UP' };
     if (endpoint === '/api/authentication/validate') return { valid: true };
-    if (endpoint.startsWith('/api/qualitygates/show')) return { conditions };
+    if (endpoint.startsWith('/api/qualitygates/show')) {
+      if (options.policyForbidden && !endpoint.endsWith('Sonar%20way')) {
+        throw Object.assign(new Error('SonarQube API returned HTTP 403'), {status:403});
+      }
+      return { conditions };
+    }
     if (endpoint.startsWith('/api/ce/task')) return { task: { status: options.processingFail ? 'FAILED' : 'SUCCESS', analysisId: 'fixture-analysis' } };
-    if (endpoint.startsWith('/api/qualitygates/project_status')) return { projectStatus: { status: options.gateFail ? 'ERROR' : 'OK' } };
-    if (endpoint.startsWith('/api/qualitygates/get_by_project')) return { qualityGate: { name: options.customGate ? 'RESTOFY Quality' : 'Sonar way' } };
+    if (endpoint.startsWith('/api/qualitygates/project_status')) {
+      if (options.gateForbidden) throw Object.assign(new Error('SonarQube API returned HTTP 403'), {status:403});
+      return { projectStatus: { status: options.gateFail ? 'ERROR' : 'OK' } };
+    }
+    if (endpoint.startsWith('/api/qualitygates/get_by_project')) {
+      if (options.assignedStatus) throw Object.assign(new Error('SonarQube API returned HTTP ' + options.assignedStatus), {status:options.assignedStatus});
+      return { qualityGate: { name: options.customGate ? 'RESTOFY Quality' : 'Sonar way' } };
+    }
     if (endpoint.startsWith('/api/metrics/search')) return { metrics: ['coverage', 'new_coverage', 'duplicated_lines_density', 'new_duplicated_lines_density', 'security_rating', 'reliability_rating', 'sqale_rating'].map(key => ({ key })) };
-    if (endpoint.startsWith('/api/measures')) return { component: { measures: ['security_rating', 'reliability_rating', 'sqale_rating'].map(metric => ({metric, value: '1'})).concat([{metric:'coverage',value:options.lowCoverage?'20':'100'},{metric:'duplicated_lines_density',value:'0'},{metric:'new_coverage',period:{value:'100'}}]) } };
+    if (endpoint.startsWith('/api/measures')) {
+      if (options.measuresForbidden) throw Object.assign(new Error('SonarQube API returned HTTP 403'), {status:403});
+      return { component: { measures: ['security_rating', 'reliability_rating', 'sqale_rating'].map(metric => ({metric, value: '1'})).concat([{metric:'coverage',value:options.lowCoverage?'20':'100'},{metric:'duplicated_lines_density',value:'0'},{metric:'new_coverage',period:{value:'100'}}]) } };
+    }
     throw new Error('Unexpected mock API');
   };
   try {
@@ -102,6 +117,54 @@ test('a passing custom assigned gate is accepted and its actual conditions are r
   assert.equal(result.rows['Quality Gate Frontend'], 'PASS');
   assert.equal(result.details.gatePolicy_Backend.name, 'RESTOFY Quality');
   assert.ok(result.requests.includes('/api/qualitygates/show?name=RESTOFY%20Quality'));
+});
+
+for (const options of [{assignedStatus:403}, {customGate:true, policyForbidden:true}]) {
+  test(`configuration HTTP 403 preserves verified gates and overall results: ${JSON.stringify(options)}`, async () => {
+    const result = await fixture(options);
+    assert.equal(result.exitCode, 0);
+    for (const area of ['Backend', 'Frontend']) {
+      assert.equal(result.rows[area + ' Analysis'], 'PASS');
+      assert.equal(result.rows['Quality Gate ' + area], 'PASS');
+      assert.equal(result.rows['Overall Targets ' + area], 'PASS');
+      assert.equal(result.details['gatePolicy_' + area].status, 'NOT VERIFIED');
+    }
+    assert.ok(result.lines.some(line => line.includes('configuration NOT VERIFIED (HTTP 403)')));
+    assert.ok(result.lines.includes('SONAR SCAN PASSED'));
+  });
+}
+
+for (const [option, row] of [['gateFail','Quality Gate Backend'], ['lowCoverage','Overall Targets Backend'], ['scannerFail','Backend Analysis']]) {
+  test(`configuration HTTP 403 never overrides ${option}`, async () => {
+    const result = await fixture({assignedStatus:403, [option]:true});
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.rows[row], 'FAIL');
+    assert.equal(result.details.gatePolicy_Backend.status, 'NOT VERIFIED');
+    assert.ok(result.lines.includes('SONAR SCAN FAILED'));
+  });
+}
+
+for (const options of [{assignedStatus:401}, {assignedStatus:500}, {gateForbidden:true}, {measuresForbidden:true}]) {
+  test(`errors outside configuration HTTP 403 still fail: ${JSON.stringify(options)}`, async () => {
+    const result = await fixture(options);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.rows['Backend Analysis'], 'FAIL');
+    assert.ok(result.lines.includes('SONAR SCAN FAILED'));
+  });
+}
+
+test('HTTP status is available without leaking the request token or response body', async () => {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(403, {'Content-Type':'application/json'});
+    response.end('{"sensitive":"do-not-log"}');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    await assert.rejects(sonarRequest('http://127.0.0.1:' + server.address().port, '/api/qualitygates/get_by_project', 'fixture-token'),
+      error => error.status === 403 && error.message === 'SonarQube API returned HTTP 403');
+  } finally {
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 for (const option of ['tokenMissing', 'serverDown', 'starting']) {
