@@ -67,6 +67,8 @@ Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızd
 | `POST /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}/confirmation` | QR | `CLOSED` (isteğe bağlı makbuzla) / `NOT_CLOSED` (abort) |
 | `GET  /api/v1/internal/table-sessions/{id}/order-state?restaurantId=` | QR | Siparişlerin boşta-süre kuralları için anlamı, salt okunur |
 
+`kitchen-cancellation-request` aynı çağrının yanıtında karar verir (`outcome` `APPLIED` veya `REJECTED`; ayrı bir olay yok ve Kitchen kendi talebinin sonucu olarak olay hedeflerinden bilerek çıkarılmıştır). Yanıt, kararın verildiği andaki sipariş sürümünü (`orderVersion`: onay sürümü artırır, ret siparişe dokunmaz) ve kararın zamanını (`decidedAt`) taşır. Aynı `eventId` ve aynı gövdeyle tekrar gelen istek **ilk kararın** sürümünü ve zamanını döner (sipariş bu arada ilerlemiş olsa da); sürüm `order_cancellations.decided_order_version` (V47) alanında saklanır. Tekilleştirme kaydı süresi dolduktan sonra gelen tekrarda (72 saat) `cancellationId`, `orderVersion` ve `decidedAt` boş döner, sonuç yine ilk sonuçtur. Kitchen kendi talebiyle eşleştirmeyi kendi outbox satırının `eventId` değeriyle yapar; ayrı bir `requestId` alanı yoktur. Iptal nedeni kataloğu: `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `WAIT_TOO_LONG`, `CUSTOMER_REQUEST`, `ITEM_UNAVAILABLE`, `KITCHEN_ERROR`, `OTHER` (Kitchen'ın `OUT_OF_STOCK` değeri `ITEM_UNAVAILABLE` olarak gönderilir).
+
 Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem iki kez yapılmaz (`duplicate=true`), aynı kimlik farklı gövdeyle gelirse `409`. Başka restoranın siparişi `404`.
 
 ## 4. İş kuralları (UYGULANDI)
@@ -141,11 +143,11 @@ Flyway aralığı V41–V50, kullanılan V41–V49 (V50 boş). Migration'lar ALT
 | V44 | Durum geçmişi (yalnız eklenir) |
 | V45 | Inbox; hazırlık ve ödeme geçiş koruması (trigger) |
 | V46 | Tahsilatlar ve uzlaştırma vakaları |
-| V47 | İptaller, kalemleri ve nedenleri; `cancelled_quantity` tutarlılığı |
+| V47 | İptaller, kalemleri ve nedenleri; `cancelled_quantity` tutarlılığı; neden kataloğunda `CUSTOMER_REQUEST`; kararın sürümü `decided_order_version` (bir kez yazılır). 5 Kasım 2026'da paylaşıldıktan sonra Order sahibinin açık izniyle güncellendi, eski V47'yi uygulamış her Order veritabanı yeniden oluşturulmalı |
 | V48 | Masa oturumu işlemleri: amaç, etki, komut özeti, tutuk, makbuz (kapanış ve boşta-süre) |
 | V49 | Kapanış kapsam sapması kayıtları (yalnızca eklenir) |
 
-`ddl-auto=validate`; şemayı yalnız Flyway değiştirir. Uygulanmış bir migration paylaşıldıktan sonra yeniden yazılmaz.
+`ddl-auto=validate`; şemayı yalnız Flyway değiştirir. Uygulanmış bir migration paylaşıldıktan sonra yeniden yazılmaz (V47'nin yukarıda belirtilen, açık izinle yapılmış güncellemesi bir istisnadır ve tekrarlanmaz).
 
 ## 8. Hata sözleşmesi
 

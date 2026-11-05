@@ -8,6 +8,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -462,6 +463,80 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
         assertEquals(1, cancellationCount(orderId));
         assertEquals(1, jdbc.queryForObject("SELECT cancelled_quantity FROM order_items WHERE product_id = ?"
                 + " AND order_id = ?", Integer.class, DevFixtures.SALAD, orderId));
+    }
+
+    // ---- the answer carries the version and the time of the decision ------------------------------------------------------
+
+    private JsonNode answerOf(Object body) throws Exception {
+        return json.readTree(kitchenAsks(body).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    }
+
+    @Test
+    void anApprovalAnswersWithTheMovedOrderVersionAndTheTimeOfTheDecision() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        long before = versionOf(orderId);
+
+        JsonNode answer = answerOf(askAll(UUID.randomUUID(), orderId, outOfStock(), null));
+
+        assertEquals("APPLIED", answer.path("outcome").asString());
+        assertEquals(versionOf(orderId), answer.path("orderVersion").asLong());
+        assertTrue(answer.path("orderVersion").asLong() > before, "an approval moves the order version up");
+        Map<String, Object> row = jdbc.queryForMap("SELECT decided_order_version, decided_at FROM order_cancellations"
+                + " WHERE order_id = ?", orderId);
+        assertEquals(answer.path("orderVersion").asLong(), row.get("decided_order_version"));
+        assertEquals(((Timestamp) row.get("decided_at")).toInstant(), Instant.parse(answer.path("decidedAt").asString()));
+    }
+
+    @Test
+    void aRefusalAnswersWithTheUnchangedOrderVersionAndTheTimeOfTheDecision() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        advanceTo(orderId, "READY");
+        long before = versionOf(orderId);
+
+        JsonNode answer = answerOf(askAll(UUID.randomUUID(), orderId, outOfStock(), null));
+
+        assertEquals("REJECTED", answer.path("outcome").asString());
+        assertEquals("ORDER_ALREADY_PREPARED", answer.path("rejectionCode").asString());
+        assertEquals(before, versionOf(orderId), "a refusal does not touch the order");
+        assertEquals(before, answer.path("orderVersion").asLong());
+        assertFalse(answer.path("decidedAt").asString().isBlank());
+    }
+
+    @Test
+    void aRepeatIsAnsweredWithTheFirstDecisionsVersionAndTimeEvenAfterTheOrderMovedOn() throws Exception {
+        UUID orderId = placeMixedOrder(A1);
+        var body = askItems(UUID.randomUUID(), orderId, lineOf(orderId, DevFixtures.SALAD), 1, outOfStock(), null);
+        JsonNode first = answerOf(body);
+        advanceTo(orderId, "PREPARING");
+        assertTrue(versionOf(orderId) > first.path("orderVersion").asLong(), "the order moved on after the decision");
+
+        JsonNode again = answerOf(body);
+
+        assertTrue(again.path("duplicate").asBoolean());
+        assertEquals(first.path("orderVersion").asLong(), again.path("orderVersion").asLong());
+        assertEquals(first.path("decidedAt").asString(), again.path("decidedAt").asString());
+    }
+
+    @Test
+    void aRepeatAfterTheIdempotencyRecordExpiredCarriesNoVersionAndNoTime() throws Exception {
+        UUID orderId = placeMixedOrder(A1);
+        var body = askItems(UUID.randomUUID(), orderId, lineOf(orderId, DevFixtures.SALAD), 1, outOfStock(), null);
+        answerOf(body);
+        jdbc.update("DELETE FROM idempotency_records WHERE operation = 'KITCHEN_CANCEL_REQUEST'");
+
+        kitchenAsks(body).andExpect(status().isOk()).andExpect(jsonPath("$.duplicate").value(true))
+                .andExpect(jsonPath("$.orderVersion").doesNotExist()).andExpect(jsonPath("$.decidedAt").doesNotExist());
+    }
+
+    @Test
+    void theKitchenCanGiveTheCustomerRequestReasonAndItIsKeptAsSuch() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+
+        kitchenAsks(askAll(UUID.randomUUID(), orderId, List.of("CUSTOMER_REQUEST"), null)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("APPLIED"));
+
+        assertEquals(List.of("CUSTOMER_REQUEST"), jdbc.queryForList("SELECT reason_code FROM order_cancellation_reasons"
+                + " WHERE source = 'SERVICE'", String.class));
     }
 
     @Test

@@ -21,3 +21,10 @@ ek QR aralığını açıkça onayladı. V121 kaynak teyidi/kapsam sapması makb
 V122-V130 boş. Bu tahsis Order/Waiter onayı veya entegrasyonun tamamlandığı iddiası değildir.
 QR branch CREATE birleştirmesinde V23-V25 kaldırıldı; bu tarihsel numaralar yeniden kullanılmayacak.
 Güncel QR zinciri: V21,V22,V26-V30,V121. Yerel/paylaşılan geçmiş sınırları ADR-QR-001 §6'dadır.
+
+5 Kasım 2026: Order sorumlusu Hamza, Order <-> Kitchen entegrasyon kararı için V47'yi
+(V41-V50 aralığı içinde, yeni numara almadan) paylaşıldıktan sonra açık kararıyla güncelledi:
+iptal nedeni kataloğuna CUSTOMER_REQUEST ve order_cancellations.decided_order_version
+(kararın sipariş sürümü, bir kez yazılır). V47'nin checksum'ı değiştiği için eski V47'yi
+uygulamış her Order veritabanı yeniden oluşturulmalıdır. Güncel Order zinciri: V41-V49, V50 boş.
+Bu, paylaşılmış migration geçmişini yeniden yazma genel izni değildir.
