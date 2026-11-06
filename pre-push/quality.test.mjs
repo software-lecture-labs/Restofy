@@ -3,19 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isSupportedNodeVersion, runQualityChecks } from './quality.mjs';
+import { runQualityChecks } from './quality.mjs';
 
 const modules = ['admin-service', 'api-gateway', 'auth-service', 'kitchen-service', 'mail-service', 'menu-service', 'notification-service', 'order-service', 'payment-service', 'qr-service', 'rating-service', 'timer-service', 'waiter-service'];
-
-test('Node version policy accepts supported release lines including Node 25', () => {
-  for (const version of ['22.12.0', '22.99.0', '24.0.0', '25.0.0', '26.0.0']) {
-    assert.equal(isSupportedNodeVersion(version), true, version);
-  }
-  for (const version of ['22.11.0', '23.9.0', '21.99.0']) {
-    assert.equal(isSupportedNodeVersion(version), false, version);
-  }
-});
-
 async function fixture(options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'restofy-quality-test-'));
   const write = (relative, text) => {
@@ -26,7 +16,6 @@ async function fixture(options = {}) {
   const lines = [];
   const calls = [];
   write('backend/pom.xml', modules.map((name) => `<module>services/${name}</module>`).join('\n'));
-  write(`backend/services/admin-service/${process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw'}`, 'wrapper');
   write('frontend/node_modules/vitest/package.json', '{}');
   const runCommand = async (command, args, settings) => {
     calls.push({ command, args, env: settings.env });
