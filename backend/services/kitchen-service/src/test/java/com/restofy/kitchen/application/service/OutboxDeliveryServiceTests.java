@@ -63,8 +63,10 @@ class OutboxDeliveryServiceTests {
 		ingest.ingest(message(restaurant, orderId, UUID.randomUUID(), "1", "A-1", 1, UUID.randomUUID(), item("Burger", 1, null)));
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
-		UUID deliveryId = jdbc.queryForObject("SELECT id FROM outbox_deliveries WHERE restaurant_id = ? AND destination = 'ORDER'",
-				UUID.class, restaurant);
+		UUID deliveryId = jdbc.queryForObject("""
+				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND d.destination = 'ORDER' AND e.event_type = 'KitchenOrderReady'
+				""", UUID.class, restaurant);
 		return new Ready(restaurant, orderId, deliveryId);
 	}
 

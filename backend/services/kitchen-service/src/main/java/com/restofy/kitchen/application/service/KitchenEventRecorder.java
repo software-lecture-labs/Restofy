@@ -2,6 +2,7 @@ package com.restofy.kitchen.application.service;
 
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
+import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
 import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.domain.entity.CancellationRequest;
 import com.restofy.kitchen.domain.entity.KitchenOrder;
@@ -43,6 +44,22 @@ public class KitchenEventRecorder {
 		this.deliveries = deliveries;
 		this.jsonMapper = jsonMapper;
 		this.clock = clock;
+	}
+
+	/**
+	 * Records {@code KitchenPreparationStarted} for an order that was just moved to PREPARING (version already
+	 * incremented). It goes to the Order service only: Notification is told about "ready", not about "started".
+	 * At most one such event can exist per order; the database enforces it.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public OutboxEvent recordPreparationStarted(KitchenOrder order, UUID commandId) {
+		var payload = new KitchenPreparationStartedMessage.Payload(KitchenPreparationStartedMessage.PREPARING,
+				order.getStartedAt());
+		var aggregate = new OutboxEvent.Aggregate(order.getRestaurantId(), order.getOrderId(), order.getVersion());
+		var eventData = new OutboxEvent.EventData(KitchenPreparationStartedMessage.TYPE,
+				KitchenPreparationStartedMessage.SCHEMA_VERSION, MDC.get(CorrelationIdFilter.MDC_KEY), commandId,
+				jsonMapper.writeValueAsString(payload), order.getStartedAt());
+		return store(OutboxEvent.create(aggregate, eventData, clock.instant()), ORDER_DESTINATION);
 	}
 
 	/**
@@ -88,6 +105,10 @@ public class KitchenEventRecorder {
 	public OutboundMessage toMessage(OutboxEvent event) {
 		try {
 			return switch (event.getEventType()) {
+				case KitchenPreparationStartedMessage.TYPE -> new KitchenPreparationStartedMessage(event.getId(),
+						event.getEventType(), event.getSchemaVersion(), event.getOccurredAt(), event.getRestaurantId(),
+						event.getAggregateId(), event.getAggregateVersion(), event.getCorrelationId(), event.getCausationId(),
+						jsonMapper.readValue(event.getPayload(), KitchenPreparationStartedMessage.Payload.class));
 				case KitchenOrderReadyMessage.TYPE -> new KitchenOrderReadyMessage(event.getId(), event.getEventType(),
 						event.getSchemaVersion(), event.getOccurredAt(), event.getRestaurantId(), event.getAggregateId(),
 						event.getAggregateVersion(), event.getCorrelationId(), event.getCausationId(),

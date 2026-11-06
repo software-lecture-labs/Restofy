@@ -48,6 +48,25 @@ class OutboundMessageContractTests {
 		assertEquals("READY", tree.get("payload").get("preparationStatus").asText());
 	}
 
+	private static KitchenPreparationStartedMessage started() {
+		return new KitchenPreparationStartedMessage(UUID.randomUUID(), KitchenPreparationStartedMessage.TYPE,
+				KitchenPreparationStartedMessage.SCHEMA_VERSION, T, UUID.randomUUID(), UUID.randomUUID(), 3, "corr-1", UUID.randomUUID(),
+				new KitchenPreparationStartedMessage.Payload(KitchenPreparationStartedMessage.PREPARING, T));
+	}
+
+	@Test
+	void thePreparationStartedEventIsVersionOneWithTheSameEnvelopeAsReadyAndAMinimalPayload() {
+		JsonNode tree = JSON.valueToTree(started());
+
+		assertEquals(fieldNames(JSON.valueToTree(ready())), fieldNames(tree), "the same envelope as the ready event");
+		assertEquals(List.of("preparationStatus", "startedAt"), fieldNames(tree.get("payload")));
+		assertEquals("KitchenPreparationStarted", tree.get("eventType").asText());
+		assertEquals(1, tree.get("schemaVersion").asInt());
+		assertEquals("PREPARING", tree.get("payload").get("preparationStatus").asText(),
+				"the Order service reads kitchenStatus from payload.preparationStatus");
+		assertEquals(T.toString(), tree.get("payload").get("startedAt").asText());
+	}
+
 	@Test
 	void theCancellationRequestEventIsVersionOneAndNeverCarriesTheFreeText() {
 		var message = new KitchenCancellationRequestedMessage(UUID.randomUUID(), KitchenCancellationRequestedMessage.TYPE,
@@ -65,7 +84,8 @@ class OutboundMessageContractTests {
 
 	@Test
 	void noEventEverCarriesPersonalOrOperationalDetailsThatBelongToAnotherService() {
-		String everything = (JSON.writeValueAsString(ready()) + JSON.writeValueAsString(new KitchenCancellationRequestedMessage(UUID.randomUUID(),
+		String everything = (JSON.writeValueAsString(ready()) + JSON.writeValueAsString(started())
+				+ JSON.writeValueAsString(new KitchenCancellationRequestedMessage(UUID.randomUUID(),
 				KitchenCancellationRequestedMessage.TYPE, 1, T, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1, null, null,
 				new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OTHER", null, null)))).toLowerCase(Locale.ROOT);
 
@@ -77,14 +97,17 @@ class OutboundMessageContractTests {
 	}
 
 	@Test
-	void everyKindOfEventIsOneOfTheTwoDeclaredAndTheEnvelopeIsCommon() {
+	void everyKindOfEventIsOneOfTheThreeDeclaredAndTheEnvelopeIsCommon() {
 		OutboundMessage ready = ready();
+		OutboundMessage started = started();
 
 		assertEquals(KitchenOrderReadyMessage.TYPE, ready.eventType());
 		assertEquals(1, ready.schemaVersion());
 		assertEquals(4, ready.aggregateVersion());
 		assertEquals(T, ready.occurredAt());
+		assertEquals(KitchenPreparationStartedMessage.TYPE, started.eventType());
+		assertEquals(3, started.aggregateVersion());
 		assertTrue(OutboundMessage.class.isSealed());
-		assertEquals(2, OutboundMessage.class.getPermittedSubclasses().length);
+		assertEquals(3, OutboundMessage.class.getPermittedSubclasses().length);
 	}
 }

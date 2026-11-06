@@ -85,8 +85,11 @@ public class KitchenPreparationService {
 		Instant occurredAt = transition.apply(order);
 		orders.saveAndFlush(order);
 		saveHistory(KitchenStatusHistory.transition(order, from, target, actorUserId, commandId, occurredAt));
-		if (target == KitchenOrderStatus.READY) {
-			// Same transaction: the "ready" event exists if and only if this READY transition commits.
+		// Same transaction: the event exists if and only if this very transition commits. A repeat returns above,
+		// before this point, so it can never create a second event.
+		if (target == KitchenOrderStatus.PREPARING) {
+			events.recordPreparationStarted(order, commandId);
+		} else if (target == KitchenOrderStatus.READY) {
 			events.recordOrderReady(order, commandId);
 		}
 		log.info("{} APPLIED: restaurantId={} orderId={} actor={}", command, restaurantId, orderId, actorUserId);

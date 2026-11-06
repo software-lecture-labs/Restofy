@@ -60,8 +60,8 @@ class KitchenReadyEventRollbackTests {
 
 		// status, readyAt, version, history, the already-flushed event row and the delivery: all rolled back together.
 		assertEquals(preparing, state(restaurant, orderId));
-		assertEquals(0L, preparing.get("events"));
-		assertEquals(0L, preparing.get("deliveries"));
+		assertEquals(1L, preparing.get("events"), "only the preparation event from the earlier PREPARING transition is left");
+		assertEquals(1L, preparing.get("deliveries"), "and its single Order delivery: nothing of the failed READY survived");
 		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM kitchen_status_history WHERE restaurant_id = ? AND command_id = ?",
 				Integer.class, restaurant, command), "the command id is free to be used again");
 	}

@@ -79,23 +79,34 @@ class KitchenReadyEventApiTests {
 		return orderId;
 	}
 
+	/** The "ready" events only: this class is about KitchenOrderReady (the preparation event has its own tests). */
 	private int events(UUID restaurant) {
-		return jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant);
+		return jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'",
+				Integer.class, restaurant);
 	}
 
+	/** The deliveries of the "ready" events only. */
 	private int deliveries(UUID restaurant) {
-		return jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ?", Integer.class, restaurant);
+		return jdbc.queryForObject("""
+				SELECT count(*) FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND e.event_type = 'KitchenOrderReady'
+				""", Integer.class, restaurant);
+	}
+
+	private List<OutboxEvent> readyEvents(UUID restaurant, UUID orderId) {
+		return outbox.findByRestaurantIdAndAggregateId(restaurant, orderId).stream()
+				.filter(event -> KitchenOrderReadyMessage.TYPE.equals(event.getEventType())).toList();
 	}
 
 	@Test
-	void noEventIsRecordedUntilTheOrderIsReady() throws Exception {
+	void noReadyEventIsRecordedUntilTheOrderIsReady() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		UUID actor = UUID.randomUUID();
 		UUID orderId = accept(restaurant);
-		assertEquals(0, events(restaurant), "receiving an order records no event");
+		assertEquals(0, events(restaurant), "receiving an order records no ready event");
 
 		mvc.perform(command("start-preparation", orderId, restaurant, actor, UUID.randomUUID())).andExpect(status().isOk());
-		assertEquals(0, events(restaurant), "starting preparation records no event (KitchenPreparationStarted is only a proposal)");
+		assertEquals(0, events(restaurant), "starting preparation records the preparation event, never a ready event");
 
 		mvc.perform(command("mark-ready", UUID.randomUUID(), restaurant, actor, UUID.randomUUID())).andExpect(status().isNotFound());
 		assertEquals(0, events(restaurant));
@@ -114,7 +125,7 @@ class KitchenReadyEventApiTests {
 		assertEquals(2, deliveries(restaurant), "one event, one delivery for the Order and one for the Notification service");
 		Map<String, Object> order = jdbc.queryForMap(
 				"SELECT version, started_at, ready_at FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", restaurant, orderId);
-		OutboxEvent event = outbox.findByRestaurantIdAndAggregateId(restaurant, orderId).getFirst();
+		OutboxEvent event = readyEvents(restaurant, orderId).getFirst();
 
 		assertEquals("KitchenOrderReady", event.getEventType());
 		assertEquals(1, event.getSchemaVersion());
@@ -130,9 +141,11 @@ class KitchenReadyEventApiTests {
 		assertEquals(((Timestamp) order.get("started_at")).toInstant(), message.payload().startedAt());
 		assertEquals(((Timestamp) order.get("ready_at")).toInstant(), message.payload().readyAt());
 
-		Map<String, Object> delivery = jdbc.queryForMap(
-				"SELECT destination, status, attempt_count, delivered_at, next_attempt_at FROM outbox_deliveries WHERE restaurant_id = ? AND "
-						+ "destination = 'ORDER'", restaurant);
+		Map<String, Object> delivery = jdbc.queryForMap("""
+				SELECT d.destination, d.status, d.attempt_count, d.delivered_at, d.next_attempt_at
+				FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND d.destination = 'ORDER' AND e.event_type = 'KitchenOrderReady'
+				""", restaurant);
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals("PENDING", delivery.get("status"));
 		assertEquals(0, delivery.get("attempt_count"));
@@ -147,8 +160,10 @@ class KitchenReadyEventApiTests {
 		UUID orderId = prepared(restaurant, actor);
 		mvc.perform(command("mark-ready", orderId, restaurant, actor, UUID.randomUUID())).andExpect(status().isOk());
 
-		String stored = jdbc.queryForObject("SELECT payload::text FROM outbox_events WHERE restaurant_id = ?", String.class, restaurant);
-		Map<String, Object> row = jdbc.queryForMap("SELECT * FROM outbox_events WHERE restaurant_id = ?", restaurant);
+		String stored = jdbc.queryForObject(
+				"SELECT payload::text FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'", String.class, restaurant);
+		Map<String, Object> row = jdbc.queryForMap(
+				"SELECT * FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'", restaurant);
 		String everything = stored + row.values();
 
 		for (String leak : List.of("gizli-not", "Burger", actor.toString(), "price", "tableNumber", "productName")) {
@@ -165,7 +180,7 @@ class KitchenReadyEventApiTests {
 		UUID key = UUID.randomUUID();
 		UUID orderId = prepared(restaurant, actor);
 		mvc.perform(command("mark-ready", orderId, restaurant, actor, key)).andExpect(status().isOk());
-		UUID firstEvent = outbox.findByRestaurantIdAndAggregateId(restaurant, orderId).getFirst().getId();
+		UUID firstEvent = readyEvents(restaurant, orderId).getFirst().getId();
 
 		for (int i = 0; i < 3; i++) {
 			mvc.perform(command("mark-ready", orderId, restaurant, actor, key)).andExpect(status().isOk());
@@ -176,7 +191,7 @@ class KitchenReadyEventApiTests {
 
 		assertEquals(1, events(restaurant));
 		assertEquals(2, deliveries(restaurant), "one event, one delivery for the Order and one for the Notification service");
-		assertEquals(firstEvent, outbox.findByRestaurantIdAndAggregateId(restaurant, orderId).getFirst().getId(), "the event id is stable");
+		assertEquals(firstEvent, readyEvents(restaurant, orderId).getFirst().getId(), "the event id is stable");
 	}
 
 	@Test
@@ -228,10 +243,9 @@ class KitchenReadyEventApiTests {
 		}
 
 		assertEquals(2, events(restaurant));
-		assertEquals(1, outbox.findByRestaurantIdAndAggregateId(restaurant, first).size());
-		assertEquals(1, outbox.findByRestaurantIdAndAggregateId(restaurant, second).size());
-		assertNotEquals(outbox.findByRestaurantIdAndAggregateId(restaurant, first).getFirst().getId(),
-				outbox.findByRestaurantIdAndAggregateId(restaurant, second).getFirst().getId());
+		assertEquals(1, readyEvents(restaurant, first).size());
+		assertEquals(1, readyEvents(restaurant, second).size());
+		assertNotEquals(readyEvents(restaurant, first).getFirst().getId(), readyEvents(restaurant, second).getFirst().getId());
 	}
 
 	@Test
@@ -241,10 +255,11 @@ class KitchenReadyEventApiTests {
 		UUID orderId = prepared(restaurant, actor);
 		mvc.perform(command("mark-ready", orderId, restaurant, actor, UUID.randomUUID())).andExpect(status().isOk());
 
+		UUID duplicateEventId = UUID.randomUUID();
 		assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
 				INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version, event_type,
 				    schema_version, payload, occurred_at) VALUES (?, ?, 'KITCHEN_ORDER', ?, 9, 'KitchenOrderReady', 1, '{}'::jsonb, now())
-				""", UUID.randomUUID(), restaurant, orderId));
+				""", duplicateEventId, restaurant, orderId));
 		assertEquals(1, events(restaurant));
 	}
 

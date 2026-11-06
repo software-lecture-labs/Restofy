@@ -64,13 +64,16 @@ class NotificationDeliveryTests {
 		ingest.ingest(simple(restaurant, orderId));
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
-		UUID eventId = jdbc.queryForObject("SELECT id FROM outbox_events WHERE restaurant_id = ?", UUID.class, restaurant);
+		UUID eventId = jdbc.queryForObject(
+				"SELECT id FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'", UUID.class, restaurant);
 		return new Ready(restaurant, orderId, eventId, deliveryOf(restaurant, "ORDER"), deliveryOf(restaurant, "NOTIFICATION"));
 	}
 
 	private UUID deliveryOf(UUID restaurant, String destination) {
-		return jdbc.queryForObject("SELECT id FROM outbox_deliveries WHERE restaurant_id = ? AND destination = ?", UUID.class, restaurant,
-				destination);
+		return jdbc.queryForObject("""
+				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND d.destination = ? AND e.event_type = 'KitchenOrderReady'
+				""", UUID.class, restaurant, destination);
 	}
 
 	private void makeDue(UUID deliveryId) {
@@ -90,8 +93,8 @@ class NotificationDeliveryTests {
 	void oneReadyEventHasExactlyTwoDeliveriesOneForEachInterestedService() {
 		Ready ready = readyOrder();
 
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, ready.restaurant()),
-				"never a second event");
+		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'",
+				Integer.class, ready.restaurant()), "never a second ready event");
 		assertEquals(List.of("NOTIFICATION", "ORDER"), jdbc.queryForList(
 				"SELECT destination FROM outbox_deliveries WHERE restaurant_id = ? AND event_id = ? ORDER BY destination", String.class,
 						ready.restaurant(), ready.eventId()));

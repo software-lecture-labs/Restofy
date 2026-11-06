@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.restofy.kitchen.api.dto.response.DailyKitchenReportResponse;
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
+import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
 import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
 import com.restofy.kitchen.application.service.DailyReportService;
 import com.restofy.kitchen.application.service.OrderDecisionService;
@@ -72,6 +73,14 @@ class KitchenEndToEndSimulationTests {
 				""", UUID.class, restaurant, destination, eventType);
 	}
 
+	/** The delivery of one order's event (the preparation and the ready event exist once per order, so the order id selects it). */
+	private UUID deliveryOfOrder(UUID restaurant, UUID orderId, String destination, String eventType) {
+		return jdbc.queryForObject("""
+				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND e.aggregate_id = ? AND d.destination = ? AND e.event_type = ?
+				""", UUID.class, restaurant, orderId, destination, eventType);
+	}
+
 	@Test
 	void aReadyOrderAndACancelledOrderThroughTheWholeSystemWithFakeOrderAndNotificationServices() throws Exception {
 		UUID restaurant = UUID.randomUUID();
@@ -82,16 +91,20 @@ class KitchenEndToEndSimulationTests {
 		FakeOrderEventSink order = new FakeOrderEventSink();
 		FakeNotificationSink notification = new FakeNotificationSink();
 
-		// Order 1: prepared and finished. The ready event goes to BOTH services, as the same event.
+		// Order 1: prepared and finished. The Order service first learns "started" (for it alone), then "ready"; the
+		// ready event goes to BOTH services, as the same event.
 		command(restaurant, ready, "start-preparation");
 		command(restaurant, ready, "mark-ready");
+		delivery.attempt(deliveryOfOrder(restaurant, ready, "ORDER", "KitchenPreparationStarted"), order);
+		assertInstanceOf(KitchenPreparationStartedMessage.class, order.received().getFirst());
 		delivery.attempt(deliveryOf(restaurant, "ORDER", "KitchenOrderReady"), order);
 		delivery.attempt(deliveryOf(restaurant, "NOTIFICATION", "KitchenOrderReady"), notification);
-		assertEquals(order.received().getFirst(), notification.received().getFirst());
+		assertEquals(order.received().getLast(), notification.received().getFirst());
 		assertInstanceOf(KitchenOrderReadyMessage.class, notification.received().getFirst());
 
 		// Order 2: the kitchen asks to cancel it while it is being prepared. Nothing is cancelled by asking.
 		command(restaurant, cancelled, "start-preparation");
+		delivery.attempt(deliveryOfOrder(restaurant, cancelled, "ORDER", "KitchenPreparationStarted"), order);
 		String requestId = JsonPath.read(mvc.perform(post("/api/v1/kitchen/orders/" + cancelled + "/cancellation-requests")
 				.header(KEY, UUID.randomUUID().toString()).contentType("application/json").content("{\"reasonCode\":\"KITCHEN_ERROR\"}")
 				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("REQUESTED"))
@@ -122,8 +135,9 @@ class KitchenEndToEndSimulationTests {
 		List<String> destinations = jdbc.queryForList("SELECT destination || ':' || status FROM outbox_deliveries WHERE restaurant_id = "
 				+ "? ORDER BY 1",
 				String.class, restaurant);
-		assertEquals(List.of("NOTIFICATION:DELIVERED", "ORDER:DELIVERED", "ORDER:DELIVERED"), destinations,
-				"the ready event reached both fakes, the cancellation request reached the Order fake only, and the cancelled order never became ready");
+		assertEquals(List.of("NOTIFICATION:DELIVERED", "ORDER:DELIVERED", "ORDER:DELIVERED", "ORDER:DELIVERED", "ORDER:DELIVERED"), destinations,
+				"the ready event reached both fakes, the two preparation events and the cancellation request reached the Order fake only, "
+						+ "and the cancelled order never became ready");
 		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE restaurant_id = ?", Integer.class, restaurant));
 	}
 }

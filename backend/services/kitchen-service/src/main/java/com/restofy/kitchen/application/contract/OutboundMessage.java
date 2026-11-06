@@ -8,7 +8,8 @@ import java.util.UUID;
  * id, type, schema version, time, tenant, version, correlation) and the smallest payload it needs. The kinds are
  * proposals: none of them is agreed with the Order service yet.
  */
-public sealed interface OutboundMessage permits KitchenOrderReadyMessage, KitchenCancellationRequestedMessage {
+public sealed interface OutboundMessage
+		permits KitchenPreparationStartedMessage, KitchenOrderReadyMessage, KitchenCancellationRequestedMessage {
 
 	UUID eventId();
 

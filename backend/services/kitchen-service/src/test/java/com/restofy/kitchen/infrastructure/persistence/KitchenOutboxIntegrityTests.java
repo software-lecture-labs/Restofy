@@ -43,17 +43,17 @@ class KitchenOutboxIntegrityTests {
 
 		Map<String, Object> order = jdbc.queryForMap(
 				"SELECT version, ready_at, started_at FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", restaurant, orderId);
-		Map<String, Object> event = jdbc.queryForMap(
-				"SELECT aggregate_version, occurred_at, aggregate_id, event_type, schema_version FROM outbox_events WHERE restaurant_id = ?",
-						restaurant);
+		Map<String, Object> event = jdbc.queryForMap("SELECT aggregate_version, occurred_at, aggregate_id, event_type, schema_version "
+				+ "FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'", restaurant);
 
 		assertEquals(((Number) order.get("version")).longValue(), ((Number) event.get("aggregate_version")).longValue());
 		assertEquals(order.get("ready_at"), event.get("occurred_at"));
 		assertEquals(orderId, event.get("aggregate_id"));
 		assertEquals("KitchenOrderReady", event.get("event_type"));
 		assertEquals(1, event.get("schema_version"));
-		Map<String, Object> delivery = jdbc.queryForMap("SELECT status, destination, attempt_count FROM outbox_deliveries WHERE "
-				+ "restaurant_id = ? AND destination = 'ORDER'", restaurant);
+		Map<String, Object> delivery = jdbc.queryForMap("SELECT d.status, d.destination, d.attempt_count FROM outbox_deliveries d "
+				+ "JOIN outbox_events e ON e.id = d.event_id WHERE d.restaurant_id = ? AND d.destination = 'ORDER' "
+				+ "AND e.event_type = 'KitchenOrderReady'", restaurant);
 		assertEquals("PENDING", delivery.get("status"));
 		assertEquals("ORDER", delivery.get("destination"));
 		assertEquals(0, delivery.get("attempt_count"));
@@ -63,7 +63,8 @@ class KitchenOutboxIntegrityTests {
 	void theDatabaseRefusesInconsistentOutboxRows() {
 		UUID restaurant = UUID.randomUUID();
 		readyOrder(restaurant);
-		UUID eventId = jdbc.queryForObject("SELECT id FROM outbox_events WHERE restaurant_id = ?", UUID.class, restaurant);
+		UUID eventId = jdbc.queryForObject(
+				"SELECT id FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'", UUID.class, restaurant);
 		UUID otherRestaurant = UUID.randomUUID();
 
 		// A second delivery to the same destination for the same event.
@@ -91,9 +92,10 @@ class KitchenOutboxIntegrityTests {
 				VALUES (?, ?, 'KITCHEN_ORDER', ?, 1, 'Other', 0, '{}'::jsonb, now())
 				""", invalidSchemaEventId, restaurant, invalidSchemaAggregateId));
 
-		assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ?", Integer.class, restaurant),
-				"the ready event has one delivery per interested service; the refused rows added none");
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant));
+		assertEquals(3, jdbc.queryForObject("SELECT count(*) FROM outbox_deliveries WHERE restaurant_id = ?", Integer.class, restaurant),
+				"the preparation event has one delivery (Order), the ready event one per interested service; the refused rows added none");
+		assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ?", Integer.class, restaurant),
+				"the preparation event and the ready event; the refused rows added none");
 	}
 
 	private void insertDelivery(UUID restaurant, UUID eventId, String destination, String status, String nextAttemptSql, String deliveredSql) {
