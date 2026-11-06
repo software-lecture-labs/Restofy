@@ -32,6 +32,8 @@ public abstract class AuthSessionTestSupport {
                 java.util.stream.IntStream.range(1, 33).collect(java.io.ByteArrayOutputStream::new,
                         java.io.ByteArrayOutputStream::write, (left, right) -> left.writeBytes(right.toByteArray())).toByteArray()));
         registry.add("auth.session.cookie-secure", () -> "false");
+        // MFA scenarios must not inherit the developer's optional local MFA bypass.
+        registry.add("auth.session.mfa-required", () -> "true");
         registry.add("auth.session.issuer", () -> "restofy-auth");
         registry.add("auth.session.access-ttl-seconds", () -> "900");
         registry.add("auth.session.refresh-ttl-seconds", () -> "604800");
