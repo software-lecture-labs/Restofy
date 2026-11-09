@@ -22,14 +22,6 @@ public class RevocationCoordinator {
         this.qr = qr;
     }
 
-    @Transactional(propagation = Propagation.NEVER)
-    public void logout(UUID restaurant, UUID user, UUID sid) {
-        UUID generation = generation();
-        var operation = transactions.prepareLogout(restaurant, user, sid, generation);
-        if (operation == null || operation.status().equals("COMPLETED")) return;
-        deliver(operation.id());
-    }
-
     public UUID generation() {
         return qr.generation();
     }
@@ -39,15 +31,15 @@ public class RevocationCoordinator {
         if (TransactionSynchronizationManager.isActualTransactionActive()) throw new IllegalStateException("HTTP inside transaction");
         var operation = transactions.load(id);
         if (operation.status().equals("COMPLETED")) return;
+        if (transactions.finalizeExpiredTargets(id)) return;
         String stage = "TRANSPORT";
         try {
             // Redelivery deliberately obtains a fresh signed receipt for the same immutable manifest.
             String receipt = qr.persist(operation);
             stage = "ACK_VALIDATION";
             transactions.recordAcknowledgement(id, receipt);
-            stage = operation.purpose().equals("AUTO") ? "FINALIZE" : "BUSINESS_EXPIRY";
-            if (operation.purpose().equals("AUTO")) transactions.finalizeOperation(id);
-            else transactions.expireBusiness(id);
+            stage = "FINALIZE";
+            transactions.finalizeOperation(id);
         } catch (RuntimeException failure) {
             log.warn("Q5 operation pending operation={} stage={}", id, stage);
             // PREPARE/ACK survives. Never imply completion or undo a possibly committed QR fence.

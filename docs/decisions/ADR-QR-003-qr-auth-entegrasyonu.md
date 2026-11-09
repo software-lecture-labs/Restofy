@@ -1,12 +1,12 @@
 # ADR-QR-003 — QR ve Auth entegrasyonu
 
 - **Durum:** Q3.1/Q7/Q8/Q9 için 5 Kasım kararları korunur. Q5 güncel iptal gereksinimine ve Q1–Q4 etkilerine Kerem, Draft PR #18'de koordineli kalıcı iptal çözümüyle yanıt verdi. Alper yaklaşımı olumlu değerlendirdi; QR uygulamasının teknik değerlendirmesi ile PR/reviewer onayı bekleniyor. Yanıtın sunulması, bütün uygulama ayrıntılarının kabulü veya kodun dev'e alınması değildir.
-- **Oluşturulma:** 1 Kasım 2026. **Son güncelleme:** 6 Kasım 2026.
+- **Oluşturulma:** 1 Kasım 2026. **Son güncelleme:** 9 Kasım 2026.
 - **Hazırlayan:** Alper — QR / Payment sorumlusu. **Auth yanıtı:** Kerem Kalyoncu.
 - **Numaralandırma:** Önceki adı `ADR-QR-AUTH-001-qr-auth-entegrasyonu.md` idi. Reviewer'ın aynı QR sırasını kullanma önerisiyle ADR-QR-003 olarak düzenlendi; [ADR-QR-002](ADR-QR-002-security.md) müşteri güvenliğini ele alır.
 - **Kapsam:** Personel JWT/cookie, güncellik ve iptal sınırı, CSRF, restoran/RBAC sorumluluğu ve küçük uygulama PR'ları.
 
-Bu belge yanıt, öneri, kabul edilmiş QR kararı ve uygulanmış kodu ayrı gösterir. PR #17, `3761324` ile dev'e alınan önceki ADR kararlarının kaydıdır. Q5 kodu Draft PR #18'dedir; bu ADR güncellemesi uygulamayı onaylamaz, PR'ı kapatmaz veya endpoint'leri production'a açmaz. Bu güncellemede yalnız belgeler değiştirilir; kod, ENV ve migration değişmez.
+Bu belge yanıt, öneri, kabul edilmiş QR kararı ve uygulanmış kodu ayrı gösterir. PR #17, `3761324` ile dev'e alınan önceki ADR kararlarının kaydıdır. Q5 kodu Draft PR #18'dedir; bu ADR güncellemesi uygulamayı onaylamaz, PR'ı kapatmaz veya endpoint'leri production'a açmaz. Nihai revizyon; Auth kodu, V8 migration, test/ENV varsayılanları, ağ kabul senaryosu ve belgeleri birlikte günceller.
 
 ## 1. Review kaynakları ve kapsam
 
@@ -22,7 +22,7 @@ Kerem'in yanıtı ve staff-v1 GitHub üzerinden salt okunur incelendi; Auth dal�
 
 - [Draft PR #18](https://github.com/software-lecture-labs/Restofy/pull/18): Auth–QR uygulaması ve test sonuçları; bu ADR güncellemesinden önceki kod başı `d063fd6`.
 - [Kerem'in QR sahipliği ve inceleme sınırı](https://github.com/software-lecture-labs/Restofy/pull/18#issuecomment-6667427175) ve [Alper'in teknik değerlendirme yapacağını belirten yanıtı](https://github.com/software-lecture-labs/Restofy/pull/18#issuecomment-6671475409).
-- [Q5 teknik ADR'si](ADR-AUTH-Q5-coordinated-revocation.md), [internal/HTTP sözleşmesi](../auth-service/q5-contract.md), [güncel uygulama ve test raporu](../auth-service/q5-implementation-status.md).
+- [Q5 teknik ADR'si](ADR-AUTH-Q5-coordinated-revocation.md) ve [internal/HTTP sözleşmesi](../auth-service/q5-contract.md).
 
 Bu kaynaklar önceki “Kerem'den revizyon bekleniyor” durumunu yanıt sunuldu olarak günceller. QR sorumlusu Alper'in kod değerlendirmesi ile öğretim görevlisi/PR onayı ayrıca beklenir.
 
@@ -115,7 +115,8 @@ Toplam 17 personel method/path çifti: 11 yalnız ADMIN, 6 ADMIN veya WAITER. Me
 | Doğrulanmış personelin rol/CSRF reddi | 403; kaynak/tenant eşleşmesinde mevcut güvenli 403/404 sınırı korunur |
 | QR primary DB/guard veya güvenli bootstrap kullanılamıyor | 503; eski JWT veya olumlu cache ile fallback yok |
 | Auth normal personel isteği sırasında kapalı | Geçerli JWT + kullanılabilir yerel guard ile QR çalışır; JWT süresi uzatılmaz, login/refresh/activity etkilenebilir |
-| İptal sırasında QR kapalı, ACK kayıp veya doğrulanamıyor | Auth FINALIZE yapmaz; kalıcı PREPARE ve pending bariyeri korunur, işlem başarı sayılmaz |
+| LOCAL_FIRST sırasında QR kapalı, ACK kayıp veya doğrulanamıyor | Logout/reset/MFA yerelde atomik tamamlanır; durable teslimat ACK veya hedef JWT expiry sonucuna kadar yeniden denenir |
+| ACK_REQUIRED sırasında QR kapalı, ACK kayıp veya doğrulanamıyor | Auth yönetici etkisini uygulamaz; kalıcı PREPARE ve credential bariyeri ACK veya bütün hedef JWT'lerin sona ermesine kadar korunur |
 | QR engeli commit etti, Auth FINALIZE başarısız | Fence ve doğrulanmış ACK geri alınmaz; kalıcı işlem üzerinden tekrar denenir |
 
 Auth → QR connect/read timeout'ları 2/3 saniyedir; worker 5 saniye arayla, en çok 8 işi ve 30 saniyelik claim süresini kullanır. Aynı operation/manifest ile tekrar idempotenttir. HTTP açık DB transaction'ı veya uzun kilit altında yapılmaz. Servis credential reddi personel logout'u değildir.
@@ -124,22 +125,22 @@ Auth → QR connect/read timeout'ları 2/3 saniyedir; worker 5 saniye arayla, en
 
 ### Q5 — Güncel iptal, önbellek ve kesinleşme sınırı
 
-**Korunan gereksinim:** Alper'in 5 Kasım'da reddettiği kalan access TTL kadar iptal gecikmesi kabul edilmiyor. İlk salt JWT önerisi tarihsel yanıttır; geçerli çözüm değildir.
+**Korunan gereksinim:** İlk salt JWT önerisi tarihsel yanıttır. Nihai kararda access-token ömrü 300 saniyedir; QR fence normal durumda gecikmeden uygulanır, QR kesintisinde kabul edilen en kötü eski JWT penceresi 300 saniyedir.
 
-**Kerem'in revize yanıtı — PR #18:** C — koordineli kalıcı iptal:
+**Kerem'in revize yanıtı — PR #18:** Kalıcı teslimatı koruyan iki politika:
 
-1. **Auth PREPARE:** Kısa transaction'da kaynak kimliği/barier ve kullanıcı kilidi altında operation ile hedef SID manifesti kalıcılaştırılır. Aynı kilit/pending kontrolü login, refresh ve MFA üretimini kapatır. Yanlış restoran/generation kullanan Auth instance'ı hazır sayılmaz ve hatalı işlem oluşturamaz.
-2. **QR kalıcı engel:** Transaction dışında gelen yetkili Auth komutu için QR, primary DB'de SID engellerini ve idempotent receipt kaydını aynı transaction'da commit eder.
-3. **QR ACK:** Ancak commit sonrasında imzalı receipt döner. Minimum komut alanları `operationId,restaurantId,userId,revision,generation,targets[{sessionId,denyUntil}]` olup ACK operation/restoran/generation/tam manifest digest'ine bağlıdır. Yanıt yalnız HTTP 200 olduğu için kabul edilmez.
-4. **Auth FINALIZE:** Auth doğrulanmış ACK'i kalıcılaştırır; ayrı kısa transaction'da session/refresh iptalini ve varsa korunan iş değişikliğini tamamlar. ACK olmadan tamamlanmış iptal veya başarı cevabı yoktur.
+1. **LOCAL_FIRST:** Logout, password reset, MFA recovery-code yenileme ve otomatik temizleme; yerel iş etkisi, session/refresh iptali ve immutable SID manifestini tek Auth transaction'ında commit eder. Bu pending kayıt yeni login/refresh'i engellemez.
+2. **ACK_REQUIRED PREPARE:** Hesap pasifleştirme, rol değişikliği ve force-revoke için yalnız manifest ile credential bariyerini commit eder. Yönetici etkisi QR ACK veya bütün hedef tokenların sona ermesinden önce uygulanmaz.
+3. **QR kalıcı engel:** Transaction dışında gelen yetkili Auth komutu için QR, primary DB'de SID engellerini ve idempotent receipt kaydını aynı transaction'da commit eder.
+4. **QR ACK / expiry sonucu:** ACK operation/restoran/generation/tam manifest digest'ine bağlıdır. ACK yoksa worker hedeflerin en büyük `denyUntil` zamanına kadar retry eder; sonrasında `TARGETS_EXPIRED` ile güvenli tamamlar.
 
-**Kesin garanti:** Auth FINALIZE commit'inden sonra başlayan yeni QR yetkilendirme kontrolü, manifestteki eski SID'ye bağlı JWT hâlâ kriptografik olarak geçerli olsa da kaldırılan yetkiyi veremez. FINALIZE öncesinde başlamış kontroller/işlemler geriye dönük iptal edilmiş sayılmaz. QR'a henüz fence yazılmamış PREPARE aşamasında eski SID erişimi sürebilir; bu aşama tamamlanmış iptal olarak sunulmaz.
+**Kesin garanti:** QR fence ACK'iyle tamamlanan işlemden veya bütün hedef JWT'lerin `denyUntil` zamanının geçmesinden sonra eski SID yeni QR yetkilendirmesinde kabul edilmez. LOCAL_FIRST yerel Auth etkisini QR teslimatından bağımsız tamamlar; QR kesintisindeki eski JWT riski en fazla 300 saniyedir. ACK_REQUIRED yönetici etkisini bu güvenli sınırdan önce başarılı göstermez.
 
-**Cache ve kesinti:** Positive cache/read replica veya instance belleğindeki deny listesi kullanılmaz. Bütün QR instance'ları primary DB'deki aynı kalıcı engelleri yeni READ COMMITTED transaction'ında okur. DB/guard kesintisi 503'tür; TTL/önceki olumlu sonuca fallback yapılmaz. Kayıp ACK aynı operation/manifest ile yeniden alınır. QR engeli Auth hatası yüzünden kaldırılmaz. Bu, commit-sonrası asenkron bildirim değildir.
+**Cache ve kesinti:** Positive cache/read replica veya instance belleğindeki deny listesi kullanılmaz. Bütün QR instance'ları primary DB'deki aynı kalıcı engelleri yeni READ COMMITTED transaction'ında okur. DB/guard kesintisi 503'tür; önceki olumlu sonuca fallback yapılmaz. Kayıp ACK aynı operation/manifest ile yeniden alınır. LOCAL_FIRST teslimatı commit-sonrası asenkrondur; ACK_REQUIRED ise yönetici başarısını güvenli kesinleşmeye bağlar.
 
-**Idle ve iş yan etkileri:** Access JWT ömrü mevcut idle/absolute son tarihini aşmaz; 60 dakikaya çıkarılmadı. Reset ve MFA recovery-code değişiklikleri ilk doğrulanmış istekte PREPARE/503, geçerli proof ile retry ve FINALIZE + iş değişikliğini aynı transaction'da uygular. Worker iş değişikliğini kendi başına yapmaz. Süresi dolan business resume yalnız QR ACK varsa iptali EXPIRED tamamlayabilir; parola/factor değişikliği başarılı sayılmaz.
+**Idle ve iş yan etkileri:** Access JWT ömrü 300 saniyedir ve mevcut idle/absolute son tarihini aşmaz. Reset ve MFA recovery-code değişiklikleri geçerli proof bulunan ilk istekte yerel iptal/outbox ile aynı transaction'da tamamlanır; QR kesintisi bunları 503'e çevirmez. Aynı kullanıcıda aktif ACK_REQUIRED işlem varsa güvenlik önceliğiyle 503/PENDING korunur.
 
-**Sorumluluk ve kanıt:** Auth koordinasyon/credential bariyeri/ACK/FINALIZE'ı; QR kalıcı guard, JWT/RBAC/restoran/kaynak kontrolünü üstlenir. PR #18 bunları tek Q5 inceleme kapsamına getirir; QR kodunun değerlendirmesi Alper'e, ortak sözleşme ve senaryo doğrulaması Kerem + Alper'e aittir. Son yerel sonuçlar Auth 308, QR 606, Gateway 48 test ve 15 aşamalı gerçek ağ kabulüdür; failure/error/skip yoktur. MFA–PREPARE kilit sıraları gerçek PostgreSQL'de, kesinti/ACK kaybı/crash/FINALIZE/restore ise gerçek servis ağıyla doğrulandı. Reset/MFA tam ağ E2E ve önerilen geçmiş PREPARED repair E2E henüz doğrulanmadı. Test sayısı reviewer onayının veya production hazırlığının yerine geçmez.
+**Sorumluluk ve kanıt:** Auth koordinasyon/credential bariyeri/ACK/FINALIZE'ı; QR kalıcı guard, JWT/RBAC/restoran/kaynak kontrolünü üstlenir. PR #18 bunları tek Q5 inceleme kapsamına getirir; QR kodunun değerlendirmesi Alper'e, ortak sözleşme ve senaryo doğrulaması Kerem + Alper'e aittir. Son yerel sonuçlar Auth 317, QR 606, Gateway 48 test ve 15 aşamalı gerçek ağ kabulüdür; failure/error/skip yoktur. Logout–refresh, reset–login, MFA–refresh, LOCAL_FIRST–ACK_REQUIRED ve iki worker yarışları gerçek PostgreSQL'de; outbox yazma hatası, kesinti, ACK kaybı, crash, strict FINALIZE ve restore ise rollback/ağ senaryolarıyla doğrulandı. Reset/MFA tam ağ E2E henüz doğrulanmadı. Test sayısı reviewer onayının veya production hazırlığının yerine geçmez.
 
 **Bootstrap/restore sınırı:** Boş guard “herkes geçerli” değildir; güvenli baseline gerekir. Desteklenen restore manueldir: personel ingress'i ve bütün Auth/QR süreçleri kapatılır, restore sonrasında yeni nonce üreten karantina SQL'i çalıştırılır, yeni baseline ve Auth FINALIZE/source ACTIVE doğrulanmadan trafik açılmaz. Habersiz DB/VM/RAM geri sarma ve Auth'ta kaybolmuş kimlik kararlarının otomatik kurtarılması kapsam dışıdır. [Restore runbook](../auth-service/q5-restore-runbook.md) ve [P2 kurtarma/peer smoke sınırları](../auth-service/q5-p2-recovery-and-peer-smoke.md) korunur.
 
@@ -192,7 +193,7 @@ Her QR isteği öncesinde Auth'tan yeni CSRF tokenı veya personel JWT'si alma z
 
 Tarihli analiz belgelerindeki çok restoran hedefi bu MVP'de uygulanmış sayılmayacak. Çoklu restoran desteği istenirse üyelik, aktif restoran, token/güncellik ve tüketici geçişleri ayrı kapsam ve karar olarak ele alınacak. Bu çalışma mimari/gereksinim rehberlerini topluca yeniden yazmaz; MVP kapsam daraltmasını burada kaydeder. QR'ın gerçek restoran ayarı Q7 kapsamında uygulama PR'ında bağlanacak; bu karar için ENV veya DB değişikliği yapılmadı.
 
-**Durum:** MVP kapsamı Alper tarafından KABUL EDİLDİ. Mevcut Auth tek restoran yaklaşımı korunur; QR/Q5 uygulaması PR #18'de sunuldu ve teknik inceleme bekliyor. Q5'in kesin iptal şartı değişmedi.
+**Durum:** MVP kapsamı Alper tarafından KABUL EDİLDİ. Mevcut Auth tek restoran yaklaşımı korunur; QR/Q5 uygulaması PR #18'de sunuldu ve teknik inceleme bekliyor. Kesin (ACK_REQUIRED) iptal şartı yalnız yönetici işlemleri için (hesap pasifleştirme, rol kaldırma, force-revoke) korunur; personelin kendi logout, parola sıfırlama ve MFA kurtarma kodu yenilemesi LOCAL_FIRST olarak Auth'ta hemen tamamlanır.
 
 ## 4. Rate limit sahipliği ve reviewer kapsamı
 
@@ -221,15 +222,15 @@ Alper 5 Kasım'da önce RBAC/JWT/HTTP cookie entegrasyonu, ardından ayrı rate 
 | Başlık | Güncel durum / sorumlu |
 | --- | --- |
 | Q1–Q5 revize mekanizma ve hata sözleşmesi | Kerem PR #18'de yanıtladı; “Auth yanıtı bekleniyor” değil, Alper/QR teknik değerlendirmesi ve ortak PR onayı bekleniyor. |
-| Q5 FINALIZE garantisi | Kalıcı QR fence → doğrulanmış ACK → Auth FINALIZE; eski JWT'ye TTL fallback yok. Test ve sınırlar teknik ADR'de. |
-| Auth uygulaması | Kerem: PREPARE, credential bariyeri, kalıcı retry, ACK doğrulama, FINALIZE ve reset/MFA sınırları PR #18'de. Yeni personel yönetimi endpoint'i yok. |
+| Q5 kesinleşme garantisi | Kalıcı QR fence → doğrulanmış ACK veya bütün hedeflerin `denyUntil` süresinin geçmesi; kabul edilen en kötü risk penceresi 300 saniye. |
+| Auth uygulaması | Kerem: LOCAL_FIRST/ACK_REQUIRED, credential bariyeri, kalıcı retry, ACK/expiry sonucu ve reset/MFA atomikliği PR #18'de. Yeni personel yönetimi endpoint'i yok. |
 | QR uygulaması ve sahiplik | PR #18'de guard/JWT/RBAC/CSRF uygulaması var; Alper mevcut akışlar, kaynak yetkileri ve açılış koşullarıyla karşılaştırarak teknik değerlendirme yapacak. QR değişiklikleri onaylanmış sayılmaz. |
 | QR personel rol matrisi | Q3.1 için 5 Kasım kabulü korunur: 11 ADMIN, 6 ADMIN/WAITER; KITCHEN yok. Uygulama PR #18'de, review bekliyor. |
 | Staff anahtar kaynağı | Mevcut Auth RSA çifti/public materyal korunur; private/CSRF/MFA/reset sırları QR'a verilmez. Q7 anahtar aracı kararı değişmez. |
 | Internal trust, TLS ve peer key | Dedicated command/receipt anahtarları, dar scope ve 30 saniyelik receipt uygulanmış öneridir. Gerçek provisioning/TLS ve her QR instance'ında Auth JWT smoke kontrolü deployment sahipleri + Kerem/Alper tarafından tamamlanacak; otomatik peer fingerprint eşleşmesi yok. |
 | Cookie/CSRF ve Origin | Q8 kabulü korunur; PR #18'de consumer uygulaması/negatif testler var. Gerçek ortam Origin'leri, browser/sekme davranışı ve frontend entegrasyonu ayrıca doğrulanacak. |
 | MVP restoran kapsamı | Q9 tek restoran kararı korunur; restoran/kaynak kontrolleri kaldırılmaz. Yerel restoran/generation kalıcı source identity ile eşleştirilir. |
-| Pending/503 ve reset/MFA retry | Sözleşme PR #18'de yanıtlandı. Frontend hata/yeniden deneme akışı ve tam reset/MFA ağ E2E doğrulaması Kerem + ilgili frontend/QR sahipleriyle tamamlanacak. |
+| Pending/503 ve reset/MFA | LOCAL_FIRST logout/reset/MFA QR kesintisinde yerelde tamamlanır; aktif ACK_REQUIRED işlem varken reset/MFA 503/PENDING kalır. Frontend silent refresh ve tam reset/MFA ağ E2E ayrıca tamamlanacak. |
 | Bootstrap ve manuel restore | Yeni baseline/re-login ve zorunlu karantina nonce prosedürü mevcut. Gerçek deployment restore tatbikatı ve operasyon sahipliği bekleniyor; otomatik restore vaat edilmiyor. |
 | Geçmiş yanlış-generation PREPARED repair | Önkoşullu manuel öneri belgelendi; otomatik onarım yok. QR receipt yokluğu doğrulanmadan manifest değişmez; ayrı repair E2E doğrulanmadı. |
 | Ortak entegrasyon ve CI | Yerel Auth/QR/Gateway/ağ testleri geçti. Gerçek Auth → Gateway → QR browser akışı ve tam reset/MFA E2E tamamlanmış sayılmaz. Dev'deki Order persistence CI hatası Q5'ten ayrı izlenir. |
@@ -238,16 +239,63 @@ Alper 5 Kasım'da önce RBAC/JWT/HTTP cookie entegrasyonu, ardından ayrı rate 
 | Guest taşıması ve Waiter delegasyonu | 5 Kasım guest HttpOnly cookie kararı korunur; ilgili Order/Waiter/QR entegrasyonları ayrı kapsamdır. Q5 personel çözümü bunları tamamlamaz. |
 | PR/reviewer onayı | PR #18 Draft; Alper'in QR değerlendirmesi ve öğretim görevlisi/reviewer onayı bekleniyor. Bu belge onay/merge yerine geçmez. |
 
-Auth'un ilk yanıtında yeni endpoint/ENV/migration bulunmadığı bilgisi tarihsel ilk öneriye aittir. PR #18'de Q5 için Auth V7 ve QR V122, internal endpoint ve güvenlik ayarları bulunur; ayrıntılar [Q5 sözleşmesinde](../auth-service/q5-contract.md) ve [teknik ADR'de](ADR-AUTH-Q5-coordinated-revocation.md) kayıtlıdır. Bunlar dev'e uygulanmış sayılmaz. Auth feature branch'inin ilgisiz geliştirmeleri taşınmadı; gelecekte V5/V6 entegrasyonu forward-only migration incelemesi gerektirir.
+Auth'un ilk yanıtında yeni endpoint/ENV/migration bulunmadığı bilgisi tarihsel ilk öneriye aittir. PR #18'de Q5 için Auth V7/V8 ve QR V122, internal endpoint ve güvenlik ayarları bulunur; ayrıntılar [Q5 sözleşmesinde](../auth-service/q5-contract.md) ve [teknik ADR'de](ADR-AUTH-Q5-coordinated-revocation.md) kayıtlıdır. Bunlar dev'e uygulanmış sayılmaz. Auth feature branch'inin ilgisiz geliştirmeleri taşınmadı. V5/V6 ile V7/V8 SQL nesneleri doğrudan çakışmaz; ancak geçici merge incelemesi ortak Auth dosyalarında çözülmesi gereken çatışmalar gösterdiği için birleşik dalın temel Auth testi henüz tamamlanmış kanıt değildir.
 
 ## 7. Doğrulama ve teslim sınırı
 
 **İlk inceleme kaydı:** PR #17'deki review/yorumlar, sabit commit'teki ilk Auth yanıtı ve dev kaynakları korunur. İlk ADR çalışmasında kod/test/ENV/migration uygulanmamıştı; bu tarihsel durum PR #18'in mevcut uygulama kanıtının yerine geçmez.
 
-**PR #18 yerel kanıtı:** Auth 308, QR 606, Gateway 48 test ve 15 aşamalı gerçek ağ kabulü geçti; failure/error/skip yok. Gerçek PostgreSQL'de MFA–PREPARE kilit sıraları; gerçek servislerde yanlış source identity, yanlış staff peer key reddi, ACK kaybı, crash, DB kesintisi, FINALIZE rollback ve desteklenen QR restore akışı sınandı. [Güncel rapor](../auth-service/q5-implementation-status.md) komutları ve kapsamı kaydeder. Sayılar bu belge değişikliğinde tekrar çalıştırılmış test sonucu değildir.
+**PR #18 yerel kanıtı:** Güncel ve yeniden üretilmiş test sayıları PR açıklamasına yazılır. Bu ADR tarihsel test sayılarını başarı kanıtı olarak sabitlemez.
 
 **Doğrulanmayanlar/kabul bekleyenler:** Reset/MFA tam ağ E2E, geçmiş PREPARED repair E2E, production TLS/key provisioning, gerçek deployment restore tatbikatı, bütün instance'larda deployment peer smoke ve tam browser/Gateway entegrasyonu. Readiness UP tek başına doğru staff peer key kanıtı değildir. Habersiz DB/VM geri sarma için otomatik güvenlik garantisi yoktur.
 
-**Teslim sınırı:** Bu commit yalnız ADR güncellemesidir. Uygulama kodunu, ENV'i, migration'ı, guest/rate-limit akışını değiştirmez; yeni bir deployment veya merge yapmaz. Alper'in olumlu yaklaşım değerlendirmesi, ayrıntılı QR teknik incelemesinin veya öğretim görevlisi onayının tamamlandığı şeklinde yorumlanmaz.
+**Teslim sınırı:** Bu revizyon Q5 uygulama kodunu, V8 migration'ını, 300 saniyelik test/ENV varsayılanını ve ilgili belgeleri değiştirir; guest/rate-limit akışını değiştirmez. Henüz commit, PR güncellemesi, merge veya deployment yapılmamıştır. Alper'in olumlu yaklaşım değerlendirmesi, ayrıntılı QR teknik incelemesinin veya öğretim görevlisi onayının tamamlandığı şeklinde yorumlanmaz.
 
 İlgili kaynaklar: [SECURITY](../SECURITY.md), [QR lifecycle ADR'si](ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md), [müşteri güvenliği](ADR-QR-002-security.md).
+
+## 8. Q5 nihai politika ayrımı
+
+Q5 teslimatı iki güvenlik politikasına ayrılır:
+
+| Politika | İşlemler | QR kesintisinde davranış |
+| --- | --- | --- |
+| `LOCAL_FIRST` | logout, password reset confirm, MFA recovery-code regenerate, otomatik session temizliği | Auth yerel işi ve durable bildirimi atomik commit eder; kullanıcı başarısı QR ACK beklemez |
+| `ACK_REQUIRED` | hesap pasifleştirme, rol değişikliği, yönetici force-revoke | QR ACK veya bütün hedef access JWT'lerin sona ermesi öncesinde başarı yoktur |
+
+Personel access-token TTL'si 300 saniyedir. QR kalıcı SID engeli, imzalı ACK, generation/manifest doğrulaması, RBAC, restoran izolasyonu ve DB/readiness kesintisindeki fail-closed davranış değişmez. Duplicate veya ters sıralı iptal komutları SID engellerini kaldıramaz.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Auth
+    participant ADB as Auth DB
+    participant Worker
+    participant QR
+    User->>Auth: LOCAL_FIRST işlem
+    Auth->>ADB: iş etkisi + revoke + durable bildirim
+    ADB-->>Auth: COMMIT
+    Auth-->>User: başarı
+    Worker->>QR: retry edilen iptal komutu
+    QR-->>Worker: commit sonrası imzalı ACK
+```
+
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant Auth
+    participant ADB as Auth DB
+    participant Worker
+    participant QR
+    Admin->>Auth: ACK_REQUIRED işlem
+    Auth->>ADB: PREPARE + credential bariyeri
+    Auth-->>Admin: PENDING
+    alt QR ACK
+        Worker->>QR: iptal komutu
+        QR-->>Worker: imzalı ACK
+        Worker->>ADB: yönetici etkisini finalize et
+    else 300 saniyelik hedef penceresi doldu
+        Worker->>ADB: TARGETS_EXPIRED ile finalize et
+    end
+```
+
+Frontend silent refresh **NOT IMPLEMENTED**. 300 saniyelik TTL, tarayıcı deneyiminin kesintisiz yenilendiği anlamına gelmez. Production TLS, gerçek anahtar provisioning ve restore tatbikatı ayrıca tamamlanmalıdır.

@@ -184,6 +184,25 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void otherDeviceRefreshCannotSurviveConcurrentRecoveryCodeRegeneration() throws Exception {
+        var initial = enabled();
+        Identity owner = jwt.verify(initial.grant().access(), false);
+        Identity pendingOther = pending();
+        clock.advance(30);
+        var other = verification.verify(pendingOther, currentCode(), "other-device").grant();
+        String proof = initial.recoveryCodes().getFirst();
+        race(() -> {
+            verification.regenerate(owner, PASSWORD, null, proof, "regenerate-race");
+            return true;
+        }, () -> {
+            try { sessions.refresh(other.refresh()); return true; }
+            catch (BadCredentialsException _) { return false; }
+        });
+        assertThatThrownBy(() -> sessions.refresh(other.refresh())).isInstanceOf(BadCredentialsException.class);
+        assertThat(sessions.authenticate(owner).getRevokedAt()).isNull();
+    }
+
+    @Test
     void corruptedSecretFailsClosedAndDisableRevokesPromotedSessions() {
         var initial = enabled();
         Identity pending = pending();
@@ -226,7 +245,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         var latest = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
-        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(5);
+        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(6);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions migrated JOIN public.user_sessions original "

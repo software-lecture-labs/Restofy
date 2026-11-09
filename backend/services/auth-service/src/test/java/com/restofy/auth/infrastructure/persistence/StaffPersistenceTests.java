@@ -63,7 +63,8 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     @Test
     void flywayAppliesV1AndHibernateValidatesStaffSchema() {
         flyway.validate();
-        assertThat(flyway.info().applied()).hasSize(5);
+        assertThat(flyway.info().applied()).hasSize(6);
+        assertThat(flyway.info().applied()[5].getVersion().getVersion()).isEqualTo("8");
         assertThat(flyway.info().applied()[4].getVersion().getVersion()).isEqualTo("7");
         assertThat(flyway.info().applied()[3].getVersion().getVersion()).isEqualTo("4");
         assertThat(flyway.info().applied()[2].getVersion().getVersion()).isEqualTo("3");

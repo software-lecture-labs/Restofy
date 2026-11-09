@@ -39,6 +39,10 @@ public class RevocationRetryWorker {
                 bootstrap.finish(baseline, qr.baseline(baseline));
             }
             stage = "CLAIM";
+            var queue = transactions.queueStats();
+            if (queue.pending() > 0) {
+                log.info("Q5 queue pending={} oldest_seconds={}", queue.pending(), queue.oldestSeconds());
+            }
             for (var id : transactions.claimRetries()) {
                 try { coordinator.deliver(id); }
                 catch (RuntimeException unavailable) { log.warn("Q5 retry deferred operation={} stage=DELIVERY category={}", id, category(unavailable)); }

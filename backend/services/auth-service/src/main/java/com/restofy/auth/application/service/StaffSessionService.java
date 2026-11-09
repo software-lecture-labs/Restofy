@@ -29,7 +29,6 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Propagation;
 
 @Service
 @Transactional(noRollbackFor = {BadCredentialsException.class, RevocationPendingException.class})
@@ -141,7 +140,6 @@ public class StaffSessionService {
         return session;
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public void logout(String refresh, String access, String pending) {
         UUID sessionId = logoutSession(refresh, access, pending);
         if (sessionId == null) {
@@ -150,20 +148,23 @@ public class StaffSessionService {
         var found = sessions.findById(sessionId);
         if (found.isPresent()) {
             UserSession session = found.get();
-            coordinator.logout(settings.restaurantId(), session.getStaffUserId(), session.getId());
+            revocations.prepareLogout(settings.restaurantId(), session.getStaffUserId(), session.getId(),
+                    coordinator.generation());
         }
     }
 
     public void deactivate(UUID staffUserId) {
         StaffUser user = lockUser(staffUserId);
-        revocations.prepareLocked(settings.restaurantId(), user.getId(), RevocationTransactions.Action.DISABLE, null, coordinator.generation());
-        throw new RevocationPendingException();
+        var operation = revocations.prepareLocked(settings.restaurantId(), user.getId(),
+                RevocationTransactions.Action.DISABLE, null, coordinator.generation());
+        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
     }
 
     public void revokeAllSessions(UUID staffUserId) {
         lockUser(staffUserId);
-        revokeAll(staffUserId);
-        throw new RevocationPendingException();
+        var operation = revocations.prepareLocked(settings.restaurantId(), staffUserId,
+                RevocationTransactions.Action.ALL, null, coordinator.generation());
+        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
     }
 
     public Grant completeMfa(Identity identity) {
@@ -175,11 +176,13 @@ public class StaffSessionService {
 
     public void revokeOtherSessions(Identity identity) {
         authenticate(identity);
-        revocations.businessFence(settings.restaurantId(), identity.userId(), identity.sessionId(), coordinator.generation(), "MFA", identity.sessionId());
+        revocations.prepareLocalFirst(settings.restaurantId(), identity.userId(), RevocationTransactions.Action.OTHERS,
+                identity.sessionId(), coordinator.generation());
     }
 
     public void revokeForPasswordReset(UUID user, UUID requestId) {
-        revocations.businessFence(settings.restaurantId(), user, null, coordinator.generation(), "RESET", requestId);
+        revocations.prepareLocalFirst(settings.restaurantId(), user, RevocationTransactions.Action.ALL, null,
+                coordinator.generation());
     }
 
     public void requireSecuritySource() { revocations.requireSourceActive(); }
@@ -238,13 +241,15 @@ public class StaffSessionService {
 
     private void revokeAll(UUID userId) {
         if (sessions.findByStaffUserId(userId).stream().anyMatch(session -> session.getRevokedAt()==null)) {
-            revocations.prepareLocked(settings.restaurantId(), userId, RevocationTransactions.Action.ALL, null, coordinator.generation());
+            revocations.prepareLocalFirst(settings.restaurantId(), userId, RevocationTransactions.Action.ALL, null,
+                    coordinator.generation());
         }
     }
 
     private void revoke(UserSession session, Instant now) {
-        if (session.getRevokedAt() == null) revocations.prepareLocked(settings.restaurantId(), session.getStaffUserId(),
-                RevocationTransactions.Action.SESSION, session.getId(), coordinator.generation());
+        if (session.getRevokedAt() == null) revocations.prepareLocalFirst(settings.restaurantId(),
+                session.getStaffUserId(), RevocationTransactions.Action.SESSION, session.getId(),
+                coordinator.generation());
     }
 
     public static String digest(String value) {

@@ -20,7 +20,7 @@ public abstract class Q5TestSecuritySupport {
         registry.add("qr.q5.staff-public-key", () -> encoded(STAFF.getPublic().getEncoded()));
         registry.add("qr.q5.restaurant-id", () -> "6c54daf0-9340-4a1c-981d-f9acc0261779");
         registry.add("qr.q5.staff-issuer", () -> "restofy-auth");
-        registry.add("qr.q5.access-ttl-seconds", () -> "900");
+        registry.add("qr.q5.access-ttl-seconds", () -> "300");
         registry.add("qr.q5.allowed-origins", () -> "https://restofy.example");
     }
 

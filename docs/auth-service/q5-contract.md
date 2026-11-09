@@ -1,63 +1,86 @@
 # Q5 Auth–QR sözleşmesi
 
-Bu belge yalnız Q5 eklerini tanımlar; dev'de bulunmayan personel yönetimi API'leri varmış gibi göstermez. Tasarım ve restore varsayımları [ADR önerisindedir](../decisions/ADR-AUTH-Q5-coordinated-revocation.md).
+Bu belge Q5 erişim iptali eklerini tanımlar. Normal QR personel istekleri Auth'a HTTP çağrısı yapmaz; QR, staff JWT'sini ve kendi primary PostgreSQL veritabanındaki kalıcı SID engelini denetler.
 
-## Browser ve servis davranışı
+## Politika matrisi
 
-| Yol/işlem | Davranış |
-| --- | --- |
-| `POST /api/v1/auth/logout` | Normal Auth cookie/CSRF sözleşmesi sürer. QR ACK + FINALIZE tamamlanırsa 204 ve cookie temizliği; kesintide kalıcı PREPARE ile 503. Aynı SID yeniden denenir. |
-| Reset confirm / MFA recovery-code regenerate | İlk doğrulanmış istek PREPARE ile 503 olabilir. Worker ACK sonrası aynı amaç/kanıtla retry, FINALIZE ve iş değişikliğini atomik tamamlar. 503 başarı değildir. |
-| Login/refresh/MFA grant | Kullanıcıda pending operation veya kapalı kaynak bariyeri varsa yeni credential üretilmez. |
-| QR staff isteği | Yerel RS256/claim doğrulaması + primary DB guard + yerel rol/restaurant/kaynak kontrolü. Auth HTTP çağrısı yapılmaz. |
+| İşlem | Politika | Auth cevabı | Credential bariyeri |
+| --- | --- | --- | --- |
+| Logout | `LOCAL_FIRST` | Yerel commit ve cookie temizliği sonrası 204 | Hayır |
+| Password reset confirm | `LOCAL_FIRST` | Parola, reset kaydı, oturum iptali ve teslimat kaydı aynı transaction'da commit edilirse 204 | Hayır |
+| MFA recovery-code regenerate | `LOCAL_FIRST` | Aktör oturumu korunur; diğer oturumlar ve teslimat kaydı commit edildikten sonra kodlar döner | Hayır |
+| Geçersiz/replay/inactive session temizliği | `LOCAL_FIRST` | Yerel güvenlik etkisi hemen uygulanır | Hayır |
+| Hesap pasifleştirme, rol değişikliği, yönetici force-revoke | `ACK_REQUIRED` | QR ACK veya bütün hedef JWT'lerin sona ermesinden önce başarı yok; 503/PENDING | Evet |
 
-QR'da invalid/expired JWT veya iptal SID 401; doğrulanmış kimliğin rol/CSRF reddi 403; guard/DB/readiness kesintisi 503'tür. Önceden başlayan bir işin sonradan iptal edildiği iddia edilmez.
+`LOCAL_FIRST` için iş değişikliği, session/refresh iptali, immutable SID manifesti ve durable teslimat kaydı tek Auth transaction'ındadır. Outbox yazılamazsa iş etkisi de rollback olur. QR kesintisi commit edilmiş yerel işlemi 503'e çevirmez.
 
-## Internal komut
+`ACK_REQUIRED` PREPARE, aynı kullanıcı kilidi altında yeni login/refresh/MFA credential üretimini durdurur. QR'ın imzalı ACK'i doğrulandığında veya manifestteki en büyük `denyUntil` geçtiğinde yerel yönetici etkisi finalize edilir. Hedef yoksa sonuç doğrudan `NO_TARGETS` olur.
 
-`POST /internal/q5/revocations`, `Authorization: Bearer <dedicated service JWT>`, JSON body:
+Logout sıkı işlem sırasında da yerel tamamlanır. Sıkı manifest logout SID'sini kapsıyorsa yeni teslimat oluşturulmaz; kapsamıyorsa ayrı idempotent `LOCAL_FIRST` teslimatı kaydedilir. Password reset ve MFA regeneration sırasında sıkı işlem varsa 503/PENDING korunur.
 
-```text
-operationId: UUID
-restaurantId: UUID
-userId: UUID
-revision: positive integer
-generation: stable QR consumer UUID
-targets: [{ sessionId: UUID, denyUntil: Instant }]
+## Akışlar
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Auth
+    participant ADB as Auth DB
+    participant Worker
+    participant QR
+    User->>Auth: logout / reset confirm / MFA regenerate
+    Auth->>ADB: iş etkisi + session/refresh revoke + manifest/outbox
+    ADB-->>Auth: COMMIT
+    Auth-->>User: 204 / recovery codes
+    Worker->>QR: imzalı, idempotent iptal komutu
+    QR-->>Worker: commit sonrası imzalı ACK
+    Worker->>ADB: ACKNOWLEDGED ile tamamla
 ```
 
-JWT: `iss=auth-service`, `aud=restofy-qr-revocation`, `token_type=service`, `scope=staff:revocation:write`; `sub=operationId`; restaurant, generation ve canonical manifest SHA-256 claim'leri; UUID jti, iat/nbf/exp, en çok 30 saniye. Digest normalleştirilmiş UUID/Instant alanlarına bağlıdır; wire JSON boşlukları güvenlik girdisi değildir.
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant Auth
+    participant ADB as Auth DB
+    participant Worker
+    participant QR
+    Admin->>Auth: disable / role / force-revoke
+    Auth->>ADB: ACK_REQUIRED PREPARE + credential bariyeri
+    ADB-->>Auth: COMMIT
+    Auth-->>Admin: 503 PENDING
+    alt doğrulanmış ACK
+        QR-->>Worker: imzalı ACK
+        Worker->>ADB: yönetici etkisi + revoke + ACKNOWLEDGED
+    else bütün denyUntil değerleri geçti
+        Worker->>ADB: yönetici etkisi + revoke + TARGETS_EXPIRED
+    end
+```
 
-Yanıt `{receipt: <signed JWT>}`. QR imzası yalnız commit sonrası oluşturulur. ACK: `iss=qr-service`, `aud=restofy-auth`, `scope=staff:revocation:ack`, aynı operation/restaurant/generation/digest ve kısa süre. Bir HTTP 200 tek başına ACK değildir. Duplicate komut kayıtlı manifesti yeniden doğrular; yeni, kısa ömürlü imza aynı kalıcı sonuca bağlıdır.
+## HTTP ve hata davranışı
 
-`POST /internal/q5/challenge` body `operationId,restaurantId,generation`; scope `staff:bootstrap:challenge`. Yanıt güncel DB nonce'u ve readiness bilgisidir. Bu cevap tek başına Auth'u açmaz.
+- `POST /api/v1/auth/logout`: yerel commit sonrası 204; Auth cookie'lerinin tamamı temizlenir. QR kesintisi 503 üretmez.
+- Password reset confirm: atomik yerel commit sonrası 204 ve cookie temizliği.
+- MFA recovery-code regenerate: aktör SID korunur, diğer SID'ler iptal edilir.
+- QR'da invalid/expired JWT veya iptal SID 401; doğrulanmış kimliğin rol/CSRF reddi 403; guard/DB/readiness kesintisi 503'tür.
+- Endpoint, request DTO ve public path değişmez.
 
-`POST /internal/q5/bootstrap` body `operationId,restaurantId,generation,nonce,entries[{sessionId,userId,denyUntil}]`; scope `staff:bootstrap:write`, tam baseline digest'i ve nonce. Yanıt imzalı `staff:bootstrap:ack` receipt'idir. Auth kendi kalıcı baseline digest'ini de kontrol etmeden bariyeri açmaz.
+## Internal komut ve ACK
 
-İç yollar gateway route envanterinde yoktur. QR private portunu public ingress'e açmayın. Browser cookie/Origin ve staff JWT internal credential değildir. Production HTTPS/JVM trust yapılandırması zorunludur.
+`POST /internal/q5/revocations` komutu `operationId, restaurantId, userId, revision, generation, targets[{sessionId,denyUntil}]` taşır. Dedicated RS256 servis JWT'si `iss=auth-service`, `aud=restofy-qr-revocation`, `scope=staff:revocation:write` kullanır ve en çok 30 saniyedir.
 
-## Auth entegrasyon envanteri
+QR, SID engelleri ile operation/digest kaydını aynı primary DB transaction'ında commit eder; receipt'i yalnız commit sonrasında imzalar. Auth receipt'te issuer, audience, scope, operation, restoran, generation ve canonical manifest digest'ini doğrular. HTTP 200 tek başına ACK değildir. Duplicate ve ters sıralı teslimatlar mevcut SID engellerini kaldıramaz.
 
-| Mevcut yol | Q5 sınırı |
-| --- | --- |
-| `StaffSessionService.logout` | Transaction dışı koordinatör; kalıcı, idempotent PREPARE; ACK; ayrı FINALIZE. |
-| `login`, `refresh`, `completeMfa`, private `grant` | Kaynak bariyeri + aynı kullanıcı kilidi + pending kontrolü. |
-| Geçersiz refresh/replay/session ve inactive hesap tespiti | Doğrudan session/refresh revoke yerine kalıcı AUTO PREPARE; worker koordinasyonu. |
-| `deactivate`, `revokeAllSessions` | Hesap/oturum değişikliği QR ACK gelmeden commit edilmez. Mevcut servis sözleşmesidir; yeni endpoint eklenmedi. |
-| `revokeOtherSessions` / MFA regenerate | Aktör SID korunur, diğer SID'ler dondurulur; worker iş etkisini tamamlayamaz. |
-| `PasswordResetService.request/verify/confirm` | Yeni proof üretimi de pending/source bariyerine uyar; confirm son etkisi FINALIZE ile aynı transaction'dadır. |
-| Rol kaldırma | Revocation action ROLE + bütün eski SID'lerin iptali hazırdır; dev'de olmayan rol yönetimi endpoint'i eklenmedi. |
+Bootstrap challenge/baseline, fail-closed readiness, restore nonce'u ve public gateway izolasyonu korunur. Production HTTPS ve gerçek anahtar provisioning deployment sorumluluğudur.
 
-Auth dışından doğrudan kullanıcı/rol/session SQL değişikliği yapıp bu protokolün garanti sağladığını varsaymayın. Yeni güvenlik yazıcıları aynı sınırları kullanmalıdır.
+## Veri ve worker durumu
 
-## Operasyonel durum
+`staff_revocation_operations` V8 ile `completion_policy`, `local_applied_at` ve `delivery_outcome` alanlarını taşır. Sonuçlar `ACKNOWLEDGED`, `TARGETS_EXPIRED`, `NO_TARGETS` olabilir. Yalnız aktif `ACK_REQUIRED` kayıtları credential bariyerine girer.
 
-`staff_revocation_operations`: PREPARED → ACKNOWLEDGED → COMPLETED. `business_outcome`: PENDING/APPLIED/EXPIRED; AUTO için null. Beş dakikalık iş resume süresi sonunda yalnız doğrulanmış fence iptali tamamlanabilir; password/code etkisi uygulanmış sayılmaz. Kaynak veya QR kapalıysa güvenlik nedeniyle süre dolması fail-open yapmaz.
+PostgreSQL worker `FOR UPDATE SKIP LOCKED`, 30 saniyelik lease ve en çok 8 kayıtlık batch kullanır. HTTP açık DB transaction'ında yapılmaz. Pending sayı/yaş, retry sınıfı ve tamamlanma sonucu hassas veri içermeyen loglarla izlenir. Guard ve geçmiş kayıtlar otomatik silinmez.
 
-`attempts` worker claim sayısını, `next_attempt_at` durable yeniden-deneme zamanını tutar. Beklenmeyen kullanıcı version değişikliği fail-closed inceleme gerektirir. SQL ile pending kaydını silerek veya guard'ı zorla ready yaparak müdahale etmeyin.
+## 300 saniyelik sınır
 
-Yeni gizli ayarların tamamı boş olarak `.env.example` içindedir; gerçek `.env` değiştirilmez. Anahtarlar test dışında üretilmemiştir. `AUTH_Q5_QR_URL` yalnız origin olmalıdır, path/query/userinfo kabul edilmez. Mevcut staff signing/CSRF sırları QR'a kopyalanmaz.
+Personel access-token TTL'si 300 saniyedir. Manifest `denyUntil`, session refresh ömrüyle değil, en fazla hazırlık zamanı + access TTL ile sınırlandırılır. QR ACK alınamazsa worker bu son tarihten önce finalize etmez.
 
-Q5 command private/public çifti Auth başlangıcında; receipt private/public çifti QR başlangıcında eşleştirilir. Mevcut `AUTH_Q5_COMMAND_PUBLIC_KEY` artık Auth'a da, mevcut `AUTH_Q5_QR_PUBLIC_KEY` QR'a da verilir; yeni ENV adı eklenmez. QR ayrıca staff verification key, ayrı trust anahtarları, restoran, issuer, TTL ve trusted origin listesini başlangıçta doğrular. Anahtarlar yalnız bir kez parse edilir. Yanlış peer dağıtımının tamamı yerel doğrulamayla kanıtlanamaz; gerçek komut/ACK imzaları hâlâ zorunludur ve eşleşmezse FINALIZE yoktur.
+Frontend silent refresh **NOT IMPLEMENTED**. Bu PR gerçek tarayıcıda kesintisiz beş dakikalık yenileme deneyimi veya Auth kesintisine dayanıklı frontend vaat etmez.
 
-Desteklenen restore işlemi [Q5 restore runbook](q5-restore-runbook.md) sırasını zorunlu uygular. Bütün Auth/QR süreçleri ve personel ingress'i durdurulur; restore sonrasında bakım SQL'i yeni nonce ile guard'ı kapatır. Güncel tam baseline + Auth finalizasyonu olmadan trafik açılmaz. `ready=false` tek başına ve habersiz DB rollback'i desteklenen kurtarma değildir.
+Restore sırası için [Q5 restore runbook](q5-restore-runbook.md) zorunludur.

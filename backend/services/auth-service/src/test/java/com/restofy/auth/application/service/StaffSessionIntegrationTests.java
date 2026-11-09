@@ -301,6 +301,16 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void refreshCannotSurviveConcurrentLocalFirstLogout() throws Exception {
+        var grant = login();
+        race(() -> refreshOutcome(grant.refresh()),
+                () -> { service.logout(grant.refresh(), grant.access(), null); return true; });
+        assertThat(sessions.findById(grant.session().getId()).orElseThrow().getRevokedAt()).isNotNull();
+        assertThat(tokens.findAll()).allMatch(token -> token.getRevokedAt() != null);
+        assertRefreshRejected(grant);
+    }
+
+    @Test
     void loginCannotSurviveConcurrentDisable() throws Exception {
         race(() -> { try { login(); return true; } catch (BadCredentialsException _) { return false; }
             catch (org.springframework.web.server.ResponseStatusException pending) { assertThat(pending.getStatusCode().value()).isEqualTo(503); return false; } },

@@ -140,7 +140,7 @@ try {
     AUTH_COOKIE_SECURE: 'false', AUTH_MFA_REQUIRED: 'false', AUTH_INITIAL_ADMIN_ENABLED: 'false', AUTH_DEV_USERS_ENABLED: 'true',
     AUTH_DEV_ADMIN_EMAIL: 'q5admin@example.com', AUTH_DEV_ADMIN_PASSWORD: password, AUTH_DEV_WAITER_EMAIL: 'q5waiter@example.com',
     AUTH_DEV_WAITER_PASSWORD: password, AUTH_DEV_KITCHEN_EMAIL: 'q5kitchen@example.com', AUTH_DEV_KITCHEN_PASSWORD: password,
-    JWT_ISSUER: 'restofy-auth', JWT_ACCESS_TTL_SECONDS: '900', JWT_REFRESH_TTL_SECONDS: '604800',
+    JWT_ISSUER: 'restofy-auth', JWT_ACCESS_TTL_SECONDS: '300', JWT_REFRESH_TTL_SECONDS: '604800',
     CORS_ALLOWED_ORIGINS: 'http://localhost:5000', QR_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString('base64'), QR_PUBLIC_ENTRY_URL: 'https://restofy.example/qr' };
   base.SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT = '2000';
   base.SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT = '1000';
@@ -222,15 +222,19 @@ try {
   auth = launch('auth-service', authPort, base); await wait('Auth restart', () => readyHttp(authUrl));
   console.log('PASS normal QR authorization while Auth is stopped');
   offline = true; stage = 'QR unavailable logout';
-  check((await authRequest('/logout','POST')).status === 503, 'Unavailable QR was reported as completed logout');
-  check(sql('q5_auth', "SELECT count(*) FROM staff_revocation_operations WHERE status='PREPARED'") === '1', 'PREPARE missing');
-  check(sql('q5_auth', 'SELECT count(*) FROM user_sessions WHERE revoked_at IS NOT NULL') === '0', 'Premature FINALIZE');
-  check(await qrStatus(old) === 200, 'Pending pre-fence semantics differ');
-  console.log('PASS QR outage preserves PREPARE without premature FINALIZE');
+  check((await authRequest('/logout','POST')).status === 204, 'QR outage blocked local-first logout');
+  check(!jar.has('restofy_access') && !jar.has('restofy_refresh') && !jar.has('restofy_mfa') && !jar.has('restofy_csrf'),
+    'Logout did not clear every Auth cookie');
+  check(sql('q5_auth', "SELECT count(*) FROM staff_revocation_operations WHERE status='PREPARED' AND completion_policy='LOCAL_FIRST'") === '1',
+    'Durable local-first delivery missing');
+  check(sql('q5_auth', 'SELECT count(*) FROM user_sessions WHERE revoked_at IS NOT NULL') === '1', 'Local logout was not committed');
+  check(sql('q5_auth', 'SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NOT NULL') === '1', 'Local refresh revocation was not committed');
+  check(await qrStatus(old) === 200, 'Offline QR unexpectedly learned the pending fence');
+  console.log('PASS QR outage permits atomic local-first logout with durable delivery');
   auth.kill(); await new Promise(resolve => auth.once('exit',resolve));
   auth=launch('auth-service',authPort,base); await wait('Auth crash recovery from PREPARE',() => readyHttp(authUrl));
   check(sql('q5_auth',"SELECT status FROM staff_revocation_operations") === 'PREPARED','PREPARE lost after Auth crash');
-  console.log('PASS durable PREPARE survives Auth process crash');
+  console.log('PASS durable LOCAL_FIRST delivery survives Auth process crash');
   dropNextAck = true; offline = false;
   await wait('lost committed ACK', () => dropped, 65000);
   check(sql('q5_qr','SELECT count(*) FROM staff_revocation_receipts') === '2', 'Durable QR receipt missing');
@@ -265,21 +269,33 @@ try {
   const backupNonce=sql('q5_qr','SELECT bootstrap_nonce FROM staff_revocation_guard_state');
   const oldBaseline=sql('q5_auth','SELECT bootstrap_id FROM staff_revocation_source_state');
   docker(['exec',container,'pg_dump','-h','127.0.0.1','-U','q5test','-d','q5_qr','-Fc','-f','/tmp/q5-before-finalize.dump']);
-  stage='Auth FINALIZE failure after committed ACK';
+  stage='ACK_REQUIRED FINALIZE failure after committed ACK';
   const sid=JSON.parse(Buffer.from(recovered.split('.')[1],'base64url').toString()).sid;
+  const expiresAt=JSON.parse(Buffer.from(recovered.split('.')[1],'base64url').toString()).exp;
   check(/^[0-9a-f-]{36}$/.test(sid),'Unexpected fixture SID');
   sql('q5_auth',`CREATE FUNCTION q5_fixture_fail_finalize() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
     IF OLD.revoked_at IS NULL AND NEW.revoked_at IS NOT NULL THEN RAISE EXCEPTION 'Q5 fixture finalization fault'; END IF;
     RETURN NEW; END; $$;
     CREATE TRIGGER q5_fixture_finalize BEFORE UPDATE OF revoked_at ON user_sessions FOR EACH ROW EXECUTE FUNCTION q5_fixture_fail_finalize();`);
-  check((await authRequest('/logout','POST')).status===503,'Failed FINALIZE was reported as completed');
-  check(sql('q5_auth',`SELECT status FROM staff_revocation_operations WHERE selected_session_id='${sid}'`) === 'ACKNOWLEDGED','Durable ACK lost after failed FINALIZE');
+  const strictOperation=randomUUID();
+  sql('q5_auth',`WITH bumped AS (
+      UPDATE staff_users SET revocation_revision=revocation_revision+1
+      WHERE id=(SELECT staff_user_id FROM user_sessions WHERE id='${sid}')
+      RETURNING id,revocation_revision,version
+    ) INSERT INTO staff_revocation_operations
+      (id,user_id,restaurant_id,revision,action,expected_user_version,consumer_generation,status,created_at,completion_policy)
+      SELECT '${strictOperation}',id,'${base.AUTH_RESTAURANT_ID}',revocation_revision,'ALL',version,
+        '${base.AUTH_Q5_QR_GENERATION}','PREPARED',now(),'ACK_REQUIRED' FROM bumped;
+    INSERT INTO staff_revocation_targets(operation_id,session_id,deny_until)
+      VALUES ('${strictOperation}','${sid}',to_timestamp(${expiresAt}));`);
+  await wait('strict ACK retained after failed FINALIZE',
+    () => sql('q5_auth',`SELECT status FROM staff_revocation_operations WHERE id='${strictOperation}'`) === 'ACKNOWLEDGED',65000);
   check(sql('q5_auth',`SELECT revoked_at IS NULL FROM user_sessions WHERE id='${sid}'`) === 't','Failed FINALIZE partly committed');
   check(await qrStatus(recovered)===401,'QR fence removed after failed Auth FINALIZE');
   sql('q5_auth','DROP TRIGGER q5_fixture_finalize ON user_sessions; DROP FUNCTION q5_fixture_fail_finalize();');
-  await wait('safe FINALIZE retry',() => sql('q5_auth',`SELECT status FROM staff_revocation_operations WHERE selected_session_id='${sid}'`) === 'COMPLETED',65000);
+  await wait('safe FINALIZE retry',() => sql('q5_auth',`SELECT status FROM staff_revocation_operations WHERE id='${strictOperation}'`) === 'COMPLETED',65000);
   check(await qrStatus(recovered)===401,'Old JWT accepted after recovered FINALIZE');
-  console.log('PASS failed Auth FINALIZE retains QR fence and durable ACK; retry completes');
+  console.log('PASS failed strict Auth FINALIZE retains QR fence and durable ACK; retry completes');
   stage='same-postmaster logical restore counterexample';
   offline=true;
   await stop(auth); await stop(qr1); await stop(qr2);

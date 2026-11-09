@@ -27,7 +27,7 @@ public abstract class AuthSessionTestSupport {
                     .claim("manifest",com.restofy.auth.infrastructure.security.QrRevocationReceipts.manifestDigest(operation))
                     .signWith(Q5_QR_KEYS.getPrivate(),io.jsonwebtoken.Jwts.SIG.RS256).compact();
             q5FixtureTransactions.recordAcknowledgement(id,receipt);
-            if (operation.purpose().equals("AUTO")) q5FixtureTransactions.finalizeOperation(id);
+            q5FixtureTransactions.finalizeOperation(id);
         }
     }
 
@@ -37,13 +37,15 @@ public abstract class AuthSessionTestSupport {
 
     protected void assertCoordinatedLogoutHttp(org.springframework.test.web.servlet.MockMvc mvc,
             java.util.function.Supplier<org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder> request) throws Exception {
-        var result=mvc.perform(request.get()).andReturn();
-        if (result.getResponse().getStatus()==503) {
-            org.assertj.core.api.Assertions.assertThat(q5FixtureDatabase.queryForObject(
-                    "SELECT count(*) FROM staff_revocation_operations WHERE status='PREPARED'",Long.class)).isPositive();
-            acknowledgePreparedRevocationsForAuthFixture();
-            mvc.perform(request.get()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
-        } else org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus()).isEqualTo(204);
+        var result=mvc.perform(request.get())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent())
+                .andReturn();
+        org.assertj.core.api.Assertions.assertThat(result.getResponse().getHeaders("Set-Cookie"))
+                .filteredOn(value -> value.contains("Max-Age=0"))
+                .anyMatch(value -> value.startsWith("restofy_access="))
+                .anyMatch(value -> value.startsWith("restofy_refresh="))
+                .anyMatch(value -> value.startsWith("restofy_mfa="))
+                .anyMatch(value -> value.startsWith("restofy_csrf="));
     }
 
     protected <T> T coordinatedAuthResult(java.util.function.Supplier<T> action) {
@@ -52,9 +54,7 @@ public abstract class AuthSessionTestSupport {
             org.assertj.core.api.Assertions.assertThat(pending.getStatusCode().value()).isEqualTo(503);
             var operations=q5FixtureDatabase.queryForList("SELECT id FROM staff_revocation_operations WHERE status='PREPARED'",java.util.UUID.class);
             org.assertj.core.api.Assertions.assertThat(operations).isNotEmpty();
-            boolean business=operations.stream().anyMatch(id -> !q5FixtureTransactions.load(id).purpose().equals("AUTO"));
             acknowledgePreparedRevocationsForAuthFixture();
-            if (business) return action.get();
             return null;
         }
     }
@@ -105,7 +105,7 @@ public abstract class AuthSessionTestSupport {
                         java.io.ByteArrayOutputStream::write, (left, right) -> left.writeBytes(right.toByteArray())).toByteArray()));
         registry.add("auth.session.cookie-secure", () -> "false");
         registry.add("auth.session.issuer", () -> "restofy-auth");
-        registry.add("auth.session.access-ttl-seconds", () -> "900");
+        registry.add("auth.session.access-ttl-seconds", () -> "300");
         registry.add("auth.session.refresh-ttl-seconds", () -> "604800");
         registry.add("auth.session.allowed-origins", () -> "http://localhost:5000");
     }

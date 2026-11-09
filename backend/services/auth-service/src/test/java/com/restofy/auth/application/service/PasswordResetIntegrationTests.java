@@ -182,10 +182,25 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         String cookie = start(); String code = sent().code();
         List<String> grants = race(() -> resets.verify(cookie,code));
         assertThat(grants).hasSize(1);
-        assertThatThrownBy(() -> resets.confirm(grants.getFirst(),NEW))
-                .isInstanceOf(com.restofy.auth.application.service.revocation.RevocationPendingException.class);
-        acknowledgePreparedRevocationsForAuthFixture();
         assertThat(race(() -> { resets.confirm(grants.getFirst(),NEW); return "completed"; })).hasSize(1);
+    }
+
+    @Test void oldPasswordLoginCannotSurviveConcurrentLocalFirstReset() throws Exception {
+        String cookie = start(); String grant = resets.verify(cookie, sent().code());
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var reset = pool.submit(() -> { start.await(); resets.confirm(grant, NEW); return true; });
+            var login = pool.submit(() -> { start.await();
+                try { sessions.login(admin.getEmailNormalized(), OLD, "reset-race"); return true; }
+                catch (BadCredentialsException _) { return false; }
+            });
+            start.countDown();
+            assertThat(reset.get(30, TimeUnit.SECONDS)).isTrue();
+            login.get(30, TimeUnit.SECONDS);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThatThrownBy(() -> sessions.login(admin.getEmailNormalized(), OLD, null)).isInstanceOf(BadCredentialsException.class);
     }
 
     private List<String> race(Callable<String> action) throws Exception {
@@ -296,7 +311,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         latest.migrate();
         assertThat(jdbc.queryForObject("SELECT password_hash FROM "+schema+".staff_users WHERE id=?",String.class,id)).isEqualTo(hash);
         assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",java.sql.Timestamp.class,id)).isNull();
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("7");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("8");
     }
 
     @Test

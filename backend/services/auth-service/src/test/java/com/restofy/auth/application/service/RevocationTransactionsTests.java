@@ -93,6 +93,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
 
     @Test
     void receiptsLongerThanThirtySecondsCannotAcknowledgeOrFinalize() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
         UUID id = UUID.randomUUID();
         revocations.prepare(id,restaurant,user,Action.ALL,null,null,generation);
         assertThatThrownBy(() -> revocations.recordAcknowledgement(id,
@@ -106,33 +107,29 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     }
 
     @Test
-    void logoutMustNotFinalizeBeforeQrAcknowledgesItsDurableFence() {
+    void logoutRevokesLocallyBeforeQrAcknowledgesItsDurableFence() {
         var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
 
-        // No QR command or acknowledgement has occurred. A pending response is acceptable;
-        // committing the local revocation before the QR fence is not.
-        try {
-            sessions.logout(grant.refresh(), grant.access(), null);
-        } catch (ResponseStatusException pending) {
-            assertThat(pending.getStatusCode().value()).isIn(409, 503);
-        }
+        sessions.logout(grant.refresh(), grant.access(), null);
 
         assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",
                 Boolean.class, grant.session().getId()))
-                .as("Q5: logout cannot FINALIZE without QR's durable acknowledgement")
-                .isTrue();
+                .as("LOCAL_FIRST commits the Auth revocation without waiting for QR")
+                .isFalse();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE user_id=? AND status='PREPARED'",
                 Long.class, user)).isEqualTo(1);
+        assertThat(revocations.load(jdbc.queryForObject(
+                "SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user)).policy())
+                .isEqualTo(RevocationTransactions.Policy.LOCAL_FIRST);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_targets WHERE session_id=?",
                 Long.class, grant.session().getId())).isEqualTo(1);
     }
 
     @Test
-    void logoutRejectsAnAmbientTransactionInsteadOfSuspendingItsLocksAcrossHttp() {
+    void logoutJoinsTheAmbientTransactionSoOutboxAndRevocationRollbackTogether() {
         var grant=sessions.login("q5@example.com","Q5-test-password-01",null);
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
-            assertThatThrownBy(() -> sessions.logout(grant.refresh(),grant.access(),null))
-                    .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
+            sessions.logout(grant.refresh(),grant.access(),null);
             status.setRollbackOnly();
         });
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
@@ -140,7 +137,49 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void localFirstPendingDoesNotBlockNewLoginAndUsesTheAccessTokenDeadline() {
+        var old = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        Instant before = Instant.now();
+        sessions.logout(old.refresh(), old.access(), null);
+
+        var fresh = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThat(fresh.session().getId()).isNotEqualTo(old.session().getId());
+        UUID operation = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?",
+                UUID.class, user);
+        assertThat(revocations.load(operation).policy()).isEqualTo(RevocationTransactions.Policy.LOCAL_FIRST);
+        assertThat(revocations.load(operation).targets().getFirst().denyUntil())
+                .isBetween(before.plusSeconds(299), Instant.now().plusSeconds(300));
+    }
+
+    @Test
+    void logoutStillCompletesLocallyWhileAContainingStrictOperationIsPending() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
+
+        sessions.logout(grant.refresh(), grant.access(), null);
+
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void strictOperationSafelyFinalizesAfterEveryTargetTokenExpires() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID operation = UUID.randomUUID();
+        revocations.prepare(operation, restaurant, user, Action.DISABLE, null, null, generation);
+        jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?",
+                operation);
+
+        assertThat(revocations.finalizeExpiredTargets(operation)).isTrue();
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+        assertThat(revocations.load(operation).deliveryOutcome())
+                .isEqualTo(RevocationTransactions.Outcome.TARGETS_EXPIRED);
+    }
+
+    @Test
     void productionEnvironmentCannotInheritPlainHttpFromADevelopmentProfile() throws Exception {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
         var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
         var calls=new java.util.concurrent.atomic.AtomicInteger();
         server.createContext("/internal/q5/revocations",exchange -> {
@@ -176,19 +215,17 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     }
 
     @Test
-    void expiredBusinessProofCompletesOnlyAckedInvalidationAndDoesNotClaimBusinessSuccess() {
-        sessions.login("q5@example.com","Q5-test-password-01",null);
-        UUID proof=UUID.randomUUID();
-        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user,proof)).isInstanceOf(ResponseStatusException.class);
+    void localFirstDeliveryCompletesWhenEveryTargetTokenHasExpired() {
+        var grant = sessions.login("q5@example.com","Q5-test-password-01",null);
+        sessions.revokeForPasswordReset(user,UUID.randomUUID());
         UUID id=jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?",UUID.class,user);
-        revocations.recordAcknowledgement(id,acknowledgement(id));
-        jdbc.update("UPDATE staff_revocation_operations SET resume_until=now()-interval '1 second' WHERE id=?",id);
-        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user,proof)).isInstanceOf(ResponseStatusException.class);
-        revocations.expireBusiness(id);
-        assertThat(revocations.load(id).businessOutcome()).isEqualTo("EXPIRED");
-        assertThat(users.findById(user).orElseThrow().getPasswordChangedAt()).isNull();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL",Long.class)).isZero();
-        sessions.login("q5@example.com","Q5-test-password-01",null);
+        assertThat(revocations.load(id).localAppliedAt()).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId())).isTrue();
+        assertThat(revocations.finalizeExpiredTargets(id)).isFalse();
+        jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?",id);
+        assertThat(revocations.finalizeExpiredTargets(id)).isTrue();
+        assertThat(revocations.load(id).deliveryOutcome()).isEqualTo(RevocationTransactions.Outcome.TARGETS_EXPIRED);
     }
 
     @Test
@@ -236,27 +273,39 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     }
 
     @Test
-    void businessFinalizeRollsBackWithItsProtectedMutationAndCannotBeCompletedByWorker() {
+    void localFirstOutboxRollsBackWithItsProtectedMutation() {
         var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
-        UUID proof = UUID.randomUUID();
-        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user, proof)).isInstanceOf(ResponseStatusException.class);
-        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
-        assertThat(revocations.load(id).purpose()).isEqualTo("RESET");
-        revocations.recordAcknowledgement(id, acknowledgement(id));
-        assertThatThrownBy(() -> revocations.finalizeOperation(id)).isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
-            sessions.revokeForPasswordReset(user, proof);
+            sessions.revokeForPasswordReset(user, UUID.randomUUID());
             jdbc.update("UPDATE staff_users SET is_active=false WHERE id=?", user);
             throw new IllegalStateException("Protected mutation failed");
         })).isInstanceOf(IllegalStateException.class);
-        assertThat(revocations.load(id).status()).isEqualTo("ACKNOWLEDGED");
         assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
         assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?", Boolean.class, grant.session().getId())).isTrue();
-        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null)).isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user, UUID.randomUUID())).isInstanceOf(ResponseStatusException.class);
-        sessions.revokeForPasswordReset(user, proof);
-        assertThat(revocations.load(id).status()).isEqualTo("COMPLETED");
-        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?", Boolean.class, grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
+    }
+
+    @Test
+    void localFirstOutboxWriteFailureRollsBackTheProtectedMutation() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        jdbc.execute("""
+                CREATE FUNCTION q5_test_reject_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'fixture outbox failure'; END; $$;
+                CREATE TRIGGER q5_test_reject_outbox BEFORE INSERT ON staff_revocation_operations
+                FOR EACH ROW EXECUTE FUNCTION q5_test_reject_outbox();
+                """);
+        try {
+            assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                jdbc.update("UPDATE staff_users SET is_active=false WHERE id=?", user);
+                sessions.revokeForPasswordReset(user, UUID.randomUUID());
+            })).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        } finally {
+            jdbc.execute("DROP TRIGGER q5_test_reject_outbox ON staff_revocation_operations; DROP FUNCTION q5_test_reject_outbox()");
+        }
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?", Boolean.class,
+                grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
     }
 
     @Test
@@ -338,6 +387,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
 
     @Test
     void failedFinalizeKeepsPendingGateAndAcknowledgement() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
         UUID id = UUID.randomUUID();
         revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
         revocations.recordAcknowledgement(id, acknowledgement(id));
@@ -437,6 +487,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
 
     @Test
     void concurrentOperationsSerializeOnTheUserIdentity() throws Exception {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first = executor.submit(() -> prepareAfter(start));
@@ -445,6 +496,45 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
             assertThat(first.get(10, TimeUnit.SECONDS) + second.get(10, TimeUnit.SECONDS)).isEqualTo(1);
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentLocalFirstLogoutAndStrictPreparePreserveTheStrictBarrier() throws Exception {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var logout = executor.submit(() -> { start.await(); sessions.logout(grant.refresh(), grant.access(), null); return true; });
+            var strict = executor.submit(() -> { start.await();
+                return revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
+            });
+            start.countDown();
+            assertThat(logout.get(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(strict.get(30, TimeUnit.SECONDS).policy()).isEqualTo(RevocationTransactions.Policy.ACK_REQUIRED);
+        }
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?", Boolean.class,
+                grant.session().getId())).isTrue();
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode().value()).isEqualTo(503));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE completion_policy='ACK_REQUIRED' AND status<>'COMPLETED'",
+                Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void twoWorkersCannotClaimTheSameDeliveryLease() throws Exception {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.logout(grant.refresh(), grant.access(), null);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            var second = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            start.countDown();
+            var claimed = new java.util.ArrayList<UUID>();
+            claimed.addAll(first.get(30, TimeUnit.SECONDS));
+            claimed.addAll(second.get(30, TimeUnit.SECONDS));
+            assertThat(claimed).hasSize(1).doesNotHaveDuplicates();
+        }
+        assertThat(jdbc.queryForObject("SELECT attempts FROM staff_revocation_operations", Integer.class)).isEqualTo(1);
     }
 
     private int prepareAfter(CountDownLatch start) throws InterruptedException {
