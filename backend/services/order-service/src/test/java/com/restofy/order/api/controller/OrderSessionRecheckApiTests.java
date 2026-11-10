@@ -58,6 +58,7 @@ class OrderSessionRecheckApiTests {
 
     @BeforeEach
     void prepare() throws Exception {
+        jdbc.execute("TRUNCATE order_cancellation_reasons, order_cancellation_items, order_cancellations");
         jdbc.execute("TRUNCATE order_status_history");
         jdbc.execute("TRUNCATE table_session_closure_drifts, table_session_closures");
         for (String table : new String[]{"outbox_deliveries", "outbox_events", "idempotency_records",
