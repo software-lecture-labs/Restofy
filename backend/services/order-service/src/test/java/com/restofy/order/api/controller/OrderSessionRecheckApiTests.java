@@ -58,9 +58,13 @@ class OrderSessionRecheckApiTests {
 
     @BeforeEach
     void prepare() throws Exception {
+        // same clean-up as AbstractCartApiTest: another test class may leave cancellation or payment rows behind, and
+        // order_cancellation_items still references order_items; these tables are append-only, so only TRUNCATE clears them
         jdbc.execute("TRUNCATE order_status_history");
+        jdbc.execute("TRUNCATE payment_reconciliation_cases, payment_captures");
+        jdbc.execute("TRUNCATE order_cancellation_reasons, order_cancellation_items, order_cancellations");
         jdbc.execute("TRUNCATE table_session_closure_drifts, table_session_closures");
-        for (String table : new String[]{"outbox_deliveries", "outbox_events", "idempotency_records",
+        for (String table : new String[]{"inbox_events", "outbox_deliveries", "outbox_events", "idempotency_records",
                 "order_item_options", "order_items", "orders", "order_number_counters", "carts"}) {
             jdbc.update("DELETE FROM " + table);
         }
