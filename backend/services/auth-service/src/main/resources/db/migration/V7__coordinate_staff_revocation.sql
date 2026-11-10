@@ -20,15 +20,30 @@ CREATE TABLE staff_revocation_operations (
     purpose_id uuid,
     resume_until timestamptz,
     business_outcome varchar(16) CHECK (business_outcome IN ('PENDING','APPLIED','EXPIRED')),
+    completion_policy varchar(16) NOT NULL DEFAULT 'ACK_REQUIRED'
+        CHECK (completion_policy IN ('LOCAL_FIRST','ACK_REQUIRED')),
+    local_applied_at timestamptz,
+    delivery_outcome varchar(20) CHECK (delivery_outcome IN ('ACKNOWLEDGED','TARGETS_EXPIRED','NO_TARGETS')),
     CHECK ((purpose = 'AUTO') = (purpose_id IS NULL)),
     CHECK ((purpose = 'AUTO') = (resume_until IS NULL)),
     CHECK ((purpose = 'AUTO') = (business_outcome IS NULL)),
     UNIQUE (user_id, revision),
     CHECK ((action = 'ROLE') = (target_role IS NOT NULL)),
     CHECK ((action IN ('SESSION','OTHERS')) = (selected_session_id IS NOT NULL)),
-    CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL))
+    CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL)),
+    CONSTRAINT ck_staff_revocation_local_commit
+        CHECK ((completion_policy = 'LOCAL_FIRST') = (local_applied_at IS NOT NULL)),
+    CONSTRAINT ck_staff_revocation_delivery_completion
+        CHECK ((status = 'COMPLETED') = (delivery_outcome IS NOT NULL))
 );
-CREATE UNIQUE INDEX uq_staff_pending_revocation ON staff_revocation_operations(user_id)
+-- ACK_REQUIRED: kullanıcı başına tek bekleyen işlem. LOCAL_FIRST logout: oturum başına tek bekleyen işlem.
+CREATE UNIQUE INDEX uq_staff_pending_strict_revocation ON staff_revocation_operations(user_id)
+    WHERE completion_policy = 'ACK_REQUIRED' AND status <> 'COMPLETED';
+CREATE UNIQUE INDEX uq_staff_pending_local_logout ON staff_revocation_operations(user_id, selected_session_id)
+    WHERE completion_policy = 'LOCAL_FIRST' AND action = 'SESSION' AND status <> 'COMPLETED';
+CREATE INDEX ix_staff_revocation_delivery_queue ON staff_revocation_operations(next_attempt_at, id)
+    WHERE status <> 'COMPLETED';
+CREATE INDEX ix_staff_revocation_pending_age ON staff_revocation_operations(completion_policy, created_at)
     WHERE status <> 'COMPLETED';
 
 CREATE TABLE staff_revocation_targets (

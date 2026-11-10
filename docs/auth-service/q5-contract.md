@@ -73,7 +73,9 @@ Bootstrap challenge/baseline, fail-closed readiness, restore nonce'u ve public g
 
 ## Veri ve worker durumu
 
-`staff_revocation_operations` V8 ile `completion_policy`, `local_applied_at` ve `delivery_outcome` alanlarını taşır. Sonuçlar `ACKNOWLEDGED`, `TARGETS_EXPIRED`, `NO_TARGETS` olabilir. Yalnız aktif `ACK_REQUIRED` kayıtları credential bariyerine girer.
+V7 henüz hiçbir ortama uygulanmadığı için LOCAL_FIRST/ACK_REQUIRED ayrımı ayrı bir ALTER migration'ı olarak değil, doğrudan V7 tablo tanımında yer alır.
+
+`staff_revocation_operations` V7 içinde `completion_policy`, `local_applied_at` ve `delivery_outcome` alanlarını taşır. Sonuçlar `ACKNOWLEDGED`, `TARGETS_EXPIRED`, `NO_TARGETS` olabilir. Yalnız aktif `ACK_REQUIRED` kayıtları credential bariyerine girer.
 
 PostgreSQL worker `FOR UPDATE SKIP LOCKED`, 30 saniyelik lease ve en çok 8 kayıtlık batch kullanır. HTTP açık DB transaction'ında yapılmaz. Pending sayı/yaş, retry sınıfı ve tamamlanma sonucu hassas veri içermeyen loglarla izlenir. Guard ve geçmiş kayıtlar otomatik silinmez.
 

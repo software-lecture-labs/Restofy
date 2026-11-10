@@ -193,7 +193,7 @@ Her QR isteği öncesinde Auth'tan yeni CSRF tokenı veya personel JWT'si alma z
 
 Tarihli analiz belgelerindeki çok restoran hedefi bu MVP'de uygulanmış sayılmayacak. Çoklu restoran desteği istenirse üyelik, aktif restoran, token/güncellik ve tüketici geçişleri ayrı kapsam ve karar olarak ele alınacak. Bu çalışma mimari/gereksinim rehberlerini topluca yeniden yazmaz; MVP kapsam daraltmasını burada kaydeder. QR'ın gerçek restoran ayarı Q7 kapsamında uygulama PR'ında bağlanacak; bu karar için ENV veya DB değişikliği yapılmadı.
 
-**Durum:** MVP kapsamı Alper tarafından KABUL EDİLDİ. Mevcut Auth tek restoran yaklaşımı korunur; QR/Q5 uygulaması PR #18'de sunuldu ve teknik inceleme bekliyor. Kesin (ACK_REQUIRED) iptal şartı yalnız yönetici işlemleri için (hesap pasifleştirme, rol kaldırma, force-revoke) korunur; personelin kendi logout, parola sıfırlama ve MFA kurtarma kodu yenilemesi LOCAL_FIRST olarak Auth'ta hemen tamamlanır.
+**Durum:** MVP kapsamı Alper tarafından KABUL EDİLDİ. Mevcut Auth tek restoran yaklaşımı korunur; QR/Q5 uygulaması PR #18'de sunuldu ve teknik inceleme bekliyor. Kesin (ACK_REQUIRED) iptal şartı yalnız yönetici işlemleri için (hesap pasifleştirme, rol kaldırma, force-revoke) korunur; personelin kendi logout, parola sıfırlama ve MFA kurtarma kodu yenilemesi LOCAL_FIRST olarak Auth'ta hemen tamamlanır. Sınır: aynı kullanıcı için tamamlanmamış bir ACK_REQUIRED işlem (ör. rol değişikliği QR onayını bekliyor) varsa logout dışındaki LOCAL_FIRST işlemleri (parola sıfırlama, MFA kurtarma kodu yenileme) `RevocationPendingException` ile 503 "Security transition pending; retry safely" döner ve güvenli şekilde yeniden denenebilir; kimlik kanıtı üretimi bekleyen yetki değişikliğinin önüne geçmesin diye bilinçli olarak kapalıdır. Logout bu durumda da çalışır.
 
 ## 4. Rate limit sahipliği ve reviewer kapsamı
 
@@ -239,7 +239,7 @@ Alper 5 Kasım'da önce RBAC/JWT/HTTP cookie entegrasyonu, ardından ayrı rate 
 | Guest taşıması ve Waiter delegasyonu | 5 Kasım guest HttpOnly cookie kararı korunur; ilgili Order/Waiter/QR entegrasyonları ayrı kapsamdır. Q5 personel çözümü bunları tamamlamaz. |
 | PR/reviewer onayı | PR #18 Draft; Alper'in QR değerlendirmesi ve öğretim görevlisi/reviewer onayı bekleniyor. Bu belge onay/merge yerine geçmez. |
 
-Auth'un ilk yanıtında yeni endpoint/ENV/migration bulunmadığı bilgisi tarihsel ilk öneriye aittir. PR #18'de Q5 için Auth V7/V8 ve QR V122, internal endpoint ve güvenlik ayarları bulunur; ayrıntılar [Q5 sözleşmesinde](../auth-service/q5-contract.md) ve [teknik ADR'de](ADR-AUTH-Q5-coordinated-revocation.md) kayıtlıdır. Bunlar dev'e uygulanmış sayılmaz. Auth feature branch'inin ilgisiz geliştirmeleri taşınmadı. V5/V6 ile V7/V8 SQL nesneleri doğrudan çakışmaz; ancak geçici merge incelemesi ortak Auth dosyalarında çözülmesi gereken çatışmalar gösterdiği için birleşik dalın temel Auth testi henüz tamamlanmış kanıt değildir.
+Auth'un ilk yanıtında yeni endpoint/ENV/migration bulunmadığı bilgisi tarihsel ilk öneriye aittir. PR #18'de Q5 için Auth V7 ve QR V122, internal endpoint ve güvenlik ayarları bulunur; ayrıntılar [Q5 sözleşmesinde](../auth-service/q5-contract.md) ve [teknik ADR'de](ADR-AUTH-Q5-coordinated-revocation.md) kayıtlıdır. Bunlar dev'e uygulanmış sayılmaz. Auth feature branch'inin ilgisiz geliştirmeleri taşınmadı. V5/V6 ile V7 SQL nesneleri doğrudan çakışmaz; ancak geçici merge incelemesi ortak Auth dosyalarında çözülmesi gereken çatışmalar gösterdiği için birleşik dalın temel Auth testi henüz tamamlanmış kanıt değildir.
 
 ## 7. Doğrulama ve teslim sınırı
 
@@ -249,7 +249,7 @@ Auth'un ilk yanıtında yeni endpoint/ENV/migration bulunmadığı bilgisi tarih
 
 **Doğrulanmayanlar/kabul bekleyenler:** Reset/MFA tam ağ E2E, geçmiş PREPARED repair E2E, production TLS/key provisioning, gerçek deployment restore tatbikatı, bütün instance'larda deployment peer smoke ve tam browser/Gateway entegrasyonu. Readiness UP tek başına doğru staff peer key kanıtı değildir. Habersiz DB/VM geri sarma için otomatik güvenlik garantisi yoktur.
 
-**Teslim sınırı:** Bu revizyon Q5 uygulama kodunu, V8 migration'ını, 300 saniyelik test/ENV varsayılanını ve ilgili belgeleri değiştirir; guest/rate-limit akışını değiştirmez. Henüz commit, PR güncellemesi, merge veya deployment yapılmamıştır. Alper'in olumlu yaklaşım değerlendirmesi, ayrıntılı QR teknik incelemesinin veya öğretim görevlisi onayının tamamlandığı şeklinde yorumlanmaz.
+**Teslim sınırı:** Bu revizyon Q5 uygulama kodunu, V7 migration'ını, 300 saniyelik test/ENV varsayılanını ve ilgili belgeleri değiştirir; guest/rate-limit akışını değiştirmez. Henüz commit, PR güncellemesi, merge veya deployment yapılmamıştır. Alper'in olumlu yaklaşım değerlendirmesi, ayrıntılı QR teknik incelemesinin veya öğretim görevlisi onayının tamamlandığı şeklinde yorumlanmaz.
 
 İlgili kaynaklar: [SECURITY](../SECURITY.md), [QR lifecycle ADR'si](ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md), [müşteri güvenliği](ADR-QR-002-security.md).
 

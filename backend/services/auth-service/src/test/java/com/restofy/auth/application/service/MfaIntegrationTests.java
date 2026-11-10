@@ -245,7 +245,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         var latest = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
-        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(6);
+        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(5);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions migrated JOIN public.user_sessions original "
