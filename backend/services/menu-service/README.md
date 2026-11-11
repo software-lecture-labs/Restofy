@@ -83,9 +83,96 @@ doğrulamak zorundadır. Müşteri okumaları tek salt okunur `REPEATABLE READ` 
 
 ## Kitchen availability komutları
 
-`KitchenAvailabilityCommandService`: `commandId` ile kalıcı idempotency (V67), üç durum arasında tüm geçişler, isteğe bağlı
-`expectedVersion`, geçmiş + komut kaydı + güncelleme tek işlemde, otomatik yeniden açılma yok. **HTTP ucu yoktur.**
-Ayrıntılar: [ADR-MENU-002](../../../docs/decisions/ADR-MENU-002-kitchen-availability-komutlari.md).
+**Sözleşme sahibi ve availability verisinin tek otoritesi Menu Service'tir; Kitchen tüketicidir.**
+`KitchenAvailabilityCommandService` mevcut Menu işleyicisidir. Kitchen PR #16'da istemci portu ve uygulama akışı vardır,
+ancak iki tarafın gerçek üretim bağlantısı yoktur. Aşağıdaki v1 veri sözleşmesi mevcut Menu modellerini belgeler;
+Kitchen tarafında uyarlanması beklenen sağlayıcı sözleşmesidir, iki ekibin tamamlanmış entegrasyon onayı değildir.
+**Yeni internal HTTP endpoint veya HTTP adaptörü uygulanmamıştır.** JSON örnekleri bir HTTP method/path ilan etmez.
+
+### Canonical request v1
+
+```json
+{
+  "commandId": "11111111-1111-4111-8111-111111111111",
+  "productId": "22222222-2222-4222-8222-222222222222",
+  "targetStatus": "OUT_OF_STOCK",
+  "reasonCode": "OUT_OF_STOCK",
+  "reasonText": "Malzeme tükendi",
+  "expectedVersion": null
+}
+```
+
+| Alan | Kural |
+|---|---|
+| `commandId` | Zorunlu UUID; ilk deneme ve tekrarlarında aynı kimlik kullanılır; yetki kanıtı değildir |
+| `productId` | Zorunlu UUID; yalnız doğrulanmış çağıranın restoranında aranır |
+| `targetStatus` | Zorunlu: `AVAILABLE`, `OUT_OF_STOCK`, `TEMPORARILY_CLOSED` |
+| `reasonCode` | Kapalı durumlarda zorunlu; normalize edilince 1–40 karakter, `[A-Z][A-Z0-9_]{0,39}`; `AVAILABLE` için isteğe bağlı |
+| `reasonText` | İsteğe bağlı, normalize edilince en çok 500 karakter; mevcut güvenli metin doğrulaması uygulanır |
+| `expectedVersion` | İsteğe bağlı (`null` olabilir), verilirse negatif olmayan **availability** sürümü; ürün sürümü değildir |
+
+Restoran ve `onBehalfOfUserId`, `TrustedKitchenCallerProvider` tarafından doğrulanmış servis bağlamından gelir; request
+alanları değildir. İstemcinin restoran/kullanıcı/rol bildirmesi yetki sağlamaz. Kitchen bu bağlamı gerçek D-09 servis kimliği
+ile aktaracak adaptörü henüz geliştirmemiştir; Menu'nun üretim varsayılanı çağıran döndürmez ve işlem reddedilir.
+Eksik kapatma nedeni adaptörde uydurulmaz. Availability komutu fiyatı, aktifliği veya yayın durumunu değiştirmez.
+
+### Canonical response v1 — işlem makbuzu
+
+```json
+{
+  "outcome": "APPLIED",
+  "replayed": false,
+  "status": "OUT_OF_STOCK",
+  "version": 8
+}
+```
+
+| Sonuç | Anlam |
+|---|---|
+| `APPLIED`, `replayed=false` | Availability değişti; sürüm ve geçmiş güncellendi |
+| `NO_CHANGE`, `replayed=false` | Durum ve normalize neden kodu/metni aynı; yeni geçmiş veya sürüm yok, komut yine kaydedilir |
+| `replayed=true` | Önceki kabulün `outcome`, `status`, `version` değerleri döner; tekrar uygulama yapılmaz |
+
+Aynı durum fakat farklı neden yeni değişiklik sayılabilir. **Replay tarihsel makbuzdur, canlı ürün durumu değildir.**
+Makbuzda `changedAt`, `changedByUserId`, `published` veya `productId` yoktur; Kitchen'ın ayrıntılı durum modeli için
+bu alanlar uydurulamaz. Güncel ürün görünümünün yetkili bir okuma ile nasıl sağlanacağı ayrı entegrasyon kararıdır.
+
+V67 idempotency kapsamı `(restaurantId, commandId)`'dir. Aynı kimlik ve aynı normalize içerik ilk sonucu döndürür;
+farklı içerik çakışmadır. İçerik; ürün, kaynak, hedef durum, nedenler, beklenen sürüm ve adına işlem yapılan personeli
+kapsar. Reddedilen işlem kayıt bırakmaz. Güncelleme, history ve komut kaydı tek yerel transaction'dadır.
+`expectedVersion` kontrolü, ürün başına `PESSIMISTIC_WRITE` kilidi ve optimistic locking korunur. Satır kilidi komutları
+kilidi elde etme sırasına göre serileştirir; **sürümsüz gecikmiş eski komut daha yeni durumu ezebilir**.
+
+### Hata ve tüketici eşlemesi
+
+Bu tablo işleyicinin mevcut sonuç/exception davranışını gösterir. Parantezdeki HTTP kodları yalnız mevcut genel
+`ApiExceptionHandler` eşlemesidir; henüz bulunmayan internal HTTP transport'un uygulanmış sözleşmesi değildir.
+
+| Senaryo | Mevcut Menu sonucu | Kitchen uyarlaması / önerilen anlam |
+|---|---|---|
+| Başarılı değişiklik | `APPLIED` | Onay; `outcome` ve replay bilgisi korunur |
+| Etkisiz komut | `NO_CHANGE` | Başarılı fakat değişiklik yok; yeni işlemle karıştırılmaz |
+| Aynı komutun tekrarı | `replayed=true`, ilk sonuç | Tarihsel makbuz; canlı durum olarak sunulmaz |
+| Aynı kimlik, farklı içerik | `CommandIdConflictException` (409) | `COMMAND_CONFLICT` |
+| Beklenen sürüm farklı | `ProductAvailabilityVersionConflictException` (409) | `VERSION_CONFLICT` |
+| Ürün yok veya başka restoranda | `ProductNotFoundException` (404) | Aynı `PRODUCT_NOT_FOUND`; tenant bilgisi sızdırılmaz |
+| Availability kaydı yok | `ProductAvailabilityMissingException` (409) | Ayrı `AVAILABILITY_MISSING` önerisi; sürüm çakışması değildir |
+| Geçersiz komut / eksik kapatma nedeni | `InvalidProductException` (400) | `INVALID_COMMAND` |
+| Doğrulanmış çağıran yok | `UnauthenticatedException` (401), işlem yapılmaz | Kimlik hatası; Kitchen eşlemesi ortaklaştırılacak |
+| Servise erişilemiyor / timeout | Mevcut ağ adaptörü yok | Gelecek adaptörde `UNAVAILABLE`; sonuç belirsiz olabilir, başarı sayılmaz |
+
+### Kitchen tarafında bekleyen uyarlamalar
+
+PR #16'nın `MenuAvailabilityPort`'u bir istemci portudur; Menu domain sınıflarının paylaşılması gerekmez.
+`MenuAvailabilityCommand`'da `expectedVersion` yoktur; isteğe bağlı alan eklenmesi tüketici uyarlamasıdır. Kitchen'ın
+kapatmayı nedensiz kabul etmesi, ayrıntılı `ProductAvailabilityState` beklemesi ve `NO_CHANGE`/replay ayrımını taşımaması
+bu sözleşmeyle henüz uyumlu değildir. Kitchen `PRODUCT_INACTIVE` reddi öngörürken mevcut Menu komut işleyicisinde pasif
+veya yayınsız ürün için ayrı ret yoktur; availability ile yayın/aktiflik bağımsızdır. Ek yasak kendiliğinden uygulanmaz.
+Gerçek servis kimliği, sıralama/tazelik, canlı durum okuması ve hata eşlemeleri Kitchen/Auth ile ortaklaştırılacaktır.
+Yeni HTTP adaptörü bu dokümantasyon görevinin dışındadır. Kapalı ürün yalnız açık bir `AVAILABLE` komutuyla açılır.
+
+Ayrıntılı karşılaştırma, alternatifler ve açık kararlar:
+[ADR-MENU-002](../../../docs/decisions/ADR-MENU-002-kitchen-availability-komutlari.md).
 
 ## Veri
 
@@ -117,7 +204,8 @@ anahtarını (aynı `@Import` kümesi) paylaşmalıdır, aksi hâlde `too many c
 
 ## Bilinen sınırlar ve bekleyen bağımlılıklar
 
-- Gerçek QR/Admin doğrulaması, Auth servis kimliği, Kitchen istemcisi ve Rating Service yok (yukarıdaki tablo).
+- Gerçek QR/Admin doğrulaması ve Auth servis kimliği yok; Kitchen'da istemci portu/akışı var fakat gerçek Menu adaptörü
+  yok; Menu'nun gerçek Rating bağlantısı da yok (yukarıdaki tablo).
 - **Hız sınırı yok** (müşteri uçları açılmadan önce gerekir); restoran açık/kapalı kontrolü yok (Admin yok).
 - `expectedVersion` olmayan gecikmiş Kitchen komutu yeni durumu ezebilir; gerçek entegrasyonda sıralama/tazelik gerekir.
 - Rating puan ölçeği (1–5) geçici bir varsayımdır; tazelik bilgisi sözleşmede yoktur.
