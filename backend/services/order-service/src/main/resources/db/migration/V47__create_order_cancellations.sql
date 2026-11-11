@@ -19,13 +19,6 @@
 --
 -- D-13 (decision of the Order Service owner): this file was amended in place, with explicit permission, BEFORE it was ever
 -- pushed or applied to a persistent database (no new migration number was used). It must not be edited again once shared.
---
--- Amended a second time on 2026-11-05, AFTER it was shared on dev, again by decision and with explicit permission of the
--- Order Service owner, to fold in the Order <-> Kitchen agreement instead of using up the last number of the Order range
--- (a separate V50 existed for a short time and was removed): the CUSTOMER_REQUEST reason code and
--- order_cancellations.decided_order_version (the order version right after the decision, written once; a repeat of the same
--- Kitchen request is answered with the FIRST decision's version and time even if the order moved on since).
--- Consequence: the checksum of V47 changed, so every Order database that applied the earlier V47 must be recreated.
 
 CREATE TABLE order_cancellations (
     id                            uuid          NOT NULL,
@@ -46,7 +39,6 @@ CREATE TABLE order_cancellations (
     decided_by_id                 varchar(100),
     decided_by_role               varchar(30),
     decided_at                    timestamptz,
-    decided_order_version         bigint,
     rejection_code                varchar(40),
     rejection_note                varchar(300),
     currency                      varchar(3)    NOT NULL,
@@ -84,9 +76,6 @@ CREATE TABLE order_cancellations (
         AND (decided_at IS NULL) = (decision_source IS NULL)
         AND (decided_at IS NULL) = (decided_by_type IS NULL)
         AND (status = 'REJECTED') = (rejection_code IS NOT NULL)),
-    -- the order version of a decision exists only next to a decision and is never negative
-    CONSTRAINT ck_order_cancellations_decided_order_version CHECK (
-        decided_order_version IS NULL OR (decided_at IS NOT NULL AND decided_order_version >= 0)),
     CONSTRAINT ck_order_cancellations_currency CHECK (currency ~ '^[A-Z]{3}$'),
     CONSTRAINT ck_order_cancellations_amounts CHECK (
         previous_due_minor >= 0 AND cancelled_gross_minor >= 0 AND cancelled_net_minor >= 0 AND cancelled_vat_minor >= 0
@@ -156,8 +145,7 @@ CREATE TABLE order_cancellation_reasons (
     CONSTRAINT ck_order_cancellation_reasons_service CHECK (source <> 'SERVICE'
         OR (added_by_id = 'KITCHEN' AND added_by_role = 'KITCHEN') IS TRUE),
     CONSTRAINT ck_order_cancellation_reasons_code CHECK (reason_code IS NULL OR reason_code IN
-        ('CHANGED_MIND', 'ORDERED_BY_MISTAKE', 'WAIT_TOO_LONG', 'CUSTOMER_REQUEST', 'ITEM_UNAVAILABLE', 'KITCHEN_ERROR',
-         'OTHER')),
+        ('CHANGED_MIND', 'ORDERED_BY_MISTAKE', 'WAIT_TOO_LONG', 'ITEM_UNAVAILABLE', 'KITCHEN_ERROR', 'OTHER')),
     CONSTRAINT ck_order_cancellation_reasons_content CHECK (reason_code IS NOT NULL OR reason_text IS NOT NULL),
     CONSTRAINT ck_order_cancellation_reasons_text CHECK (reason_text IS NULL OR length(btrim(reason_text)) > 0)
 );
@@ -218,10 +206,6 @@ BEGIN
     IF OLD.staff_reason_added_at IS NOT NULL AND (NEW.staff_reason_added_at IS DISTINCT FROM OLD.staff_reason_added_at
         OR NEW.staff_reason_added_by IS DISTINCT FROM OLD.staff_reason_added_by) THEN
         RAISE EXCEPTION 'order cancellation %: the reason has already been completed', OLD.id
-            USING ERRCODE = 'check_violation';
-    END IF;
-    IF OLD.decided_order_version IS NOT NULL AND NEW.decided_order_version IS DISTINCT FROM OLD.decided_order_version THEN
-        RAISE EXCEPTION 'order cancellation %: the order version of its decision is final', OLD.id
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;

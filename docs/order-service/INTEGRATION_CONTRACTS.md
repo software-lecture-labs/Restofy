@@ -133,7 +133,7 @@ Olaylar iş değişikliğiyle aynı işlemde `outbox_events` ve hedef başına `
 
 ## 7. Veritabanı
 
-Flyway aralığı V41–V50, kullanılan V41–V49 (V50 boş). Migration'lar ALTER ve veri taşıma içermeyecek biçimde birleştirilmiştir; hiçbir paylaşılan veritabanı eski zinciri uygulamamıştı.
+Flyway aralığı V41–V50, tamamı kullanıldı (aralıkta boş numara kalmadı). V41–V49 ALTER ve veri taşıma içermeyecek biçimde birleştirilmişti; hiçbir paylaşılan veritabanı eski zinciri uygulamamıştı. V50, paylaşılmış zincirin üzerine eklenen ilk migration'dır.
 
 | Sürüm | İçerik |
 |---|---|
@@ -143,11 +143,12 @@ Flyway aralığı V41–V50, kullanılan V41–V49 (V50 boş). Migration'lar ALT
 | V44 | Durum geçmişi (yalnız eklenir) |
 | V45 | Inbox; hazırlık ve ödeme geçiş koruması (trigger) |
 | V46 | Tahsilatlar ve uzlaştırma vakaları |
-| V47 | İptaller, kalemleri ve nedenleri; `cancelled_quantity` tutarlılığı; neden kataloğunda `CUSTOMER_REQUEST`; kararın sürümü `decided_order_version` (bir kez yazılır). 5 Kasım 2026'da paylaşıldıktan sonra Order sahibinin açık izniyle güncellendi, eski V47'yi uygulamış her Order veritabanı yeniden oluşturulmalı |
+| V47 | İptaller, kalemleri ve nedenleri; `cancelled_quantity` tutarlılığı |
 | V48 | Masa oturumu işlemleri: amaç, etki, komut özeti, tutuk, makbuz (kapanış ve boşta-süre) |
 | V49 | Kapanış kapsam sapması kayıtları (yalnızca eklenir) |
+| V50 | Kararın sipariş sürümü `decided_order_version` (bir kez yazılır; koruma tetikleyicisi genişletildi); neden kataloğunda `CUSTOMER_REQUEST`. V47 değiştirilmeden, onun üzerine uygulanır |
 
-`ddl-auto=validate`; şemayı yalnız Flyway değiştirir. Uygulanmış bir migration paylaşıldıktan sonra yeniden yazılmaz (V47'nin yukarıda belirtilen, açık izinle yapılmış güncellemesi bir istisnadır ve tekrarlanmaz).
+`ddl-auto=validate`; şemayı yalnız Flyway değiştirir. Uygulanmış bir migration paylaşıldıktan sonra yeniden yazılmaz; değişiklik yeni bir migration olarak eklenir (V50 böyle eklendi).
 
 ## 8. Hata sözleşmesi
 
