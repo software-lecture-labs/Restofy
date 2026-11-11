@@ -38,17 +38,13 @@ class PaymentCapturesMigrationTests {
             flyway(schema).migrate();
             try (Connection connection = dataSource.getConnection();
                     Statement statement = connection.createStatement()) {
-                try {
-                    statement.execute("SET search_path TO " + schema);
-                    assertEquals(0, count(statement, "payment_captures"));
-                    assertEquals(0, count(statement, "payment_reconciliation_cases"));
-                    try (ResultSet rows = statement.executeQuery("SELECT version FROM flyway_schema_history"
-                            + " ORDER BY installed_rank DESC LIMIT 1")) {
-                        assertTrue(rows.next());
-                        assertFalse(rows.getString(1).isBlank());
-                    }
-                } finally {
-                    statement.execute("RESET search_path"); // pooled connection must not keep a dropped schema
+                statement.execute("SET search_path TO " + schema);
+                assertEquals(0, count(statement, "payment_captures"));
+                assertEquals(0, count(statement, "payment_reconciliation_cases"));
+                try (ResultSet rows = statement.executeQuery("SELECT version FROM flyway_schema_history"
+                        + " ORDER BY installed_rank DESC LIMIT 1")) {
+                    assertTrue(rows.next());
+                    assertFalse(rows.getString(1).isBlank());
                 }
             }
         } finally {

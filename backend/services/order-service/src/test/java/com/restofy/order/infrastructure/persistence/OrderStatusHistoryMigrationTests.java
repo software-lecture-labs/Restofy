@@ -36,14 +36,10 @@ class OrderStatusHistoryMigrationTests {
             flyway(schema).migrate();
             try (Connection connection = dataSource.getConnection();
                     Statement statement = connection.createStatement()) {
-                try {
-                    statement.execute("SET search_path TO " + schema);
-                    try (ResultSet rows = statement.executeQuery("SELECT count(*) FROM order_status_history")) {
-                        rows.next();
-                        assertEquals(0, rows.getInt(1));
-                    }
-                } finally {
-                    statement.execute("RESET search_path"); // pooled connection must not keep a dropped schema
+                statement.execute("SET search_path TO " + schema);
+                try (ResultSet rows = statement.executeQuery("SELECT count(*) FROM order_status_history")) {
+                    rows.next();
+                    assertEquals(0, rows.getInt(1));
                 }
             }
         } finally {

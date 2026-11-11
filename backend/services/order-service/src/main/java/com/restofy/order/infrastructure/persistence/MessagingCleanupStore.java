@@ -34,11 +34,11 @@ public class MessagingCleanupStore {
     @Transactional
     public int purgeInbox(Instant olderThan, int batchSize) {
         return jdbc.update("""
-                DELETE FROM inbox_events WHERE id = ANY (ARRAY(
+                DELETE FROM inbox_events WHERE id IN (
                     SELECT id FROM inbox_events WHERE received_at < ? AND event_type <> ALL (?)
                     ORDER BY received_at
                     LIMIT ?
-                    FOR UPDATE SKIP LOCKED))
+                    FOR UPDATE SKIP LOCKED)
                 """, ps -> {
                     ps.setTimestamp(1, Timestamp.from(olderThan));
                     ps.setArray(2, ps.getConnection().createArrayOf("varchar",
