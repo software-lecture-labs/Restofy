@@ -13,13 +13,15 @@ public enum CancellationReasonCode {
     CHANGED_MIND,
     ORDERED_BY_MISTAKE,
     WAIT_TOO_LONG,
+    /** The customer asked the Kitchen to cancel (reported by the Kitchen service; the customer's own reasons are the three above). */
+    CUSTOMER_REQUEST,
     ITEM_UNAVAILABLE,
     KITCHEN_ERROR,
     OTHER;
 
     public String kitchenGroup() {
         return switch (this) {
-            case CHANGED_MIND, ORDERED_BY_MISTAKE, WAIT_TOO_LONG -> "CUSTOMER_REQUEST";
+            case CHANGED_MIND, ORDERED_BY_MISTAKE, WAIT_TOO_LONG, CUSTOMER_REQUEST -> "CUSTOMER_REQUEST";
             case ITEM_UNAVAILABLE -> "OUT_OF_STOCK";
             default -> name();
         };

@@ -26,4 +26,9 @@ public record CheckoutRequest(
         @Pattern(regexp = "[0-9a-f]{64}", message = "must be a 64 character lowercase hex digest")
         String expectedPriceFingerprint,
         Boolean acknowledgePriceChanges) {
+    /** Spring MVC may log request objects at DEBUG; guest text must stay private. */
+    @Override
+    public String toString() {
+        return "CheckoutRequest[redacted]";
+    }
 }

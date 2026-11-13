@@ -183,6 +183,24 @@ public class CancellationStore {
                 rejectionNote, currentDueMinor, currentDueMinor, collectedMinor, timestamp(actor.decidedAt()), id), id);
     }
 
+    /**
+     * Writes, once, the version the order had right after this (already taken) decision. A repeat of the same request is
+     * answered with it, so the answer stays the first one even when the order changes afterwards.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordDecidedOrderVersion(UUID id, long orderVersion) {
+        requireOne(jdbc.update("""
+                UPDATE order_cancellations SET decided_order_version = ?
+                WHERE id = ? AND decided_at IS NOT NULL AND decided_order_version IS NULL
+                """, orderVersion, id), id);
+    }
+
+    /** The version recorded with the decision, or {@code null} for a decision that has none (taken before V50). */
+    public Long findDecidedOrderVersion(UUID id) {
+        return jdbc.query("SELECT decided_order_version FROM order_cancellations WHERE id = ?",
+                rs -> rs.next() ? rs.getObject(1, Long.class) : null, id);
+    }
+
     /** A waiter completes the reason of a cancellation, once. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void markStaffReason(UUID id, String staffUserId, Instant at) {

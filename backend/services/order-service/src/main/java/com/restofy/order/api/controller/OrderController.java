@@ -174,8 +174,8 @@ public class OrderController {
     @PostMapping("/{orderId}/cancellations")
     @Operation(summary = "Cancel a whole order or chosen lines and unit counts (idempotent per Idempotency-Key)",
             description = "Send either cancelAll=true or items (orderItemId + quantity), never both. The reason is always "
-                    + "optional: reasonCodes (CHANGED_MIND, ORDERED_BY_MISTAKE, WAIT_TOO_LONG, ITEM_UNAVAILABLE, "
-                    + "KITCHEN_ERROR, OTHER; several allowed, none repeated) and/or a plain reasonText of at most 300 "
+                    + "optional: reasonCodes (CHANGED_MIND, ORDERED_BY_MISTAKE, WAIT_TOO_LONG, CUSTOMER_REQUEST, "
+                    + "ITEM_UNAVAILABLE, KITCHEN_ERROR, OTHER; several allowed, none repeated) and/or a plain reasonText of at most 300 "
                     + "characters; without one a waiter can complete it later. A guest cancels only their own order while "
                     + "their table session is active; WAITER and ADMIN cancel any order of their restaurant; KITCHEN is 403. "
                     + "RECEIVED: decided at once (status APPLIED, decisionSource AUTO). PREPARING: stored as REQUESTED and "
