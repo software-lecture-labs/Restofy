@@ -139,6 +139,24 @@ class CancellationDatabaseTests extends AbstractCancellationApiTest {
     }
 
     @Test
+    void theOrderVersionOfADecisionIsWrittenOnceAndOnlyNextToADecision() throws Exception {
+        UUID decided = applied(placeSaladOrder(A1));
+        UUID waiting = requested(placeSaladOrder(A1));
+        String set = "UPDATE order_cancellations SET decided_order_version = ";
+
+        // a request that waits has no decision, so it has no version; a version is never negative
+        refuses(() -> jdbc.update(set + "7 WHERE id = ?", waiting), "ck_order_cancellations_decided_order_version");
+        refuses(() -> jdbc.update(set + "-1 WHERE id = ?", decided), "ck_order_cancellations_decided_order_version");
+
+        assertEquals(1, jdbc.update(set + "7 WHERE id = ?", decided));
+        assertEquals(1, jdbc.update(set + "7 WHERE id = ?", decided), "writing the same value again changes nothing");
+        refuses(() -> jdbc.update(set + "8 WHERE id = ?", decided), "is final");
+        refuses(() -> jdbc.update(set + "NULL WHERE id = ?", decided), "is final");
+        assertEquals(7L, jdbc.queryForObject("SELECT decided_order_version FROM order_cancellations WHERE id = ?",
+                Long.class, decided));
+    }
+
+    @Test
     void theRefundThatHappenedCanOnlyGrowAndNeverExceedsWhatIsRequired() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         pay(orderId, "PENDING", 10).andExpect(status().isOk());

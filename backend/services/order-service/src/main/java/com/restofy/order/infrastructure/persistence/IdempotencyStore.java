@@ -64,12 +64,12 @@ public class IdempotencyStore {
     @Transactional
     public int purgeExpired(Instant now, int batchSize) {
         return jdbc.update("""
-                DELETE FROM idempotency_records WHERE id IN (
+                DELETE FROM idempotency_records WHERE id = ANY (ARRAY(
                     SELECT id FROM idempotency_records
                     WHERE status = 'COMPLETED' AND expires_at < ?
                     ORDER BY expires_at
                     LIMIT ?
-                    FOR UPDATE SKIP LOCKED)
+                    FOR UPDATE SKIP LOCKED))
                 """, Timestamp.from(now), batchSize);
     }
 }

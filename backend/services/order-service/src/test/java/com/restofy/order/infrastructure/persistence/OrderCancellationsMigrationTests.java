@@ -22,10 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The whole chain V41-V49 runs from
+ * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The whole chain V41-V50 runs from
  * nothing, uses no number outside the Order range, passes Flyway's own validation (checksums, ordering) and leaves the
  * audit model in place: SERVICE is a real kind of author next to GUEST and STAFF, the staff member a service claims to act
- * for has a column of its own, and the guards keep both unchangeable.
+ * for has a column of its own, and the guards keep both unchangeable. V50 (the version of a decision and the
+ * CUSTOMER_REQUEST reason) is a migration of its own, applied on top of V47 as it was shared on dev: V47 is never edited.
  */
 @SpringBootTest
 class OrderCancellationsMigrationTests {
@@ -66,8 +67,8 @@ class OrderCancellationsMigrationTests {
                 assertTrue(info.getState().isApplied() && info.getState().isResolved(), info.getVersion().toString());
                 versions.add(info.getVersion().toString());
             }
-            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49"), versions,
-                    "the consolidated chain V41-V49, inside the Order range V41-V50: no extra number was taken");
+            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), versions,
+                    "the chain V41-V50: exactly the Order range, no number outside it was taken");
             assertEquals(0, flyway.info().pending().length);
             flyway.validate();                                  // checksums of every applied file still match
             assertEquals(0, flyway.migrate().migrationsExecuted, "a second run has nothing to do");
@@ -155,6 +156,48 @@ class OrderCancellationsMigrationTests {
             numbers.add(file.getName().substring(1, file.getName().indexOf("__")));
         }
         Collections.sort(numbers);
-        assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49"), numbers);
+        assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), numbers);
+    }
+
+    @Test
+    void v47StaysAsSharedOnDevAndV50AppliesOnTopOfAnExistingDatabase() throws Exception {
+        // V47 is already applied in every shared Order database: it must not carry the Kitchen agreement, V50 does
+        String v47 = new String(getClass().getResourceAsStream("/db/migration/V47__create_order_cancellations.sql")
+                .readAllBytes(), StandardCharsets.UTF_8);
+        assertFalse(v47.contains("decided_order_version") || v47.contains("CUSTOMER_REQUEST"),
+                "the shared V47 is not edited again: the agreement lives in V50");
+
+        String schema = "cancel_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        try {
+            // a database that stopped at V49, like every Order database that applied dev before V50 existed
+            Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+                    .locations("classpath:db/migration").target("49").load().migrate();
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
+                assertEquals("0", one(statement, "SELECT count(*) FROM information_schema.columns WHERE table_schema = '"
+                        + schema + "' AND table_name = 'order_cancellations' AND column_name = 'decided_order_version'"));
+            }
+
+            Flyway flyway = flyway(schema);
+            assertEquals(1, flyway.migrate().migrationsExecuted, "only V50 is left to apply");
+            flyway.validate();                                  // the checksums of V41-V49 are the ones already applied
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement()) {
+                assertEquals("bigint", one(statement, "SELECT data_type FROM information_schema.columns WHERE table_schema = '"
+                        + schema + "' AND table_name = 'order_cancellations' AND column_name = 'decided_order_version'"));
+                assertTrue(one(statement, "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_namespace n"
+                        + " ON n.oid = c.connamespace WHERE n.nspname = '" + schema
+                        + "' AND c.conname = 'ck_order_cancellation_reasons_code'").contains("'CUSTOMER_REQUEST'"));
+                assertTrue(one(statement, "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_namespace n"
+                        + " ON n.oid = c.connamespace WHERE n.nspname = '" + schema
+                        + "' AND c.conname = 'ck_order_cancellations_decided_order_version'").contains("decided_order_version"));
+                String guard = one(statement, "SELECT p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+                        + " WHERE n.nspname = '" + schema + "' AND p.proname = 'order_cancellations_guard'");
+                assertTrue(guard.contains("the order version of its decision is final") && guard.contains("never deleted")
+                        && guard.contains("cannot be taken back"), guard);
+            }
+        } finally {
+            drop(schema);
+        }
     }
 }

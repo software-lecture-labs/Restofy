@@ -67,6 +67,8 @@ Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızd
 | `POST /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}/confirmation` | QR | `CLOSED` (isteğe bağlı makbuzla) / `NOT_CLOSED` (abort) |
 | `GET  /api/v1/internal/table-sessions/{id}/order-state?restaurantId=` | QR | Siparişlerin boşta-süre kuralları için anlamı, salt okunur |
 
+`kitchen-cancellation-request` aynı çağrının yanıtında karar verir (`outcome` `APPLIED` veya `REJECTED`; ayrı bir olay yok ve Kitchen kendi talebinin sonucu olarak olay hedeflerinden bilerek çıkarılmıştır). Yanıt, kararın verildiği andaki sipariş sürümünü (`orderVersion`: onay sürümü artırır, ret siparişe dokunmaz) ve kararın zamanını (`decidedAt`) taşır. Aynı `eventId` ve aynı gövdeyle tekrar gelen istek **ilk kararın** sürümünü ve zamanını döner (sipariş bu arada ilerlemiş olsa da); sürüm `order_cancellations.decided_order_version` (V47) alanında saklanır. Tekilleştirme kaydı süresi dolduktan sonra gelen tekrarda (72 saat) `cancellationId`, `orderVersion` ve `decidedAt` boş döner, sonuç yine ilk sonuçtur. Kitchen kendi talebiyle eşleştirmeyi kendi outbox satırının `eventId` değeriyle yapar; ayrı bir `requestId` alanı yoktur. Iptal nedeni kataloğu: `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `WAIT_TOO_LONG`, `CUSTOMER_REQUEST`, `ITEM_UNAVAILABLE`, `KITCHEN_ERROR`, `OTHER` (Kitchen'ın `OUT_OF_STOCK` değeri `ITEM_UNAVAILABLE` olarak gönderilir).
+
 Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem iki kez yapılmaz (`duplicate=true`), aynı kimlik farklı gövdeyle gelirse `409`. Başka restoranın siparişi `404`.
 
 ## 4. İş kuralları (UYGULANDI)
@@ -131,7 +133,7 @@ Olaylar iş değişikliğiyle aynı işlemde `outbox_events` ve hedef başına `
 
 ## 7. Veritabanı
 
-Flyway aralığı V41–V50, kullanılan V41–V49 (V50 boş). Migration'lar ALTER ve veri taşıma içermeyecek biçimde birleştirilmiştir; hiçbir paylaşılan veritabanı eski zinciri uygulamamıştı.
+Flyway aralığı V41–V50, tamamı kullanıldı (aralıkta boş numara kalmadı). V41–V49 ALTER ve veri taşıma içermeyecek biçimde birleştirilmişti; hiçbir paylaşılan veritabanı eski zinciri uygulamamıştı. V50, paylaşılmış zincirin üzerine eklenen ilk migration'dır.
 
 | Sürüm | İçerik |
 |---|---|
@@ -144,8 +146,9 @@ Flyway aralığı V41–V50, kullanılan V41–V49 (V50 boş). Migration'lar ALT
 | V47 | İptaller, kalemleri ve nedenleri; `cancelled_quantity` tutarlılığı |
 | V48 | Masa oturumu işlemleri: amaç, etki, komut özeti, tutuk, makbuz (kapanış ve boşta-süre) |
 | V49 | Kapanış kapsam sapması kayıtları (yalnızca eklenir) |
+| V50 | Kararın sipariş sürümü `decided_order_version` (bir kez yazılır; koruma tetikleyicisi genişletildi); neden kataloğunda `CUSTOMER_REQUEST`. V47 değiştirilmeden, onun üzerine uygulanır |
 
-`ddl-auto=validate`; şemayı yalnız Flyway değiştirir. Uygulanmış bir migration paylaşıldıktan sonra yeniden yazılmaz.
+`ddl-auto=validate`; şemayı yalnız Flyway değiştirir. Uygulanmış bir migration paylaşıldıktan sonra yeniden yazılmaz; değişiklik yeni bir migration olarak eklenir (V50 böyle eklendi).
 
 ## 8. Hata sözleşmesi
 

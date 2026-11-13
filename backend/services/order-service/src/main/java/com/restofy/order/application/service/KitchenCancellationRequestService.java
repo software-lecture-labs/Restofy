@@ -187,12 +187,15 @@ public class KitchenCancellationRequestService {
                     item -> item.remainingAfter() + item.quantity()));
             events.rejected(order, row, itemRows, current, true, now);
         }
+        // the order as it is after the decision (an approval moved its version up, a refusal left it): a repeat of this
+        // request is answered with exactly this version and time
+        cancellations.recordDecidedOrderVersion(cancellationId, order.getVersion());
         inbox.append(InboxStore.KITCHEN, request.eventId(), order.getRestaurantId(), order.getId(),
                 accepted ? EVENT_TYPE_APPLIED : EVENT_TYPE_REJECTED, "APPLIED", now);
         log.info("Kitchen cancellation request {}: cancellationId={} orderId={} restaurantId={} scope={}",
                 accepted ? "applied" : "refused (" + rejection + ")", cancellationId, order.getId(),
                 order.getRestaurantId(), row.scope());
-        return response(false, order, row);
+        return response(false, order, row, order.getVersion());
     }
 
     private KitchenCancellationRequestResponse replay(Order order, IdempotencyStore.Record previous, String digest) {
@@ -203,7 +206,8 @@ public class KitchenCancellationRequestService {
         Row row = cancellations.find(order.getRestaurantId(), order.getId(), previous.resourceId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
                         "This event id was already used for a different order"));
-        return response(true, order, row);
+        // the FIRST decision's version and time, not the order's current version
+        return response(true, order, row, cancellations.findDecidedOrderVersion(row.id()));
     }
 
     /** The idempotency record is gone (72 h) but the inbox still remembers the event: nothing is done a second time. */
@@ -215,12 +219,14 @@ public class KitchenCancellationRequestService {
         String outcome = EVENT_TYPE_REJECTED.equals(processed.eventType())
                 ? CancellationStatus.REJECTED.name() : CancellationStatus.APPLIED.name();
         return new KitchenCancellationRequestResponse(outcome, true, order.getId(), null, null, null,
-                order.getFulfillmentStatus().name(), order.getPaymentStatus().name());
+                order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), null, null);
     }
 
-    private static KitchenCancellationRequestResponse response(boolean duplicate, Order order, Row row) {
+    private static KitchenCancellationRequestResponse response(boolean duplicate, Order order, Row row,
+                                                               Long decidedOrderVersion) {
         return new KitchenCancellationRequestResponse(row.status(), duplicate, order.getId(), row.id(), row.scope(),
-                row.rejectionCode(), order.getFulfillmentStatus().name(), order.getPaymentStatus().name());
+                row.rejectionCode(), order.getFulfillmentStatus().name(), order.getPaymentStatus().name(),
+                decidedOrderVersion, row.decidedAt());
     }
 
     private static void validateReasons(CancellationReasons.Parsed reasons) {
