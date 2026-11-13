@@ -83,21 +83,25 @@ class FlywayPostgresIntegrationTests {
     }
 
     private String scalar(String name, String sql) throws Exception {
-        try (var connection = connection(name); var statement = connection.createStatement(); var rows = statement.executeQuery(sql)) {
+        try (var connection = connection(name);
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery(sql)) {
             assertTrue(rows.next());
             return rows.getString(1);
         }
     }
 
     private void sql(String name, String sql) throws Exception {
-        try (var connection = connection(name); var statement = connection.createStatement()) {
+        try (var connection = connection(name);
+                var statement = connection.createStatement()) {
             statement.execute(sql);
         }
     }
 
     private List<String> versions(String name) throws Exception {
         var result = new ArrayList<String>();
-        try (var connection = connection(name); var statement = connection.createStatement();
+        try (var connection = connection(name);
+                var statement = connection.createStatement();
              var rows = statement.executeQuery("SELECT version FROM public.flyway_schema_history ORDER BY installed_rank")) {
             while (rows.next()) result.add(rows.getString(1));
         }
@@ -130,7 +134,8 @@ class FlywayPostgresIntegrationTests {
 
     private ApplicationContextRunner boot(boolean includeTestEntity, boolean productionLocation) {
         var configurations = includeTestEntity
-                ? AutoConfigurations.of(DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class, HibernateJpaAutoConfiguration.class)
+                ? AutoConfigurations.of(DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class,
+                        HibernateJpaAutoConfiguration.class)
                 : AutoConfigurations.of(DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class);
         var runner = new ApplicationContextRunner().withConfiguration(configurations)
                 .withInitializer(context -> {
@@ -177,19 +182,30 @@ class FlywayPostgresIntegrationTests {
             assertEquals("validate", context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto"));
             assertEquals("1", scalar(database, "SELECT count(*) FROM public.migration_probe"));
             assertEquals(List.of("1"), versions(database));
-            assertEquals("1", scalar(database, "SELECT count(*) FROM public.flyway_schema_history WHERE success AND checksum IS NOT NULL AND type='SQL'"));
+            assertEquals("1",
+                    scalar(database,
+                    "SELECT count(*) FROM public.flyway_schema_history WHERE success AND checksum IS NOT NULL AND type='SQL'"));
             assertEquals("public", scalar(database, "SELECT current_schema()"));
-            assertEquals("0", scalar(database, "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'"));
+            assertEquals("0",
+                    scalar(database,
+                    "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'"));
         });
     }
 
     @Test
-    void emptyProductionLocationStartsAndCreatesOnlyEmptyHistory() {
+    void productionLocationStartsAndAppliesOnlyShippedMigrations() {
         boot(false, true).run(context -> {
             assertNull(context.getStartupFailure());
             assertEquals("classpath:db/migration", context.getEnvironment().getProperty("spring.flyway.locations"));
-            assertEquals(List.of(), versions(database));
-            assertEquals("1", scalar(database, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"));
+            // V61 (categories), V62 (products), V63 (availability), V64 (ingredients text), V65 (options), V66 (nutrition bounds) and V67
+            // (availability commands) are the shipped migrations; update this list when a new one is added.
+            assertEquals(List.of("61", "62", "63", "64", "65", "66", "67"), versions(database));
+            assertEquals("7", scalar(database, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"));
+            assertNotNull(scalar(database, "SELECT to_regclass('public.categories')"));
+            assertNotNull(scalar(database, "SELECT to_regclass('public.products')"));
+            assertNotNull(scalar(database, "SELECT to_regclass('public.product_availability')"));
+            assertNotNull(scalar(database, "SELECT to_regclass('public.product_availability_history')"));
+            assertNotNull(scalar(database, "SELECT to_regclass('public.product_options')"));
         });
     }
 
@@ -348,11 +364,15 @@ class FlywayPostgresIntegrationTests {
 
     @Test
     void hibernateValidateRejectsMissingColumnWithoutAddingIt() throws Exception {
-        Files.writeString(migrations.resolve("V1__incomplete_hibernate_probe.sql"), "CREATE TABLE public.hibernate_probe (id BIGINT PRIMARY KEY);\n");
+        Files.writeString(migrations.resolve("V1__incomplete_hibernate_probe.sql"),
+                "CREATE TABLE public.hibernate_probe (id BIGINT PRIMARY KEY);\n");
         boot(true, false).run(context -> {
             assertNotNull(context.getStartupFailure());
             assertTrue(hasCause(context.getStartupFailure(), SchemaManagementException.class));
-            assertEquals("0", scalar(database, "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='hibernate_probe' AND column_name='note'"));
+            assertEquals("0",
+                    scalar(database,
+                    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='hibernate_probe' AND "
+                    + "column_name='note'"));
             assertEquals(List.of("1"), versions(database));
         });
     }
