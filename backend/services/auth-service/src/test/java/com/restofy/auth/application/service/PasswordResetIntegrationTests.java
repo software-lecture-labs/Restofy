@@ -57,6 +57,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         mfa.saveAndFlush(state);
     }
     @AfterEach void clean() {
+        jdbc.update("DELETE FROM staff_revocation_targets"); jdbc.update("DELETE FROM staff_revocation_operations");
         jdbc.update("DELETE FROM password_reset_requests"); jdbc.update("DELETE FROM password_reset_limits");
         jdbc.update("DELETE FROM mfa_recovery_codes"); jdbc.update("DELETE FROM staff_mfa");
         jdbc.update("DELETE FROM refresh_tokens"); jdbc.update("DELETE FROM user_sessions"); jdbc.update("DELETE FROM staff_users");
@@ -83,7 +84,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         String code = message.code();
         String grant = resets.verify(cookie, code);
         assertThatThrownBy(() -> resets.verify(cookie, code)).isInstanceOf(BadCredentialsException.class);
-        resets.confirm(grant, NEW);
+        coordinatedAuthFixture(() -> resets.confirm(grant, NEW));
         StaffUser changed = users.findById(admin.getId()).orElseThrow();
         assertThat(changed.isActive()).isTrue(); assertThat(changed.getPasswordChangedAt()).isEqualTo(clock.instant());
         assertThat(changed.getPasswordHash()).startsWith("$2a$12$");
@@ -156,13 +157,13 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     void invalidOrUnchangedPasswordDoesNotConsumeGrant(String password) {
         String cookie = start(); String grant = resets.verify(cookie,sent().code());
         assertThatThrownBy(() -> resets.confirm(grant,password)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
-        resets.confirm(grant,NEW);
+        coordinatedAuthFixture(() -> resets.confirm(grant,NEW));
     }
 
     @Test void notificationFailureDoesNotRollbackPasswordChange() {
         String cookie = start(); String grant = resets.verify(cookie,sent().code());
         doThrow(new IllegalStateException("test failure")).when(mail).afterCommit(argThat(value -> value.templateKey().equals("PASSWORD_CHANGED")));
-        resets.confirm(grant,NEW);
+        coordinatedAuthFixture(() -> resets.confirm(grant,NEW));
         assertThat(passwords.matches(NEW, users.findById(admin.getId()).orElseThrow().getPasswordHash())).isTrue();
     }
 
@@ -173,7 +174,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
 
     @Test void disabledAccountAndChangedRoleCannotCompleteRecovery() {
         String cookie = start(); String grant = resets.verify(cookie,sent().code());
-        sessions.deactivate(admin.getId());
+        coordinatedAuthFixture(() -> sessions.deactivate(admin.getId()));
         assertThatThrownBy(() -> resets.confirm(grant,NEW)).isInstanceOf(BadCredentialsException.class);
     }
 
@@ -182,6 +183,24 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         List<String> grants = race(() -> resets.verify(cookie,code));
         assertThat(grants).hasSize(1);
         assertThat(race(() -> { resets.confirm(grants.getFirst(),NEW); return "completed"; })).hasSize(1);
+    }
+
+    @Test void oldPasswordLoginCannotSurviveConcurrentLocalFirstReset() throws Exception {
+        String cookie = start(); String grant = resets.verify(cookie, sent().code());
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var reset = pool.submit(() -> { start.await(); resets.confirm(grant, NEW); return true; });
+            var login = pool.submit(() -> { start.await();
+                try { sessions.login(admin.getEmailNormalized(), OLD, "reset-race"); return true; }
+                catch (BadCredentialsException _) { return false; }
+            });
+            start.countDown();
+            assertThat(reset.get(30, TimeUnit.SECONDS)).isTrue();
+            login.get(30, TimeUnit.SECONDS);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThatThrownBy(() -> sessions.login(admin.getEmailNormalized(), OLD, null)).isInstanceOf(BadCredentialsException.class);
     }
 
     private List<String> race(Callable<String> action) throws Exception {
@@ -292,7 +311,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         latest.migrate();
         assertThat(jdbc.queryForObject("SELECT password_hash FROM "+schema+".staff_users WHERE id=?",String.class,id)).isEqualTo(hash);
         assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",java.sql.Timestamp.class,id)).isNull();
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("7");
     }
 
     @Test

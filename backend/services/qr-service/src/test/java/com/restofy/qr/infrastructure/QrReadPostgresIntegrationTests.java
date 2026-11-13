@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {"qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "qr.public-entry-url=https://guest.example.test/qr"})
-class QrReadPostgresIntegrationTests {
+class QrReadPostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired QrCodeCreationService creation;
     @Autowired QrCodeLifecycleService lifecycle;
     @Autowired QrCodeQueryService queries;

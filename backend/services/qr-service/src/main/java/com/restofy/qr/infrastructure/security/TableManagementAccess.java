@@ -1,15 +1,12 @@
 package com.restofy.qr.infrastructure.security;
 
 import java.util.UUID;
-import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Component;
 
-/** Closed integration boundary until the Auth team supplies verified management/tenant context.
- *  No request ID, header, default Security user or role establishes restaurant membership.
- */
+/** Consumes only the Q5 filter's locally verified staff context; headers and default Security users are not identity. */
 @Component
 public class TableManagementAccess {
     public UUID requireRestaurantId() {
-        throw new AuthenticationCredentialsNotFoundException("Verified restaurant management context is unavailable.");
+        return StaffRequestFilter.requireVerified().restaurantId();
     }
 }

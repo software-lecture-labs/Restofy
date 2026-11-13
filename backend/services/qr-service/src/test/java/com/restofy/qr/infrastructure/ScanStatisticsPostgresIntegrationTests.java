@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-class ScanStatisticsPostgresIntegrationTests {
+class ScanStatisticsPostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired TableSessionStatisticsService statistics;
     @Autowired GuestSessionOpeningService opening;
     @Autowired TableSessionOpeningService mainOpening;
@@ -346,7 +346,7 @@ class ScanStatisticsPostgresIntegrationTests {
     @ValueSource(strings = {"qr", "main", "guest", "tenant"})
     void compositeForeignKeysRejectWrongTableTenantAndGuestChains(String mismatch) {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("122");
         var firstCode = create("1");
         var secondCode = create("2");
         var first = opening.open(firstCode.qrToken());

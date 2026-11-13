@@ -208,10 +208,10 @@ DB'sinden kullanıcı aktifliği, rol ve session durumu kontrol edilir.
 Diğer servislerin JWT/session doğrulaması, introspection ve servis kimliği bu teslimde yoktur.
 Tek anahtarı değiştirmek mevcut access JWT'lerini geçersiz kılar; planlı rotasyon uygulanmadı.
 
-`restofy_access`: HttpOnly, Path=/api/v1, en fazla 900 sn.
+`restofy_access`: HttpOnly, Path=/api/v1, en fazla 300 sn.
 `restofy_refresh`: HttpOnly, Path=/api/v1/auth, session mutlak son tarihine kadar.
 `restofy_mfa`: HttpOnly, Path=/api/v1/auth, en fazla 300 sn; refresh üretilmez.
-`restofy_csrf`: JS okunabilir, Path=/api/v1, 900 sn. Bütün cookie'ler host-only,
+`restofy_csrf`: JS okunabilir, Path=/api/v1, 300 sn. Bütün cookie'ler host-only,
 SameSite=Lax; production'da Secure zorunludur. Cookie'ler portla ayrılmaz.
 Logout sunucu iptaliyle birlikte aynı path'lerde cookie temizler.
 
@@ -270,7 +270,7 @@ Yeni ENV değerleri `AUTH_RESTAURANT_ID`, `AUTH_JWT_PRIVATE_KEY`, `AUTH_CSRF_SEC
 RSA anahtarı Base64 PKCS#8, en az 2048 bit; CSRF sırrı ayrı Base64, en az 32 rastgele bayt
 olmalıdır. Gerçek değerler dosyalara/loga/sohbete yazılmaz. Issuer ve CORS allowlist boş
 olamaz. `JWT_ACCESS_TTL_SECONDS` 300–3600 sn, `JWT_REFRESH_TTL_SECONDS` 86400–2592000 sn
-(1–30 gün) aralığında olmalıdır; varsayılan geliştirme değerleri 900 ve 604800'dür. Aralık
+(1–30 gün) aralığında olmalıdır; varsayılan geliştirme değerleri 300 ve 604800'dür. Aralık
 dışı değer başlangıçta, ilgili ENV adı belirtilerek reddedilir (değer yazılmaz). Önceki
 "yalnız 900/604800" kısıtı başka bir servisle yapılmış bir anlaşma değildi; ilk tasarımın
 sıkı bir varsayımıydı ve bu aralıkla gevşetildi.

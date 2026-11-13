@@ -70,7 +70,7 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         mvc.perform(mutation("/activity")).andExpect(status().isNoContent());
         update(mvc.perform(mutation("/refresh")).andExpect(status().isOk()).andReturn());
         assertThat(jar.get(AuthCookies.REFRESH).getValue()).isNotEqualTo(refresh);
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
         mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isUnauthorized());
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThat(login.getRequest().getSession(false)).isNull();
@@ -136,7 +136,7 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         mvc.perform(mutation("/activity")).andExpect(status().isForbidden());
         mvc.perform(mutation("/refresh")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/auth/admin").cookie(cookies())).andExpect(status().isUnauthorized());
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
     }
 
     @Test
@@ -178,10 +178,10 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         for (String path : new String[]{"/api/v1/auth/sessions", "/internal/v1/auth/introspect", "/api/v1/auth/register"}) {
             mvc.perform(get(path).cookie(cookies())).andExpect(status().isUnauthorized());
         }
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
         jar.clear();
         csrf();
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
     }
 
     @Test
