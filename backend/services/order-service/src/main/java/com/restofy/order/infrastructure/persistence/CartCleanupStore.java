@@ -31,13 +31,13 @@ public class CartCleanupStore {
     @Transactional
     public int purgeExpiredCarts(Instant olderThan, int batchSize) {
         return jdbc.update("""
-                DELETE FROM carts WHERE id IN (
+                DELETE FROM carts WHERE id = ANY (ARRAY(
                     SELECT c.id FROM carts c
                     WHERE c.status = 'EXPIRED' AND c.updated_at < ?
                       AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.restaurant_id = c.restaurant_id AND o.cart_id = c.id)
                     ORDER BY c.updated_at
                     LIMIT ?
-                    FOR UPDATE OF c SKIP LOCKED)
+                    FOR UPDATE OF c SKIP LOCKED))
                 """, Timestamp.from(olderThan), batchSize);
     }
 }
