@@ -86,3 +86,18 @@ Personel access-token TTL'si 300 saniyedir. Manifest `denyUntil`, session refres
 Frontend silent refresh **NOT IMPLEMENTED**. Bu PR gerçek tarayıcıda kesintisiz beş dakikalık yenileme deneyimi veya Auth kesintisine dayanıklı frontend vaat etmez.
 
 Restore sırası için [Q5 restore runbook](q5-restore-runbook.md) zorunludur.
+
+## Recovery ve tekrar deneme
+
+Kalıcı `ACKNOWLEDGED` kaydı yeniden QR receipt istemeden Auth FINALIZE adımına devam eder.
+QR challenge alınamadığında yalnızca yerel kimliği, database-start ve durability kontrolleri
+geçerli ACTIVE kaynak mevcut kuyruğu işler. Her claim/finalize transaction kaynak bariyerini
+yeniden kontrol eder. CLOSED/PREPARING veya başarısız bootstrap bu yoldan atlanmaz.
+PREPARED hedeflerin token süresi dolmuşsa QR olmadan TARGETS_EXPIRED ile tamamlanabilir.
+
+Yönetici servis çağrılarında `deactivate(userId, operationId)` ve
+`revokeAllSessions(userId, operationId)` aynı mantıksal istek için aynı UUID ile yeniden
+çağrılır. Tamamlanmış isteğin tekrarı yeni oturumları hedeflemez; yeni istek yeni UUID kullanır.
+Anahtarsız eski çağrılar yalnızca aynı kimlik sürümü ve aynı oturum kapsamı için mevcut işlemi
+kullanır. Sonradan LOCAL_FIRST iptal edilmiş SID dahil yeni oturum veya kimlik değişikliği yeni işlem
+gerektirir. Yeni HTTP endpoint yoktur.

@@ -63,6 +63,129 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void newerLocalFirstRevocationCannotBeHiddenByAnOlderCompletedStrictOperation() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        var fresh = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.logout(fresh.refresh(), fresh.access(), null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE completion_policy='ACK_REQUIRED'",
+                Long.class)).isEqualTo(2);
+    }
+
+    @Test
+    void durableAckCompletesRealTransactionWithoutAnyQrRequest() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        var peer = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
+        new com.restofy.auth.application.service.revocation.RevocationCoordinator(revocations, peer).deliver(id);
+        assertThat(revocations.load(id).status()).isEqualTo("COMPLETED");
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(peer);
+    }
+
+    @Test
+    void realWorkerCompletesExpiredTargetsOfflineButNeverBypassesClosedSource() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
+        jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?", id);
+        var peer = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
+        org.mockito.Mockito.when(peer.generation()).thenReturn(generation);
+        org.mockito.Mockito.when(peer.challenge(restaurant, generation)).thenThrow(new IllegalStateException("offline"));
+        var settings = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.config.AuthSettings.class);
+        org.mockito.Mockito.when(settings.restaurantId()).thenReturn(restaurant);
+        var coordinator = new com.restofy.auth.application.service.revocation.RevocationCoordinator(revocations, peer);
+        var worker = new com.restofy.auth.application.service.revocation.RevocationRetryWorker(
+                revocations, coordinator, bootstrap, peer, settings);
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+        worker.retry();
+        assertThat(revocations.load(id).status()).isEqualTo("PREPARED");
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='ACTIVE' WHERE singleton=true");
+        worker.retry();
+        assertThat(revocations.load(id).deliveryOutcome()).isEqualTo(RevocationTransactions.Outcome.TARGETS_EXPIRED);
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+    }
+
+    @Test
+    void retryClaimsRespectTheEightOperationBatchAndLease() {
+        for (int index = 0; index < 12; index++) {
+            var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+            sessions.logout(grant.refresh(), grant.access(), null);
+        }
+        var first = revocations.claimRetries();
+        assertThat(first).hasSize(8).doesNotHaveDuplicates();
+        var second = revocations.claimRetries();
+        assertThat(second).hasSize(4).doesNotContainAnyElementsOf(first);
+        assertThat(revocations.claimRetries()).isEmpty();
+    }
+
+    @Test
+    void callerKeyReturnsCompletedResultWithoutRevokingANewerSession() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, id)).isInstanceOf(ResponseStatusException.class);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        var fresh = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatCode(() -> sessions.revokeAllSessions(user, id)).doesNotThrowAnyException();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",
+                Boolean.class, fresh.session().getId())).isTrue();
+        assertThatThrownBy(() -> sessions.deactivate(user, id)).isInstanceOf(ResponseStatusException.class);
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        // A pending later command must not hide the completed result for an older request key.
+        assertThatCode(() -> sessions.revokeAllSessions(user, id)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(2);
+    }
+
+    @Test
+    void pendingLegacyRetryKeepsTheSameManifestAndOperation() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        var targets = revocations.load(id).targets();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(id).targets()).isEqualTo(targets);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void completedDeactivationRetryDoesNotReopenBarrier() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.deactivate(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThatCode(() -> sessions.deactivate(user)).doesNotThrowAnyException();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void completedRevokeAllRetryDoesNotReopenBarrierButNewSessionsDo() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThatCode(() -> sessions.revokeAllSessions(user)).doesNotThrowAnyException();
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(2);
+    }
+
+    @Test
     void sourceIdentityMismatchClosesReadinessAndCannotCreateAnOperation() {
         UUID other = UUID.randomUUID();
         for (String column : java.util.List.of("generation", "restaurant_id")) {

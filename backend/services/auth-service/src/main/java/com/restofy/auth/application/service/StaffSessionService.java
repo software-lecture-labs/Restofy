@@ -167,6 +167,23 @@ public class StaffSessionService {
         if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
     }
 
+    /** Stable caller key: retries observe the original immutable operation, even after a later login. */
+    public void deactivate(UUID staffUserId, UUID operationId) {
+        // prepareLocked validates the immutable request and gates every NEW ACK_REQUIRED operation.
+        lockIdentity(staffUserId);
+        var operation = revocations.prepareLocked(operationId, settings.restaurantId(), staffUserId,
+                RevocationTransactions.Action.DISABLE, null, coordinator.generation());
+        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
+    }
+
+    public void revokeAllSessions(UUID staffUserId, UUID operationId) {
+        // prepareLocked validates the immutable request and gates every NEW ACK_REQUIRED operation.
+        lockIdentity(staffUserId);
+        var operation = revocations.prepareLocked(operationId, settings.restaurantId(), staffUserId,
+                RevocationTransactions.Action.ALL, null, coordinator.generation());
+        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
+    }
+
     public Grant completeMfa(Identity identity) {
         UserSession session = authenticate(identity);
         session.completeMfa(clock.instant(), settings.refreshTtl());

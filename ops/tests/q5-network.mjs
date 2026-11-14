@@ -278,7 +278,8 @@ try {
     RETURN NEW; END; $$;
     CREATE TRIGGER q5_fixture_finalize BEFORE UPDATE OF revoked_at ON user_sessions FOR EACH ROW EXECUTE FUNCTION q5_fixture_fail_finalize();`);
   const strictOperation=randomUUID();
-  sql('q5_auth',`WITH bumped AS (
+  sql('q5_auth',`BEGIN;
+    WITH bumped AS (
       UPDATE staff_users SET revocation_revision=revocation_revision+1
       WHERE id=(SELECT staff_user_id FROM user_sessions WHERE id='${sid}')
       RETURNING id,revocation_revision,version
@@ -287,15 +288,35 @@ try {
       SELECT '${strictOperation}',id,'${base.AUTH_RESTAURANT_ID}',revocation_revision,'ALL',version,
         '${base.AUTH_Q5_QR_GENERATION}','PREPARED',now(),'ACK_REQUIRED' FROM bumped;
     INSERT INTO staff_revocation_targets(operation_id,session_id,deny_until)
-      VALUES ('${strictOperation}','${sid}',to_timestamp(${expiresAt}));`);
+      VALUES ('${strictOperation}','${sid}',to_timestamp(${expiresAt}));
+    COMMIT;`);
   await wait('strict ACK retained after failed FINALIZE',
     () => sql('q5_auth',`SELECT status FROM staff_revocation_operations WHERE id='${strictOperation}'`) === 'ACKNOWLEDGED',65000);
   check(sql('q5_auth',`SELECT revoked_at IS NULL FROM user_sessions WHERE id='${sid}'`) === 't','Failed FINALIZE partly committed');
   check(await qrStatus(recovered)===401,'QR fence removed after failed Auth FINALIZE');
+  offline=true; // Recovery must use the already durable ACK even while the QR transport is down.
   sql('q5_auth','DROP TRIGGER q5_fixture_finalize ON user_sessions; DROP FUNCTION q5_fixture_fail_finalize();');
   await wait('safe FINALIZE retry',() => sql('q5_auth',`SELECT status FROM staff_revocation_operations WHERE id='${strictOperation}'`) === 'COMPLETED',65000);
   check(await qrStatus(recovered)===401,'Old JWT accepted after recovered FINALIZE');
-  console.log('PASS failed strict Auth FINALIZE retains QR fence and durable ACK; retry completes');
+  console.log('PASS failed strict Auth FINALIZE retains QR fence and durable ACK; retry completes offline');
+  stage='expired ACK_REQUIRED targets complete during QR outage';
+  const expiredOperation=randomUUID();
+  sql('q5_auth',`BEGIN;
+    WITH bumped AS (
+      UPDATE staff_users SET revocation_revision=revocation_revision+1
+      WHERE id=(SELECT staff_user_id FROM user_sessions WHERE id='${sid}')
+      RETURNING id,revocation_revision,version
+    ) INSERT INTO staff_revocation_operations
+      (id,user_id,restaurant_id,revision,action,expected_user_version,consumer_generation,status,created_at,completion_policy)
+      SELECT '${expiredOperation}',id,'${base.AUTH_RESTAURANT_ID}',revocation_revision,'ALL',version,
+        '${base.AUTH_Q5_QR_GENERATION}','PREPARED',now(),'ACK_REQUIRED' FROM bumped;
+    INSERT INTO staff_revocation_targets(operation_id,session_id,deny_until)
+      VALUES ('${expiredOperation}','${sid}',now()-interval '1 second');
+    COMMIT;`);
+  await wait('expiry fallback without QR',() => sql('q5_auth',
+    `SELECT delivery_outcome FROM staff_revocation_operations WHERE id='${expiredOperation}'`) === 'TARGETS_EXPIRED',65000);
+  console.log('PASS expired ACK_REQUIRED targets complete while QR transport is offline');
+  offline=false;
   stage='same-postmaster logical restore counterexample';
   offline=true;
   await stop(auth); await stop(qr1); await stop(qr2);

@@ -61,6 +61,22 @@ class RevocationInternalHttpTests {
     }
 
     @Test
+    void closurePreflightAllowsIdempotencyKeyOnlyForTrustedOrigins() throws Exception {
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/v1/qr/table-sessions/00000000-0000-0000-0000-000000000001/close")
+                .header("Origin", "https://restofy.example")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "Content-Type,X-CSRF-TOKEN,Idempotency-Key"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string(
+                        "Access-Control-Allow-Headers", org.hamcrest.Matchers.containsString("Idempotency-Key")));
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/v1/qr/table-sessions/00000000-0000-0000-0000-000000000001/close")
+                .header("Origin", "https://untrusted.example")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "Idempotency-Key"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void baselineBindsCurrentDatabaseNonceAndOpensOnlyAfterPersistingAllFences() throws Exception {
         UUID user=UUID.randomUUID(), sid=UUID.randomUUID();
         var challenge=store.challenge();

@@ -31,13 +31,7 @@ public class RevocationRetryWorker {
         try {
             bootstrap.verifyConfiguredIdentity();
             stage = "CHALLENGE";
-            var challenge = qr.challenge(settings.restaurantId(), coordinator.generation());
-            if (challenge == null || challenge.nonce() == null) return;
-            if (!challenge.ready() || !bootstrap.active()) {
-                stage = "BOOTSTRAP";
-                var baseline = bootstrap.prepare(settings.restaurantId(), coordinator.generation(), challenge.nonce());
-                bootstrap.finish(baseline, qr.baseline(baseline));
-            }
+            refreshPeer();
             stage = "CLAIM";
             var queue = transactions.queueStats();
             if (queue.pending() > 0) {
@@ -48,6 +42,26 @@ public class RevocationRetryWorker {
                 catch (RuntimeException unavailable) { log.warn("Q5 retry deferred operation={} stage=DELIVERY category={}", id, category(unavailable)); }
             }
         } catch (RuntimeException unavailable) { log.warn("Q5 retry deferred stage={} category={}", stage, category(unavailable)); }
+    }
+
+    private void refreshPeer() {
+        com.restofy.auth.infrastructure.client.QrRevocationClient.Challenge challenge;
+        try {
+            challenge = qr.challenge(settings.restaurantId(), coordinator.generation());
+            if (challenge == null || challenge.nonce() == null) {
+                throw new IllegalStateException("QR challenge unavailable");
+            }
+        } catch (RuntimeException unavailable) {
+            // Only a durable, matching ACTIVE source may process its existing queue offline.
+            // Every queue/finalize transaction independently rechecks the source barrier.
+            if (!bootstrap.active()) throw unavailable;
+            log.warn("Q5 challenge deferred category={}", category(unavailable));
+            return;
+        }
+        if (!challenge.ready() || !bootstrap.active()) {
+            var baseline = bootstrap.prepare(settings.restaurantId(), coordinator.generation(), challenge.nonce());
+            bootstrap.finish(baseline, qr.baseline(baseline));
+        }
     }
 
     private static String category(RuntimeException failure) {

@@ -45,7 +45,7 @@ public class TableSecurityConfiguration {
             config.setAllowedOrigins(settings.origins());
             config.setAllowCredentials(true);
             config.setAllowedMethods(java.util.List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-            config.setAllowedHeaders(java.util.List.of("Content-Type","X-CSRF-TOKEN"));
+            config.setAllowedHeaders(java.util.List.of("Content-Type","X-CSRF-TOKEN","Idempotency-Key"));
             config.setMaxAge(300L);
             return config;
         }));

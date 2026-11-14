@@ -31,10 +31,14 @@ public class RevocationCoordinator {
         if (TransactionSynchronizationManager.isActualTransactionActive()) throw new IllegalStateException("HTTP inside transaction");
         var operation = transactions.load(id);
         if (operation.status().equals("COMPLETED")) return;
-        if (transactions.finalizeExpiredTargets(id)) return;
-        String stage = "TRANSPORT";
+        String stage = "FINALIZE";
         try {
-            // Redelivery deliberately obtains a fresh signed receipt for the same immutable manifest.
+            if (operation.status().equals("ACKNOWLEDGED")) {
+                transactions.finalizeOperation(id);
+                return;
+            }
+            if (transactions.finalizeExpiredTargets(id)) return;
+            stage = "TRANSPORT";
             String receipt = qr.persist(operation);
             stage = "ACK_VALIDATION";
             transactions.recordAcknowledgement(id, receipt);

@@ -96,8 +96,30 @@ public class RevocationTransactions {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public Operation prepareLocked(UUID restaurant, UUID user, Action action, UUID selected, UUID generation) {
-        return prepareCore(UUID.randomUUID(), restaurant, user, action, selected, null, generation,
-                Policy.ACK_REQUIRED);
+        bootstrap.requireActive(restaurant, generation);
+        jdbc.query("SELECT id FROM staff_users WHERE id=? FOR UPDATE", (rs, row) -> rs.getObject(1, UUID.class), user);
+        // Legacy callers have no request key: reuse only an unchanged identity/session snapshot.
+        var previous = jdbc.query("""
+                SELECT o.id FROM staff_revocation_operations o JOIN staff_users u ON u.id=o.user_id
+                WHERE o.user_id=? AND o.restaurant_id=? AND o.consumer_generation=?
+                  AND o.action=? AND o.selected_session_id IS NOT DISTINCT FROM ?::uuid
+                  AND o.completion_policy='ACK_REQUIRED'
+                  AND (o.expected_user_version=u.version OR
+                       (o.action='DISABLE' AND o.status='COMPLETED' AND NOT u.is_active
+                        AND o.expected_user_version+1=u.version))
+                  AND NOT EXISTS (SELECT 1 FROM user_sessions s WHERE s.staff_user_id=o.user_id
+                    AND NOT EXISTS
+                      (SELECT 1 FROM staff_revocation_targets t WHERE t.operation_id=o.id AND t.session_id=s.id))
+                ORDER BY o.revision DESC LIMIT 1
+                """, (rs, row) -> rs.getObject(1, UUID.class), user, restaurant, generation, action.name(), selected);
+        return prepareLocked(previous.isEmpty() ? UUID.randomUUID() : previous.getFirst(),
+                restaurant, user, action, selected, generation);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Operation prepareLocked(UUID operationId, UUID restaurant, UUID user, Action action,
+            UUID selected, UUID generation) {
+        return prepareCore(operationId, restaurant, user, action, selected, null, generation, Policy.ACK_REQUIRED);
     }
 
     private Operation prepareCore(UUID operationId, UUID restaurantId, UUID userId, Action action,
