@@ -40,6 +40,30 @@ class StaffRevocationStoreTests extends com.restofy.qr.support.Q5TestSecuritySup
         generation = UUID.randomUUID(); restaurant = UUID.randomUUID(); user = UUID.randomUUID(); sid = UUID.randomUUID();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "ready=false", "ready=false,bootstrap_nonce=NULL", "ready=false,database_start=NULL",
+            "database_start=database_start-interval '1 second'"})
+    void closedOrStaleGuardRejectsCommandsWithoutPersistingAnything(String change) {
+        completeBootstrapFixture(generation);
+        jdbc.update("UPDATE staff_revocation_guard_state SET " + change + " WHERE singleton=true");
+        assertThatThrownBy(() -> store.apply(command(UUID.randomUUID(), sid, 1)))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode().value()).isEqualTo(503));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revoked_sessions", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_receipts", Long.class)).isZero();
+    }
+
+    @Test
+    void quarantineRejectsEvenPreviouslyAcknowledgedDuplicateCommands() {
+        completeBootstrapFixture(generation);
+        var command = command(UUID.randomUUID(), sid, 1);
+        store.apply(command);
+        jdbc.update("UPDATE staff_revocation_guard_state SET ready=false,bootstrap_nonce=gen_random_uuid()");
+        assertThatThrownBy(() -> store.apply(command)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_receipts", Long.class)).isEqualTo(1);
+    }
+
     @Test
     void sameProcessRestoreQuarantineMustInvalidateTheOldNonce() throws Exception {
         beginBootstrapFixture(generation);
@@ -84,7 +108,7 @@ class StaffRevocationStoreTests extends com.restofy.qr.support.Q5TestSecuritySup
 
     @Test
     void duplicateProducesSameReceiptButAlteredManifestIsRejected() {
-        beginBootstrapFixture(generation);
+        completeBootstrapFixture(generation);
         Command command = command(UUID.randomUUID(), sid, 1);
         var receipt = store.apply(command);
         assertThat(store.apply(command)).isEqualTo(receipt);
@@ -95,7 +119,7 @@ class StaffRevocationStoreTests extends com.restofy.qr.support.Q5TestSecuritySup
 
     @Test
     void outOfOrderCommandsNeverRemoveAnEarlierSidDenial() {
-        beginBootstrapFixture(generation);
+        completeBootstrapFixture(generation);
         UUID other = UUID.randomUUID();
         store.apply(command(UUID.randomUUID(), other, 2));
         store.apply(command(UUID.randomUUID(), sid, 1));
@@ -106,7 +130,7 @@ class StaffRevocationStoreTests extends com.restofy.qr.support.Q5TestSecuritySup
 
     @Test
     void noAckRecordSurvivesDatabaseRollback() {
-        beginBootstrapFixture(generation);
+        completeBootstrapFixture(generation);
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             store.apply(command(UUID.randomUUID(), sid, 1));
             status.setRollbackOnly();

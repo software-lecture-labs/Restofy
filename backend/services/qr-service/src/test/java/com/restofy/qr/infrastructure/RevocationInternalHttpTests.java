@@ -47,7 +47,7 @@ class RevocationInternalHttpTests {
         properties.add("qr.q5.receipt-public-key", () -> Base64.getEncoder().encodeToString(QR.getPublic().getEncoded()));
         properties.add("qr.q5.staff-public-key", () -> Base64.getEncoder().encodeToString(STAFF.getPublic().getEncoded()));
         properties.add("qr.q5.staff-issuer", () -> "restofy-auth");
-        properties.add("qr.q5.access-ttl-seconds", () -> "900");
+        properties.add("qr.q5.access-ttl-seconds", () -> "300");
         properties.add("qr.q5.allowed-origins", () -> " https://restofy.example , https://second.restofy.example ");
     }
 
@@ -58,6 +58,21 @@ class RevocationInternalHttpTests {
         jdbc.update("DELETE FROM staff_revoked_sessions");
         generation = UUID.randomUUID();
         beginBootstrapFixture(generation);
+    }
+
+    @Test
+    void validServiceCommandCannotGetAReceiptWhileGuardIsClosedOrQuarantined() throws Exception {
+        var command = command();
+        http.perform(request(command).header("Authorization", credential(command, "auth-service", "staff:revocation:write")))
+                .andExpect(status().isServiceUnavailable());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_receipts", Long.class)).isZero();
+        completeBootstrapFixture(generation);
+        http.perform(request(command).header("Authorization", credential(command, "auth-service", "staff:revocation:write")))
+                .andExpect(status().isOk());
+        jdbc.update("UPDATE staff_revocation_guard_state SET ready=false,bootstrap_nonce=gen_random_uuid()");
+        http.perform(request(command).header("Authorization", credential(command, "auth-service", "staff:revocation:write")))
+                .andExpect(status().isServiceUnavailable());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_receipts", Long.class)).isEqualTo(1);
     }
 
     @Test
@@ -98,7 +113,7 @@ class RevocationInternalHttpTests {
     @Test
     void revokedJwtCannotReachAnyOfTheSeventeenStaffMethodPaths() throws Exception {
         var command=command();
-        store.apply(command); completeBootstrapFixture(generation);
+        completeBootstrapFixture(generation); store.apply(command);
         String jwt=staff(command.userId(),command.targets().getFirst().sessionId(),"ADMIN",RESTAURANT,"restofy-auth",true);
         String id=UUID.randomUUID().toString();
         var paths=List.of("POST /tables","PUT /tables/"+id,"PATCH /tables/"+id+"/active","GET /tables","GET /tables/"+id,
@@ -156,7 +171,7 @@ class RevocationInternalHttpTests {
     private String staff(UUID user,UUID sid,String role,UUID restaurant,String issuer,boolean policy) {
         Instant now=Instant.now();
         var builder=Jwts.builder().issuer(issuer).subject(user.toString()).audience().add("restofy-staff-api").and()
-                .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(900))).id(UUID.randomUUID().toString())
+                .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(300))).id(UUID.randomUUID().toString())
                 .claim("sid",sid.toString()).claim("role",role).claim("restaurant_id",restaurant.toString())
                 .claim("token_type","access").claim("auth_state","AUTHENTICATED");
         if (policy) builder.claim("auth_policy","q5-idle-v1");
@@ -174,6 +189,7 @@ class RevocationInternalHttpTests {
 
     @Test
     void signsReceiptOnlyAfterDurableFenceAndDuplicateReturnsSameManifest() throws Exception {
+        completeBootstrapFixture(generation);
         var command = command();
         String result = http.perform(request(command).header("Authorization", credential(command, "auth-service", "staff:revocation:write")))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

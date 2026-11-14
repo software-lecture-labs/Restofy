@@ -83,7 +83,7 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
                     .require("token_type","access").require("auth_state","AUTHENTICATED").require("auth_policy","q5-idle-v1")
                     .require("restaurant_id",restaurant.toString()).build().parseSignedClaims(token).getPayload();
             long ttl=settings.accessTtl();
-            if (ttl<300 || ttl>3600 || claims.getIssuedAt()==null || claims.getNotBefore()==null || claims.getExpiration()==null || claims.getId()==null
+            if (ttl != 300 || claims.getIssuedAt()==null || claims.getNotBefore()==null || claims.getExpiration()==null || claims.getId()==null
                     || claims.getIssuedAt().toInstant().isAfter(clock.instant()) || !clock.instant().isBefore(claims.getExpiration().toInstant())
                     || !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant())
                     || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(ttl))) throw new IllegalArgumentException();

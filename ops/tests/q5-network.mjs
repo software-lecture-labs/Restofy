@@ -34,8 +34,8 @@ const docker = (args, options = {}) => {
   }
   return result.stdout.trim();
 };
-// The temporary init server accepts Unix sockets but does NOT listen on TCP.
-const sql = (database, statement) => docker(['exec', '-i', container, 'psql', '-h', '127.0.0.1', '-p', '5432', '-U', 'q5test', '-d', database, '-t', '-A', '-v', 'ON_ERROR_STOP=1'], { input: statement });
+// Use final TCP startup, noninteractive psql, and an explicit libpq password from this disposable container.
+const sql = (database, statement) => docker(['exec', '-i', container, 'sh', '-c', 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql "$@"', 'q5-psql', '-w', '-h', '127.0.0.1', '-p', '5432', '-U', 'q5test', '-d', database, '-t', '-A', '-v', 'ON_ERROR_STOP=1'], { input: statement });
 const wait = async (name, predicate, timeout = 90000) => {
   stage = name;
   const end = Date.now() + timeout;
@@ -121,7 +121,9 @@ try {
       const chunks = []; for await (const chunk of request) chunks.push(chunk);
       const headers = { ...request.headers };
       for (const header of ['host','connection','transfer-encoding','content-length','upgrade','http2-settings','te','trailer','keep-alive']) delete headers[header];
-      const peer = await fetch(`http://127.0.0.1:${qrPort}${request.url}`, { method: request.method, headers, body: Buffer.concat(chunks), signal: AbortSignal.timeout(6000) });
+      const options = { method: request.method, headers, signal: AbortSignal.timeout(6000) };
+      if (!['GET', 'HEAD'].includes(request.method)) options.body = Buffer.concat(chunks);
+      const peer = await fetch(`http://127.0.0.1:${qrPort}${request.url}`, options);
       const body = Buffer.from(await peer.arrayBuffer());
       if (dropNextAck && request.url === '/internal/q5/revocations' && peer.status === 200) {
         dropNextAck = false; dropped = true; result.destroy(); return;
@@ -175,6 +177,10 @@ try {
   };
   const qrStatus = async (token,peer=qrUrl) => (await response(`${peer}/api/v1/qr/tables`, { headers: { Cookie: `restofy_access=${token}` } })).status;
   const old = await login(); check(await qrStatus(old) === 200, 'Fresh local authorization failed');
+  check(await qrStatus(old, `http://127.0.0.1:${proxy.address().port}`) === 200, 'Proxy GET rejected a bodyless staff request');
+  const proxyHead = await response(`http://127.0.0.1:${proxy.address().port}/actuator/health`, { method: 'HEAD' });
+  check(proxyHead.status === 200 && (await proxyHead.text()) === '', 'Proxy HEAD failed');
+  console.log('PASS proxy forwards GET and HEAD without request bodies');
   // Real additional instances share the primary DB; a valid UUID is not sufficient source identity.
   const correctAuthPort = await port();
   const correctAuth = launch('auth-service',correctAuthPort,base);

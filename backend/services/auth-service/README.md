@@ -269,11 +269,11 @@ Yeni ENV değerleri `AUTH_RESTAURANT_ID`, `AUTH_JWT_PRIVATE_KEY`, `AUTH_CSRF_SEC
 `AUTH_COOKIE_SECURE` olarak application.properties üzerinden varsayılansız beklenir.
 RSA anahtarı Base64 PKCS#8, en az 2048 bit; CSRF sırrı ayrı Base64, en az 32 rastgele bayt
 olmalıdır. Gerçek değerler dosyalara/loga/sohbete yazılmaz. Issuer ve CORS allowlist boş
-olamaz. `JWT_ACCESS_TTL_SECONDS` 300–3600 sn, `JWT_REFRESH_TTL_SECONDS` 86400–2592000 sn
-(1–30 gün) aralığında olmalıdır; varsayılan geliştirme değerleri 300 ve 604800'dür. Aralık
-dışı değer başlangıçta, ilgili ENV adı belirtilerek reddedilir (değer yazılmaz). Önceki
-"yalnız 900/604800" kısıtı başka bir servisle yapılmış bir anlaşma değildi; ilk tasarımın
-sıkı bir varsayımıydı ve bu aralıkla gevşetildi.
+olamaz. Q5 sözleşmesi gereği `JWT_ACCESS_TTL_SECONDS` tam 300 sn olmalıdır;
+QR da aynı süreyi zorunlu tutar. 900/3600 dahil farklı değerler başlangıçta reddedilir.
+`JWT_REFRESH_TTL_SECONDS` 86400–2592000 sn (1–30 gün) aralığında olmalıdır;
+geliştirme örneği 604800'dür. Geçersiz ayar hatasında yalnızca ENV adı belirtilir,
+gerçek değer yazılmaz.
 Secure=false yalnız salt dev/local/test profillerinde kabul edilir; production origin'leri
 HTTPS olmalıdır. Eksik/geçersiz ayarlar uygulamanın başlamasını durdurur.
 

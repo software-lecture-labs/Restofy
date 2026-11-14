@@ -35,7 +35,12 @@ public class StaffRevocationStore {
     public Receipt apply(Command command) {
         requireDurablePrimary();
         validate(command);
-        var state = jdbc.query("SELECT generation FROM staff_revocation_guard_state WHERE singleton=true FOR UPDATE",
+        var state = jdbc.query("""
+                SELECT generation FROM staff_revocation_guard_state
+                WHERE singleton=true AND ready AND bootstrap_nonce IS NOT NULL
+                  AND database_start=pg_postmaster_start_time()
+                FOR UPDATE
+                """,
                 (rs, row) -> rs.getObject(1, UUID.class));
         if (state.size() != 1 || !command.generation().equals(state.getFirst())) {
             throw unavailable();

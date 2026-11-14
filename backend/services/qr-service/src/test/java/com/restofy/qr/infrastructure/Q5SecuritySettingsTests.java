@@ -17,7 +17,7 @@ class Q5SecuritySettingsTests {
                 .withProperty("qr.q5.receipt-public-key",Q5TestSecuritySupport.encoded(Q5TestSecuritySupport.RECEIPT.getPublic().getEncoded()))
                 .withProperty("qr.q5.staff-public-key",Q5TestSecuritySupport.encoded(Q5TestSecuritySupport.STAFF.getPublic().getEncoded()))
                 .withProperty("qr.q5.restaurant-id","6c54daf0-9340-4a1c-981d-f9acc0261779")
-                .withProperty("qr.q5.staff-issuer","restofy-auth").withProperty("qr.q5.access-ttl-seconds","900")
+                .withProperty("qr.q5.staff-issuer","restofy-auth").withProperty("qr.q5.access-ttl-seconds","300")
                 .withProperty("qr.q5.allowed-origins","https://restofy.example").withProperty("APP_ENV","prod");
         environment.setActiveProfiles("prod");
         return environment;
@@ -40,6 +40,12 @@ class Q5SecuritySettingsTests {
     @ValueSource(strings={"*","https://*.example.com","https://restofy.example/path","https://user@restofy.example",
             "https://restofy.example?query=1","https://restofy.example,","http://restofy.example","http://localhost:5000"})
     void unsafeOriginsStopProductionContext(String origins) { rejected(valid().withProperty("qr.q5.allowed-origins",origins)); }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"301", "900", "3600"})
+    void q5RejectsAccessTtlBeyondItsFiveMinuteGuarantee(String seconds) {
+        rejected(valid().withProperty("qr.q5.access-ttl-seconds", seconds));
+    }
 
     @Test
     void mismatchedReceiptPairStopsContext() {

@@ -42,7 +42,7 @@ public final class Q5SecuritySettings {
             if (staffIssuer.isBlank() || !staffIssuer.equals(staffIssuer.strip()) || staffIssuer.length()>200
                     || staffIssuer.chars().anyMatch(Character::isISOControl)) throw new IllegalArgumentException();
             accessTtl = Long.parseLong(environment.getRequiredProperty("qr.q5.access-ttl-seconds"));
-            if (accessTtl<300 || accessTtl>3600) throw new IllegalArgumentException();
+            if (accessTtl != 300) throw new IllegalArgumentException();
             origins = Arrays.stream(environment.getRequiredProperty("qr.q5.allowed-origins").split(",",-1)).map(String::strip).toList();
             boolean development = environment.getActiveProfiles().length>0
                     && Set.of("dev","local","test").containsAll(List.of(environment.getActiveProfiles()))
