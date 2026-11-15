@@ -114,16 +114,59 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     }
 
     @Test
-    void retryClaimsRespectTheEightOperationBatchAndLease() {
+    void concurrentRetryWorkersLeaseDisjointBoundedBatches() throws Exception {
         for (int index = 0; index < 12; index++) {
             var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
             sessions.logout(grant.refresh(), grant.access(), null);
         }
-        var first = revocations.claimRetries();
-        assertThat(first).hasSize(8).doesNotHaveDuplicates();
-        var second = revocations.claimRetries();
-        assertThat(second).hasSize(4).doesNotContainAnyElementsOf(first);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            var second = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            start.countDown();
+            var firstBatch = first.get(10, TimeUnit.SECONDS);
+            var secondBatch = second.get(10, TimeUnit.SECONDS);
+            assertThat(firstBatch).hasSizeLessThanOrEqualTo(8).doesNotHaveDuplicates();
+            assertThat(secondBatch).hasSizeLessThanOrEqualTo(8).doesNotContainAnyElementsOf(firstBatch);
+            assertThat(firstBatch.size() + secondBatch.size()).isEqualTo(12);
+        }
         assertThat(revocations.claimRetries()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE attempts=1", Long.class))
+                .isEqualTo(12);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void retryClaimsRespectTheEightOperationBatchAndLease(boolean nestedLoopPlan) {
+        for (int index = 0; index < 12; index++) {
+            var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+            sessions.logout(grant.refresh(), grant.access(), null);
+        }
+        java.util.function.Supplier<java.util.List<UUID>> claim = () -> {
+            if (!nestedLoopPlan) return revocations.claimRetries();
+            // Exercise the production SQL in a real transaction with a different legal planner choice.
+            // LOCAL settings are scoped to this transaction and cannot leak to other tests.
+            RevocationTransactions target = org.springframework.test.util.AopTestUtils.getTargetObject(revocations);
+            return new TransactionTemplate(transactions).execute(status -> {
+                jdbc.execute("SET LOCAL enable_hashjoin=off");
+                jdbc.execute("SET LOCAL enable_mergejoin=off");
+                jdbc.execute("SET LOCAL enable_material=off");
+                return target.claimRetries();
+            });
+        };
+        var first = claim.get();
+        assertThat(first).hasSize(8).doesNotHaveDuplicates();
+        var second = claim.get();
+        assertThat(second).hasSize(4).doesNotContainAnyElementsOf(first);
+        assertThat(claim.get()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE attempts=1", Long.class))
+                .isEqualTo(12);
+        jdbc.update("UPDATE staff_revocation_operations SET next_attempt_at=now()-interval '1 second'");
+        assertThat(claim.get()).hasSize(8).doesNotHaveDuplicates();
+        assertThat(claim.get()).hasSize(4).doesNotHaveDuplicates();
+        assertThat(claim.get()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE attempts=2", Long.class))
+                .isEqualTo(12);
     }
 
     @Test

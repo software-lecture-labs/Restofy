@@ -204,10 +204,15 @@ public class RevocationTransactions {
     public List<UUID> claimRetries() {
         bootstrap.requireActive();
         return jdbc.query("""
-                UPDATE staff_revocation_operations SET next_attempt_at=now()+interval '30 seconds',attempts=attempts+1
-                WHERE id IN (SELECT id FROM staff_revocation_operations WHERE status <> 'COMPLETED'
-                AND next_attempt_at <= now() ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 8)
-                RETURNING id
+                WITH candidates AS MATERIALIZED (
+                    SELECT id FROM staff_revocation_operations
+                    WHERE status <> 'COMPLETED' AND next_attempt_at <= now()
+                    ORDER BY next_attempt_at,id LIMIT 8 FOR UPDATE SKIP LOCKED
+                )
+                UPDATE staff_revocation_operations AS queued
+                SET next_attempt_at=now()+interval '30 seconds',attempts=queued.attempts+1
+                FROM candidates WHERE queued.id=candidates.id
+                RETURNING queued.id
                 """, (rs, index) -> rs.getObject(1, UUID.class));
     }
 
