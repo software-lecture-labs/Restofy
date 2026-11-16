@@ -70,6 +70,32 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         return capture.getAllValues().stream().filter(value -> value.templateKey().equals("ADMIN_PASSWORD_RESET")).reduce((a,b)->b).orElseThrow();
     }
 
+    @Test void confirmCompletesLocallyAndRevokesEverySessionWhileTheQrSourceBarrierIsNotActive() {
+        sessions.login(admin.getEmailNormalized(), OLD, "one");
+        String cookie = start(); var message = sent();
+        String grant = resets.verify(cookie, message.code());
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+
+        resets.confirm(grant, NEW);
+
+        assertThat(passwords.matches(NEW, users.findById(admin.getId()).orElseThrow().getPasswordHash())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Integer.class)).isZero();
+        assertThatThrownBy(() -> sessions.login(admin.getEmailNormalized(), NEW, null))
+                .as("a new credential still needs an ACTIVE source")
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test void requestingOrVerifyingACodeStillNeedsAnActiveQrSourceBarrier() {
+        String cookie = start(); var message = sent();
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+
+        assertThatThrownBy(() -> resets.verify(cookie, message.code()))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(this::start).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
     @Test void resetsPasswordRevokesEverySessionAndKeepsMfaAndAccountActive() {
         var first = sessions.login(admin.getEmailNormalized(), OLD, "one");
         var second = sessions.login(admin.getEmailNormalized(), OLD, "two");

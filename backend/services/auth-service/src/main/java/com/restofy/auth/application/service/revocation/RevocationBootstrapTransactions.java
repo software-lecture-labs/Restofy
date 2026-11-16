@@ -74,7 +74,10 @@ public class RevocationBootstrapTransactions {
             jdbc.update("UPDATE staff_revocation_source_state SET phase='PREPARING',bootstrap_id=?,qr_nonce=?,restaurant_id=?,generation=?,database_start=NULL WHERE singleton=true", id, nonce, restaurant, generation);
             jdbc.update("DELETE FROM staff_revocation_baseline");
             // The exclusive barrier waits for existing SHARE holders, then freezes every credential/revocation path.
-            jdbc.update("INSERT INTO staff_revocation_baseline SELECT id,staff_user_id,absolute_expires_at FROM user_sessions");
+            // Only sessions that can still hold a valid token: a JWT never outlives its session's absolute expiry, and
+            // pruning keeps the baseline far below QR's 100000-entry limit although sessions are never purged.
+            jdbc.update("INSERT INTO staff_revocation_baseline SELECT id,staff_user_id,absolute_expires_at FROM user_sessions WHERE absolute_expires_at>?",
+                    Timestamp.from(clock.instant()));
         }
         List<Entry> entries = jdbc.query("SELECT session_id,user_id,deny_until FROM staff_revocation_baseline ORDER BY session_id",
                 (rs, index) -> new Entry(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getTimestamp(3).toInstant()));

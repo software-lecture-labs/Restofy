@@ -117,7 +117,8 @@ public class PasswordResetService {
     }
 
     public void confirm(String cookie, String password) {
-        PasswordResetRequest request = lockedRequest(cookie);
+        // Confirm only removes access (it issues no credential), so it must not need the QR source barrier.
+        PasswordResetRequest request = lockedRequest(cookie, false);
         if (request.status() != PasswordResetStatus.CODE_VERIFIED || request.grantExpiry() == null
                 || !clock.instant().isBefore(request.grantExpiry())) {
             throw invalid();
@@ -154,12 +155,16 @@ public class PasswordResetService {
     }
 
     private PasswordResetRequest lockedRequest(String cookie) {
+        return lockedRequest(cookie, true);
+    }
+
+    private PasswordResetRequest lockedRequest(String cookie, boolean requireSource) {
         if (cookie == null || !cookie.matches("[A-Za-z0-9_-]{43}")) {
             throw invalid();
         }
         String digest = codes.digest(COOKIE_PURPOSE, cookie);
         PasswordResetRequest first = requests.find(digest).orElseThrow(PasswordResetService::invalid);
-        StaffUser user = lock(first.userId());
+        StaffUser user = lock(first.userId(), requireSource);
         boolean allowed = user.isActive() && user.getRole() == StaffRole.ADMIN
                 && mfa.existsByStaffUserIdAndEnabledAtIsNotNull(user.getId());
         if (!allowed) {
@@ -169,7 +174,11 @@ public class PasswordResetService {
     }
 
     private StaffUser lock(UUID id) {
-        sessions.requireSecuritySource();
+        return lock(id, true);
+    }
+
+    private StaffUser lock(UUID id, boolean requireSource) {
+        if (requireSource) sessions.requireSecuritySource();
         users.lockIdentity(id).orElseThrow(PasswordResetService::invalid);
         StaffUser user = users.findById(id).orElseThrow(PasswordResetService::invalid);
         entities.refresh(user);

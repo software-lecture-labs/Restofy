@@ -35,19 +35,44 @@ public class RevocationTransactions {
         this.settings = settings;
     }
 
-    @Transactional(propagation = Propagation.MANDATORY)
+    /*
+     * The public prepare* methods throw RevocationPendingException only before any write, so the caller's
+     * transaction must stay committable: otherwise a 503 would surface as UnexpectedRollbackException (500).
+     */
+    /**
+     * Logout and single-session cleanup only ever remove access, so they still complete locally when the QR source
+     * barrier is not ACTIVE (database restart, bootstrap in progress). No outbox row is written in that case.
+     */
+    @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = RevocationPendingException.class)
     public Operation prepareLogout(UUID restaurant, UUID user, UUID sid, UUID generation) {
         return prepareLocalFirst(restaurant, user, Action.SESSION, sid, generation, true);
     }
 
-    @Transactional(propagation = Propagation.MANDATORY)
-    public Operation prepareLocalFirst(UUID restaurant, UUID user, Action action, UUID selected, UUID generation) {
-        return prepareLocalFirst(restaurant, user, action, selected, generation, false);
+    /** Password reset confirm: revokes every session locally, also while the source barrier is not ACTIVE. */
+    @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = RevocationPendingException.class)
+    public Operation prepareReset(UUID restaurant, UUID user, UUID generation) {
+        return prepareLocalFirst(restaurant, user, Action.ALL, null, generation, true);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = RevocationPendingException.class)
+    public Operation prepareLocalFirst(UUID restaurant, UUID user, Action action, UUID selected, UUID generation) {
+        return prepareLocalFirst(restaurant, user, action, selected, generation, action == Action.SESSION);
+    }
+
+    /**
+     * Why a local-only revocation is safe while the source is not ACTIVE: no credential can be issued in that state,
+     * so a revoked session can never mint another token; a token that already exists expires within the access TTL,
+     * which is the same window LOCAL_FIRST accepts. The next bootstrap baseline additionally denies every live session.
+     */
     private Operation prepareLocalFirst(UUID restaurant, UUID user, Action action, UUID selected, UUID generation,
-            boolean logout) {
-        bootstrap.requireActive(restaurant, generation);
+            boolean offlineAllowed) {
+        boolean sourceActive = sourceActive();
+        if (sourceActive) {
+            bootstrap.requireActive(restaurant, generation);
+        } else if (!offlineAllowed) {
+            throw new RevocationPendingException();
+        }
+        boolean singleSession = action == Action.SESSION;
         var identity = jdbc.query("SELECT version FROM staff_users WHERE id=? FOR UPDATE",
                 (rs, index) -> rs.getLong(1), user);
         if (identity.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
@@ -65,14 +90,18 @@ public class RevocationTransactions {
             boolean covered = selected != null && Boolean.TRUE.equals(jdbc.queryForObject("""
                     SELECT EXISTS(SELECT 1 FROM staff_revocation_targets WHERE operation_id=? AND session_id=?)
                     """, Boolean.class, strict.getFirst(), selected));
-            if (!logout) throw new RevocationPendingException();
+            if (!singleSession) throw new RevocationPendingException();
             if (covered) {
                 revokeSession(selected, Timestamp.from(clock.instant()));
                 return null;
             }
         }
 
-        if (logout) {
+        if (!sourceActive) {
+            revokeLocallyWithoutOutbox(user, selected);
+            return null;
+        }
+        if (singleSession) {
             var duplicate = jdbc.query("""
                     SELECT id FROM staff_revocation_operations
                     WHERE user_id=? AND selected_session_id=? AND action='SESSION'
@@ -85,6 +114,31 @@ public class RevocationTransactions {
         }
         return prepareCore(UUID.randomUUID(), restaurant, user, action, selected, null, generation,
                 Policy.LOCAL_FIRST);
+    }
+
+    /** Non-throwing probe of the source barrier. Identity/configuration mismatches still fail loudly with 503. */
+    private boolean sourceActive() {
+        try {
+            bootstrap.requireActive();
+            return true;
+        } catch (RevocationPendingException inactive) {
+            return false;
+        }
+    }
+
+    private void revokeLocallyWithoutOutbox(UUID user, UUID selected) {
+        Timestamp now = Timestamp.from(clock.instant());
+        if (selected != null) {
+            revokeSession(selected, now);
+        } else {
+            jdbc.update("UPDATE user_sessions SET revoked_at=?,version=version+1 WHERE staff_user_id=? AND revoked_at IS NULL",
+                    now, user);
+            jdbc.update("""
+                    UPDATE refresh_tokens SET revoked_at=? WHERE revoked_at IS NULL
+                    AND session_id IN (SELECT id FROM user_sessions WHERE staff_user_id=?)
+                    """, now, user);
+        }
+        log.info("Q5 local-only revocation while source inactive scope={}", selected == null ? "ALL" : "SESSION");
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -330,8 +384,6 @@ public class RevocationTransactions {
                     rs.getLong("revision"), Action.valueOf(rs.getString("action")),
                     rs.getObject("selected_session_id", UUID.class), role == null ? null : StaffRole.valueOf(role),
                     rs.getLong("expected_user_version"), rs.getObject("consumer_generation", UUID.class), rs.getString("status"),
-                    rs.getString("purpose"), rs.getObject("purpose_id", UUID.class),
-                    rs.getTimestamp("resume_until") == null ? null : rs.getTimestamp("resume_until").toInstant(),rs.getString("business_outcome"),
                     Policy.valueOf(rs.getString("completion_policy")),
                     rs.getTimestamp("local_applied_at") == null ? null : rs.getTimestamp("local_applied_at").toInstant(),
                     rs.getString("delivery_outcome") == null ? null : Outcome.valueOf(rs.getString("delivery_outcome")),
@@ -347,6 +399,5 @@ public class RevocationTransactions {
     public record Target(UUID sessionId, Instant denyUntil) { }
     public record Operation(UUID id, UUID restaurantId, UUID userId, long revision, Action action,
             UUID selectedSessionId, StaffRole targetRole, long expectedUserVersion, UUID consumerGeneration,
-            String status, String purpose, UUID purposeId, Instant resumeUntil, String businessOutcome,
-            Policy policy, Instant localAppliedAt, Outcome deliveryOutcome, List<Target> targets) { }
+            String status, Policy policy, Instant localAppliedAt, Outcome deliveryOutcome, List<Target> targets) { }
 }

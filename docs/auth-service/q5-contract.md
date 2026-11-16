@@ -18,6 +18,25 @@ Bu belge Q5 erişim iptali eklerini tanımlar. Normal QR personel istekleri Auth
 
 Logout sıkı işlem sırasında da yerel tamamlanır. Sıkı manifest logout SID'sini kapsıyorsa yeni teslimat oluşturulmaz; kapsamıyorsa ayrı idempotent `LOCAL_FIRST` teslimatı kaydedilir. Password reset ve MFA regeneration sırasında sıkı işlem varsa 503/PENDING korunur.
 
+## Kaynak ACTIVE değilken (bootstrap, veritabanı yeniden başlatma)
+
+Auth kaynağı `ACTIVE` değilse (`CLOSED`/`PREPARING` veya kayıtlı `database_start` mevcut PostgreSQL başlangıcıyla uyuşmuyor) hiçbir credential üretilmez: login, refresh, MFA tamamlama, oturum doğrulama ve reset kodu isteme/doğrulama 503 döner. Yalnız erişimi **kaldıran** iki işlem yerel tamamlanır:
+
+| İşlem | Kaynak ACTIVE değilken |
+| --- | --- |
+| Logout | Oturum ve refresh token yerelde iptal edilir, outbox satırı yazılmaz, 204 ve cookie temizliği |
+| Password reset confirm | Parola değişir, kullanıcının bütün oturumları yerelde iptal edilir, outbox satırı yazılmaz, 204 ve cookie temizliği |
+| MFA recovery-code regenerate | 503; yeni kurtarma kodu da credential sayıldığı için fail-closed kalır |
+
+Güvenlik gerekçesi: iptal edilen oturum yeni token alamaz; mevcut access token en çok 300 saniye geçerlidir, bu LOCAL_FIRST'in zaten kabul ettiği penceredir. Sonraki bootstrap baseline'ı hâlâ geçerli token taşıyabilecek her oturumu QR'da ayrıca engeller. Bekleyen ACK_REQUIRED işlem varsa reset yine 503/PENDING kalır. Veritabanı hatası bu yola düşmez; yerel iptal yazılamıyorsa cevap 503'tür ve cookie'ler silinmez, kullanıcı tekrar deneyebilir. Kimlik/yapılandırma uyumsuzluğu (`Q5 source identity mismatch`) da sessizce yerel yola düşmez.
+
+### Auth PostgreSQL yeniden başlarsa
+
+1. Kaynak ACTIVE olmaktan çıkar; yukarıdaki tabloya göre yalnız logout ve reset confirm çalışır, diğer her şey 503 verir.
+2. Worker (5 sn) QR challenge'ını alır ve yeni bootstrap başlatır. QR kapalıysa Auth 503'te kalır; bu bilinçli fail-closed davranıştır.
+3. Baseline QR tarafından kabul edilince bootstrap'ta listelenen bütün oturumlar iptal edilir. **Her Auth veritabanı yeniden başlatması bütün personeli çıkış yaptırır.** Bu, habersiz rollback'e karşı alınan bir önlemdir; planlı bakım için personel ingress'i kapatılıp yeniden açılışta tekrar giriş beklenmelidir.
+4. Baseline yalnız hâlâ geçerli token taşıyabilecek (mutlak süresi dolmamış) oturumları içerir. Oturumlar silinmediği için bu filtre olmasaydı baseline zamanla QR'ın 100000 giriş sınırını aşıp bootstrap'i kalıcı olarak durdururdu.
+
 ## Akışlar
 
 ```mermaid

@@ -38,6 +38,7 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     @Autowired private UserSessionRepository sessions;
     @Autowired private RefreshTokenRepository tokens;
     @Autowired private StaffPasswords passwords;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final Map<String, Cookie> jar = new HashMap<>();
 
     @BeforeEach
@@ -74,6 +75,18 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isUnauthorized());
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThat(login.getRequest().getSession(false)).isNull();
+    }
+
+    @Test
+    void logoutClearsEveryAuthCookieAndRevokesLocallyWhileTheQrSourceBarrierIsNotActive() throws Exception {
+        csrf();
+        update(mvc.perform(mutation("/login").content(body("staff@example.com", PASSWORD))).andExpect(status().isOk()).andReturn());
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='PREPARING' WHERE singleton=true");
+
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
+
+        assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
     }
 
     @Test

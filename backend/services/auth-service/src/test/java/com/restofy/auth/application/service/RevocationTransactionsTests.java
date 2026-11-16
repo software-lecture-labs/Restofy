@@ -329,6 +329,89 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
     }
 
+    /** CLOSED/PREPARING: bootstrap not finished. DATABASE_RESTARTED: source ACTIVE but recorded for an older postmaster. */
+    private void makeSourceInactive(String mode) {
+        switch (mode) {
+            case "CLOSED" -> jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+            case "PREPARING" -> jdbc.update("UPDATE staff_revocation_source_state SET phase='PREPARING' WHERE singleton=true");
+            case "DATABASE_RESTARTED" -> jdbc.update("UPDATE staff_revocation_source_state SET database_start=pg_postmaster_start_time()-interval '1 day' WHERE singleton=true");
+            default -> throw new IllegalArgumentException(mode);
+        }
+        assertThat(bootstrap.active()).isFalse();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSED", "PREPARING", "DATABASE_RESTARTED"})
+    void logoutCompletesLocallyWithoutOutboxWhileTheSourceIsNotActive(String mode) {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        makeSourceInactive(mode);
+
+        sessions.logout(grant.refresh(), grant.access(), null);
+
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class))
+                .as("no outbox row can target a source that is not ACTIVE").isZero();
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .as("credential issuance stays closed").isInstanceOf(ResponseStatusException.class);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSED", "PREPARING", "DATABASE_RESTARTED"})
+    void passwordResetRevokesEverySessionLocallyWhileTheSourceIsNotActive(String mode) {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        makeSourceInactive(mode);
+
+        sessions.revokeForPasswordReset(user, UUID.randomUUID());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
+    }
+
+    @Test
+    void passwordResetStillWaitsForAPendingStrictOperationEvenWhileTheSourceIsNotActive() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        revocations.prepare(UUID.randomUUID(), restaurant, user, Action.DISABLE, null, null, generation);
+        makeSourceInactive("CLOSED");
+
+        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user, UUID.randomUUID()))
+                .isInstanceOf(com.restofy.auth.application.service.revocation.RevocationPendingException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSED", "PREPARING", "DATABASE_RESTARTED"})
+    void revokingOtherSessionsForMfaRecoveryCodesStaysFailClosedWhileTheSourceIsNotActive(String mode) {
+        var actor = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        var other = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        makeSourceInactive(mode);
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status ->
+                revocations.prepareLocalFirst(restaurant, user, Action.OTHERS, actor.session().getId(), generation)))
+                .isInstanceOf(com.restofy.auth.application.service.revocation.RevocationPendingException.class);
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",
+                Boolean.class, other.session().getId())).isTrue();
+    }
+
+    @Test
+    void bootstrapBaselineSkipsSessionsThatCanNoLongerHoldAValidToken() {
+        var live = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        var expired = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        jdbc.update("""
+                UPDATE user_sessions SET created_at=now()-interval '2 days', last_activity_at=now()-interval '2 days',
+                       absolute_expires_at=now()-interval '1 day' WHERE id=?
+                """, expired.session().getId());
+
+        var baseline = bootstrap.prepare(restaurant, generation, UUID.randomUUID());
+
+        assertThat(baseline.entries())
+                .extracting(com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Entry::sessionId)
+                .containsExactly(live.session().getId());
+    }
+
     @Test
     void strictOperationSafelyFinalizesAfterEveryTargetTokenExpires() {
         sessions.login("q5@example.com", "Q5-test-password-01", null);

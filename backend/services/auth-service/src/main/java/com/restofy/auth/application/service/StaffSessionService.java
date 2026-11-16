@@ -198,8 +198,7 @@ public class StaffSessionService {
     }
 
     public void revokeForPasswordReset(UUID user, UUID requestId) {
-        revocations.prepareLocalFirst(settings.restaurantId(), user, RevocationTransactions.Action.ALL, null,
-                coordinator.generation());
+        revocations.prepareReset(settings.restaurantId(), user, coordinator.generation());
     }
 
     public void requireSecuritySource() { revocations.requireSourceActive(); }

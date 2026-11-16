@@ -63,6 +63,10 @@ sequenceDiagram
 
 Pending `ACK_REQUIRED` kayıtları yeni credential üretimini ve Auth authentication'ını kapatır. Hedef yoksa güvenli sonuç `NO_TARGETS` ile hemen tamamlanır. Kullanıcı logout'u sıkı işlem sırasında yine yerel tamamlanabilir; reset/MFA regeneration güvenlik önceliğiyle pending kalır.
 
+### Kaynak ACTIVE değilken
+
+Auth veritabanı yeniden başladığında veya bootstrap bitmediğinde kaynak ACTIVE değildir ve credential üretimi kapalıdır. Logout ve password reset confirm yalnız erişim kaldırdığı için bu durumda da yerel olarak tamamlanır (oturum + refresh iptali, outbox yok, 204, cookie temizliği); iptal edilen oturum yeni token alamaz, mevcut token en çok 300 saniye yaşar ve sonraki baseline hâlâ geçerli oturumları QR'da engeller. MFA recovery-code regenerate yeni credential ürettiği için 503 kalır. Ayrıntı ve veritabanı yeniden başlatma davranışı [Q5 sözleşmesi](../auth-service/q5-contract.md) içindedir.
+
 ## Protokol değişmezleri
 
 - Auth kullanıcı kimliğini kilitlemeden manifest oluşturmaz veya credential üretmez.
