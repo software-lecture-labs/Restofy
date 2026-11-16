@@ -1,0 +1,55 @@
+package com.restofy.menu.api.dto.response;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * {@code parentCategory} is derived from the category hierarchy and is {@code null} when the product
+ * sits directly in a root category. {@code categoryEffectivelyActive} only states the category axis
+ * (category and, for a subcategory, its parent are active); it is NOT customer visibility, which also
+ * depends on the product's own state, publication and availability.
+ *
+ * <p>{@code ingredientsText} is optional display text ({@code null} = not provided). It is independent of the
+ * description, the price and any structured option: nothing is derived from it.
+ *
+ * <p>{@code imageUrl} is the single main image reference ({@code null} = no image); it is only a reference, the
+ * file is never fetched or served by this service.
+ *
+ * <p>{@code calories} (kcal), {@code weightGrams} (grams, trailing zeros not shown) and
+ * {@code estimatedPrepMinutes} are optional facts ({@code null} = unknown). They are informational only and
+ * never feed a price, a stock decision or a timer.
+ *
+ * <p>{@code availability} is {@code null} only when the product has no availability record, which is
+ * never orderable. {@code isVisibleToCustomer}, {@code isListedPublicly} and {@code canOrder} are derived on every read
+ * and not stored: visible = active, published and category chain active (availability does not take part);
+ * listed publicly = visible and an availability record exists, which is exactly what the customer menu lists (a product
+ * without the record is visible in this management sense but hidden from customers); orderable = visible and AVAILABLE.
+ */
+public record ProductResponse(
+        UUID id,
+        UUID categoryId,
+        CategorySummaryResponse category,
+        CategorySummaryResponse parentCategory,
+        boolean categoryEffectivelyActive,
+        ProductAvailabilityResponse availability,
+        boolean isVisibleToCustomer,
+        boolean isListedPublicly,
+        boolean canOrder,
+        String name,
+        String description,
+        String ingredientsText,
+        String imageUrl,
+        Integer calories,
+        BigDecimal weightGrams,
+        Integer estimatedPrepMinutes,
+        BigDecimal basePrice,
+        String currency,
+        BigDecimal vatRate,
+        boolean priceIncludesVat,
+        boolean isActive,
+        boolean isPublished,
+        long version,
+        Instant createdAt,
+        Instant updatedAt) {
+}
