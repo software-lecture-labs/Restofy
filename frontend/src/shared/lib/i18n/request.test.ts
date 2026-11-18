@@ -6,9 +6,6 @@ const { cookiesMock, getCookie } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/headers", () => ({ cookies: cookiesMock }));
-vi.mock("next-intl/server", () => ({
-  getRequestConfig: (factory: unknown) => factory,
-}));
 
 import getRequestConfig from "./request";
 
@@ -21,7 +18,7 @@ beforeEach(() => {
 describe("request language", () => {
   it.each([undefined, "de", "../../outside"])("falls back to Turkish for %s", async (value) => {
     getCookie.mockReturnValue(value === undefined ? undefined : { value });
-    const config = await getRequestConfig({ requestLocale: Promise.resolve(undefined) });
+    const config = await getRequestConfig();
     expect(config.locale).toBe("tr");
     expect(config.timeZone).toBe("Europe/Istanbul");
     expect(getCookie).toHaveBeenCalledWith("locale");
@@ -29,15 +26,12 @@ describe("request language", () => {
 
   it.each(["tr", "en"] as const)("uses the supported %s cookie", async (value) => {
     getCookie.mockReturnValue({ value });
-    const config = await getRequestConfig({ requestLocale: Promise.resolve(undefined) });
+    const config = await getRequestConfig();
     expect(config.locale).toBe(value);
   });
 
   it("uses an explicit locale without reading the request cookie", async () => {
-    const config = await getRequestConfig({
-      locale: "en",
-      requestLocale: Promise.resolve(undefined),
-    });
+    const config = await getRequestConfig("en");
     expect(config.locale).toBe("en");
     expect(cookiesMock).not.toHaveBeenCalled();
   });

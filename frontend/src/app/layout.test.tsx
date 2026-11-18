@@ -1,27 +1,30 @@
-import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { useLocale, useTimeZone } from "use-intl/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getLocale } = vi.hoisted(() => ({ getLocale: vi.fn() }));
-vi.mock("next-intl/server", () => ({ getLocale }));
-vi.mock("next-intl", () => ({
-  NextIntlClientProvider: ({ children }: { children: ReactNode }) => children,
-}));
+const { getRequestConfig } = vi.hoisted(() => ({ getRequestConfig: vi.fn() }));
+vi.mock("@/shared/lib/i18n/request", () => ({ default: getRequestConfig }));
 
 import RootLayout from "./layout";
 
 beforeEach(() => vi.clearAllMocks());
 
+function ApplicationContent() {
+  const locale = useLocale();
+  const timeZone = useTimeZone();
+  return <main>{locale} {timeZone}</main>;
+}
+
 describe("document language", () => {
   it.each(["tr", "en"])("renders %s in the initial HTML", async (locale) => {
-    getLocale.mockResolvedValue(locale);
+    getRequestConfig.mockResolvedValue({ locale, timeZone: "Europe/Istanbul", messages: {} });
     const html = renderToStaticMarkup(
       await RootLayout({
-        children: <main>Application content</main>,
+        children: <ApplicationContent />,
         params: Promise.resolve({}),
       }),
     );
     expect(html).toContain(`<html lang="${locale}">`);
-    expect(html).toContain("<main>Application content</main>");
+    expect(html).toMatch(new RegExp(`<main>${locale}.*Europe/Istanbul</main>`));
   });
 });

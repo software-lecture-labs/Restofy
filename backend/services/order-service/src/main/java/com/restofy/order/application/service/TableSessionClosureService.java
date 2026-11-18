@@ -119,13 +119,14 @@ public class TableSessionClosureService {
             List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
             Optional<Closure> known = closures.findByOperation(request.operationId());
             if (known.isPresent()) {
-                return authority(requireSameCommand(known.get(), request, tableSessionId), facts, now);
+                return checkedAuthority(service, requireSameCommand(known.get(), request, tableSessionId), facts, now);
             }
             closures.findLive(restaurantId, tableSessionId).ifPresent(live -> {
                 throw new BusinessException(ErrorCode.CLOSURE_IN_PROGRESS,
                         "Another operation of this table session is already " + live.status().name().toLowerCase(),
                         Map.of("operationId", live.operationId(), "state", live.status()));
             });
+            requirePaymentEvidence(service, facts);
             Decision decision = decide(request, facts);
             if (!decision.authorised()) {
                 log.info("Table session operation not authorised: service={} restaurantId={} tableSessionId={}"
@@ -148,21 +149,24 @@ public class TableSessionClosureService {
      * with the permit re-checked against the orders as they are now. An operation this Order Service never saw is
      * {@code NOT_STARTED}, so the QR Service knows to prepare it.
      */
-    public ClosureResponse get(UUID restaurantId, UUID tableSessionId, UUID operationId, String commandDigest) {
+    public ClosureResponse get(ServiceActor service, UUID restaurantId, UUID tableSessionId, UUID operationId,
+                               String commandDigest) {
         return readTx.execute(status -> {
             Instant now = now();
             List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
             return find(restaurantId, tableSessionId, operationId)
-                    .map(closure -> authority(requireSameDigest(closure, commandDigest), facts, now))
+                    .map(closure -> checkedAuthority(service, requireSameDigest(closure, commandDigest), facts, now))
                     .orElseGet(() -> notStarted(restaurantId, tableSessionId, operationId, commandDigest, now));
         });
     }
 
     /** What the orders of the session mean for its idle rules; read-only, never a permit. */
-    public OrderSessionStateResponse orderState(UUID restaurantId, UUID tableSessionId) {
+    public OrderSessionStateResponse orderState(ServiceActor service, UUID restaurantId, UUID tableSessionId) {
         return readTx.execute(status -> {
             Instant now = now();
-            OrderSessionScope scope = OrderSessionScope.of(closures.loadFacts(restaurantId, tableSessionId));
+            List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
+            requirePaymentEvidence(service, facts);
+            OrderSessionScope scope = OrderSessionScope.of(facts);
             return new OrderSessionStateResponse(restaurantId, tableSessionId, scope.knowledge(),
                     closures.scopeRevision(restaurantId, tableSessionId), now, now.plus(PERMIT_VALIDITY),
                     scope.protectedGuests().stream().sorted().toList(), scope.cancellationReleases(),
@@ -199,6 +203,11 @@ public class TableSessionClosureService {
 
     private void confirmClosed(Closure closure, ConfirmClosureRequest.Receipt receipt, List<OrderClosureFacts> facts,
                                Instant now) {
+        if (closure.status() != ClosureStatus.RELEASED && receipt != null && receipt.effect() != closure.effect()) {
+            throw new BusinessException(ErrorCode.CLOSURE_RECEIPT_MISMATCH,
+                    "The receipt names another effect than the one that was permitted",
+                    Map.of("permitted", closure.effect(), "received", receipt.effect()));
+        }
         switch (closure.status()) {
             case COMPLETED -> {
                 // the same confirmation again: nothing to do
@@ -206,11 +215,6 @@ public class TableSessionClosureService {
             case RELEASED -> throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "This operation was released; it cannot be completed");
             case PREPARED -> {
-                if (receipt != null && receipt.effect() != closure.effect()) {
-                    throw new BusinessException(ErrorCode.CLOSURE_RECEIPT_MISMATCH,
-                            "The receipt names another effect than the one that was permitted",
-                            Map.of("permitted", closure.effect(), "received", receipt.effect()));
-                }
                 // The QR Service has already applied the change and never undoes it by itself, so a participant that
                 // said "ready" cannot refuse the final decision: CLOSED is always accepted. If the orders moved since
                 // the preparation (in practice a money report that could only be recorded) that is written down for
@@ -306,6 +310,21 @@ public class TableSessionClosureService {
     }
 
     // ---- the answers ---------------------------------------------------------------------------------------------------
+
+    private ClosureResponse checkedAuthority(ServiceActor service, Closure closure, List<OrderClosureFacts> facts,
+                                             Instant now) {
+        if (closure.status() == ClosureStatus.PREPARED) {
+            requirePaymentEvidence(service, facts);
+        }
+        return authority(closure, facts, now);
+    }
+
+    /** Until K7 has a Payment source, real QR requests cannot infer financial clearance from local projections. */
+    private static void requirePaymentEvidence(ServiceActor service, List<OrderClosureFacts> facts) {
+        if (service.qrRequest() != null && !facts.isEmpty()) {
+            throw new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Authoritative Payment verification is unavailable");
+        }
+    }
 
     /** The stored operation as an authority: PREPARED is re-checked, so the permit is renewed or withdrawn. */
     private ClosureResponse authority(Closure c, List<OrderClosureFacts> facts, Instant now) {

@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
         description = "Staff <credential>: an opaque staff credential verified by the Auth Service")
 @SecurityScheme(name = "service", type = SecuritySchemeType.APIKEY,
         in = SecuritySchemeIn.HEADER, paramName = "Authorization",
-        description = "Service <credential>: an opaque credential of a calling service (Kitchen, Payment); internal endpoints only")
+        description = "Service <credential>: credential of the service authorised for the internal endpoint (Kitchen, Payment or QR)")
 @SecurityScheme(name = "guestSession", type = SecuritySchemeType.HTTP, scheme = "bearer",
         description = "Opaque QR guest session token issued by the QR Service")
 public class OpenApiConfiguration {

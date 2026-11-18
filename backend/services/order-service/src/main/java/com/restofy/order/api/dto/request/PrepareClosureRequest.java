@@ -25,7 +25,7 @@ public record PrepareClosureRequest(@NotNull UUID restaurantId, @NotNull UUID op
                                     @NotNull ClosurePurpose purpose,
                                     @NotNull @Pattern(regexp = "^[0-9a-f]{64}$") String commandDigest,
                                     Instant requestedAt, Instant mainIdleExpiresAt,
-                                    @Size(max = 500) List<@Valid IdleGuest> guests) {
+                                    @Size(max = 500) List<@NotNull @Valid IdleGuest> guests) {
 
     /** A guest session of the command and when its idle window ends. */
     public record IdleGuest(@NotNull UUID guestSessionId, @NotNull Instant idleExpiresAt) {

@@ -40,6 +40,15 @@ public class CartSelectionResolver {
         product.options().forEach(option -> catalogOptions.put(option.optionId(), option));
 
         List<ResolvedOption> resolved = new ArrayList<>();
+        Set<UUID> seenRemoved = resolveRemovals(removedIds, catalogOptions, resolved);
+        long extrasDelta = resolveExtras(extras, catalogOptions, seenRemoved, resolved);
+
+        resolved.sort(Comparator.comparing(ResolvedOption::action).thenComparing(ResolvedOption::optionId));
+        return new ResolvedSelection(List.copyOf(resolved), extrasDelta, note, selectionKey(resolved, note));
+    }
+
+    private static Set<UUID> resolveRemovals(List<UUID> removedIds, Map<UUID, ProductOption> catalogOptions,
+                                             List<ResolvedOption> resolved) {
         Set<UUID> seenRemoved = new HashSet<>();
         for (UUID optionId : removedIds) {
             ProductOption option = lookup(catalogOptions, optionId);
@@ -53,7 +62,11 @@ public class CartSelectionResolver {
             }
             resolved.add(new ResolvedOption(optionId, SelectionAction.REMOVE, 1, option.name(), 0L));
         }
+        return seenRemoved;
+    }
 
+    private static long resolveExtras(List<ExtraChoice> extras, Map<UUID, ProductOption> catalogOptions,
+                                      Set<UUID> seenRemoved, List<ResolvedOption> resolved) {
         Set<UUID> seenExtras = new HashSet<>();
         long extrasDelta = 0L;
         for (ExtraChoice choice : extras) {
@@ -86,8 +99,7 @@ public class CartSelectionResolver {
                     option.name(), option.priceDeltaMinor()));
         }
 
-        resolved.sort(Comparator.comparing(ResolvedOption::action).thenComparing(ResolvedOption::optionId));
-        return new ResolvedSelection(List.copyOf(resolved), extrasDelta, note, selectionKey(resolved, note));
+        return extrasDelta;
     }
 
     private static ProductOption lookup(Map<UUID, ProductOption> catalogOptions, UUID optionId) {
