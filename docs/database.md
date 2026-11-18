@@ -111,19 +111,19 @@ TOTP sırrı geri çözülebilir şifreleme, recovery code tek kullanımlık dig
 
 `id`, `restaurant_id REF`, `table_number varchar(40)`, `display_name varchar(120)?`, `capacity integer?`, `operational_status varchar(20)`, `is_active boolean`, `version`.
 
-`UNIQUE(restaurant_id,table_number)`, capacity varsa > 0. Durum AVAILABLE/OCCUPIED/CLEANING/DISABLED önerisi. Aktiflik ve doluluk aynı alan değildir.
+`UNIQUE(restaurant_id,table_number)`, capacity varsa > 0. Durum AVAILABLE/OCCUPIED/CLEANING/DISABLED uygulanmıştır. Aktiflik ve doluluk aynı alan değildir.
 
 ### `qr_codes`
 
-`id`, `restaurant_id`, `table_id FK dining_tables`, `token_digest text UNIQUE`, `encrypted_payload text?`, `status varchar(20)`, `issued_at timestamptz`, `expires_at timestamptz?`, `revoked_at timestamptz?`, `version`.
+`id`, `restaurant_id`, `table_id FK dining_tables`, `token_digest varchar(64) UNIQUE`, `encrypted_payload text NOT NULL`, `status varchar(20)`, `issued_at timestamptz`, `expires_at timestamptz?`, `revoked_at timestamptz?`, `version`.
 
-Tek aktif QR önerisi: `(restaurant_id,table_id) WHERE status='ACTIVE'` benzersiz kısmi indeks. Kaynak çoklu aktif QR sayısını belirlemez; bu tasarım tercihi teyit edilir. Görüntüleme/yeniden indirme gerekiyorsa yalnız digest ham QR'ı geri üretmez; encrypted_payload veya güvenli yeniden üretim/rotasyon yaklaşımı D-14'te seçilir. Masanın aktifliği ayrıca kontrol edilir.
+Masa başına tek aktif QR, `(restaurant_id,table_id) WHERE status='ACTIVE'` benzersiz kısmi indeksle uygulanmıştır. Digest doğrulama; şifreli payload aynı QR'ın yeniden görüntülenmesi içindir. Sıradan rotate credential'ı değiştirir, mevcut guest/main'leri kapatmaz; K12 yönetici kurtarması ayrı ve henüz uygulanmamış akıştır. Masanın aktifliği ayrıca kontrol edilir.
 
 ### `table_sessions`
 
 `id`, `restaurant_id`, `table_id FK`, `status varchar(20)`, `opened_at timestamptz`, `last_activity_at timestamptz`, `idle_expires_at timestamptz?`, `closing_at timestamptz?`, `closed_at timestamptz?`, `closed_by_user_id uuid? REF Auth`, `version`.
 
-`UNIQUE(restaurant_id,table_id) WHERE status IN ('OPEN','CLOSING')`. Kapanış/expiry bütün guest'lere yayılır. Sipariş varlığını tek booleanda saklamak yerine idempotent sipariş referans/projeksiyonu ile doğrulamak önerilir. 15 dakika hesabı D-04'e bağlıdır.
+`UNIQUE(restaurant_id,table_id) WHERE status IN ('OPEN','CLOSING')`. Main kapanışı/expiry bütün aktif guest'lere yayılır; IDLE_GUESTS yalnız seçilen guest'leri bitirir. ADR-QR-001/A uyarınca QR sipariş/finans projeksiyonu tutmaz; Order'ın kalıcı iznini kullanır. Süre ve kaynak teyidi davranışı ADR K6/K13'tedir; gerçek Order adaptörü henüz kapalıdır.
 
 ### `guest_sessions`
 
@@ -133,15 +133,19 @@ Tek aktif QR önerisi: `(restaurant_id,table_id) WHERE status='ACTIVE'` benzersi
 
 ### `qr_scan_events`
 
-`id`, `restaurant_id`, `qr_code_id FK`, `table_session_id uuid? FK`, `guest_session_id uuid? FK`, `scanned_at timestamptz`, `outcome varchar(30)`.
+`id`, `restaurant_id`, `table_id`, `qr_code_id FK`, `table_session_id uuid FK`, `guest_session_id uuid FK`, `scanned_at timestamptz`, `outcome varchar(20)`.
 
-Tarama bazlı istatistik; guest oluşturmayan geçersiz/iptal tarama olayları istatistikten ayrılır. Ham token/IP/device fingerprint zorunlu alan yapılmaz. Başarılı guest bağlantısının aynı ana oturuma ait olması doğrulanır.
+Yalnız kabul edilen taramalar kaydedilir (`ACCEPTED`); aynı transaction'da guest/main bağlantısı tenant ve masa bileşik FK'leriyle korunur. Ham token/IP/device fingerprint alanı yoktur.
 
-### `order_admissions` — kapanış yarışına karşı öneri
+### `session_transition_operations` — QR'ın yerel lifecycle işlemi
 
-`id`, `restaurant_id`, `table_session_id FK`, `guest_session_id FK`, `order_id uuid REF Order`, `idempotency_key varchar(120)`, `status varchar(20)`, `fencing_version bigint`, `expires_at timestamptz`, `confirmed_at timestamptz?`, `version`.
+V29/V30: `id`, `restaurant_id`, `table_session_id FK`, `request_json text`, `request_digest varchar(64)`, `stage`, `result_json text?`, `requested_at`, `last_attempt_at?`, `attempts`, `version`. Aynı tenant/main için en fazla bir REQUESTED/APPLIED/ABORTING işlem. İstek ve yazıldıktan sonra yerel makbuz değişmez; geçmiş silinmez. Staff aktörü/gerekçesi komuta bağlıdır. Bu kayıt Order sipariş kabulü veya Payment defteri değildir.
 
-`UNIQUE(restaurant_id,guest_session_id,idempotency_key)` ve `UNIQUE(restaurant_id,order_id)`. OPEN oturumda rezervasyon, ardından siparişe bağlama. CLOSING yeni rezervasyonu engeller. Süresi geçen belirsiz rezervasyon Order ile uzlaştırılmadan silinmez; fencing/son tarih protokolü şarttır. Bu tablo tek başına dağıtık atomiklik sağlamaz; [mimari §5](architecture.md) ile birlikte değerlendirilir.
+### `session_source_confirmations` — K13 kaynak teyidi
+
+V121: `operation_id PK/FK session_transition_operations`, `restaurant_id`, `confirmation_json text`, `received_at`. İşlem başına en fazla bir değişmez kaynak ACK'i; QR'ın yerel APPLIED sonucu ile tenant/main/digest/etki eşleşmesi insert trigger'ıyla da korunur. scopeDrift/driftBlockers içeren teyit kaydı ve QR COMPLETED geçişi aynı transaction'dadır. Sipariş/finans kalemleri veya credential saklanmaz. Eski `order_admissions` ve ayrıntılı iş/finans projeksiyonu seçilen A modelinde yoktur.
+
+31 Ekim branch-only CREATE birleştirmesi ve yerel QR reseti açık kullanıcı onayıyla yapıldı; mevcut kısıtlar korunarak V23–V25 ara dosyaları kaldırıldı. Yeni zincir V21,V22,V26–V30,V121; ek sürüm sahipliği için [migration kararı](decisions/migrations.md) ve geçiş sınırı için [ADR §6](decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md#6-migration-ve-merge-öncesi-koşullar) geçerlidir. Bu, paylaşılmış migration geçmişini yeniden yazma genel izni değildir.
 
 ## 6. Menu DB — katalog ve satışa uygunluk
 
@@ -153,13 +157,13 @@ Tenant uyumlu parent FK; kendi kendine parent ve kategori döngüsü engellenir.
 
 ### `products`
 
-`id`, `restaurant_id`, `category_id FK`, `name varchar(200)`, `image_url text`, `description text?`, `base_price numeric(19,4)`, `currency char(3)`, `vat_rate numeric(7,4)`, `price_includes_vat boolean`, `weight_grams numeric(12,3)?`, `calories integer?`, `estimated_prep_minutes integer?`, `is_published boolean`, `version`.
+`id`, `restaurant_id`, `category_id FK`, `name varchar(200)`, `image_url text?`, `description text?`, `ingredients_text varchar(1000)?`, `base_price numeric(19,4)`, `currency char(3)`, `vat_rate numeric(7,4)`, `price_includes_vat boolean`, `weight_grams numeric(12,3)?`, `calories integer?`, `estimated_prep_minutes integer?`, `is_active boolean`, `is_published boolean`, `version`.
 
-Fiyat/gramaj/kalori/süre negatif olamaz; opsiyonel alanlar NULL olabilir. Image URL kontrollü storage kaynağıdır. Ürün ortalama puanı Rating projeksiyonundan gelir; elle değiştirilebilir ürün gerçeği değildir. KDV dahil ibaresi fiyatın gerçek vergi modeline uymalıdır.
+Fiyat negatif olamaz; kalori 0–10.000 kcal, gramaj 0'dan büyük ve en çok 10.000 g (en fazla 3 ondalık), hazırlık süresi 0–240 dk (V66 CHECK'leri); opsiyonel alanlar NULL olabilir ve NULL "bilinmiyor" demektir, 0 gerçek bir değerdir. Image URL kontrollü storage kaynağıdır. Ürün ortalama puanı Rating projeksiyonundan gelir; elle değiştirilebilir ürün gerçeği değildir. KDV dahil ibaresi fiyatın gerçek vergi modeline uymalıdır.
 
 ### `product_options`
 
-`id`, `restaurant_id`, `product_id FK`, `name varchar(150)`, `option_type varchar(20)`, `price_delta numeric(19,4)`, `min_quantity integer`, `max_quantity integer`, `is_active boolean`, `version`.
+`id`, `restaurant_id`, `product_id FK`, `name varchar(150)`, `option_type varchar(20)`, `price_delta numeric(19,4)`, `min_quantity integer`, `max_quantity integer`, `sort_order integer`, `is_active boolean`, `version`.
 
 Tür INCLUDED/ADD önerisi: INCLUDED çıkarılabilir temel malzeme, ADD eklenebilir malzeme. Çıkarma yetkisi min_quantity=0 ile modellenebilir; zorunlu içerik çıkarılamaz. V1'de INCLUDED fiyat farkı 0, ADD farkı >=0; `0 <= min_quantity <= max_quantity`. Sipariş seçimi ADD/REMOVE eylemini snapshot'lar. Genel hammadde deposu değildir.
 
@@ -169,11 +173,17 @@ Tür INCLUDED/ADD önerisi: INCLUDED çıkarılabilir temel malzeme, ADD ekleneb
 
 AVAILABLE/OUT_OF_STOCK/TEMPORARILY_CLOSED. Kapalı durumlarda neden zorunlu; her değişiklik geçmişe yazılır. Menu bu kaydın tek yazarıdır; Kitchen yetkili API komutu yollar. Yeniden başlatmada AVAILABLE yapılmaz.
 
+### `product_availability_commands`
+
+`restaurant_id`, `command_id` (birlikte PK), `product_id FK`, `source varchar(20)` (yalnız KITCHEN), `target_status varchar(30)`, `reason_code varchar(40)?`, `reason_text text?`, `expected_version bigint?`, `outcome varchar(20)` (APPLIED/NO_CHANGE), `resulting_version bigint`, `requested_by_user_id uuid REF Auth`, `created_at timestamptz`.
+
+Kitchen availability komutunun kalıcı idempotency kaydıdır: kabul edilen her komut (etkisiz olanlar dahil) restoran + komut kimliğiyle bir kez yazılır. Aynı kimlik aynı içerikle gelirse eski sonuç döner (yeniden uygulanmaz), farklı içerikle gelirse çakışmadır. Reddedilen komut kayıt bırakmaz (aynı işlemde geri alınır). Komut kimliği yetki kanıtı değildir. Ayrıntı: [ADR-MENU-002](decisions/ADR-MENU-002-kitchen-availability-komutlari.md).
+
 ### `product_availability_history`
 
 `id`, `restaurant_id`, `product_id FK`, `from_status varchar(30)`, `to_status varchar(30)`, `reason_code varchar(40)?`, `reason_text text?`, `changed_by_user_id uuid REF`, `changed_at timestamptz`, `command_id uuid`.
 
-`UNIQUE(restaurant_id,command_id)` tekrar kapatma komutunu tekilleştirir. Ürün yayın pasifliğiyle mutfak kapanışı farklı kavramlardır. Geçerli müşteri görünürlüğü kategori/yayın + availability koşullarından türetilir.
+`command_id` boştur (ilk kayıt, yönetici değişikliği) ya da `product_availability_commands`'daki komutu aynı restoran ve ürün içinde adlandırır (bileşik FK); `UNIQUE(restaurant_id,command_id) WHERE command_id IS NOT NULL` bir komutun en çok bir geçmiş satırı yazmasını sağlar. Ürün yayın pasifliğiyle mutfak kapanışı farklı kavramlardır. Geçerli müşteri görünürlüğü kategori/yayın + availability koşullarından türetilir.
 
 ## 7. Order DB — sepet, sipariş ve iptal
 

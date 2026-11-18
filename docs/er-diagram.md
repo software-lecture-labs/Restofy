@@ -159,10 +159,10 @@ erDiagram
     dining_tables ||--o{ table_sessions : "oturum gecmisi"
     table_sessions ||--o{ guest_sessions : "ilk tarama dahil"
     qr_codes ||--o{ qr_scan_events : "tarama"
-    table_sessions o|--o{ qr_scan_events : "basarili esleme"
-    guest_sessions o|--o{ qr_scan_events : "guest acilisi"
-    table_sessions ||--o{ order_admissions : "kabul rezervasyonu"
-    guest_sessions ||--o{ order_admissions : "guest baglami"
+    table_sessions ||--o{ qr_scan_events : "basarili esleme"
+    guest_sessions ||--o| qr_scan_events : "guest acilisi"
+    table_sessions ||--o{ session_transition_operations : "yerel lifecycle islemi"
+    session_transition_operations ||--o| session_source_confirmations : "degismez kaynak teyidi"
 
     dining_tables {
         uuid id PK
@@ -213,21 +213,28 @@ erDiagram
         timestamptz scanned_at
         varchar outcome
     }
-    order_admissions {
+    session_transition_operations {
         uuid id PK
         uuid restaurant_id
         uuid table_session_id FK
-        uuid guest_session_id FK
-        uuid order_id "REF Order"
-        varchar idempotency_key
-        varchar status
-        bigint fencing_version
-        timestamptz expires_at
-        timestamptz confirmed_at
+        text request_json
+        varchar request_digest
+        varchar stage
+        text result_json
+        timestamptz requested_at
+        timestamptz last_attempt_at
+        integer attempts
+        bigint version
+    }
+    session_source_confirmations {
+        uuid operation_id PK,FK
+        uuid restaurant_id
+        text confirmation_json
+        timestamptz received_at
     }
 ```
 
-Tarihsel olarak bir masanın çok oturumu olabilir; aynı anda OPEN/CLOSING en fazla birdir. Bu kural kısmi unique indeks gerektirir. Oturum açma transaction'ı guest'i de üretir; diyagramdaki sıfır/çok tarihsel/ara durumları kapsar. order_admissions teknik koordinasyon önerisidir, kaynakta adlandırılmış bir iş nesnesi değildir.
+Tarihsel olarak bir masanın çok oturumu olabilir; aynı anda OPEN/CLOSING en fazla birdir ve kısmi unique indeksle korunur. ADR-QR-001/A/K13 uyarınca QR sipariş/finans projeksiyonu tutmaz. V29/V30 yerel lifecycle komut/sonucunu, V121 kaynak ACK/sapma makbuzunu tutar; bir işlemde en fazla bir kaynak teyidi vardır. Geçmiş ve teyitler değişmezdir. Gerçek Order/Payment ağ adaptörleri henüz uygulanmadı; diyagram bunları tamamlanmış saymaz.
 
 ## 6. Menu DB
 
@@ -238,6 +245,8 @@ erDiagram
     products ||--o{ product_options : "icerik ve ek secenek"
     products ||--o| product_availability : "guncel satis durumu"
     products ||--o{ product_availability_history : "erisim gecmisi"
+    products ||--o{ product_availability_commands : "kitchen komut kaydi"
+    product_availability_commands |o--o| product_availability_history : "komutun neden oldugu gecmis"
 
     categories {
         uuid id PK
@@ -254,6 +263,7 @@ erDiagram
         varchar name
         text image_url
         text description
+        varchar ingredients_text
         numeric base_price
         char currency
         numeric vat_rate
@@ -261,6 +271,7 @@ erDiagram
         numeric weight_grams
         integer calories
         integer estimated_prep_minutes
+        boolean is_active
         boolean is_published
     }
     product_options {
@@ -272,6 +283,7 @@ erDiagram
         numeric price_delta
         integer min_quantity
         integer max_quantity
+        integer sort_order
         boolean is_active
     }
     product_availability {
@@ -294,11 +306,25 @@ erDiagram
         text reason_text
         uuid changed_by_user_id "REF Auth"
         timestamptz changed_at
-        uuid command_id
+        uuid command_id "NULL: ilk kayit ve yonetici degisikligi"
+    }
+    product_availability_commands {
+        uuid restaurant_id PK
+        uuid command_id PK
+        uuid product_id FK
+        varchar source
+        varchar target_status
+        varchar reason_code
+        text reason_text
+        bigint expected_version
+        varchar outcome
+        bigint resulting_version
+        uuid requested_by_user_id "REF Auth"
+        timestamptz created_at
     }
 ```
 
-Satışa sunulan ürün için availability kaydı oluşturulması application transaction'ında zorunlu önerilir. Modelde 0/1, henüz satışa açılmamış ürün taslağına izin verir; availability bulunmaması satış izni sayılmaz. Kitchen kapatma komutunun yazarı Menu'dür. Otomatik restart açılışı yoktur. product_options hammadde stok tablosu değildir.
+Satışa sunulan ürün için availability kaydı oluşturulması application transaction'ında zorunlu önerilir. Modelde 0/1, henüz satışa açılmamış ürün taslağına izin verir; availability bulunmaması satış izni sayılmaz. Kitchen kapatma komutunun yazarı Menu'dür. Otomatik restart açılışı yoktur. product_availability_commands, Kitchen komutunun tekrarını tanımak için kabul edilen her komutu (etkisiz olanlar dahil) restoran + komut kimliğiyle saklar; history satırı yalnız gerçek değişiklikte yazılır ve komutu bileşik FK ile aynı restoran ve ürün içinde adlandırır. product_options hammadde stok tablosu değildir.
 
 ## 7. Order DB
 

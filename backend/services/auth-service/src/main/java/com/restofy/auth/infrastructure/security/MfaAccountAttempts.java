@@ -35,7 +35,8 @@ public class MfaAccountAttempts {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW,
-            noRollbackFor = {BadCredentialsException.class, LoginLimitException.class})
+            noRollbackFor = {BadCredentialsException.class, LoginLimitException.class,
+                    com.restofy.auth.application.service.revocation.RevocationPendingException.class})
     public <T> T attempt(Identity identity, BiFunction<StaffMfa, UserSession, T> operation) {
         if (identity.role() != StaffRole.ADMIN) {
             throw new AccessDeniedException("MFA requires ADMIN");

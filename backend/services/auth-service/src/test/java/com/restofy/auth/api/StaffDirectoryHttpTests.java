@@ -11,6 +11,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.restofy.auth.application.service.StaffDirectoryService;
+import com.restofy.auth.application.service.revocation.RevocationPendingException;
 import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.enums.StaffRole;
@@ -112,7 +113,7 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
     void staffChangeRevokesExistingAccessAndRefreshAndCanBeReenabled() throws Exception {
         var grant = auth.login(waiter.getEmailNormalized(), PASSWORD, null);
         var oldIdentity = jwt.verify(grant.access(), false);
-        mvc.perform(mutation(ROOT + "/" + waiter.getId(), adminCookies)
+        coordinated(mutation(ROOT + "/" + waiter.getId(), adminCookies)
                 .content(updateBody(waiter.getEmailNormalized(), "KITCHEN", false, waiter.getVersion())))
                 .andExpect(status().isOk());
         assertThat(sessions.findByStaffUserId(waiter.getId())).allMatch(session -> session.getRevokedAt() != null);
@@ -123,7 +124,7 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> auth.refresh(revokedRefresh))
                 .isInstanceOf(BadCredentialsException.class);
         StaffUser changed = users.findById(waiter.getId()).orElseThrow();
-        mvc.perform(mutation(ROOT + "/" + waiter.getId(), adminCookies)
+        coordinated(mutation(ROOT + "/" + waiter.getId(), adminCookies)
                 .content(updateBody(changed.getEmailNormalized(), "KITCHEN", true, changed.getVersion())))
                 .andExpect(status().isOk());
         assertThat(auth.login(changed.getEmailNormalized(), PASSWORD, null).session().getRoleSnapshot()).isEqualTo(StaffRole.KITCHEN);
@@ -196,7 +197,7 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
                 .content(updateBody(waiter.getEmailNormalized(), "WAITER", true, waiter.getVersion())))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(waiter.getVersion()));
         mvc.perform(get("/api/v1/auth/session").cookie(waiterCookies)).andExpect(status().isOk());
-        mvc.perform(mutation(ROOT + "/" + waiter.getId(), adminCookies)
+        coordinated(mutation(ROOT + "/" + waiter.getId(), adminCookies)
                 .content(updateBody(admin.getEmailNormalized(), "KITCHEN", false, waiter.getVersion())))
                 .andExpect(status().isConflict());
         StaffUser unchanged = users.findById(waiter.getId()).orElseThrow();
@@ -252,11 +253,31 @@ class StaffDirectoryHttpTests extends AuthSessionTestSupport {
 
     private boolean tryDisable(StaffJwtTokens.Identity actor, StaffUser target) {
         try {
-            directory.update(actor, target.getId(), target.getEmailNormalized(), StaffRole.ADMIN, false, target.getVersion());
+            try {
+                directory.update(actor, target.getId(), target.getEmailNormalized(), StaffRole.ADMIN, false, target.getVersion());
+            } catch (RevocationPendingException _) {
+                acknowledgeOnce();
+                directory.update(actor, target.getId(), target.getEmailNormalized(), StaffRole.ADMIN, false, target.getVersion());
+            }
             return true;
         } catch (BadCredentialsException _) {
             return false;
         }
+    }
+
+    private synchronized void acknowledgeOnce() {
+        acknowledgePreparedRevocationsForAuthFixture();
+    }
+
+    /** A revoking directory change answers 503 until QR acknowledges; the identical retry then completes. */
+    private org.springframework.test.web.servlet.ResultActions coordinated(
+            org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request) throws Exception {
+        var first = mvc.perform(request);
+        if (first.andReturn().getResponse().getStatus() != 503) {
+            return first;
+        }
+        acknowledgePreparedRevocationsForAuthFixture();
+        return mvc.perform(request);
     }
 
     private StaffJwtTokens.Identity identity(Cookie[] cookies) {

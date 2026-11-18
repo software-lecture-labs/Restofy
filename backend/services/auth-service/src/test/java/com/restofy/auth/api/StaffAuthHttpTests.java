@@ -41,6 +41,7 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     @Autowired private UserSessionRepository sessions;
     @Autowired private RefreshTokenRepository tokens;
     @Autowired private StaffPasswords passwords;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final Map<String, Cookie> jar = new HashMap<>();
 
     @BeforeEach
@@ -74,10 +75,22 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         mvc.perform(mutation("/activity")).andExpect(status().isNoContent());
         update(mvc.perform(mutation("/refresh")).andExpect(status().isOk()).andReturn());
         assertThat(jar.get(AuthCookies.REFRESH).getValue()).isNotEqualTo(refresh);
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
         mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isUnauthorized());
         assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
         assertThat(login.getRequest().getSession(false)).isNull();
+    }
+
+    @Test
+    void logoutClearsEveryAuthCookieAndRevokesLocallyWhileTheQrSourceBarrierIsNotActive() throws Exception {
+        csrf();
+        update(mvc.perform(mutation("/login").content(body("staff@example.com", PASSWORD))).andExpect(status().isOk()).andReturn());
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='PREPARING' WHERE singleton=true");
+
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
+
+        assertThat(sessions.findAll()).allMatch(session -> session.getRevokedAt() != null);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
     }
 
     @Test
@@ -141,7 +154,7 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         mvc.perform(mutation("/activity")).andExpect(status().isForbidden());
         mvc.perform(mutation("/refresh")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/auth/admin").cookie(cookies())).andExpect(status().isUnauthorized());
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
     }
 
     @Test
@@ -183,10 +196,10 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
         for (String path : new String[]{"/api/v1/auth/sessions", "/internal/v1/auth/introspect", "/api/v1/auth/register"}) {
             mvc.perform(get(path).cookie(cookies())).andExpect(status().isUnauthorized());
         }
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
         jar.clear();
         csrf();
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
     }
 
     @Test

@@ -162,6 +162,18 @@ class ApiGatewayRoutingTests {
         if (mediaType.getCharset() != null) assertEquals(StandardCharsets.UTF_8, mediaType.getCharset());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/carts", "/api/v1/carts/current", "/api/v1/carts/current/items/123"})
+    void forwardsGuestCartPathsToTheOrderServiceKeepingThePrefix(String path) throws Exception {
+        String id = UUID.randomUUID().toString();
+        var response = send(gatewayRequest(path, id).header("Authorization", "Bearer fixture-not-a-real-token")
+                .GET().build());
+        assertResponse(response, "order-service", 200);
+        var received = onlyRequest(id, "order-service");
+        assertEquals(path, received.path());
+        assertEquals("Bearer fixture-not-a-real-token", received.header("Authorization"));
+    }
+
     @Test
     void preservesQueryParametersIncludingRepeatedAndEncodedValues() throws Exception {
         String id = UUID.randomUUID().toString();
@@ -197,12 +209,24 @@ class ApiGatewayRoutingTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/api/v1/unknown", "/api/v1/authentication", "/api/v1/orders-extra", "/api/v1/menu-item", "/api/v1/ratings-extra"})
+    @ValueSource(strings = {"/api/v1/unknown", "/api/v1/authentication", "/api/v1/orders-extra", "/api/v1/carts-extra", "/api/v1/menu-item", "/api/v1/ratings-extra"})
     void unknownAndSimilarPrefixesReturn404WithoutContactingAnyDownstream(String path) throws Exception {
         String id = UUID.randomUUID().toString();
         var response = send(gatewayRequest(path, id).GET().build());
         assertEquals(404, response.statusCode());
         assertTrue(DOWNSTREAMS.requests(id).isEmpty());
+    }
+
+    @Test
+    void q5InternalCommandsAreNeverForwardedFromThePublicGateway() throws Exception {
+        for (String operation : new String[]{"challenge","bootstrap","revocations"}) {
+            String id=UUID.randomUUID().toString();
+            var response=send(gatewayRequest("/internal/q5/"+operation,id)
+                    .header("Authorization","Bearer fixture-not-a-service-credential").header("Content-Type","application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}")).build());
+            assertEquals(404,response.statusCode());
+            assertTrue(DOWNSTREAMS.requests(id).isEmpty());
+        }
     }
 
     @Test

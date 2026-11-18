@@ -1,8 +1,6 @@
 package com.restofy.auth.infrastructure.persistence;
 
-import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -15,7 +13,6 @@ import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.config.StaffBootstrapProperties;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
 import com.restofy.auth.infrastructure.security.StaffPasswords;
-import com.restofy.auth.support.AuthSessionTestSupport;
 import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,14 +21,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Uses only the Maven test profile's disposable jdbc:tc PostgreSQL database. */
 @SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
 @ContextConfiguration(initializers = AuthTestDatabaseInitializer.class)
-class StaffPersistenceTests extends AuthSessionTestSupport {
+class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupport {
     private static final String TEST_PASSWORD = "Test-only-password-01";
     @Autowired private StaffUserRepository users;
     @Autowired private StaffBootstrapService bootstrap;
@@ -47,14 +42,14 @@ class StaffPersistenceTests extends AuthSessionTestSupport {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Flyway flyway;
     @Autowired private PlatformTransactionManager transactionManager;
-    @Autowired private Environment environment;
+    @Autowired private org.springframework.core.env.Environment environment;
     private String hash;
 
     @BeforeEach
     void setup() {
         // Second guard before fixture mutation; the initializer guards startup before Flyway.
-        assertThat(environment.getRequiredProperty("spring.datasource.url")).startsWith("jdbc:tc:postgresql:");
-        String url = jdbc.execute((ConnectionCallback<String>)
+        assertThat(environment.getRequiredProperty("spring.datasource.url")).isEqualTo("jdbc:tc:q5postgresql:17-alpine:///restofy_test");
+        String url = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<String>)
                 connection -> connection.getMetaData().getURL());
         String database = jdbc.queryForObject("SELECT current_database()", String.class);
         assertThat(url).contains("jdbc:postgresql:");
@@ -68,16 +63,15 @@ class StaffPersistenceTests extends AuthSessionTestSupport {
     @Test
     void flywayAppliesV1AndHibernateValidatesStaffSchema() {
         flyway.validate();
-        assertThat(flyway.info().applied()).hasSize(6);
-        assertThat(flyway.info().applied()[5].getVersion().getVersion()).isEqualTo("6");
-        assertThat(flyway.info().applied()[4].getVersion().getVersion()).isEqualTo("5");
+        assertThat(flyway.info().applied()).hasSize(7);
+        assertThat(flyway.info().applied()[4].getVersion().getVersion()).isEqualTo("7");
+        assertThat(flyway.info().applied()[4].getVersion().getVersion()).isEqualTo("7");
         assertThat(flyway.info().applied()[3].getVersion().getVersion()).isEqualTo("4");
         assertThat(flyway.info().applied()[2].getVersion().getVersion()).isEqualTo("3");
         assertThat(flyway.info().applied()[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(flyway.info().applied()[0].getVersion().getVersion()).isEqualTo("1");
-        assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))
-                .isEqualTo(9);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))
+                .isEqualTo(10);
         StaffUser saved = users.saveAndFlush(new StaffUser(" STAFF@EXAMPLE.COM ", hash, StaffRole.KITCHEN));
         assertThat(saved.getEmailNormalized()).isEqualTo("staff@example.com");
         assertThat(saved.getCreatedAt()).isNotNull();
@@ -105,15 +99,10 @@ class StaffPersistenceTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> insert("staff@example.com", hash, "SUPERADMIN")).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> insert("staff@example.com", TEST_PASSWORD, "ADMIN")).isInstanceOf(DataAccessException.class);
         UUID negativeVersionId = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO staff_users"
-                        + " (id,email_normalized,password_hash,role,created_at,updated_at,version) VALUES (?,?,?,'ADMIN',now(),now(),-1)",
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at,version) VALUES (?,?,?,'ADMIN',now(),now(),-1)",
                 negativeVersionId, "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
         UUID invalidDatesId = UUID.randomUUID();
-        assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO staff_users"
-                        + " (id,email_normalized,password_hash,role,created_at,updated_at)"
-                        + " VALUES (?,?,?,'ADMIN',now(),now()-interval '1 second')",
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at) VALUES (?,?,?,'ADMIN',now(),now()-interval '1 second')",
                 invalidDatesId, "staff@example.com", hash)).isInstanceOf(DataAccessException.class);
         assertThat(users.count()).isZero();
     }
@@ -162,8 +151,7 @@ class StaffPersistenceTests extends AuthSessionTestSupport {
         assertThat(users.count()).isEqualTo(3);
         var before = jdbc.queryForList("SELECT id,password_hash,is_active,version FROM staff_users ORDER BY email_normalized");
         bootstrap.initialize(properties, new String[]{"test"});
-        assertThat(jdbc.queryForList("SELECT id,password_hash,is_active,version FROM staff_users ORDER BY email_normalized"))
-                .isEqualTo(before);
+        assertThat(jdbc.queryForList("SELECT id,password_hash,is_active,version FROM staff_users ORDER BY email_normalized")).isEqualTo(before);
     }
 
     @Test
@@ -203,7 +191,7 @@ class StaffPersistenceTests extends AuthSessionTestSupport {
     private void insert(String email, String passwordHash, String role) {
         jdbc.update("INSERT INTO staff_users (id,email_normalized,password_hash,role,created_at,updated_at) VALUES (?,?,?,?,?,?)",
                 UUID.randomUUID(), email, passwordHash, role,
-                Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
+                java.sql.Timestamp.from(Instant.now()), java.sql.Timestamp.from(Instant.now()));
     }
 
     private StaffBootstrapProperties initial(String email) {
@@ -221,23 +209,19 @@ class StaffPersistenceTests extends AuthSessionTestSupport {
         dev.getAdmin().setEmail("admin@example.com");
         dev.getWaiter().setEmail("waiter@example.com");
         dev.getKitchen().setEmail("kitchen@example.com");
-        for (var account : List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen())) {
+        for (var account : java.util.List.of(dev.getAdmin(), dev.getWaiter(), dev.getKitchen())) {
             account.setPassword(TEST_PASSWORD);
         }
         return properties;
     }
 
-    private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
+    private java.util.List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var a = executor.submit(() -> { start.await();
-            return first.call();
-            });
-            var b = executor.submit(() -> { start.await();
-            return second.call();
-            });
+            var a = executor.submit(() -> { start.await(); return first.call(); });
+            var b = executor.submit(() -> { start.await(); return second.call(); });
             start.countDown();
-            return List.of(a.get(30, TimeUnit.SECONDS), b.get(30, TimeUnit.SECONDS));
+            return java.util.List.of(a.get(30, TimeUnit.SECONDS), b.get(30, TimeUnit.SECONDS));
         }
     }
 }

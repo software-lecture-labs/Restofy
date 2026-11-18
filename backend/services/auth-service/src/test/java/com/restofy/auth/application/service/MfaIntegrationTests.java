@@ -1,48 +1,29 @@
 package com.restofy.auth.application.service;
 
-import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import javax.sql.DataSource;
-
 import com.restofy.auth.domain.entity.StaffUser;
-import com.restofy.auth.domain.enums.SessionAuthState;
-import com.restofy.auth.domain.enums.StaffRole;
-import com.restofy.auth.infrastructure.persistence.repository.MfaRecoveryCodeRepository;
-import com.restofy.auth.infrastructure.persistence.repository.StaffMfaRepository;
-import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
+import com.restofy.auth.domain.enums.*;
+import com.restofy.auth.infrastructure.persistence.repository.*;
+import com.restofy.auth.infrastructure.security.*;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
-import com.restofy.auth.infrastructure.security.MfaSecretCipher;
-import com.restofy.auth.infrastructure.security.MfaUnavailableException;
-import com.restofy.auth.infrastructure.security.StaffJwtTokens;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
-import com.restofy.auth.infrastructure.security.StaffPasswords;
-import com.restofy.auth.infrastructure.security.TotpVerifier;
-import com.restofy.auth.support.AuthSessionTestSupport;
-import com.restofy.auth.support.AuthTestDatabaseInitializer;
-import com.restofy.auth.support.MutableAuthClock;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import com.restofy.auth.support.*;
+import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.*;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
 import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
@@ -63,7 +44,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private MutableAuthClock clock;
     @Autowired private PlatformTransactionManager transactions;
-    @Autowired private DataSource dataSource;
+    @Autowired private javax.sql.DataSource dataSource;
     private UUID adminId;
 
     @BeforeEach
@@ -75,6 +56,8 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
 
     @AfterEach
     void clean() {
+        jdbc.update("DELETE FROM staff_revocation_targets");
+        jdbc.update("DELETE FROM staff_revocation_operations");
         jdbc.update("DELETE FROM mfa_recovery_codes");
         jdbc.update("DELETE FROM staff_mfa");
         jdbc.update("DELETE FROM refresh_tokens");
@@ -171,8 +154,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         enrollment.start(first, "enroll");
         byte[] old = secret();
         Identity second = pending();
-        assertThatThrownBy(() -> enrollment.start(second, "enroll")).isInstanceOf(org.springframework.web.server
-                .ResponseStatusException.class);
+        assertThatThrownBy(() -> enrollment.start(second, "enroll")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         String otherDeviceCode = currentCode();
         assertThatThrownBy(() -> verification.confirm(second, otherDeviceCode, "confirm")).isInstanceOf(BadCredentialsException.class);
         assertThatThrownBy(() -> enrollment.start(first, "enroll")).isInstanceOf(LoginLimitException.class);
@@ -191,7 +173,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         String firstRecovery = initial.recoveryCodes().getFirst();
         assertThatThrownBy(() -> verification.regenerate(full, "wrong", null, firstRecovery, "regenerate"))
                 .isInstanceOf(BadCredentialsException.class);
-        List<String> replacement = verification.regenerate(full, PASSWORD, null, firstRecovery, "regenerate");
+        List<String> replacement = coordinatedAuthResult(() -> verification.regenerate(full, PASSWORD, null, firstRecovery, "regenerate"));
         assertThat(replacement).hasSize(10).doesNotContainAnyElementsOf(initial.recoveryCodes());
         assertThat(sessions.authenticate(full).getRevokedAt()).isNull();
         assertThatThrownBy(() -> sessions.authenticate(other)).isInstanceOf(BadCredentialsException.class);
@@ -202,13 +184,32 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void otherDeviceRefreshCannotSurviveConcurrentRecoveryCodeRegeneration() throws Exception {
+        var initial = enabled();
+        Identity owner = jwt.verify(initial.grant().access(), false);
+        Identity pendingOther = pending();
+        clock.advance(30);
+        var other = verification.verify(pendingOther, currentCode(), "other-device").grant();
+        String proof = initial.recoveryCodes().getFirst();
+        race(() -> {
+            verification.regenerate(owner, PASSWORD, null, proof, "regenerate-race");
+            return true;
+        }, () -> {
+            try { sessions.refresh(other.refresh()); return true; }
+            catch (BadCredentialsException _) { return false; }
+        });
+        assertThatThrownBy(() -> sessions.refresh(other.refresh())).isInstanceOf(BadCredentialsException.class);
+        assertThat(sessions.authenticate(owner).getRevokedAt()).isNull();
+    }
+
+    @Test
     void corruptedSecretFailsClosedAndDisableRevokesPromotedSessions() {
         var initial = enabled();
         Identity pending = pending();
         jdbc.update("UPDATE staff_mfa SET encrypted_totp_secret = ? WHERE staff_user_id = ?", new byte[48], adminId);
         assertThatThrownBy(() -> verification.verify(pending, "123456", "verify")).isInstanceOf(MfaUnavailableException.class);
         assertThat(records.findByStaffUserId(adminId).orElseThrow().getFailedAttempts()).isZero();
-        sessions.deactivate(adminId);
+        coordinatedAuthFixture(() -> sessions.deactivate(adminId));
         String refresh = initial.grant().refresh();
         assertThatThrownBy(() -> sessions.refresh(refresh)).isInstanceOf(BadCredentialsException.class);
     }
@@ -233,76 +234,52 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
     void upgradesExistingV2PendingSessionWithoutChangingItsIdentityOrExpiry() {
         pending();
         String schema = "mfa_upgrade_" + UUID.randomUUID().toString().replace("-", "");
-        var prior = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+        var prior = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").target("2").cleanDisabled(true).load();
         prior.migrate();
-        jdbc.update("INSERT INTO " + schema
-                + ".staff_users (id,email_normalized,password_hash,role,is_active,created_at,updated_at,version) "
+        jdbc.update("INSERT INTO " + schema + ".staff_users (id,email_normalized,password_hash,role,is_active,created_at,updated_at,version) "
                 + "SELECT id,email_normalized,password_hash,role,is_active,created_at,updated_at,version FROM public.staff_users");
         jdbc.update("INSERT INTO " + schema + ".user_sessions SELECT * FROM public.user_sessions");
         assertThatThrownBy(() -> jdbc.update("UPDATE " + schema + ".user_sessions SET auth_state = 'AUTHENTICATED'"))
                 .isInstanceOf(DataAccessException.class);
-        var latest = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
-                .locations("classpath:db/migration").target("4").cleanDisabled(true).load();
+        var latest = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
-        assertThat(Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(4);
+        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(7);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions migrated JOIN public.user_sessions original "
-                + "ON original.id = migrated.id AND original.absolute_expires_at = migrated.absolute_expires_at", Integer.class))
-                        .isEqualTo(1);
+                + "ON original.id = migrated.id AND original.absolute_expires_at = migrated.absolute_expires_at", Integer.class)).isEqualTo(1);
         jdbc.update("UPDATE " + schema + ".user_sessions SET auth_state = 'AUTHENTICATED'");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'AUTHENTICATED'", Integer
-                .class))
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'AUTHENTICATED'", Integer.class))
                 .isEqualTo(1);
     }
 
     private MfaVerificationService.Completion enabled() {
-        Identity pending = pending();
-        enrollment.start(pending, "enroll");
+        Identity pending = pending(); enrollment.start(pending, "enroll");
         return verification.confirm(pending, currentCode(), "confirm");
     }
-    private Identity pending() {
-        return jwt.verify(sessions.login("admin@example.com", PASSWORD, "MFA test").access(), true);
-    }
-    private byte[] secret() {
-        return cipher.decrypt(adminId, records.findByStaffUserId(adminId).orElseThrow().getEncryptedTotpSecret());
-    }
-    private String currentCode() {
-        return totp.code(secret(), clock.instant().getEpochSecond() / 30, 6);
-    }
+    private Identity pending() { return jwt.verify(sessions.login("admin@example.com", PASSWORD, "MFA test").access(), true); }
+    private byte[] secret() { return cipher.decrypt(adminId, records.findByStaffUserId(adminId).orElseThrow().getEncryptedTotpSecret()); }
+    private String currentCode() { return totp.code(secret(), clock.instant().getEpochSecond() / 30, 6); }
     private String wrongCode() {
         for (int candidate = 0; candidate < 100; candidate++) {
-            String code = String.format(Locale.ROOT, "%06d", candidate);
-            if (totp.verify(secret(), code, null) < 0) {
-                return code;
-            }
+            String code = String.format(java.util.Locale.ROOT, "%06d", candidate);
+            if (totp.verify(secret(), code, null) < 0) { return code; }
         }
         throw new IllegalStateException("No invalid test code");
     }
     private boolean recover(Identity identity, String code) {
-        try { verification.recover(identity, code, "race");
-        return true;
-        } catch (BadCredentialsException _) {
-            return false;
-        }
+        try { verification.recover(identity, code, "race"); return true; } catch (BadCredentialsException _) { return false; }
     }
     private boolean verify(Identity identity, String code) {
-        try { verification.verify(identity, code, "race");
-        return true;
-        } catch (BadCredentialsException _) {
-            return false;
-        }
+        try { verification.verify(identity, code, "race"); return true; } catch (BadCredentialsException _) { return false; }
     }
     private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var left = executor.submit(() -> { start.await();
-            return first.call();
-            });
-            var right = executor.submit(() -> { start.await();
-            return second.call();
-            });
+            var left = executor.submit(() -> { start.await(); return first.call(); });
+            var right = executor.submit(() -> { start.await(); return second.call(); });
             start.countDown();
             return List.of(left.get(30, TimeUnit.SECONDS), right.get(30, TimeUnit.SECONDS));
         }
@@ -310,8 +287,6 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class TimeConfiguration {
-        @Bean @Primary MutableAuthClock clock() {
-            return new MutableAuthClock();
-        }
+        @Bean @Primary MutableAuthClock clock() { return new MutableAuthClock(); }
     }
 }

@@ -45,9 +45,11 @@ class PasswordResetIdentityRaceTests {
         when(codes.token()).thenReturn("neutral-cookie");
         PasswordResetRepository requests = mock(PasswordResetRepository.class);
         PasswordResetLimiter limiter = mock(PasswordResetLimiter.class);
+        StaffSessionService sessions = mock(StaffSessionService.class);
+        when(sessions.mayIssueSecurityProof(any())).thenReturn(true);
         try (MailClient mail = mock(MailClient.class)) {
         PasswordResetService service = new PasswordResetService(users, mfa, requests, codes, limiter,
-                mock(MfaFactors.class), mock(TotpVerifier.class), mock(StaffPasswords.class), mock(StaffSessionService.class),
+                mock(MfaFactors.class), mock(TotpVerifier.class), mock(StaffPasswords.class), sessions,
                 mail, mock(EntityManager.class), Clock.systemUTC());
         TransactionSynchronizationManager.initSynchronization();
         try {

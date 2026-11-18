@@ -91,6 +91,8 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         mfa.saveAndFlush(state);
     }
     @AfterEach void clean() {
+        jdbc.update("DELETE FROM staff_revocation_targets");
+        jdbc.update("DELETE FROM staff_revocation_operations");
         jdbc.update("DELETE FROM password_reset_requests");
         jdbc.update("DELETE FROM password_reset_limits");
         jdbc.update("DELETE FROM mfa_recovery_codes");
@@ -112,6 +114,49 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
                 .orElseThrow();
     }
 
+    @Test void confirmCompletesLocallyAndRevokesEverySessionWhileTheQrSourceBarrierIsNotActive() {
+        sessions.login(admin.getEmailNormalized(), OLD, "one");
+        String cookie = start(); var message = sent();
+        String grant = resets.verify(cookie, message.code());
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+
+        resets.confirm(grant, NEW);
+
+        assertThat(passwords.matches(NEW, users.findById(admin.getId()).orElseThrow().getPasswordHash())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Integer.class)).isZero();
+        assertThatThrownBy(() -> sessions.login(admin.getEmailNormalized(), NEW, null))
+                .as("a new credential still needs an ACTIVE source")
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test void requestingOrVerifyingACodeStillNeedsAnActiveQrSourceBarrier() {
+        String cookie = start(); var message = sent();
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+
+        assertThatThrownBy(() -> resets.verify(cookie, message.code())).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(this::start).isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test void oldPasswordLoginCannotSurviveConcurrentLocalFirstReset() throws Exception {
+        String cookie = start(); String grant = resets.verify(cookie, sent().code());
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var reset = pool.submit(() -> { start.await(); resets.confirm(grant, NEW); return true; });
+            var login = pool.submit(() -> { start.await();
+                try { sessions.login(admin.getEmailNormalized(), OLD, "reset-race"); return true; }
+                catch (BadCredentialsException _) { return false; }
+            });
+            start.countDown();
+            assertThat(reset.get(30, TimeUnit.SECONDS)).isTrue();
+            login.get(30, TimeUnit.SECONDS);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Integer.class)).isZero();
+        assertThatThrownBy(() -> sessions.login(admin.getEmailNormalized(), OLD, null)).isInstanceOf(BadCredentialsException.class);
+    }
+
     @Test void resetsPasswordRevokesEverySessionAndKeepsMfaAndAccountActive() {
         var first = sessions.login(admin.getEmailNormalized(), OLD, "one");
         var second = sessions.login(admin.getEmailNormalized(), OLD, "two");
@@ -127,7 +172,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         String code = message.code();
         String grant = resets.verify(cookie, code);
         assertThatThrownBy(() -> resets.verify(cookie, code)).isInstanceOf(BadCredentialsException.class);
-        resets.confirm(grant, NEW);
+        coordinatedAuthFixture(() -> resets.confirm(grant, NEW));
         StaffUser changed = users.findById(admin.getId()).orElseThrow();
         assertThat(changed.isActive()).isTrue();
         assertThat(changed.getPasswordChangedAt()).isEqualTo(clock.instant());
@@ -220,7 +265,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         String cookie = start();
         String grant = resets.verify(cookie,sent().code());
         assertThatThrownBy(() -> resets.confirm(grant,password)).isInstanceOf(ResponseStatusException.class);
-        resets.confirm(grant,NEW);
+        coordinatedAuthFixture(() -> resets.confirm(grant,NEW));
     }
 
     @Test void enqueueFailureRollsBackPasswordChangeAndRetainsTheVerifiedGrant() {
@@ -245,7 +290,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     @Test void disabledAccountAndChangedRoleCannotCompleteRecovery() {
         String cookie = start();
         String grant = resets.verify(cookie,sent().code());
-        sessions.deactivate(admin.getId());
+        coordinatedAuthFixture(() -> sessions.deactivate(admin.getId()));
         assertThatThrownBy(() -> resets.confirm(grant,NEW)).isInstanceOf(BadCredentialsException.class);
     }
 

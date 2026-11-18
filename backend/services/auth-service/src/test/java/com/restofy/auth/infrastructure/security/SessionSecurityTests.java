@@ -52,7 +52,7 @@ class SessionSecurityTests {
                 .withProperty("auth.session.csrf-secret", Base64.getEncoder().encodeToString("Test-only-secret-32-bytes-0123456789"
                         .getBytes(StandardCharsets.UTF_8)))
                 .withProperty("auth.session.cookie-secure", "false").withProperty("auth.session.issuer", "restofy-auth")
-                .withProperty("auth.session.access-ttl-seconds", "900").withProperty("auth.session.refresh-ttl-seconds", "604800")
+                .withProperty("auth.session.access-ttl-seconds", "300").withProperty("auth.session.refresh-ttl-seconds", "604800")
                 .withProperty("auth.session.allowed-origins", "http://localhost:5000");
         return environment;
     }
@@ -62,6 +62,13 @@ class SessionSecurityTests {
         settings = new AuthSettings(environment());
         jwt = new StaffJwtTokens(settings, clock);
         session = new UserSession(new StaffUser("staff@example.com", HASH, StaffRole.WAITER), clock.instant(), 604800, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"301", "900", "3600"})
+    void q5RejectsAccessTtlBeyondItsFiveMinuteGuarantee(String seconds) {
+        assertThatThrownBy(() -> new AuthSettings(environment().withProperty("auth.session.access-ttl-seconds", seconds)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("JWT_ACCESS_TTL_SECONDS");
     }
 
     @Test
@@ -166,8 +173,8 @@ class SessionSecurityTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"300", "900", "3600"})
-    void acceptsAccessLifetimesInsideTheConfiguredRange(String seconds) {
+    @ValueSource(strings = {"300"})
+    void acceptsTheQ5AccessLifetime(String seconds) {
         MockEnvironment environment = environment().withProperty("auth.session.access-ttl-seconds", seconds);
         assertThat(new AuthSettings(environment).accessTtl()).isEqualTo(Long.parseLong(seconds));
     }
@@ -238,7 +245,7 @@ class SessionSecurityTests {
         Instant now = clock.instant();
         return Jwts.builder().subject(session.getStaffUserId().toString()).issuer(settings.issuer())
                 .audience().add("restofy-staff-api").and().issuedAt(Date.from(now)).notBefore(Date.from(now))
-                .expiration(Date.from(now.plusSeconds(900))).id(UUID.randomUUID().toString())
+                .expiration(Date.from(now.plusSeconds(settings.accessTtl()))).id(UUID.randomUUID().toString())
                 .claim("sid", session.getId().toString()).claim("role", "WAITER").claim("auth_state", "AUTHENTICATED")
                 .claim("restaurant_id", settings.restaurantId().toString()).claim("token_type", "access");
     }

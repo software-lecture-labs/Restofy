@@ -17,6 +17,7 @@ import com.restofy.auth.infrastructure.security.StaffPasswords;
 import jakarta.persistence.EntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
+import com.restofy.auth.application.service.revocation.RevocationPendingException;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -25,7 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
-@Transactional
+// PREPARE of a coordinated revocation must commit even though the caller answers 503; the retry reuses it.
+@Transactional(noRollbackFor = RevocationPendingException.class)
 public class StaffDirectoryService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_PAGE = 10_000;
@@ -96,6 +98,11 @@ public class StaffDirectoryService {
             return view(user);
         }
         if (id.equals(actor.userId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
+        // Reject a taken address before preparing the revocation: a request that cannot succeed must not
+        // fence the member's sessions. The flush below still arbitrates a concurrent duplicate.
+        if (!normalized.equals(user.getEmailNormalized()) && users.findByEmailNormalized(normalized).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
         sessions.revokeAllSessions(id);

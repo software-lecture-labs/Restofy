@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StaffConsumerContractTests {
     private static final KeyPair KEYS = AuthSessionTestSupport.generateKeys();
     private static final UUID RESTAURANT = UUID.randomUUID();
-    private static final int ACCESS_SECONDS = 900;
+    private static final int ACCESS_SECONDS = 300;
     private static final int SESSION_SECONDS = 604800;
     private static final int MAX_TOKEN_LENGTH = 4096;
     private static final int JWT_PART_COUNT = 3;
