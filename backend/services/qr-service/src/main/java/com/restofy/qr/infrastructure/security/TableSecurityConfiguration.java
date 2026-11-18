@@ -9,23 +9,37 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import jakarta.servlet.http.HttpServletRequest;
 
 @Configuration(proxyBeanMethods = false)
 public class TableSecurityConfiguration {
+    private static final String VERIFIED_SERVICE = TableSecurityConfiguration.class.getName() + ".verifiedService";
+
     @Bean
     @org.springframework.core.annotation.Order(1)
+    // The exact Q5 service routes reject Cookie/Origin and verify a signed credential before the CSRF matcher runs.
+    @SuppressWarnings("java:S4502")
     SecurityFilterChain qrInternalRevocationChain(HttpSecurity http,
             com.restofy.qr.infrastructure.security.revocation.RevocationServiceCredentials credentials) {
         http.addFilterBefore(new org.springframework.web.filter.OncePerRequestFilter() {
-            @Override protected void doFilterInternal(jakarta.servlet.http.HttpServletRequest request,
+            @Override protected void doFilterInternal(HttpServletRequest request,
                     HttpServletResponse response,jakarta.servlet.FilterChain chain) throws IOException,jakarta.servlet.ServletException {
                 try { credentials.verifyCaller(request); }
-                catch (org.springframework.web.server.ResponseStatusException denied) { writeProblem(response,401); return; }
-                chain.doFilter(request,response);
+                catch (org.springframework.web.server.ResponseStatusException _) { writeProblem(response,401); return; }
+                request.setAttribute(VERIFIED_SERVICE, Boolean.TRUE);
+                try { chain.doFilter(request,response); }
+                finally { request.removeAttribute(VERIFIED_SERVICE); }
             }
-        },org.springframework.security.web.access.intercept.AuthorizationFilter.class);
+        }, CsrfFilter.class);
         http.securityMatcher("/internal/q5/**")
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/internal/q5/revocations", "/internal/q5/challenge", "/internal/q5/bootstrap"))
+                // verifyCaller rejects browser credentials and authenticates the exact Q5 path before this check.
+                .csrf(csrf -> csrf.requireCsrfProtectionMatcher(request -> CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)
+                        && !Boolean.TRUE.equals(request.getAttribute(VERIFIED_SERVICE))))
                 .sessionManagement(session -> session.sessionCreationPolicy(org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/internal/q5/revocations", "/internal/q5/challenge", "/internal/q5/bootstrap").permitAll()
@@ -49,8 +63,10 @@ public class TableSecurityConfiguration {
             config.setMaxAge(300L);
             return config;
         }));
-        http.csrf(csrf -> csrf.ignoringRequestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())));
-        http.addFilterBefore(new StaffRequestFilter(settings, clock, store), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
+        http.csrf(csrf -> csrf.csrfTokenRepository(authCsrfTokens())
+                .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()));
+        // Keep the existing Origin, duplicate cookie/header and credential checks before Spring compares the token.
+        http.addFilterBefore(new StaffRequestFilter(settings, clock, store), CsrfFilter.class);
         http.authorizeHttpRequests(requests -> requests
                 .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
                 .requestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())).authenticated()
@@ -59,6 +75,19 @@ public class TableSecurityConfiguration {
                 .authenticationEntryPoint((request, response, exception) -> writeProblem(response, 401))
                 .accessDeniedHandler((request, response, exception) -> writeProblem(response, 403)));
         return http.build();
+    }
+
+    private static CsrfTokenRepository authCsrfTokens() {
+        var cookies = new CookieCsrfTokenRepository();
+        cookies.setCookieName("restofy_csrf");
+        cookies.setHeaderName("X-CSRF-TOKEN");
+        return new CsrfTokenRepository() {
+            @Override public CsrfToken generateToken(HttpServletRequest request) { return cookies.generateToken(request); }
+            @Override public CsrfToken loadToken(HttpServletRequest request) { return cookies.loadToken(request); }
+            @Override public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {
+                // Auth issues and clears this cookie. QR only consumes it.
+            }
+        };
     }
 
     private static void writeProblem(HttpServletResponse response, int status) throws IOException {

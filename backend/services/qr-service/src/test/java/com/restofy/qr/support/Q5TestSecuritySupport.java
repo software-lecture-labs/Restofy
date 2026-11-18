@@ -27,6 +27,6 @@ public abstract class Q5TestSecuritySupport {
     public static String encoded(byte[] bytes) { return Base64.getEncoder().encodeToString(bytes); }
     private static KeyPair keys() {
         try { var generator=KeyPairGenerator.getInstance("RSA"); generator.initialize(2048); return generator.generateKeyPair(); }
-        catch (Exception unavailable) { throw new IllegalStateException("Test RSA unavailable"); }
+        catch (Exception _) { throw new IllegalStateException("Test RSA unavailable"); }
     }
 }

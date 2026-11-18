@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createPrivateKey, createPublicKey } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,6 +22,25 @@ function fixture(t, text = `APP_ENV=dev\nPOSTGRES_PASSWORD=fixture-private-passw
   const run = (args, environment = {}) => runQrKey({ root, args, environment, log: line => output.push(line) });
   return { root, write, read, output, run };
 }
+
+test('order-init creates a matching dedicated RSA pair without touching profiles or replacing a key', t => {
+  const f = fixture(t);
+  const original = f.read('.env.dev');
+  const file = 'secrets/qr-order-lifecycle-01.env';
+  assert.equal(f.run(['order-init', 'lifecycle-01']), 0);
+  const generated = f.read(file);
+  const encoded = generated.match(/^QR_ORDER_SERVICE_PRIVATE_KEY=(.+)$/m)[1];
+  const trust = JSON.parse(generated.match(/^ORDER_QR_SERVICE_PUBLIC_KEYS='(.+)'$/m)[1]);
+  const key = createPrivateKey({ key: Buffer.from(encoded, 'base64'), type: 'pkcs8', format: 'der' });
+  assert.equal(key.asymmetricKeyDetails.modulusLength, 2048);
+  assert.equal(createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64'), trust['lifecycle-01']);
+  assert.equal(f.run(['order-init', 'lifecycle-01']), 1);
+  assert.equal(f.run(['order-init', '../outside']), 1);
+  assert.equal(f.read(file), generated);
+  assert.equal(f.read('.env.dev'), original);
+  assert.ok(!fs.existsSync(path.join(f.root, '.env')));
+  assert.ok(!f.output.join('\n').includes(encoded));
+});
 
 test('first setup creates a 32-byte Base64 key and active copy without exposing any secret', t => {
   const f = fixture(t);

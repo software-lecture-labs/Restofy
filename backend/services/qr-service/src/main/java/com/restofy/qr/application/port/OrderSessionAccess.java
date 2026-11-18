@@ -4,6 +4,7 @@ import com.restofy.qr.domain.OrderSessionState;
 import com.restofy.qr.domain.SessionTransition.*;
 import com.restofy.qr.domain.exception.SessionClosureUnavailableException;
 import java.util.UUID;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component;
  * All I/O is invoked outside QR transactions. No browser claim or local absence is source authority.
  */
 @Component
+@Profile("!qr-order")
 public class OrderSessionAccess {
     public OrderSessionState inspect(UUID restaurantId, UUID sessionId) {
         return OrderSessionState.unknown(restaurantId, sessionId);
