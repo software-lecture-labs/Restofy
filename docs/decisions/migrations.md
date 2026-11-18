@@ -28,3 +28,7 @@ sürümü, bir kez yazılır) V50 olarak ekledi. dev'de paylaşılmış V47 DEĞ
 korunur ve dev'i çalıştırmış hiçbir Order veritabanının yeniden oluşturulması gerekmez.
 Güncel Order zinciri: V41-V50. Order aralığında boş numara kalmadı; yeni bir Order migration'ı
 için aralık genişletme kararı gerekir (D-13).
+
+18 Kasım 2026: QR-INT-02 kapsamında Alper, V123'ü Order `CartActivityRecorded`
+olaylarının QR tarafında kalıcı tekilleştirilmesi için onayladı. V122 mevcut Q5
+personel iptal korumasıdır. Güncel QR zinciri V21,V22,V26–V30,V121–V123.
