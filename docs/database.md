@@ -60,7 +60,7 @@ Slug normalize edilip benzersiz olmalı. Saat dilimi IANA adı olarak doğrulan�
 ## 4. Auth DB — güncel tek restoranlı MVP
 
 5 Kasım 2026: Güncel fiziksel şema Auth'un `src/main/resources/db/migration/` dizinindeki
-V1–V6 dosyalarıdır. Aşağıdaki çok restoranlı üyelik tasarımı tarihsel öneri olarak ayrıca ayrılmıştır.
+V1–V4, V7, V8 ve V9 dosyalarıdır (V5/V6 numaraları kullanılmadı: Auth'un ortak sayaç ve mail outbox migration'ları, Q5'in V7'siyle çakışmamak için V8/V9 olarak yeniden numaralandı). Aşağıdaki çok restoranlı üyelik tasarımı tarihsel öneri olarak ayrıca ayrılmıştır.
 
 | Migration | Mevcut sorumluluk |
 |---|---|
@@ -68,8 +68,9 @@ V1–V6 dosyalarıdır. Aşağıdaki çok restoranlı üyelik tasarımı tarihse
 | V2 | `user_sessions`, `refresh_tokens`: oturum ve rotasyon/replay kayıtları |
 | V3 | `staff_mfa`, `mfa_recovery_codes`; ADMIN'in MFA sonrası tam oturumuna izin veren session CHECK değişikliği |
 | V4 | `password_changed_at`, `password_reset_requests`, `password_reset_limits` |
-| V5 | `auth_login_limits`, `auth_mfa_peer_limits` ortak sayaçları |
-| V6 | `auth_mail_outbox` şifreli, süreli Mail teslim kayıtları |
+| V7 | Q5 koordineli iptal: `staff_revocation_operations`, `staff_revocation_targets`, `staff_revocation_source_state`, `staff_revocation_baseline` |
+| V8 | `auth_login_limits`, `auth_mfa_peer_limits` ortak sayaçları |
+| V9 | `auth_mail_outbox` şifreli, süreli Mail teslim kayıtları |
 
 MVP'de restoran `AUTH_RESTAURANT_ID` ile sabittir; `staff_memberships`, dinamik rol/izin
 tabloları ve çok restoran şeması yoktur. Bu mevcut kapsam için eksik migration değildir.

@@ -8,7 +8,7 @@
 ## Güncel Auth yerleşimi — 5 Kasım 2026
 
 - `backend/services/auth-service/`: mevcut `api/application/domain/infrastructure` katmanları;
-  migration dizininde V1–V6. Personel, session, MFA, reset ve Mail outbox uygulanmıştır.
+  migration dizininde V1–V4, V7, V8, V9. Personel, session, MFA, reset ve Mail outbox uygulanmıştır.
 - `ops/auth/generate-keys.mjs`: tek komutluk DEV anahtar kurulumu ve profil etkinleştirme;
   yanındaki `generate-keys.test.mjs` geçici dosyalarda güvenlik davranışını doğrular.
 - `docs/auth-service/README.md`: güncel Auth giriş noktası; `staff-contract.md` RBAC/JWT,
@@ -19,7 +19,7 @@
 MVP tek restoranlıdır. Aşağıdaki genel ağaç ve uygulanmamışlık tespitleri **15 Ekim snapshot'ıdır**;
 güncel Auth'un boş iskelet olduğu anlamına gelmez. Yeni klasör mimarisi veya çok restoran
 üyelik katmanı bu güncellemenin parçası değildir. Migration aralıklarının esas kaynağı
-`docs/decisions/migrations.md`: Auth V1–V10; mevcut kullanılan dosyalar V1–V6.
+`docs/decisions/migrations.md`: Auth V1–V10; mevcut kullanılan dosyalar V1–V4, V7, V8, V9.
 
 ## 1. Mevcut repository ağacı
 

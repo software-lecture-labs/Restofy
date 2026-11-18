@@ -47,7 +47,7 @@ Bu kayıt mevcut onaylı uygulamayı sabitler; yeni ürün veya güvenlik politi
   commit sonrası iç HTTP, sabit messageId ve sınırlı retry. SMTP belirsizliğinde UNKNOWN kör
   tekrar gönderilmez. Genel Order/Payment/QR olay altyapısı hakkında karar verilmedi. ADR-AUTH-001 esas alınır.
 - **D-13, Auth aralığı kapalı:** Esas belge `docs/decisions/migrations.md`: Auth V1–V10, Mail
-  V11–V20. Kullanılan yeni sürümler V5/V6/V12; eski migration'lar değişmedi. Aralık genişletme ekip kararıdır.
+  V11–V20. Kullanılan yeni sürümler V5/V6/V12 (Auth tarafı sonradan V8/V9 oldu); eski migration'lar değişmedi. Aralık genişletme ekip kararıdır.
 - **#9/#10, yerel uygulama kapalı:** PostgreSQL ortak sayaç ve tek Gateway hop için dar allowlist;
   gerçek CIDR seçimi/dağıtım doğrulaması operatöre aittir. ADR-AUTH-002 esas alınır. GitHub issue'ları kapatılmadı.
 - **Kayıp MFA:** Mevcut recovery kodu geçerli kurtarma yoludur. Parola sıfırlama MFA'yı kaldırmaz;

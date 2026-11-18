@@ -64,7 +64,7 @@ kayıp MFA prosedürü ve gerçek servisler arası E2E bu kapsamda uygulanmadı.
 
 ## Şema / ayar / geri dönüş
 
-Yeni Auth V5/V6 ve Mail V12 yalnız izole test DB'lerine uygulandı; eski migration'lar değişmedi.
+Yeni Auth V5/V6 (sonradan V8/V9'a yeniden numaralandı) ve Mail V12 yalnız izole test DB'lerine uygulandı; eski migration'lar değişmedi.
 Yeni zorunlu ayarlar: AUTH_MAIL_PRIVATE_KEY, AUTH_MAIL_OUTBOX_KEY, MAIL_PAYLOAD_ENCRYPTION_KEY.
 MAIL_AUTH_PUBLIC_KEY artık ayrı servis signer'ının public kısmıdır. AUTH_TRUSTED_PROXY_CIDRS
 opsiyonel ve varsayılan boş; AUTH_NOTIFICATION_PUBLIC_KEY opsiyonel aktarımı tamamlandı.

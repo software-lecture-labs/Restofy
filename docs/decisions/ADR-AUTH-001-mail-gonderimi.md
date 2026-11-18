@@ -2,7 +2,7 @@
 
 - Durum: 29 Ekim 2026 kullanıcı onayıyla uygulandı; yerel doğrulama sonuçları hardening raporunda.
 - Sahip: Auth/Mail, Kerem Kalyoncu. Önceki 20 Ekim best-effort kararı bu revizyonla değişti.
-- Kapsam: yeni Auth V6, Mail V12; önceki migration'lar değişmez. Canlıya uygulanmadı.
+- Kapsam: yeni Auth V6 (`dev` birleşiminde V9 oldu), Mail V12; önceki migration'lar değişmez. Canlıya uygulanmadı.
 
 ## Karar ve transaction sınırı
 
@@ -47,7 +47,7 @@ kodu kabul etmez. Teslim penceresi 2 dk; kodun geçerliliği ayrı 15 dk sınır
    MAIL_PAYLOAD_ENCRYPTION_KEY birbirine veya mevcut MFA/CSRF/HMAC sırrına kopyalanmaz.
 2. Trafik kontrollü durdurulur; eski Mail'in kabul ettiği işler tamamlanana veya süreleri dolana
    kadar eski süreç açık tutulur. Eski sürümün yalnız bellekte tuttuğu içerik V12 ile kurtarılamaz.
-   Ardından önce Mail V12 ve yeni public/encryption ayarı, sonra Auth V5/V6
+   Ardından önce Mail V12 ve yeni public/encryption ayarı, sonra Auth V8/V9 (ilk adı V5/V6)
    ve yeni signing/outbox ayarıyla birlikte geçilir. Mail'in eski tek-key doğrulayıcısı nedeniyle
    eski/yeni signer'ın karıştığı rolling geçiş desteklenmez; koordineli geçiş gerekir.
 3. Sağlık, negatif session-key JWT reddi ve gerçek servis iletişimi operatörce doğrulanır.

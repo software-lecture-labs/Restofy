@@ -100,7 +100,7 @@ erDiagram
 `staff_mfa.pending_session_id`, aynı kullanıcının session'ına bileşik FK ile bağlıdır.
 `staff_users.role`, `ADMIN` / `WAITER` / `KITCHEN` ile kısıtlıdır. Restoran kimliği
 `AUTH_RESTAURANT_ID` yapılandırmasından gelir. Limiter tabloları ve `auth_mail_outbox`
-teknik kayıtlardır; başka servisin DB'sine fiziksel FK yoktur. DDL kaynağı V1–V6 migration'lardır.
+teknik kayıtlardır; başka servisin DB'sine fiziksel FK yoktur. DDL kaynağı V1–V4, V7, V8, V9 migration'larıdır.
 
 Aşağıdaki **çok restoranlı üyelik diyagramı tarihsel hedef önerisidir**, mevcut MVP şeması değildir:
 

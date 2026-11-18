@@ -1,6 +1,6 @@
 # ADR-AUTH-Q5 — Koordineli personel erişimi iptali
 
-Durum: Draft PR için revize edildi; teknik inceleme ve test kanıtı tamamlanmadan kabul edilmiş sayılmaz.
+Durum: PR #18 ile `dev`'e merge edildi (18 Kasım 2026, `1cb4e12`). Gerçek ortam anahtar/TLS kurulumu, restore tatbikatı ve frontend silent refresh ayrıca tamamlanacaktır.
 
 ## Bağlam
 

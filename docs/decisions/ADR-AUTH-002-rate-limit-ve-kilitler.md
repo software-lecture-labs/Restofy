@@ -6,7 +6,7 @@
 ## Depolama ve bütçeler
 
 Login, MFA peer ve reset bütçeleri SharedRateLimitStore üzerinden aynı Auth PostgreSQL'inde
-atomiktir. Yeni altyapı yok. V5 yalnız login/MFA peer tablolarını ekler; eski reset kovaları,
+atomiktir. Yeni altyapı yok. V8 (ilk adı V5) yalnız login/MFA peer tablolarını ekler; eski reset kovaları,
 HMAC anahtarları, sayaçları ve advisory lock numarası korunur. Ham email/IP DB'ye yazılmaz.
 
 Login hesap+peer 10/15dk, hesap toplam50/15dk; MFA peer30/dk. Reset'in önceki sıralı bütçeleri

@@ -29,7 +29,7 @@ konularındaki düzeltmeler aşağıda yer alıyor.
 
 ## Şema ve yapılandırma
 
-- Yeni eklemeli migration'lar: Auth **V5/V6**, Mail **V12**. Önceki migration'lar değiştirilmedi.
+- Yeni eklemeli migration'lar: Auth **V5/V6** (`dev` birleşiminde V8/V9 oldu), Mail **V12**. Önceki migration'lar değiştirilmedi.
 - Yeni zorunlu sırlar: `AUTH_MAIL_PRIVATE_KEY`, `AUTH_MAIL_OUTBOX_KEY`, `MAIL_PAYLOAD_ENCRYPTION_KEY`.
   `MAIL_AUTH_PUBLIC_KEY`, ayrı Mail signer'ının public karşılığıdır.
 - `AUTH_TRUSTED_PROXY_CIDRS` varsayılan boş; `AUTH_NOTIFICATION_PUBLIC_KEY` opsiyonel aktarılır.
