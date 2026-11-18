@@ -217,9 +217,9 @@ class RestClientIntegrationTests {
         status = responseStatus;
         responseBody = "{\"error\":\"test-only\"}";
         runner(environment()).run(context -> {
-            var error = assertThrows(RestClientResponseException.class,() -> client(context).post()
-                    .uri("/technical/error").contentType(MediaType.APPLICATION_JSON)
-                    .body(new Payload("test",1)).retrieve().body(Reply.class));
+            var response = client(context).post().uri("/technical/error")
+                    .contentType(MediaType.APPLICATION_JSON).body(new Payload("test", 1)).retrieve();
+            var error = assertThrows(RestClientResponseException.class, () -> response.body(Reply.class));
             assertEquals(responseStatus,error.getStatusCode().value());
             assertEquals(responseBody,error.getResponseBodyAsString());
             assertTrue(responseStatus<500 ? error instanceof HttpClientErrorException : error instanceof HttpServerErrorException);

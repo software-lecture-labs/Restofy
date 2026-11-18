@@ -134,7 +134,7 @@ Erişilebilirlik değerlendirmesi yalnız Lighthouse veya axe sonucuna dayanamaz
 - Mevcut **Next.js App Router + TypeScript + Tailwind + feature-based** düzeni korunur. İş mantığı `src/features/*` içinde, tekrar kullanılan sunum ve araç kodları `src/shared/*` içinde bulunur. Yeni bir klasör ağacı yalnız isim olarak standart görünmek için oluşturulmaz.
 - `src/app` route, layout, metadata, loading/error boundary ve sayfa birleştirme katmanıdır; geniş restoran iş mantığı burada biriktirilmez.
 - Server/Client Component sınırları bilinçli kullanılır. Gerekmedikçe bütün sayfalar `"use client"` yapılmaz; sunucu sırları hiçbir client bundle'a geçmez.
-- Metinler TR/EN `next-intl` anahtarlarından alınır. UI metni komponentlere rastgele hard-code edilmez. Çeviri anahtarları anlamlı, eksiksiz ve eşdeğer olmalıdır.
+- Metinler `use-intl` ile yüklenen TR/EN sözlüklerindeki anahtarlardan alınır. UI metni komponentlere rastgele hard-code edilmez. Çeviri anahtarları anlamlı, eksiksiz ve eşdeğer olmalıdır.
 - API çağrıları merkezi ve tutarlı hata/oturum/timeout davranışına sahip olur. Feature modülleri tarayıcı depolamasına gizli token yazmaz; sunucunun auth ve tenant sınırlarını atlayamaz.
 - Route slug'ları kararlı, okunabilir ve benzersizdir; Türkçe karakter transliterasyonu/URL encoding kuralı tutarlı uygulanır. Tarayıcı geri-ileri, deep-link yenileme, query filtreleri ve 404/410 davranışları düşünülür.
 - `not-found.tsx`, `error.tsx`, gerektiğinde `global-error.tsx` ve `loading.tsx` mevcut sayfa ihtiyaçlarına göre tanımlanır. Hata ekranlarında teknik exception veya sır gösterilmez.
@@ -191,7 +191,7 @@ Erişilebilirlik değerlendirmesi yalnız Lighthouse veya axe sonucuna dayanamaz
 
 ## 14. Çoklu dil ve yerelleştirme
 
-- `next-intl` üzerinden TR/EN desteği tutarlı tutulur. Başlık, hata, validation, form, navigasyon, boş durum, bildirim ve metadata metinleri eşdeğer çevirilere sahip olur.
+- Next-intl projesinin `use-intl` çekirdeği üzerinden TR/EN desteği tutarlı tutulur. Başlık, hata, validation, form, navigasyon, boş durum, bildirim ve metadata metinleri eşdeğer çevirilere sahip olur.
 - `html lang` gerçek aktif dile uygun olmalıdır. Dil seçimi cookie ile yönetiliyorsa mevcut yaklaşım korunur; URL tabanlı locale routing ancak açık ürün kararıyla eklenir.
 - Tarih, saat, sayı, para birimi, ondalık ayracı ve varsa vergi fiyatı ilgili locale ve iş kurallarına uygun biçimlendirilir. Sipariş verisi biçimlendirmesi hesabın kendisini değiştirmez.
 - Eksik çeviriler anlaşılır fallback ile yönetilir; production ekranında ham çeviri anahtarı görünmez.
@@ -235,7 +235,7 @@ Erişilebilirlik değerlendirmesi yalnız Lighthouse veya axe sonucuna dayanamaz
 
 1. Göreve başlamadan önce ilgili mevcut kodu ve `.agents/SECURITY.md` dosyasını oku. Bu belge, mevcut uygulanmış özelliklerin yerine geçen bir varsayım listesi değildir.
 2. Görev kapsamına giren kuralları **kod ve test kararına dönüştür**. İstenmeyen sayfa, yapılandırma veya entegrasyonu yalnızca “tam görünmek” için oluşturma.
-3. Mevcut `Next.js`, `next-intl`, feature-based yapı, Gateway/API sözleşmeleri ve veri sahipliği kararlarını koru. Mimari değişiklik gerekiyorsa önce gerekçesini bildir ve onay iste.
+3. Mevcut `Next.js`, `use-intl`, feature-based yapı, Gateway/API sözleşmeleri ve veri sahipliği kararlarını koru. Mimari değişiklik gerekiyorsa önce gerekçesini bildir ve onay iste.
 4. Güvenlik için backend kuralları geçerlidir. İstemci kontrolü, SEO `noindex` veya görünmeyen admin linki erişim kontrolü sayılmaz.
 5. Yeni ENV anahtarı, gizli değer, dış servis, dependency, auth/tenant/ödeme/QR yetki mimarisi değişikliği öncesinde `SECURITY.md` kapsamındaki onay gereksinimini uygula.
 6. Her geliştirmede **ne değiştiğini, neden değiştiğini, hangi testlerin gerçekten çalıştığını ve bilinçli olarak ertelenen durumları** kısa ve dürüst biçimde raporla. Bu belgeyi checkbox durum tablosuna dönüştürme.

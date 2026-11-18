@@ -6,6 +6,8 @@ import com.restofy.order.api.dto.response.ClosureResponse;
 import com.restofy.order.api.dto.response.OrderSessionStateResponse;
 import com.restofy.order.application.port.ServiceActor;
 import com.restofy.order.application.service.TableSessionClosureService;
+import com.restofy.order.domain.exception.BusinessException;
+import com.restofy.order.domain.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -46,7 +48,8 @@ public class InternalTableSessionController {
     @PostMapping("/{tableSessionId}/closure-preparations")
     @Operation(summary = "Ask for a permit to close a settled table session or to expire an idle one",
             description = "purpose SETTLED: the Order Service looks at ALL orders of the table session, whichever guest "
-                    + "placed them: every order must be finished (COMPLETED, or CANCELLED with no refund owed) and paid; "
+                    + "placed them: each must be COMPLETED and settled, or safely CANCELLED with no refund owed, "
+                    + "based on local Order facts. Direct Payment verification is pending; "
                     + "a guest who ordered nothing is not part of the scope; a session without orders is never eligible. "
                     + "purpose IDLE: requestedAt, mainIdleExpiresAt and guests (each with its idleExpiresAt) are "
                     + "required; the whole session may expire (effect IDLE_MAIN) only when no order protects it and its "
@@ -63,13 +66,15 @@ public class InternalTableSessionController {
                     + "operation that is PREPARED, or COMPLETED and ended the session, is 409 CLOSURE_IN_PROGRESS. An "
                     + "operation never expires by time.")
     @ApiResponse(responseCode = "200", description = "A permit (AUTHORISED, BLOCKED or UNKNOWN)")
+    @ApiResponse(responseCode = "400", description = "INVALID_REQUEST (malformed JSON or UUID)")
     @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
     @ApiResponse(responseCode = "403", description = "Not the QR service")
     @ApiResponse(responseCode = "409", description = "CLOSURE_IN_PROGRESS or IDEMPOTENCY_CONFLICT")
     @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR (also: IDLE without its details)")
-    @ApiResponse(responseCode = "503", description = "Service identity verification unavailable (fail closed)")
+    @ApiResponse(responseCode = "503", description = "Service identity or authoritative Payment verification unavailable")
     public ClosureResponse prepare(@AuthenticationPrincipal ServiceActor service, @PathVariable UUID tableSessionId,
                                    @Valid @RequestBody PrepareClosureRequest request) {
+        requireRestaurant(service, request.restaurantId());
         return closures.prepare(service, tableSessionId, request);
     }
 
@@ -80,20 +85,27 @@ public class InternalTableSessionController {
                     + "withdrawn (BLOCKED or UNKNOWN, with blockers) when the orders changed before anything was "
                     + "applied. An operation this Order Service never saw, or one that belongs to another restaurant "
                     + "or table session, is answered with sourceStatus NOT_STARTED (state NOT_STARTED), a complete and "
-                    + "current answer, so the QR Service knows to prepare it. Nothing is written.")
+                    + "current answer with null purpose and the supplied digest echoed. QR sends the digest on every "
+                    + "status request. A mismatch with the stored digest returns 409. Nothing is written.")
     @ApiResponse(responseCode = "200", description = "The operation, or NOT_STARTED")
+    @ApiResponse(responseCode = "400", description = "INVALID_REQUEST (missing restaurantId or malformed UUID)")
     @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
     @ApiResponse(responseCode = "403", description = "Not the QR service")
-    @ApiResponse(responseCode = "503", description = "Service identity verification unavailable (fail closed)")
-    public ClosureResponse get(@PathVariable UUID tableSessionId, @PathVariable UUID operationId,
+    @ApiResponse(responseCode = "409", description = "IDEMPOTENCY_CONFLICT")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR (malformed commandDigest)")
+    @ApiResponse(responseCode = "503", description = "Service identity or authoritative Payment verification unavailable")
+    public ClosureResponse get(@AuthenticationPrincipal ServiceActor service, @PathVariable UUID tableSessionId,
+                               @PathVariable UUID operationId,
                                @RequestParam UUID restaurantId,
                                @RequestParam(required = false) @Pattern(regexp = "^[0-9a-f]{64}$") String commandDigest) {
-        return closures.get(restaurantId, tableSessionId, operationId, commandDigest);
+        requireRestaurant(service, restaurantId);
+        return closures.get(service, restaurantId, tableSessionId, operationId, commandDigest);
     }
 
     @PostMapping("/{tableSessionId}/closure-preparations/{operationId}/confirmation")
     @Operation(summary = "The QR Service reports whether it applied the change (CLOSED or NOT_CLOSED)",
-            description = "CLOSED always completes a PREPARED operation: the QR Service has already applied the change "
+            description = "CLOSED with matching operation, digest and receipt effect completes a PREPARED operation: "
+                    + "the QR Service has already applied the change "
                     + "and does not undo it by itself, so a participant that said 'ready' cannot refuse the final "
                     + "decision. The optional receipt is the QR Service's local result; its effect must be the one that "
                     + "was permitted (409 CLOSURE_RECEIPT_MISMATCH otherwise). If the orders no longer match what the "
@@ -108,15 +120,17 @@ public class InternalTableSessionController {
                     + "was prepared with (409 IDEMPOTENCY_CONFLICT otherwise); it is echoed in every answer, also "
                     + "the 'nothing to abort' one. "
                     + "Nothing here pays, refunds or closes anything: it only records the outcome.")
-    @ApiResponse(responseCode = "200", description = "COMPLETED (maybe with scopeDrift) or RELEASED, also when repeated")
+    @ApiResponse(responseCode = "200", description = "COMPLETED (possibly with scopeDrift), RELEASED, or NOT_STARTED for a no-op abort")
+    @ApiResponse(responseCode = "400", description = "INVALID_REQUEST (malformed JSON or UUID)")
     @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
     @ApiResponse(responseCode = "403", description = "Not the QR service")
     @ApiResponse(responseCode = "404", description = "CLOSURE_NOT_FOUND (CLOSED for an unknown operation)")
-    @ApiResponse(responseCode = "409", description = "INVALID_STATUS_TRANSITION or CLOSURE_RECEIPT_MISMATCH")
+    @ApiResponse(responseCode = "409", description = "IDEMPOTENCY_CONFLICT, INVALID_STATUS_TRANSITION or CLOSURE_RECEIPT_MISMATCH")
     @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR")
     @ApiResponse(responseCode = "503", description = "Service identity verification unavailable (fail closed)")
     public ClosureResponse confirm(@AuthenticationPrincipal ServiceActor service, @PathVariable UUID tableSessionId,
                                    @PathVariable UUID operationId, @Valid @RequestBody ConfirmClosureRequest request) {
+        requireRestaurant(service, request.restaurantId());
         return closures.confirm(service, tableSessionId, operationId, request);
     }
 
@@ -131,10 +145,19 @@ public class InternalTableSessionController {
                     + "session was safely cancelled). The answer is usable until validUntil and revision only goes up. "
                     + "Missing data is never reported as 'no orders'.")
     @ApiResponse(responseCode = "200", description = "The order state of the table session")
+    @ApiResponse(responseCode = "400", description = "INVALID_REQUEST (missing restaurantId or malformed UUID)")
     @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
     @ApiResponse(responseCode = "403", description = "Not the QR service")
-    @ApiResponse(responseCode = "503", description = "Service identity verification unavailable (fail closed)")
-    public OrderSessionStateResponse orderState(@PathVariable UUID tableSessionId, @RequestParam UUID restaurantId) {
-        return closures.orderState(restaurantId, tableSessionId);
+    @ApiResponse(responseCode = "503", description = "Service identity or authoritative Payment verification unavailable")
+    public OrderSessionStateResponse orderState(@AuthenticationPrincipal ServiceActor service,
+                                                @PathVariable UUID tableSessionId, @RequestParam UUID restaurantId) {
+        requireRestaurant(service, restaurantId);
+        return closures.orderState(service, restaurantId, tableSessionId);
+    }
+
+    private static void requireRestaurant(ServiceActor service, UUID restaurantId) {
+        if (service.qrRequest() != null && !service.qrRequest().restaurantId().equals(restaurantId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "Service credential does not authorise this restaurant");
+        }
     }
 }

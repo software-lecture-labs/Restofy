@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
-@Profile({"dev", "test"})
+@Profile("(dev | test) & !order-qr")
 public class InMemoryServiceIdentityAdapter implements ServiceIdentityPort {
 
     public static final String KITCHEN_CREDENTIAL = "dev-mock-service-kitchen";

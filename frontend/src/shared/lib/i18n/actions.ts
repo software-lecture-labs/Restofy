@@ -1,7 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { hasLocale } from "next-intl";
+import { hasLocale } from "use-intl/core";
 import { localeCookieName, locales, type Locale } from "./config";
 
 export async function setLocale(locale: Locale): Promise<void> {

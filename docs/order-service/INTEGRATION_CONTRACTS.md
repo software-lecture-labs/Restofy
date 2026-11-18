@@ -25,12 +25,12 @@ Order üç kimlik türünü, her biri kendi portu üzerinden doğrular. İstemci
 |---|---|---|---|
 | Misafir | `Authorization: Bearer <opak jeton>` | `QrSessionPort` | Restoran, masa, guest ve oturum durumu QR'dan gelir |
 | Personel | `Authorization: Staff <opak kimlik>` | `AuthContextPort` | Roller `ADMIN`, `WAITER`, `KITCHEN`; aktif restoran doğrulanmış kimlikten alınır |
-| Servis | `Authorization: Service <opak kimlik>` | `ServiceIdentityPort` | `KITCHEN`, `PAYMENT`, `QR`; yalnız `/api/v1/internal/**` |
+| Servis | `Authorization: Service <credential>` | `ServiceIdentityPort` | `KITCHEN`, `PAYMENT`, `QR`; yalnız `/api/v1/internal/**` |
 
-- **DOĞRULANMADI / UYGULANMADI:** Gerçek QR, Auth ve servis kimliği adaptörleri yoktur. Mock adaptörler yalnız `dev` ve `test` profilinde yüklenir; diğer profillerde üç doğrulayıcı da **fail-closed** (503) çalışır.
+- `order-qr` profili gelen QR lifecycle istekleri için gerçek RS256 doğrulayıcıyı yükler. Bu profil `dev` veya `test` ile birlikte başlatılamaz. QR'da token üretimi ve gerçek servisler arası E2E bekliyor. Order'ın QR guest ve Auth personel adaptörleri bu profilde erişimi kapalı tutar. Diğer servisler için bu anahtarlar yetki vermez. `dev`, `test` veya `order-qr` olmayan profillerde Order servis kimliği doğrulayıcısı 503 döner.
 - **`dev` profili kimlik doğrulama yapmaz.** Sabit yer tutucu misafir, personel (ADMIN dahil) ve servis kimlikleri, API Gateway üzerinden gelen isteklerde de kabul edilir. Bu yüzden `dev` profili yalnızca yerel makinede kullanılmalı, paylaşılan veya erişilebilir bir sunucuda çalıştırılmamalıdır. Servis `dev` profiliyle açıldığında günlüğe tek ve belirgin bir uyarı bloğu yazılır (kimlik bilgilerini yazmaz, `dev` dışında üretilmez).
 - **Açık karar:** Personel kimliğinin taşınma biçimi (`Staff` başlığı mı, Auth'un `HttpOnly` çerezi mi) Auth sahibiyle netleşecek. Çerez seçilirse Order'ın CSRF/Origin korumasını da üstlenmesi gerekir.
-- Hedef servis kimliği yöntemi (kısa ömürlü imzalı token) SECURITY.md'de tarif edilmiştir ve **UYGULANMADI**.
+- QR → Order credential üretimi ve dağıtım işi için [QR entegrasyon talebine](QR-REQUESTS-01.md) bakın.
 
 ## 3. Uç noktalar
 
@@ -63,11 +63,11 @@ Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızd
 | `POST /api/v1/internal/order-events/kitchen-cancellation` | KITCHEN | Bekleyen iptal talebine onay/ret |
 | `POST /api/v1/internal/order-events/payment` | PAYMENT | Tek ödeme durumu değiştirme yolu |
 | `POST /api/v1/internal/table-sessions/{id}/closure-preparations` | QR | Kapanış veya boşta-süre bitişi için izin ve tutuk (`purpose` SETTLED veya IDLE, bkz. 5) |
-| `GET  /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}?restaurantId=` | QR | İşlemin durumu ve izin yenileme/geri çekme (bilinmeyen işlem `NOT_STARTED`) |
+| `GET  /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}?restaurantId=…&commandDigest=…` | QR | İşlemin durumu ve izin yenileme/geri çekme (bilinmeyen işlem `NOT_STARTED`) |
 | `POST /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}/confirmation` | QR | `CLOSED` (isteğe bağlı makbuzla) / `NOT_CLOSED` (abort) |
 | `GET  /api/v1/internal/table-sessions/{id}/order-state?restaurantId=` | QR | Siparişlerin boşta-süre kuralları için anlamı, salt okunur |
 
-`kitchen-cancellation-request` aynı çağrının yanıtında karar verir (`outcome` `APPLIED` veya `REJECTED`; ayrı bir olay yok ve Kitchen kendi talebinin sonucu olarak olay hedeflerinden bilerek çıkarılmıştır). Yanıt, kararın verildiği andaki sipariş sürümünü (`orderVersion`: onay sürümü artırır, ret siparişe dokunmaz) ve kararın zamanını (`decidedAt`) taşır. Aynı `eventId` ve aynı gövdeyle tekrar gelen istek **ilk kararın** sürümünü ve zamanını döner (sipariş bu arada ilerlemiş olsa da); sürüm `order_cancellations.decided_order_version` (V47) alanında saklanır. Tekilleştirme kaydı süresi dolduktan sonra gelen tekrarda (72 saat) `cancellationId`, `orderVersion` ve `decidedAt` boş döner, sonuç yine ilk sonuçtur. Kitchen kendi talebiyle eşleştirmeyi kendi outbox satırının `eventId` değeriyle yapar; ayrı bir `requestId` alanı yoktur. Iptal nedeni kataloğu: `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `WAIT_TOO_LONG`, `CUSTOMER_REQUEST`, `ITEM_UNAVAILABLE`, `KITCHEN_ERROR`, `OTHER` (Kitchen'ın `OUT_OF_STOCK` değeri `ITEM_UNAVAILABLE` olarak gönderilir).
+`kitchen-cancellation-request` aynı çağrının yanıtında karar verir (`outcome` `APPLIED` veya `REJECTED`; ayrı bir olay yok ve Kitchen kendi talebinin sonucu olarak olay hedeflerinden bilerek çıkarılmıştır). Yanıt, kararın verildiği andaki sipariş sürümünü (`orderVersion`: onay sürümü artırır, ret siparişe dokunmaz) ve kararın zamanını (`decidedAt`) taşır. Aynı `eventId` ve aynı gövdeyle tekrar gelen istek **ilk kararın** sürümünü ve zamanını döner (sipariş bu arada ilerlemiş olsa da); sürüm `order_cancellations.decided_order_version` (V50) alanında saklanır. Tekilleştirme kaydı süresi dolduktan sonra gelen tekrarda (72 saat) `cancellationId`, `orderVersion` ve `decidedAt` boş döner, sonuç yine ilk sonuçtur. Kitchen kendi talebiyle eşleştirmeyi kendi outbox satırının `eventId` değeriyle yapar; ayrı bir `requestId` alanı yoktur. Iptal nedeni kataloğu: `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `WAIT_TOO_LONG`, `CUSTOMER_REQUEST`, `ITEM_UNAVAILABLE`, `KITCHEN_ERROR`, `OTHER` (Kitchen'ın `OUT_OF_STOCK` değeri `ITEM_UNAVAILABLE` olarak gönderilir).
 
 Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem iki kez yapılmaz (`duplicate=true`), aynı kimlik farklı gövdeyle gelirse `409`. Başka restoranın siparişi `404`.
 
@@ -89,9 +89,9 @@ Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem 
 
 ## 5. ADR-QR-001 — masa oturumu yaşam döngüsü (Order tarafı)
 
-QR masa ve oturumların, Order siparişlerin sahibidir. QR'da ayrıntılı sipariş/finans kopyası tutulmaz; Order bütün masa oturumunun siparişlerinden karar üretir. Yanıtlar QR'ın kendi tiplerine göre biçimlendirilmiştir (QR PR #11: `OrderSessionAccess`, `SessionTransition.Authority`, `OrderSessionState`). **Bu sözleşme Order'ın taslağıdır; QR servisi henüz benimsemedi ve gerçek bir QR adaptörü yoktur.**
+QR masa ve oturumların, Order siparişlerin sahibidir. QR'da ayrıntılı sipariş/finans kopyası tutulmaz. Yanıtlar QR'ın `OrderSessionAccess`, `SessionTransition` ve `OrderSessionState` tiplerine eşlenir. QR HTTP adaptörü ve ortak uçtan uca doğrulama bekliyor.
 
-**İzin (authority) — UYGULANDI.** Hazırlama ve sorgu yanıtı QR'ın "kaynak izni"dir: `sourceStatus` (`NOT_STARTED`, `UNKNOWN`, `BLOCKED`, `AUTHORISED`), `effect` (`NONE`, `SETTLED_CLOSE`, `IDLE_MAIN`, `IDLE_GUESTS`), `sourceRevision` (en az 1, yalnızca artar), `verifiedAt`, `validUntil` (`verifiedAt` + 1 dakika), `complete` (her zaman `true`: kapsamın tamamına bakılır), `checkoutFenced` ve `idleGuestIds`. `BLOCKED`, `UNKNOWN` ve `NOT_STARTED` yanıtları da güncel ve tamdır, çünkü QR yalnızca güncel bir yanıta göre hareket eder (ve abort eder). `purpose` ve `commandDigest` isteğin parçasıdır.
+**İzin (authority).** Hazırlama ve sorgu yanıtı `sourceStatus`, `effect`, pozitif `sourceRevision`, `verifiedAt`, `validUntil` (`verifiedAt` + 1 dakika), `complete`, `checkoutFenced` ve `idleGuestIds` taşır. QR etkiyi uygulamadan önce aynı QR komutunu, kesin kapsamı, tazeliği ve kalıcı checkout engelini doğrular. `dev/test` bütün yerel Order kapsamını değerlendirir. `order-qr` profilinde sipariş içeren bir oturum için yeni izin, mevcut `PREPARED` izninin yenilenmesi ve `order-state` **503 DEPENDENCY_UNAVAILABLE** döner. Siparişsiz oturum SETTLED kapanışına uygun değildir. Kalıcı işlemin final durumu ve K13 teyit/abort yolu kullanılabilir.
 
 **İzin yenileme ve geri çekme.** Aynı işlemi `GET` ile sormak siparişleri yeniden kontrol eder: hâlâ geçerliyse izin yenilenir (yeni `verifiedAt`/`validUntil`); QR yerelde bir şey uygulamadan önce siparişler değiştiyse izin geri çekilir (`BLOCKED` veya `UNKNOWN`, `effect=NONE`, `blockers`). Geri çekilen işlemin tutuğu, QR `NOT_CLOSED` ile abort edene kadar sürer; zaman aşımı abort sayılmaz. Order'ın "hayır" deme hakkı QR yerelde uygulayana kadar sürer, uyguladıktan sonra biter (aşağıda `CLOSED`). Order'ın hiç görmediği bir işlem `NOT_STARTED` (200) döner, QR bunu "hazırla" diye okur.
 
@@ -121,11 +121,107 @@ Kesin engel belirsizlikten önce gelir. Ödeme durumu, Payment'ın doğrulanmı�
 
 **Makbuz.** `CLOSED` onayı isteğe bağlı olarak QR'ın yerel sonucunu taşır: `effect`, `sessionVersion`, `tableVersion`, `completedAt`, `expiredGuests`. `effect` izin verilenle aynı olmalıdır (aksi hâlde `409 CLOSURE_RECEIPT_MISMATCH` ve işlem `PREPARED` kalır); makbuz saklanır.
 
-**`CLOSED` her zaman kabul edilir (kapsam sapması).** QR değişikliği yerelde uyguladıktan sonra `CLOSED` gönderir ve uyguladığını kendiliğinden geri almaz; "hazırım" diyen taraf son kararı reddedemez. Bu yüzden Order, `PREPARED` bir işlemde `CLOSED` onayını **reddetmez**: işlemi `COMPLETED` yapar. Siparişler izin anındaki hâlinden artık farklıysa (gerçekçi neden: hazırlıktan sonra Payment'tan gelen, reddedilemeyen bir para bildirimi, örneğin ikinci bir tahsilat) bu fark ayrıca kaydedilir: V49 `table_session_closure_drifts`, işlem başına en çok bir satır, yalnızca eklenir, aynı işlemde yazılır; log'a `WARN` düşer. Yanıt `scopeDrift=true` ve o andaki `driftBlockers` ile döner; aynı onayı veya `GET` sorgusunu tekrarlamak aynı yanıtı verir ve ikinci kayıt yazmaz. Hiçbir şey reddedilmediği için iki servis aynı durumda kalır; sapmayı insanların uzlaştırması gerekir. **UYGULANMADI:** sapma kayıtlarını gösteren ekran, rapor veya olay (şimdilik yalnızca kayıt ve log).
+**K13 ve kapsam sapması.** Kimlikleri ve digest'i eşleşen `PREPARED` işleme ait geçerli `CLOSED` teyidi işlemi `COMPLETED` yapar. Makbuz gönderildiyse etkisi hazırlanan etkiyle eşleşmelidir. İzin kapsamı sonradan değiştiyse Order aynı transaction'da V49 `table_session_closure_drifts` kaydını ekler ve `WARN` yazar. Tekrar ACK veya GET aynı kalıcı sonucu, `scopeDrift` ve `driftBlockers` değerlerini döndürür. Yanıtın okuma zamanı ve kaynak sürümü güncel olabilir. QR yerel sonucu korur, sapma uzlaştırmaya kalır. Sapma ekranı, raporu ve olayı **UYGULANMADI**.
 
 **Misafir aktivitesi (K6) — Order'ın payı UYGULANDI.** Başarılı her sepet değişikliği (ekle, miktar, sil, temizle) aynı işlemde QR hedefli `CartActivityRecorded` outbox olayı yazar. Okuma, idempotent tekrar, değişmeyen miktar, boş sepeti temizleme ve reddedilen istek olay üretmez. Olay ürün, fiyat, not veya jeton taşımaz. QR'ın bu olayı alıp süreyi yenilemesi QR'ın işidir; dispatcher olmadığı için olay şimdilik hiçbir yere teslim edilmez.
 
 **UYGULANMADI:** K5'in gerçek QR çağrısı (jeton doğrulama adaptörü), K4'ün Payment tarafı, Order'dan Payment'a doğrulama sorgusu.
+
+### 5.1 QR HTTP alanları ve sonuçları
+
+Tüm yollar `/api/v1/internal/table-sessions/{tableSessionId}` altında, doğrudan Order'a ve QR servis credential'ı ile çağrılır. POST gövdeleri `application/json`; UUID'ler standart metin, zamanlar ISO-8601 UTC'dir. JSON gövdesinde bilinmeyen alanlar 400 döner. İstemci yanıtın ek alanlarını tolere eder.
+
+- `GET /order-state?restaurantId=…` salt okumadır. 200 gövdesi `restaurantId`, `tableSessionId`, `knowledge` (`NO_ORDERS`, `OPEN_WORK`, `SETTLED`), pozitif `revision`, `verifiedAt`, `validUntil`, UUID dizisi `protectedGuests`, UUID → zaman haritası `cancellationReleases` ve nullable `mainCancellationAt` içerir. QR adaptörü wire `tableSessionId` alanını `sessionId` olarak eşler.
+- `POST /closure-preparations` içinde `restaurantId`, `operationId`, `purpose` (`SETTLED`, `IDLE`) ve `commandDigest` zorunludur. IDLE ayrıca `requestedAt`, `mainIdleExpiresAt` ve 0–500 elemanlı `guests` dizisi gerektirir. Her elemanda null olmayan `guestSessionId` ve `idleExpiresAt` bulunur. SETTLED için bu üç ek alan atlanabilir. Ayrı `Idempotency-Key` başlığı yoktur.
+- `GET /closure-preparations/{operationId}?restaurantId=…&commandDigest=…` çağrısında QR her zaman digest gönderir. Sunucuda bu query alanı geriye uyumluluk için opsiyoneldir. Bilinmeyen veya verilen restoran/main kapsamı dışında kalan işlemde 200 `NOT_STARTED`, `purpose=null` ve istek digest'i döner. Digest verilmediyse bu yanıtın `commandDigest` değeri null olur. Aynı kapsamda farklı digest 409 döner.
+- `POST /closure-preparations/{operationId}/confirmation` içinde `restaurantId`, `outcome` (`CLOSED`, `NOT_CLOSED`) ve `commandDigest` zorunludur. Opsiyonel `receipt` içinde `effect`, `completedAt`, sıfır veya pozitif `sessionVersion`, `tableVersion`, `expiredGuests` gönderin. QR, CLOSED için kalıcı yerel makbuzunu kullanır. Bilinen işlem için CLOSED → COMPLETED ve NOT_CLOSED → RELEASED. Hiç hazırlanmamış bir işlemin NOT_CLOSED teyidi digest'i geri yansıtan 200 NOT_STARTED döner.
+
+`ClosureResponse` kimlikleri `operationId`, `restaurantId`, `tableSessionId`, `purpose`, `commandDigest`; kalıcı durum `state` (`NOT_STARTED`, `NOT_PREPARED`, `PREPARED`, `COMPLETED`, `RELEASED`); kaynak durumu `sourceStatus` (`NOT_STARTED`, `UNKNOWN`, `BLOCKED`, `AUTHORISED`); etki `effect` (`NONE`, `SETTLED_CLOSE`, `IDLE_MAIN`, `IDLE_GUESTS`); karar `outcome` (`ELIGIBLE`, `NOT_ELIGIBLE`, `UNKNOWN`) taşır. `blockers`, `idleGuestIds` ve `driftBlockers` boş dizi olabilir. `scopeDrift`, `complete` ve `checkoutFenced` boolean'dır. `orderCount` negatif olamaz, `scopeFingerprint` NOT_STARTED için null, `preparedAt`, `completedAt`, `releasedAt` duruma bağlı nullable alanlardır. `sourceRevision`, `verifiedAt` ve `validUntil` her yanıtta vardır. Tam bir blocker listesi için Order `ClosureBlocker` enum'una bakın.
+
+Gövde örneği, IDLE `POST /closure-preparations`:
+
+```json
+{
+  "restaurantId": "8ba04b97-d241-4e86-970e-481feca0292e",
+  "operationId": "9e2ee566-0910-489b-93d6-06e48195500b",
+  "purpose": "IDLE",
+  "commandDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "requestedAt": "2026-11-18T12:00:00Z",
+  "mainIdleExpiresAt": "2026-11-18T11:58:00Z",
+  "guests": []
+}
+```
+
+Örnek 200, aynı işlem henüz hazırlanmadığında:
+
+```json
+{
+  "operationId": "9e2ee566-0910-489b-93d6-06e48195500b",
+  "restaurantId": "8ba04b97-d241-4e86-970e-481feca0292e",
+  "tableSessionId": "fbab1cc9-a2e9-49dd-991f-f75fd40d732a",
+  "purpose": null,
+  "commandDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "NOT_STARTED",
+  "sourceStatus": "NOT_STARTED",
+  "effect": "NONE",
+  "outcome": "UNKNOWN",
+  "blockers": [],
+  "orderCount": 0,
+  "scopeFingerprint": null,
+  "sourceRevision": 1,
+  "verifiedAt": "2026-11-18T12:00:00Z",
+  "validUntil": "2026-11-18T12:01:00Z",
+  "complete": true,
+  "checkoutFenced": false,
+  "idleGuestIds": [],
+  "preparedAt": null,
+  "completedAt": null,
+  "releasedAt": null,
+  "scopeDrift": false,
+  "driftBlockers": []
+}
+```
+
+Örnek CLOSED teyit gövdesi, `POST /closure-preparations/{operationId}/confirmation`:
+
+```json
+{
+  "restaurantId": "8ba04b97-d241-4e86-970e-481feca0292e",
+  "outcome": "CLOSED",
+  "commandDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "receipt": {
+    "effect": "IDLE_MAIN",
+    "sessionVersion": 3,
+    "tableVersion": 2,
+    "completedAt": "2026-11-18T12:00:11Z",
+    "expiredGuests": 0
+  }
+}
+```
+
+`GET /order-state` için siparişsiz oturumun 200 yanıtı:
+
+```json
+{
+  "restaurantId": "8ba04b97-d241-4e86-970e-481feca0292e",
+  "tableSessionId": "fbab1cc9-a2e9-49dd-991f-f75fd40d732a",
+  "knowledge": "NO_ORDERS",
+  "revision": 1,
+  "verifiedAt": "2026-11-18T12:00:00Z",
+  "validUntil": "2026-11-18T12:01:00Z",
+  "protectedGuests": [],
+  "cancellationReleases": {},
+  "mainCancellationAt": null
+}
+```
+
+Hata gövdesinde `code`, `message`, varsa `details` ve `correlationId` bulunur. Örnek `{"code":"CLOSURE_RECEIPT_MISMATCH","message":"The receipt names another effect than the one that was permitted","details":{"permitted":"IDLE_MAIN","received":"SETTLED_CLOSE"}}`. Geçersiz JSON/UUID, bilinmeyen enum veya eksik zorunlu query 400 `INVALID_REQUEST`; DTO alan doğrulaması ve digest deseni 422 `VALIDATION_ERROR`. Eksik/geçersiz credential 401, tanınan imzayla yetkisiz servis/scope veya istek/tenant uyuşmazlığı 403. Yanlış digest veya prepare'da aynı ID ile farklı restoran/main/amaç 409 `IDEMPOTENCY_CONFLICT`; başka canlı işlem 409 `CLOSURE_IN_PROGRESS`; bilinmeyen işleme CLOSED 404 `CLOSURE_NOT_FOUND`; yanlış makbuz etkisi ilk ve tekrarlanan CLOSED için 409 `CLOSURE_RECEIPT_MISMATCH`; ters terminal teyit 409 `INVALID_STATUS_TRANSITION`; kaynak kullanılamıyorsa 503 `DEPENDENCY_UNAVAILABLE`. Transport timeout'u veya 5xx, NOT_STARTED/NOT_CLOSED sonucu üretmez.
+
+### 5.2 Payment kaynak bağımlılığı
+
+Payment sahibi Alper'in kaynak API'si bekliyor. Order'ın ihtiyacı, doğrulanmış servis kimliğiyle restoran + main + kesin sipariş kimlikleri/sürümleri için tek bir tam, sürümlü ve süreli mali kapsam sonucu. Her sipariş için para birimi, kalan borç, doğrulanmış tahsilat, devam eden veya belirsiz deneme, iade ve uzlaştırma engeli değerlendirilmeli. Eksik sipariş, eksik veri, stale veya timeout mali onay vermez. Endpoint ve DTO, Payment sahibi hazır olduğunda kesinleştirilecek.
+
+Order'ın ileride kullanacağı akışta uzak sorgu DB kilidi dışında yapılmalı. Sipariş kapsamı ve sürümü kısa yerel gate işlemi altında tekrar eşlenmeli, uyuşmazlıkta yeni izin verilmemeli. İzin geçerliliği mali kaynağın kanıt süresini aşmamalı. Kaynak değişikliği ile yerel commit arasındaki ayrı transaction sınırı, Payment kaynak garantisiyle birlikte kararlaştırılacak. K13 geçerli yerel CLOSED sonucunu korur ve sapmayı uzlaştırmaya kaydeder.
 
 ## 6. Olaylar (outbox) — UYGULANDI, tüketici yok
 
@@ -156,9 +252,9 @@ Flyway aralığı V41–V50, tamamı kullanıldı (aralıkta boş numara kalmad�
 
 ## 9. Açık işler
 
-- Gerçek Auth, QR, Kitchen, Payment entegrasyonu ve uçtan uca doğrulama (**DOĞRULANMADI**, testler mock kimliklerle çalışır).
+- Gerçek QR token üretimi/HTTP adaptörü, Auth, Kitchen ve Payment bağlantıları ile servisler arası uçtan uca doğrulama bekliyor.
 - Personel kimliği taşıma biçimi (Auth ile).
 - Order → Payment doğrulama sorgusu ve outbox dispatcher.
-- Yeni internal uç noktalar ve QR servis kimliği Order'ın taslağıdır; QR ve Payment sahiplerinin onayı gerekir (SECURITY.md). Yanıtlar QR PR #11'deki tiplere göre biçimlendirildi ama QR'ın gerçek adaptörü henüz yok: alan adları ve HTTP biçimi adaptör yazılırken QR ile birlikte kesinleşecek.
+- QR ekibinin yapacağı işler [QR-REQUESTS-01](QR-REQUESTS-01.md) belgesinde.
 - Sapma kayıtlarını (V49) kimin okuyacağı: şimdilik yalnızca kayıt ve log.
 - Çoklu Order örneği altında eşzamanlılık testi (kilitler PostgreSQL'dedir ama testler tek JVM içidir).

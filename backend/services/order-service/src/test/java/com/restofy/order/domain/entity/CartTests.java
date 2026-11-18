@@ -34,8 +34,8 @@ class CartTests {
     }
 
     private static CartItem line(Cart cart) {
-        return new CartItem(cart, UUID.randomUUID(), 1, "key-" + UUID.randomUUID(), null, "Burger", "TRY", 1_000, 1_000,
-                null, NOW);
+        return new CartItem(cart, UUID.randomUUID(), 1, "key-" + UUID.randomUUID(), null,
+                new CartItem.PriceSnapshot("Burger", "TRY", 1_000, 1_000, null), NOW);
     }
 
     private static Cart activeCartWithOneLine() {

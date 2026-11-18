@@ -70,15 +70,18 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
         assertEquals("RECEIVED", event.path("fulfillmentStatus").asString());
         assertEquals("table by the window", event.path("note").asString());
         assertEquals(order.path("amounts").path("grossMinor").asLong(), event.path("amounts").path("grossMinor").asLong());
-        // what Kitchen needs: products, quantities, notes and ingredient changes
-        JsonNode burger = event.path("items").get(0);
+        assertKitchenItems(event.path("items"));
+    }
+
+    private static void assertKitchenItems(JsonNode items) {
+        JsonNode burger = items.get(0);
         assertEquals("Dev Burger", burger.path("name").asString());
         assertEquals(2, burger.path("quantity").asInt());
         assertEquals("well done", burger.path("note").asString());
         assertEquals("Onion", burger.path("removedIngredients").get(0).path("name").asString());
         assertEquals("Extra cheese", burger.path("extras").get(0).path("name").asString());
         assertEquals(2, burger.path("extras").get(0).path("quantity").asInt());
-        assertEquals(2, event.path("items").size());
+        assertEquals(2, items.size());
     }
 
     @Test

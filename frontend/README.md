@@ -84,7 +84,7 @@ Feature alt klasörleri ve yeni modüller yalnızca ihtiyaç doğduğunda ekleni
 
 ## Türkçe / İngilizce (i18n)
 
-`next-intl` App Router ile yapılandırılmıştır. Çeviriler
+App Router, çeviriler için next-intl projesinin `use-intl` çekirdeğini kullanır. Çeviriler
 `src/shared/lib/i18n/messages/tr.json` ve `en.json` dosyalarındadır.
 Demo metinleri kaldırıldığı için iki dosya da şimdilik boş JSON nesnesidir.
 Gerçek arayüz metinleri eklendiğinde iki dosyada aynı namespace ve anahtarlar
@@ -95,9 +95,9 @@ Varsayılan dil `tr`'dir. `locale` cookie'si `tr` veya `en` olduğunda ilgili
 HTML `lang` değeri ve Client Component provider'ı aynı dili kullanır.
 Çeviri anahtarları ve dil değerleri TypeScript ile kontrol edilir.
 
-Gerçek çeviri anahtarları eklendiğinde Server Component içinde `getTranslations`
-(`next-intl/server`), Client Component içinde `useTranslations` (`next-intl`)
-kullanılır.
+Server Component içinde `use-intl/core` paketinin `createTranslator` işlevine
+`await getRequestConfig()` sonucu verilebilir. Client Component içinde
+`use-intl/react` paketinin `useTranslations` işlevi kullanılır.
 Dil seçimi için bir Client Component'in event handler'ından
 `@/shared/lib/i18n/actions` içindeki `setLocale("tr")` veya `setLocale("en")`
 Server Action'ı çağrılabilir. Cookie bir yıl saklanır ve değişince Next.js

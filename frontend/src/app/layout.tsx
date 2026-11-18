@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { NextIntlClientProvider } from "next-intl";
-import { getLocale } from "next-intl/server";
+import { IntlProvider } from "@/shared/lib/i18n/provider";
+import getRequestConfig from "@/shared/lib/i18n/request";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,12 +11,12 @@ export const metadata: Metadata = {
 export const instant = false;
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const locale = await getLocale();
+  const config = await getRequestConfig();
 
   return (
-    <html lang={locale}>
+    <html lang={config.locale}>
       <body>
-        <NextIntlClientProvider>{children}</NextIntlClientProvider>
+        <IntlProvider {...config}>{children}</IntlProvider>
       </body>
     </html>
   );

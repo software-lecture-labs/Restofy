@@ -120,8 +120,8 @@ public class OrderCancellationService {
 
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         UUID cancellationId = UUID.randomUUID();
-        if (!idempotency.tryClaim(restaurantId, actorScope, OPERATION, key, digest, cancellationId, CREATED, now,
-                now.plus(retention.cancellationRetention()))) {
+        if (!idempotency.tryClaim(restaurantId, actorScope, OPERATION, key,
+                new IdempotencyStore.Record(digest, cancellationId, CREATED), now, now.plus(retention.cancellationRetention()))) {
             // a concurrent request with the same key committed first
             IdempotencyStore.Record winner = idempotency.find(restaurantId, actorScope, OPERATION, key)
                     .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT,

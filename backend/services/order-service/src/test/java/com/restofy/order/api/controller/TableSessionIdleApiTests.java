@@ -7,6 +7,7 @@ import tools.jackson.databind.JsonNode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,6 +40,15 @@ class TableSessionIdleApiTests extends AbstractClosureApiTest {
     }
 
     // ---- expiring an idle session -------------------------------------------------------------------------------------
+
+    @Test
+    void aNullGuestIsRejectedBeforeGrantingAnyIdlePermit() throws Exception {
+        var request = idleBody(UUID.randomUUID(), Instant.now(), EXPIRED, Collections.singletonList(null));
+
+        prepareRaw(QR, SESSION, request).andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertEquals(0, closures());
+    }
 
     @Test
     void aSessionWithoutOrdersWhoseMainWindowEndedMayExpireAsAWhole() throws Exception {

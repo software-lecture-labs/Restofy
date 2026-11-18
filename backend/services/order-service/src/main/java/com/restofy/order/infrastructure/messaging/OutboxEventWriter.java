@@ -22,6 +22,10 @@ import java.util.UUID;
 @Component
 public class OutboxEventWriter {
 
+    public record Event(UUID id, UUID restaurantId, String aggregateType, UUID aggregateId, long aggregateVersion,
+                        String type, int schemaVersion, String correlationId, Object payload, Instant occurredAt) {
+    }
+
     private final JdbcTemplate jdbc;
     private final JsonMapper json;
 
@@ -31,22 +35,22 @@ public class OutboxEventWriter {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void write(UUID eventId, UUID restaurantId, String aggregateType, UUID aggregateId, long aggregateVersion,
-                      String eventType, int schemaVersion, String correlationId, Object payload, Instant occurredAt,
-                      List<EventDestination> destinations) {
+    public void write(Event event, List<EventDestination> destinations) {
+        Timestamp occurredAt = Timestamp.from(event.occurredAt());
         jdbc.update("""
                 INSERT INTO outbox_events (id, restaurant_id, aggregate_type, aggregate_id, aggregate_version,
                                            event_type, schema_version, correlation_id, payload, occurred_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?)
-                """, eventId, restaurantId, aggregateType, aggregateId, aggregateVersion, eventType, schemaVersion,
-                correlationId, json.writeValueAsString(payload), Timestamp.from(occurredAt));
+                """, event.id(), event.restaurantId(), event.aggregateType(), event.aggregateId(),
+                event.aggregateVersion(), event.type(), event.schemaVersion(), event.correlationId(),
+                json.writeValueAsString(event.payload()), occurredAt);
         for (EventDestination destination : destinations) {
             jdbc.update("""
                     INSERT INTO outbox_deliveries (id, event_id, destination, status, attempt_count, next_attempt_at)
                     VALUES (?, ?, ?, 'PENDING', 0, ?)
-                    """, UUID.randomUUID(), eventId, destination.name(), Timestamp.from(occurredAt));
+                    """, UUID.randomUUID(), event.id(), destination.name(), occurredAt);
         }
-        log.info("Outbox event recorded: type={} eventId={} aggregateId={} destinations={}", eventType, eventId,
-                aggregateId, destinations);
+        log.info("Outbox event recorded: type={} eventId={} aggregateId={} destinations={}", event.type(), event.id(),
+                event.aggregateId(), destinations);
     }
 }
