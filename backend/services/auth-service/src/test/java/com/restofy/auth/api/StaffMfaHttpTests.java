@@ -54,6 +54,8 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
 
     @AfterEach
     void clean() {
+        jdbc.update("DELETE FROM staff_revocation_targets");
+        jdbc.update("DELETE FROM staff_revocation_operations");
         jdbc.update("DELETE FROM mfa_recovery_codes");
         jdbc.update("DELETE FROM staff_mfa");
         jdbc.update("DELETE FROM refresh_tokens");
@@ -86,7 +88,7 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
         csrf();
         mvc.perform(mutation("/activity")).andExpect(status().isNoContent());
         mvc.perform(mutation("/mfa/enroll")).andExpect(status().isForbidden());
-        mvc.perform(mutation("/logout")).andExpect(status().isNoContent());
+        assertCoordinatedLogoutHttp(mvc, () -> mutation("/logout"));
         jar.clear();
         login("admin@example.com");
         mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isOk())

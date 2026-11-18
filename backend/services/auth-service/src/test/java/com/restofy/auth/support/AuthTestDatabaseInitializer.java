@@ -10,7 +10,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 /** Reject unsafe test connections before context refresh can create a DataSource or Flyway. */
 public final class AuthTestDatabaseInitializer
         implements ApplicationContextInitializer<ConfigurableApplicationContext> {
-    private static final String TEST_URL = "jdbc:tc:postgresql:17-alpine:///restofy_test";
+    private static final String TEST_URL = "jdbc:tc:q5postgresql:17-alpine:///restofy_test";
     private static final String TEST_DRIVER = "org.testcontainers.jdbc.ContainerDatabaseDriver";
 
     @Override

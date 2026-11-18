@@ -1,0 +1,814 @@
+package com.restofy.auth.application.service;
+
+import java.util.UUID;
+import java.time.Instant;
+import java.util.Date;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import com.restofy.auth.application.service.revocation.RevocationTransactions;
+import com.restofy.auth.application.service.revocation.RevocationTransactions.Action;
+import com.restofy.auth.domain.entity.StaffUser;
+import com.restofy.auth.domain.enums.StaffRole;
+import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
+import com.restofy.auth.infrastructure.security.StaffPasswords;
+import com.restofy.auth.infrastructure.security.QrRevocationReceipts;
+import com.restofy.auth.infrastructure.security.StaffJwtTokens;
+import io.jsonwebtoken.Jwts;
+import com.restofy.auth.support.AuthSessionTestSupport;
+import com.restofy.auth.support.AuthTestDatabaseInitializer;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.server.ResponseStatusException;
+
+import static org.assertj.core.api.Assertions.*;
+
+@SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
+@ContextConfiguration(initializers = AuthTestDatabaseInitializer.class)
+class RevocationTransactionsTests extends AuthSessionTestSupport {
+    @Autowired private RevocationTransactions revocations;
+    @Autowired private StaffSessionService sessions;
+    @Autowired private StaffUserRepository users;
+    @Autowired private StaffPasswords passwords;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactions;
+    @Autowired private StaffJwtTokens jwt;
+    @Autowired private com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions bootstrap;
+    private UUID user;
+    private final UUID restaurant = UUID.fromString("6c54daf0-9340-4a1c-981d-f9acc0261779");
+    private final UUID generation = Q5_GENERATION;
+
+    @BeforeEach
+    void setup() {
+        jdbc.update("DELETE FROM staff_revocation_targets");
+        jdbc.update("DELETE FROM staff_revocation_operations");
+        jdbc.update("DELETE FROM refresh_tokens");
+        jdbc.update("DELETE FROM user_sessions");
+        jdbc.update("DELETE FROM staff_users");
+        user = users.saveAndFlush(new StaffUser("q5@example.com", passwords.hash("Q5-test-password-01"), StaffRole.WAITER)).getId();
+    }
+
+    @AfterEach
+    void clearOperations() {
+        jdbc.update("DELETE FROM staff_revocation_targets");
+        jdbc.update("DELETE FROM staff_revocation_operations");
+    }
+
+    @Test
+    void newerLocalFirstRevocationCannotBeHiddenByAnOlderCompletedStrictOperation() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        var fresh = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.logout(fresh.refresh(), fresh.access(), null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE completion_policy='ACK_REQUIRED'",
+                Long.class)).isEqualTo(2);
+    }
+
+    @Test
+    void durableAckCompletesRealTransactionWithoutAnyQrRequest() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        var peer = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
+        new com.restofy.auth.application.service.revocation.RevocationCoordinator(revocations, peer).deliver(id);
+        assertThat(revocations.load(id).status()).isEqualTo("COMPLETED");
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(peer);
+    }
+
+    @Test
+    void realWorkerCompletesExpiredTargetsOfflineButNeverBypassesClosedSource() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
+        jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?", id);
+        var peer = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
+        org.mockito.Mockito.when(peer.generation()).thenReturn(generation);
+        org.mockito.Mockito.when(peer.challenge(restaurant, generation)).thenThrow(new IllegalStateException("offline"));
+        var settings = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.config.AuthSettings.class);
+        org.mockito.Mockito.when(settings.restaurantId()).thenReturn(restaurant);
+        var coordinator = new com.restofy.auth.application.service.revocation.RevocationCoordinator(revocations, peer);
+        var worker = new com.restofy.auth.application.service.revocation.RevocationRetryWorker(
+                revocations, coordinator, bootstrap, peer, settings);
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+        worker.retry();
+        assertThat(revocations.load(id).status()).isEqualTo("PREPARED");
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        jdbc.update("UPDATE staff_revocation_source_state SET phase='ACTIVE' WHERE singleton=true");
+        worker.retry();
+        assertThat(revocations.load(id).deliveryOutcome()).isEqualTo(RevocationTransactions.Outcome.TARGETS_EXPIRED);
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+    }
+
+    @Test
+    void concurrentRetryWorkersLeaseDisjointBoundedBatches() throws Exception {
+        for (int index = 0; index < 12; index++) {
+            var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+            sessions.logout(grant.refresh(), grant.access(), null);
+        }
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            var second = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            start.countDown();
+            var firstBatch = first.get(10, TimeUnit.SECONDS);
+            var secondBatch = second.get(10, TimeUnit.SECONDS);
+            assertThat(firstBatch).hasSizeLessThanOrEqualTo(8).doesNotHaveDuplicates();
+            assertThat(secondBatch).hasSizeLessThanOrEqualTo(8).doesNotContainAnyElementsOf(firstBatch);
+            assertThat(firstBatch.size() + secondBatch.size()).isEqualTo(12);
+        }
+        assertThat(revocations.claimRetries()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE attempts=1", Long.class))
+                .isEqualTo(12);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void retryClaimsRespectTheEightOperationBatchAndLease(boolean nestedLoopPlan) {
+        for (int index = 0; index < 12; index++) {
+            var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+            sessions.logout(grant.refresh(), grant.access(), null);
+        }
+        java.util.function.Supplier<java.util.List<UUID>> claim = () -> {
+            if (!nestedLoopPlan) return revocations.claimRetries();
+            // Exercise the production SQL in a real transaction with a different legal planner choice.
+            // LOCAL settings are scoped to this transaction and cannot leak to other tests.
+            RevocationTransactions target = org.springframework.test.util.AopTestUtils.getTargetObject(revocations);
+            return new TransactionTemplate(transactions).execute(status -> {
+                jdbc.execute("SET LOCAL enable_hashjoin=off");
+                jdbc.execute("SET LOCAL enable_mergejoin=off");
+                jdbc.execute("SET LOCAL enable_material=off");
+                return target.claimRetries();
+            });
+        };
+        var first = claim.get();
+        assertThat(first).hasSize(8).doesNotHaveDuplicates();
+        var second = claim.get();
+        assertThat(second).hasSize(4).doesNotContainAnyElementsOf(first);
+        assertThat(claim.get()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE attempts=1", Long.class))
+                .isEqualTo(12);
+        jdbc.update("UPDATE staff_revocation_operations SET next_attempt_at=now()-interval '1 second'");
+        assertThat(claim.get()).hasSize(8).doesNotHaveDuplicates();
+        assertThat(claim.get()).hasSize(4).doesNotHaveDuplicates();
+        assertThat(claim.get()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE attempts=2", Long.class))
+                .isEqualTo(12);
+    }
+
+    @Test
+    void callerKeyReturnsCompletedResultWithoutRevokingANewerSession() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, id)).isInstanceOf(ResponseStatusException.class);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        var fresh = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatCode(() -> sessions.revokeAllSessions(user, id)).doesNotThrowAnyException();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",
+                Boolean.class, fresh.session().getId())).isTrue();
+        assertThatThrownBy(() -> sessions.deactivate(user, id)).isInstanceOf(ResponseStatusException.class);
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        // A pending later command must not hide the completed result for an older request key.
+        assertThatCode(() -> sessions.revokeAllSessions(user, id)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(2);
+    }
+
+    @Test
+    void pendingLegacyRetryKeepsTheSameManifestAndOperation() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        var targets = revocations.load(id).targets();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(id).targets()).isEqualTo(targets);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void completedDeactivationRetryDoesNotReopenBarrier() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.deactivate(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThatCode(() -> sessions.deactivate(user)).doesNotThrowAnyException();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void completedRevokeAllRetryDoesNotReopenBarrierButNewSessionsDo() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThatCode(() -> sessions.revokeAllSessions(user)).doesNotThrowAnyException();
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(2);
+    }
+
+    @Test
+    void sourceIdentityMismatchClosesReadinessAndCannotCreateAnOperation() {
+        UUID other = UUID.randomUUID();
+        for (String column : java.util.List.of("generation", "restaurant_id")) {
+            jdbc.update("UPDATE staff_revocation_source_state SET " + column + "=? WHERE singleton=true", other);
+            assertThat(bootstrap.active()).isFalse();
+            assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,generation))
+                    .isInstanceOf(ResponseStatusException.class);
+            assertThatThrownBy(() -> sessions.login("q5@example.com","Q5-test-password-01",null))
+                    .isInstanceOf(ResponseStatusException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
+            jdbc.update("UPDATE staff_revocation_source_state SET generation=?,restaurant_id=? WHERE singleton=true",generation,restaurant);
+        }
+        assertThat(bootstrap.active()).isTrue();
+        assertThat(sessions.login("q5@example.com","Q5-test-password-01",null)).isNotNull();
+    }
+
+    @Test
+    void mismatchedCommandIdentityCannotPoisonTheSharedSource() {
+        assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),UUID.randomUUID(),user,Action.ALL,null,null,generation))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> bootstrap.prepare(restaurant,UUID.randomUUID(),UUID.randomUUID()))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
+        assertThat(bootstrap.active()).isTrue();
+    }
+
+    @Test
+    void receiptsLongerThanThirtySecondsCannotAcknowledgeOrFinalize() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id,restaurant,user,Action.ALL,null,null,generation);
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(id,
+                acknowledgement(id, builder -> builder.expiration(Date.from(Instant.now().plusSeconds(60))))))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(id).status()).isEqualTo("PREPARED");
+        assertThatThrownBy(() -> revocations.finalizeOperation(id)).isInstanceOf(ResponseStatusException.class);
+        revocations.recordAcknowledgement(id,acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThat(revocations.load(id).status()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void logoutRevokesLocallyBeforeQrAcknowledgesItsDurableFence() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+
+        sessions.logout(grant.refresh(), grant.access(), null);
+
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId()))
+                .as("LOCAL_FIRST commits the Auth revocation without waiting for QR")
+                .isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE user_id=? AND status='PREPARED'",
+                Long.class, user)).isEqualTo(1);
+        assertThat(revocations.load(jdbc.queryForObject(
+                "SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user)).policy())
+                .isEqualTo(RevocationTransactions.Policy.LOCAL_FIRST);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_targets WHERE session_id=?",
+                Long.class, grant.session().getId())).isEqualTo(1);
+    }
+
+    @Test
+    void logoutJoinsTheAmbientTransactionSoOutboxAndRevocationRollbackTogether() {
+        var grant=sessions.login("q5@example.com","Q5-test-password-01",null);
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            sessions.logout(grant.refresh(),grant.access(),null);
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",Boolean.class,grant.session().getId())).isTrue();
+    }
+
+    @Test
+    void localFirstPendingDoesNotBlockNewLoginAndUsesTheAccessTokenDeadline() {
+        var old = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        Instant before = Instant.now();
+        sessions.logout(old.refresh(), old.access(), null);
+
+        var fresh = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThat(fresh.session().getId()).isNotEqualTo(old.session().getId());
+        UUID operation = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?",
+                UUID.class, user);
+        assertThat(revocations.load(operation).policy()).isEqualTo(RevocationTransactions.Policy.LOCAL_FIRST);
+        assertThat(revocations.load(operation).targets().getFirst().denyUntil())
+                .isBetween(before.plusSeconds(299), Instant.now().plusSeconds(300));
+    }
+
+    @Test
+    void logoutStillCompletesLocallyWhileAContainingStrictOperationIsPending() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
+
+        sessions.logout(grant.refresh(), grant.access(), null);
+
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    /** CLOSED/PREPARING: bootstrap not finished. DATABASE_RESTARTED: source ACTIVE but recorded for an older postmaster. */
+    private void makeSourceInactive(String mode) {
+        switch (mode) {
+            case "CLOSED" -> jdbc.update("UPDATE staff_revocation_source_state SET phase='CLOSED' WHERE singleton=true");
+            case "PREPARING" -> jdbc.update("UPDATE staff_revocation_source_state SET phase='PREPARING' WHERE singleton=true");
+            case "DATABASE_RESTARTED" -> jdbc.update("UPDATE staff_revocation_source_state SET database_start=pg_postmaster_start_time()-interval '1 day' WHERE singleton=true");
+            default -> throw new IllegalArgumentException(mode);
+        }
+        assertThat(bootstrap.active()).isFalse();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSED", "PREPARING", "DATABASE_RESTARTED"})
+    void logoutCompletesLocallyWithoutOutboxWhileTheSourceIsNotActive(String mode) {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        makeSourceInactive(mode);
+
+        sessions.logout(grant.refresh(), grant.access(), null);
+
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class))
+                .as("no outbox row can target a source that is not ACTIVE").isZero();
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .as("credential issuance stays closed").isInstanceOf(ResponseStatusException.class);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSED", "PREPARING", "DATABASE_RESTARTED"})
+    void passwordResetRevokesEverySessionLocallyWhileTheSourceIsNotActive(String mode) {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        makeSourceInactive(mode);
+
+        sessions.revokeForPasswordReset(user, UUID.randomUUID());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
+    }
+
+    @Test
+    void passwordResetStillWaitsForAPendingStrictOperationEvenWhileTheSourceIsNotActive() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        revocations.prepare(UUID.randomUUID(), restaurant, user, Action.DISABLE, null, null, generation);
+        makeSourceInactive("CLOSED");
+
+        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user, UUID.randomUUID()))
+                .isInstanceOf(com.restofy.auth.application.service.revocation.RevocationPendingException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSED", "PREPARING", "DATABASE_RESTARTED"})
+    void revokingOtherSessionsForMfaRecoveryCodesStaysFailClosedWhileTheSourceIsNotActive(String mode) {
+        var actor = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        var other = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        makeSourceInactive(mode);
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status ->
+                revocations.prepareLocalFirst(restaurant, user, Action.OTHERS, actor.session().getId(), generation)))
+                .isInstanceOf(com.restofy.auth.application.service.revocation.RevocationPendingException.class);
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",
+                Boolean.class, other.session().getId())).isTrue();
+    }
+
+    @Test
+    void bootstrapBaselineSkipsSessionsThatCanNoLongerHoldAValidToken() {
+        var live = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        var expired = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        jdbc.update("""
+                UPDATE user_sessions SET created_at=now()-interval '2 days', last_activity_at=now()-interval '2 days',
+                       absolute_expires_at=now()-interval '1 day' WHERE id=?
+                """, expired.session().getId());
+
+        var baseline = bootstrap.prepare(restaurant, generation, UUID.randomUUID());
+
+        assertThat(baseline.entries())
+                .extracting(com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Entry::sessionId)
+                .containsExactly(live.session().getId());
+    }
+
+    @Test
+    void strictOperationSafelyFinalizesAfterEveryTargetTokenExpires() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID operation = UUID.randomUUID();
+        revocations.prepare(operation, restaurant, user, Action.DISABLE, null, null, generation);
+        jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?",
+                operation);
+
+        assertThat(revocations.finalizeExpiredTargets(operation)).isTrue();
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+        assertThat(revocations.load(operation).deliveryOutcome())
+                .isEqualTo(RevocationTransactions.Outcome.TARGETS_EXPIRED);
+    }
+
+    @Test
+    void productionEnvironmentCannotInheritPlainHttpFromADevelopmentProfile() throws Exception {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/internal/q5/revocations",exchange -> {
+            calls.incrementAndGet(); exchange.getRequestBody().readAllBytes();
+            byte[] body="{\"receipt\":\"transport-fixture-not-an-authenticated-ack\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","application/json"); exchange.sendResponseHeaders(200,body.length);
+            exchange.getResponseBody().write(body); exchange.close();
+        });
+        server.start();
+        var environment=new org.springframework.mock.env.MockEnvironment()
+                .withProperty("auth.q5.qr-url","http://127.0.0.1:"+server.getAddress().getPort()+"/")
+                .withProperty("auth.q5.qr-generation",generation.toString())
+                .withProperty("auth.q5.command-private-key",java.util.Base64.getEncoder().encodeToString(Q5_AUTH_KEYS.getPrivate().getEncoded()))
+                .withProperty("auth.q5.command-public-key",java.util.Base64.getEncoder().encodeToString(Q5_AUTH_KEYS.getPublic().getEncoded()))
+                .withProperty("auth.bootstrap.environment","prod");
+        environment.setActiveProfiles("dev");
+        var operation=revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,generation);
+        try {
+            assertThatThrownBy(() -> new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,java.time.Clock.systemUTC()))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(calls.get()).isZero();
+            environment.withProperty("auth.bootstrap.environment","dev"); environment.setActiveProfiles("prod");
+            assertThatThrownBy(() -> new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,java.time.Clock.systemUTC()))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(calls.get()).isZero();
+            environment.setActiveProfiles("dev");
+            try (var client=new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,java.time.Clock.systemUTC())) {
+                assertThat(client.persist(operation)).isEqualTo("transport-fixture-not-an-authenticated-ack");
+            }
+            assertThat(calls.get()).isEqualTo(1);
+            assertThat(revocations.load(operation.id()).status()).isEqualTo("PREPARED");
+        } finally { server.stop(0); }
+    }
+
+    @Test
+    void localFirstDeliveryCompletesWhenEveryTargetTokenHasExpired() {
+        var grant = sessions.login("q5@example.com","Q5-test-password-01",null);
+        sessions.revokeForPasswordReset(user,UUID.randomUUID());
+        UUID id=jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?",UUID.class,user);
+        assertThat(revocations.load(id).localAppliedAt()).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
+                Boolean.class, grant.session().getId())).isTrue();
+        assertThat(revocations.finalizeExpiredTargets(id)).isFalse();
+        jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?",id);
+        assertThat(revocations.finalizeExpiredTargets(id)).isTrue();
+        assertThat(revocations.load(id).deliveryOutcome()).isEqualTo(RevocationTransactions.Outcome.TARGETS_EXPIRED);
+    }
+
+    @Test
+    void bootstrapFreezesIssuanceAndRequiresAckForExactlyTheStoredFullBaseline() {
+        var grant=sessions.login("q5@example.com","Q5-test-password-01",null);
+        var baseline=bootstrap.prepare(restaurant,generation,UUID.randomUUID());
+        assertThat(baseline.entries()).extracting(com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Entry::sessionId)
+                .containsExactly(grant.session().getId());
+        assertThatThrownBy(() -> sessions.login("q5@example.com","Q5-test-password-01",null)).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> bootstrap.finish(baseline,"forged")).isInstanceOf(ResponseStatusException.class);
+        var altered=new com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Baseline(
+                baseline.operationId(),baseline.restaurantId(),baseline.generation(),baseline.nonce(),java.util.List.of());
+        assertThatThrownBy(() -> bootstrap.finish(altered,baselineAcknowledgement(altered))).isInstanceOf(ResponseStatusException.class);
+        assertThat(bootstrap.active()).isFalse();
+        bootstrap.finish(baseline,baselineAcknowledgement(baseline));
+        assertThat(bootstrap.active()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",Boolean.class,grant.session().getId())).isTrue();
+        var fresh=sessions.login("q5@example.com","Q5-test-password-01",null);
+        assertThat(fresh.session().getId()).isNotEqualTo(grant.session().getId());
+        var duplicate=bootstrap.prepare(restaurant,generation,baseline.nonce());
+        assertThat(duplicate).isEqualTo(baseline);
+        bootstrap.finish(duplicate,baselineAcknowledgement(duplicate));
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?",Boolean.class,fresh.session().getId())).isTrue();
+    }
+
+    private String baselineAcknowledgement(com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Baseline baseline) {
+        Instant now=Instant.now();
+        return Jwts.builder().issuer("qr-service").subject(baseline.operationId().toString()).audience().add("restofy-auth").and()
+                .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(30))).id(UUID.randomUUID().toString())
+                .claim("token_type","service").claim("scope","staff:bootstrap:ack").claim("nonce",baseline.nonce().toString())
+                .claim("restaurant_id",baseline.restaurantId().toString()).claim("generation",baseline.generation().toString())
+                .claim("manifest",com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.digest(baseline))
+                .signWith(Q5_QR_KEYS.getPrivate(),Jwts.SIG.RS256).compact();
+    }
+
+    @Test
+    void deactivationCannotCommitBeforeAck() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> sessions.deactivate(user)).isInstanceOf(ResponseStatusException.class);
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        UUID id = jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?", UUID.class, user);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+    }
+
+    @Test
+    void localFirstOutboxRollsBackWithItsProtectedMutation() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            sessions.revokeForPasswordReset(user, UUID.randomUUID());
+            jdbc.update("UPDATE staff_users SET is_active=false WHERE id=?", user);
+            throw new IllegalStateException("Protected mutation failed");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?", Boolean.class, grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
+    }
+
+    @Test
+    void localFirstOutboxWriteFailureRollsBackTheProtectedMutation() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        jdbc.execute("""
+                CREATE FUNCTION q5_test_reject_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'fixture outbox failure'; END; $$;
+                CREATE TRIGGER q5_test_reject_outbox BEFORE INSERT ON staff_revocation_operations
+                FOR EACH ROW EXECUTE FUNCTION q5_test_reject_outbox();
+                """);
+        try {
+            assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                jdbc.update("UPDATE staff_users SET is_active=false WHERE id=?", user);
+                sessions.revokeForPasswordReset(user, UUID.randomUUID());
+            })).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        } finally {
+            jdbc.execute("DROP TRIGGER q5_test_reject_outbox ON staff_revocation_operations; DROP FUNCTION q5_test_reject_outbox()");
+        }
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?", Boolean.class,
+                grant.session().getId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isZero();
+    }
+
+    @Test
+    void prepareDoesNotFinalizeAndAckIsMandatory() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID operation = UUID.randomUUID();
+        var prepared = revocations.prepare(operation, restaurant, user, Action.DISABLE, null, null, generation);
+        assertThat(prepared.targets()).extracting(RevocationTransactions.Target::sessionId).containsExactly(grant.session().getId());
+        assertThatThrownBy(() -> revocations.finalizeOperation(operation)).isInstanceOf(ResponseStatusException.class);
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NULL FROM user_sessions WHERE id=?", Boolean.class,
+                grant.session().getId())).isTrue();
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation, "forged"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(operation).status()).isEqualTo("PREPARED");
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation,
+                acknowledgement(operation,builder -> builder.claim("manifest","0".repeat(64)))))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation,
+                acknowledgement(operation,builder -> builder.claim("scope","staff:read"))))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(operation).status()).isEqualTo("PREPARED");
+        revocations.recordAcknowledgement(operation, acknowledgement(operation));
+        revocations.finalizeOperation(operation);
+        assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?", Boolean.class,
+                grant.session().getId())).isTrue();
+        assertThat(revocations.load(operation).status()).isEqualTo("COMPLETED");
+        revocations.finalizeOperation(operation);
+    }
+
+    @Test
+    void pendingGateAndManifestAreDurableAndIdempotent() {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        var prepared = revocations.prepare(id, restaurant, user, Action.ALL, null, null, generation);
+        assertThat(revocations.prepare(id, restaurant, user, Action.ALL, null, null, generation)).isEqualTo(prepared);
+        assertThatThrownBy(() -> revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation))
+                .isInstanceOf(ResponseStatusException.class);
+        var tx = new TransactionTemplate(transactions);
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            users.lockIdentity(user).orElseThrow();
+            revocations.assertIssuanceAllowed(user);
+        })).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> sessions.refresh(grant.refresh())).isInstanceOf(ResponseStatusException.class);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        tx.executeWithoutResult(status -> revocations.assertIssuanceAllowed(user));
+    }
+
+    @Test
+    void pendingGateBlocksMfaCredentialUpgrade() {
+        jdbc.update("UPDATE staff_users SET role='ADMIN' WHERE id=?", user);
+        var pending = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
+        assertThatThrownBy(() -> sessions.completeMfa(jwt.verify(pending.access(), true)))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens", Long.class)).isZero();
+    }
+
+    @Test
+    void roleChangeRevokesEveryOldSessionAndRefresh() {
+        jdbc.update("UPDATE staff_users SET role='ADMIN' WHERE id=?",user);
+        var first=sessions.login("q5@example.com", "Q5-test-password-01", null);
+        var second=sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.completeMfa(jwt.verify(first.access(),true));
+        sessions.completeMfa(jwt.verify(second.access(),true));
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id, restaurant, user, Action.ROLE, null, StaffRole.WAITER, generation);
+        assertThat(users.findById(user).orElseThrow().getRole()).isEqualTo(StaffRole.ADMIN);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        revocations.finalizeOperation(id);
+        assertThat(users.findById(user).orElseThrow().getRole()).isEqualTo(StaffRole.WAITER);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Long.class)).isZero();
+    }
+
+    @Test
+    void failedFinalizeKeepsPendingGateAndAcknowledgement() {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        UUID id = UUID.randomUUID();
+        revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
+        revocations.recordAcknowledgement(id, acknowledgement(id));
+        jdbc.update("UPDATE staff_users SET version=version+1 WHERE id=?", user);
+        assertThatThrownBy(() -> revocations.finalizeOperation(id)).isInstanceOf(ResponseStatusException.class);
+        assertThat(revocations.load(id).status()).isEqualTo("ACKNOWLEDGED");
+        assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
+        assertThatThrownBy(() -> new TransactionTemplate(transactions)
+                .executeWithoutResult(status -> revocations.assertIssuanceAllowed(user)))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void mfaMintLocksFirstAndPrepareIncludesItsSessionBeforeClosingIssuance() throws Exception {
+        var pending = pendingAdmin();
+        var identity = jwt.verify(pending.access(),true);
+        var minted = new CountDownLatch(1);
+        var releaseMint = new CountDownLatch(1);
+        var mintPid = new java.util.concurrent.atomic.AtomicInteger();
+        try (var executor=Executors.newFixedThreadPool(2)) {
+            var producer=executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                mintPid.set(jdbc.queryForObject("SELECT pg_backend_pid()",Integer.class));
+                var grant=sessions.completeMfa(identity);
+                minted.countDown();
+                awaitLatch(releaseMint);
+                return grant;
+            }));
+            try {
+                assertThat(minted.await(10,TimeUnit.SECONDS)).isTrue();
+                var prepare=executor.submit(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,generation));
+                awaitBlockedOn(mintPid.get());
+                assertThat(prepare.isDone()).isFalse();
+                releaseMint.countDown();
+                var grant=producer.get(10,TimeUnit.SECONDS);
+                var operation=prepare.get(10,TimeUnit.SECONDS);
+                assertThat(jwt.verify(grant.access(),false).sessionId()).isEqualTo(pending.session().getId());
+                assertThat(operation.targets()).extracting(RevocationTransactions.Target::sessionId)
+                        .containsExactly(grant.session().getId());
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens",Long.class)).isEqualTo(1);
+                assertThatThrownBy(() -> sessions.refresh(grant.refresh())).isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode().value()).isEqualTo(503));
+            } finally { releaseMint.countDown(); }
+        }
+    }
+
+    @Test
+    void prepareLocksFirstAndMfaCannotCommitCredentialsPastPendingBarrier() throws Exception {
+        var pending=pendingAdmin();
+        var identity=jwt.verify(pending.access(),true);
+        var prepared=new CountDownLatch(1);
+        var releasePrepare=new CountDownLatch(1);
+        var preparePid=new java.util.concurrent.atomic.AtomicInteger();
+        try (var executor=Executors.newFixedThreadPool(2)) {
+            var preparation=executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                preparePid.set(jdbc.queryForObject("SELECT pg_backend_pid()",Integer.class));
+                var operation=revocations.prepareLocked(restaurant,user,Action.ALL,null,generation);
+                prepared.countDown();
+                awaitLatch(releasePrepare);
+                return operation;
+            }));
+            try {
+                assertThat(prepared.await(10,TimeUnit.SECONDS)).isTrue();
+                var mint=executor.submit(() -> {
+                    try { sessions.completeMfa(identity); return 200; }
+                    catch (ResponseStatusException denied) { return denied.getStatusCode().value(); }
+                });
+                awaitBlockedOn(preparePid.get());
+                assertThat(mint.isDone()).isFalse();
+                releasePrepare.countDown();
+                var operation=preparation.get(10,TimeUnit.SECONDS);
+                assertThat(mint.get(10,TimeUnit.SECONDS)).isEqualTo(503);
+                assertThat(operation.targets()).extracting(RevocationTransactions.Target::sessionId).containsExactly(pending.session().getId());
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens",Long.class)).isZero();
+                assertThat(jdbc.queryForObject("SELECT auth_state FROM user_sessions WHERE id=?",String.class,pending.session().getId())).isEqualTo("MFA_PENDING");
+            } finally { releasePrepare.countDown(); }
+        }
+    }
+
+    private StaffSessionService.Grant pendingAdmin() {
+        jdbc.update("UPDATE staff_users SET role='ADMIN',version=version+1 WHERE id=?",user);
+        return sessions.login("q5@example.com","Q5-test-password-01",null);
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try { if (!latch.await(10,TimeUnit.SECONDS)) throw new AssertionError("Transaction release timed out"); }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+    }
+
+    private void awaitBlockedOn(int blockerPid) throws InterruptedException {
+        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
+        do {
+            if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE ? = ANY(pg_blocking_pids(a.pid)))",Boolean.class,blockerPid))) return;
+            Thread.sleep(20);
+        } while (System.nanoTime()<deadline);
+        throw new AssertionError("Expected real PostgreSQL lock contention was not observed");
+    }
+
+    @Test
+    void concurrentOperationsSerializeOnTheUserIdentity() throws Exception {
+        sessions.login("q5@example.com", "Q5-test-password-01", null);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> prepareAfter(start));
+            var second = executor.submit(() -> prepareAfter(start));
+            start.countDown();
+            assertThat(first.get(10, TimeUnit.SECONDS) + second.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations", Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentLocalFirstLogoutAndStrictPreparePreserveTheStrictBarrier() throws Exception {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var logout = executor.submit(() -> { start.await(); sessions.logout(grant.refresh(), grant.access(), null); return true; });
+            var strict = executor.submit(() -> { start.await();
+                return revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
+            });
+            start.countDown();
+            assertThat(logout.get(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(strict.get(30, TimeUnit.SECONDS).policy()).isEqualTo(RevocationTransactions.Policy.ACK_REQUIRED);
+        }
+        assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?", Boolean.class,
+                grant.session().getId())).isTrue();
+        assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode().value()).isEqualTo(503));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations WHERE completion_policy='ACK_REQUIRED' AND status<>'COMPLETED'",
+                Long.class)).isEqualTo(1);
+    }
+
+    @Test
+    void twoWorkersCannotClaimTheSameDeliveryLease() throws Exception {
+        var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
+        sessions.logout(grant.refresh(), grant.access(), null);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            var second = executor.submit(() -> { start.await(); return revocations.claimRetries(); });
+            start.countDown();
+            var claimed = new java.util.ArrayList<UUID>();
+            claimed.addAll(first.get(30, TimeUnit.SECONDS));
+            claimed.addAll(second.get(30, TimeUnit.SECONDS));
+            assertThat(claimed).hasSize(1).doesNotHaveDuplicates();
+        }
+        assertThat(jdbc.queryForObject("SELECT attempts FROM staff_revocation_operations", Integer.class)).isEqualTo(1);
+    }
+
+    private int prepareAfter(CountDownLatch start) throws InterruptedException {
+        start.await();
+        try {
+            revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
+            return 1;
+        } catch (ResponseStatusException expectedConflict) {
+            return 0;
+        }
+    }
+
+    private String acknowledgement(UUID id) {
+        return acknowledgement(id,builder -> { });
+    }
+
+    private String acknowledgement(UUID id,java.util.function.Consumer<io.jsonwebtoken.JwtBuilder> alter) {
+        var operation = revocations.load(id);
+        Instant now = Instant.now();
+        var builder=Jwts.builder().issuer("qr-service").subject(id.toString()).audience().add("restofy-auth").and()
+                .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(30)))
+                .id(UUID.randomUUID().toString()).claim("scope", "staff:revocation:ack").claim("token_type", "service")
+                .claim("restaurant_id", operation.restaurantId().toString()).claim("generation", operation.consumerGeneration().toString())
+                .claim("manifest", QrRevocationReceipts.manifestDigest(operation));
+        alter.accept(builder);
+        return builder.signWith(Q5_QR_KEYS.getPrivate(), Jwts.SIG.RS256).compact();
+    }
+}
