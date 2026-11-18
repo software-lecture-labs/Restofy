@@ -72,7 +72,7 @@ JWT en çok 4096 karakter. Staff/MFA/guest, Mail Bearer, yanlış servis/anahtar
 Cookie, Origin veya birden çok Authorization taşıyan iç istek reddedilir. Bu zincirde browser CSRF yoktur;
 yalnız imzalı servis kimliği kabul edildiği için dış personel API'sinin CSRF koruması değişmez.
 İç kimlik yalnız bu GET'e yetki verir; personel yazma veya başka iç uçları açmaz.
-GET salt okunurdur; aynı geçerli tokenla tekrarı kabul edilir. `jti` için tüketilen-once/replay deposu yoktur.
+GET salt okunurdur; aynı geçerli tokenla tekrarı kabul edilir. `jti` için tüketilen-once/replay deposu yoktur. Bilinçli karar: token en çok 60 sn yaşar, yalnız salt okuma yapar ve yanıtı yalnız aktif personel kimlik (UUID) listesidir; e-posta, parola veya oturum bilgisi dönmez. Replay deposu Auth örnekleri arasında paylaşılan durum ve her istekte yazma gerektirirdi; kazanılan koruma bu etkiye göre küçüktür. Servis kimliği yazma yapan bir uca genişletilirse `jti` tüketimi zorunlu hale gelir.
 Yanlış claim/kimlik 401; geçerli kimlikle başka restoran sorgusu 403; eksik/geçersiz parametre 400.
 
 ## 3. Teslim sınırı ve kabul

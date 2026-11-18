@@ -10,9 +10,10 @@ atomiktir. Yeni altyapı yok. V8 (ilk adı V5) yalnız login/MFA peer tabloları
 HMAC anahtarları, sayaçları ve advisory lock numarası korunur. Ham email/IP DB'ye yazılmaz.
 
 Login hesap+peer 10/15dk, hesap toplam50/15dk; MFA peer30/dk. Reset'in önceki sıralı bütçeleri
-ve 429/retry-after sözleşmesi korunur. Login/MFA peer tablo kapasitesi10000 dolunca en eski
-expiry silinir; reset kapasitede fail-closed kalır. Çok adresli 50 deneme ile hesap DoS riski
-ve sel altında eski login/MFA sayacının unutulması kabul edilen mevcut ödünleşimlerdir.
+ve 429/retry-after sözleşmesi korunur. Login/MFA peer tablo kapasitesi10000 dolunca önce en az denemesi olan, eşitlikte en eski
+expiry'li kova silinir (böylece farklı anahtarlarla sel, saldırı altındaki hesabın yüksek sayaçlarını
+silemez; yalnız 1 denemelik taze kovalar feda edilir); reset kapasitede fail-closed kalır. Çok adresli 50 deneme ile hesap DoS riski
+ve 10.000'den fazla yüksek sayaçlı kovanın aynı anda oluşması halinde en düşük sayaçlıların unutulması kabul edilen mevcut ödünleşimlerdir. Ağ/Gateway katmanında IP başına limit ayrıca gerekir; Auth tek başına dağıtık sel saldırısına karşı tam koruma vaat etmez.
 
 Her ailede ayrı, kısa transaction advisory lock vardır. Bu sayede birden çok Auth örneği aynı
 bütçeyi tüketir; sayaç ilerlemesi 429'da korunur. Önceki bütçe dolarsa sonraki bütçe tüketilmez.

@@ -166,6 +166,23 @@ class SharedRateLimitStoreIntegrationTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void floodingDistinctKeysEvictsFreshBucketsBeforeAnAccountUnderAttack() {
+        Attempt hot = new Attempt("account:victim@example.test", 900, 10);
+        for (int index = 0; index < 9; index++) {
+            assertThat(check(Family.LOGIN, hot)).isZero();
+        }
+        seed("auth_login_limits", SharedRateLimitStore.MAX_BUCKETS - 1);
+        assertThat(count("auth_login_limits")).isEqualTo(SharedRateLimitStore.MAX_BUCKETS);
+        for (int index = 0; index < 50; index++) {
+            assertThat(check(Family.LOGIN, new Attempt("flood-" + index, 900, 10))).isZero();
+        }
+        assertThat(count("auth_login_limits")).isEqualTo(SharedRateLimitStore.MAX_BUCKETS);
+        assertThat(attempts("auth_login_limits", hot.key())).isEqualTo(9);
+        assertThat(check(Family.LOGIN, hot)).isZero();
+        assertThat(check(Family.LOGIN, hot)).isPositive();
+    }
+
+    @Test
     void existingResetBucketDigestAndCounterArePreserved() {
         String key = "requests:private@example.test";
         jdbc.update("INSERT INTO password_reset_limits(bucket_key, attempts, expires_at) VALUES (?, ?, ?)",

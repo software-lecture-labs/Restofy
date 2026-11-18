@@ -109,15 +109,15 @@ public class SharedRateLimitStore {
             return switch (this) {
                 case LOGIN -> """
                         DELETE FROM auth_login_limits WHERE bucket_key IN
-                        (SELECT bucket_key FROM auth_login_limits ORDER BY expires_at, bucket_key LIMIT 1)
+                        (SELECT bucket_key FROM auth_login_limits ORDER BY attempts, expires_at, bucket_key LIMIT 1)
                         """;
                 case MFA_PEER -> """
                         DELETE FROM auth_mfa_peer_limits WHERE bucket_key IN
-                        (SELECT bucket_key FROM auth_mfa_peer_limits ORDER BY expires_at, bucket_key LIMIT 1)
+                        (SELECT bucket_key FROM auth_mfa_peer_limits ORDER BY attempts, expires_at, bucket_key LIMIT 1)
                         """;
                 case RESET -> """
                         DELETE FROM password_reset_limits WHERE bucket_key IN
-                        (SELECT bucket_key FROM password_reset_limits ORDER BY expires_at, bucket_key LIMIT 1)
+                        (SELECT bucket_key FROM password_reset_limits ORDER BY attempts, expires_at, bucket_key LIMIT 1)
                         """;
             };
         }
