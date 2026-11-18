@@ -3,7 +3,30 @@
 - **Tarih:** 18 Kasım 2026
 - **Talep eden:** Alper — QR / Payment
 - **Muhatap:** Hamza — Order Service sorumlusu ve onun kodlama ajanı
-- **Durum:** İnceleme ve uygulama talebi; tamamlanmış entegrasyon veya yeni güvenlik tasarımı onayı değildir.
+- **Durum:** Payment'tan bağımsız QR → Order akışı uygulandı ve yerel iki servis testinde doğrulandı. R3 ertelendi. Tam kalite kapısı açık.
+
+## QR tarafı teslim kontrolü — 18 Kasım 2026
+
+`1d9f792` üzerindeki `c87b4fa` ve `c6759af` teslimleri, Payment'tan bağımsız QR istemcisi için gereken Order sözleşmesini sağlıyor.
+
+| İstek | Kod incelemesi sonucu |
+| --- | --- |
+| R1 | Order, `order-qr` profilinde ayrı RS256 QR servis kimliği ile restoran ve imzalı HTTP istek bağını doğruluyor. QR imzalayıcısı yerel iki servis akışında kullanıldı. Ortak ortam TLS dağıtımı ayrıca doğrulanacak. |
+| R2 | Lifecycle uçları ve DTO'lar mevcut. IDLE için null süre dolmamış sayılıyor. QR, tam komutu ve digest'i koruyup değişmez `requestedAt` anına göre ilk 500 uygun adayı gönderiyor. Kalan adaylar işlemin kesin sonucundan sonra yeni komutla değerlendiriliyor. |
+| R3 | **Ertelendi.** Payment kaynak API'si hazır olana kadar siparişli oturumun yetkili okuması ve yeni/yenilenen izni `503 DEPENDENCY_UNAVAILABLE` ile kapalı kalır. |
+| R4 | V131, hazırlık öncesi `NOT_CLOSED` kararını kalıcılaştırıyor. Gecikmiş aynı prepare `409 INVALID_STATUS_TRANSITION` alıyor. K13 teyidi, gate ve aynı operationId/digest ile tekrar sözleşmesi korunuyor. İmzalı IDLE ve teyit iki gerçek servisle doğrulandı. K13 eşlemesi ve yanıt kaybı QR HTTP taşıma testlerinde kapsanıyor. |
+
+**QR uygulaması:** `OrderLifecycleClient`, `qr-order` profili altında `ORDER_SERVICE_URL` üzerinden imzalı read, prepare, status, ACK ve abort çağrılarını yapar. Aynı işlem kimliği ve digest korunur. Yanıt bağının uyuşmaması, HTTP hatası veya kayıp yanıt bir kapanış/abort kanıtı üretmez. `AUTH_RESTAURANT_ID` ve mevcut timeout ayarları kullanılır. QR'a ayrılan imza anahtarı, profil ayarları ve anahtar üretim komutu [QR anahtar rehberinde](../qr-key-uretimi.md#qr--order-lifecycle-imza-anahtarı) yer alır.
+
+**QR doğrulaması:** Java 25 tam backend koşusunda QR için 621, Order için 978 test geçti. Yeni QR HTTP istemcisinin 5 testi, imzayı ve gövde bağını, 500 aday sınırını, yanlış digest'i, 409/503, yanıt kaybı ve okuma zaman aşımını kapsar. Node.js anahtar ve Compose testlerinde 26 test geçti.
+
+Geçici PostgreSQL üzerinde ayrı gerçek QR ve Order JVM'leri ile imzalı siparişsiz `IDLE_MAIN` ve Order teyidi, 501 süresi dolmuş misafirin iki kalıcı işlemde sonlandırılması, null süreli misafirin korunması ve Payment yokken siparişli ana oturumun açık kalması doğrulandı. Bu koşu yerel loopback HTTP kullandı. Ortak ortam TLS yapılandırması ve R3 mali doğrulaması ayrı kalır.
+
+Tam pre-push backend test, build ve coverage kontrollerini geçti. Genel sonuç exit `1`: mevcut Next.js build güvenlik kontrolünde durdu ve yerel Auth/Mail ENV eksikleri Docker/HTTP kontrollerini engelledi. Frontend HTTP/Playwright çalıştırılmadı.
+
+SonarQube `up` ve `status` exit `0`, `scan` exit `1`. Backend analizinde güvenlik/güvenilirlik/bakım D/C/A, kapsam %92,9 ve tekrar %0,4. Backend Quality Gate başarısız. Frontend A/A/A, kapsam %95,8 ve tekrar %0,0. Frontend Quality Gate geçti. Bunlar proje ölçümleridir. Mevcut Sonar tokenı dosya bazlı bulgu sorgusuna yetki vermedi.
+
+**QR Sonar düzeltmesi:** Yalnız QR modülünde Java 25 ile `clean verify` çalıştırıldı. 621 test geçti, hata ve atlama yok. Ayrı `restofy-qr-service` Sonar analizinde Quality Gate geçti. Güvenlik/güvenilirlik/bakım A/A/A, kapsam %87,5, tekrar %0 ve açık bulgu sıfır. Personel yazmalarında Spring Security CSRF kontrolü mevcut Auth çerezini doğruluyor. Q5 servis zincirindeki `S4502` istisnası yalnız önceden imzası doğrulanan ve tarayıcı `Cookie`/`Origin` başlıkları reddedilen talepler için belgelendi. JJWT'nin zorunlu `Date` dönüşümü tek bir adaptörle sınırlandı. Bu koşu tam backend veya frontend analizini tekrarlamadı.
 
 ## 1. Ajana verilecek görev ve kapsam
 

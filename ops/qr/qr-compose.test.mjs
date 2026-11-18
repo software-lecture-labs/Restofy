@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const compose = fileURLToPath(new URL('../../docker-compose.yml', import.meta.url));
 const KEY = 'QR_PAYLOAD_ENCRYPTION_KEY';
 
-function config(t, key) {
+function config(t, key, extra = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'restofy-qr-compose-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const text = fs.readFileSync(compose, 'utf8');
@@ -21,6 +21,7 @@ function config(t, key) {
     return `${name}=${value}`;
   });
   if (key !== undefined) values.push(`${KEY}=${key}`);
+  values.push(...Object.entries(extra).map(([name, value]) => `${name}=${value}`));
   const envFile = path.join(root, 'fixture.env');
   fs.writeFileSync(envFile, values.join('\n') + '\n');
   const environment = {
@@ -55,4 +56,20 @@ test('Compose still passes an explicitly configured QR key to QR only', t => {
   for (const [name, service] of Object.entries(model.services)) {
     if (name !== 'qr-service') assert.equal(service.environment?.[KEY], undefined);
   }
+});
+
+test('Compose isolates lifecycle signing, verification and profiles by service', t => {
+  const model = config(t, undefined, {
+    QR_SPRING_PROFILES_ACTIVE: 'qr-order', ORDER_SPRING_PROFILES_ACTIVE: 'order-qr',
+    QR_ORDER_SERVICE_PRIVATE_KEY: 'fixture-private', QR_ORDER_SERVICE_KEY_ID: 'fixture',
+    ORDER_QR_SERVICE_PUBLIC_KEYS: 'fixture-public', ORDER_QR_SERVICE_RESTAURANTS: 'fixture-tenant',
+  });
+  for (const [name, service] of Object.entries(model.services)) {
+    const env = service.environment ?? {};
+    assert.equal(env.QR_ORDER_SERVICE_PRIVATE_KEY, name === 'qr-service' ? 'fixture-private' : undefined);
+    assert.equal(env.ORDER_QR_SERVICE_PUBLIC_KEYS, name === 'order-service' ? 'fixture-public' : undefined);
+  }
+  assert.equal(model.services['qr-service'].environment.SPRING_PROFILES_ACTIVE, 'qr-order');
+  assert.equal(model.services['order-service'].environment.SPRING_PROFILES_ACTIVE, 'order-qr');
+  assert.equal(model.services['auth-service'].environment.SPRING_PROFILES_ACTIVE, 'test');
 });

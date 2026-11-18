@@ -221,6 +221,8 @@ class RevocationInternalHttpTests {
                 .andExpect(status().isUnauthorized());
         http.perform(request(command).header("Authorization", credential(command, "auth-service", "staff:revocation:write"))
                 .header("Origin", "https://example.invalid")).andExpect(status().isUnauthorized());
+        http.perform(request(command).header("Authorization", credential(command, "auth-service", "staff:revocation:write"))
+                .header("Cookie", "restofy_access=browser-fixture")).andExpect(status().isUnauthorized());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_receipts", Long.class)).isZero();
     }
 

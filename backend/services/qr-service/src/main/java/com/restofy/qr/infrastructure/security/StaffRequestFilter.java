@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -24,6 +23,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /** Exact staff route inventory. Unknown, guest and delegated service paths remain denied by the chain. */
 public final class StaffRequestFilter extends OncePerRequestFilter {
     private static final String ID = "[0-9a-fA-F-]{36}";
+    private static final String QR_PREFIX = "/api/v1/qr";
+    private static final String TABLE = "/tables/" + ID;
+    private static final String SESSION = "/table-sessions/" + ID;
+    private static final String QR_CODES = TABLE + "/qr-codes";
+    private static final String QR_CODE = QR_CODES + "/" + ID;
+    private static final String ADMIN = "ADMIN";
+    private static final String WAITER = "WAITER";
+    private static final Set<String> MANAGERS = Set.of(ADMIN, WAITER);
+    private static final Set<String> ADMIN_ONLY = Set.of(ADMIN);
     private final Q5SecuritySettings settings;
     private final Clock clock;
     private final StaffRevocationStore store;
@@ -32,36 +40,49 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
         this.settings=settings; this.clock=clock; this.store=store;
     }
 
-    static boolean staffPath(String method, String path) { return policy(method,path) != null; }
+    static boolean staffPath(String method, String path) { return !policy(method, path).isEmpty(); }
 
     private static Set<String> policy(String method, String path) {
-        String route = path.startsWith("/api/v1/qr") ? path.substring("/api/v1/qr".length()) : "";
-        if (method.equals("GET") && (route.equals("/tables") || route.matches("/tables/"+ID+"(/session-statistics)?")
-                || route.matches("/table-sessions/"+ID+"/close-commands/"+ID))) return Set.of("ADMIN","WAITER");
-        if (method.equals("POST") && route.matches("/table-sessions/"+ID+"/(close|cleaned)")) return Set.of("ADMIN","WAITER");
-        if ((method.equals("POST") && route.equals("/tables")) || (method.equals("PUT") && route.matches("/tables/"+ID))
-                || (method.equals("PATCH") && route.matches("/tables/"+ID+"/active"))
-                || (method.equals("GET") && route.matches("/tables/"+ID+"/qr-codes(/"+ID+"(/(image|download))?)?"))
-                || (method.equals("POST") && route.matches("/tables/"+ID+"/qr-codes(/"+ID+"/rotate)?"))
-                || (method.equals("PATCH") && route.matches("/tables/"+ID+"/qr-codes/"+ID+"/active"))
-                || (method.equals("DELETE") && route.matches("/tables/"+ID+"/qr-codes/"+ID))) return Set.of("ADMIN");
-        return null;
+        String route = path.startsWith(QR_PREFIX) ? path.substring(QR_PREFIX.length()) : "";
+        return switch (method) {
+            case "GET" -> readPolicy(route);
+            case "POST" -> postPolicy(route);
+            case "PUT" -> adminWhen(route.matches(TABLE));
+            case "PATCH" -> adminWhen(route.matches(TABLE + "/active") || route.matches(QR_CODE + "/active"));
+            case "DELETE" -> adminWhen(route.matches(QR_CODE));
+            default -> Set.of();
+        };
+    }
+
+    private static Set<String> readPolicy(String route) {
+        if (route.equals("/tables") || route.matches(TABLE + "(/session-statistics)?")
+                || route.matches(SESSION + "/close-commands/" + ID)) { return MANAGERS; }
+        return adminWhen(route.matches(QR_CODES + "(/" + ID + "(/(image|download))?)?"));
+    }
+
+    private static Set<String> postPolicy(String route) {
+        if (route.matches(SESSION + "/(close|cleaned)")) { return MANAGERS; }
+        return adminWhen(route.equals("/tables") || route.matches(QR_CODES + "(/" + ID + "/rotate)?"));
+    }
+
+    private static Set<String> adminWhen(boolean allowed) {
+        return allowed ? ADMIN_ONLY : Set.of();
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
         Set<String> roles = policy(request.getMethod(), request.getRequestURI());
-        if (roles == null) { chain.doFilter(request,response); return; }
+        if (roles.isEmpty()) { chain.doFilter(request,response); return; }
         Principal principal;
         try { principal=verify(request); }
-        catch (RuntimeException invalid) { problem(response,401); return; }
+        catch (RuntimeException _) { problem(response,401); return; }
         if (!roles.contains(principal.role())) { problem(response,403); return; }
         if (!request.getMethod().equals("GET")) {
-            try { csrf(request); } catch (RuntimeException invalid) { problem(response,403); return; }
+            try { csrf(request); } catch (RuntimeException _) { problem(response,403); return; }
         }
         try { store.requireAllowed(principal.restaurantId(), principal.userId(), principal.sessionId()); }
         catch (org.springframework.web.server.ResponseStatusException denied) { problem(response,denied.getStatusCode().value()); return; }
-        catch (RuntimeException databaseUnavailable) { problem(response,503); return; }
+        catch (RuntimeException _) { problem(response,503); return; }
         var context=SecurityContextHolder.createEmptyContext();
         context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal,null,
                 List.of(new SimpleGrantedAuthority("ROLE_"+principal.role()))));
@@ -78,7 +99,7 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
             if (token==null || token.length()>4096) throw new IllegalArgumentException();
             var key=settings.staffKey();
             UUID restaurant=settings.restaurant();
-            var claims=Jwts.parser().verifyWith(key).sig().clear().add(Jwts.SIG.RS256).and().clock(() -> Date.from(clock.instant()))
+            var claims=Jwts.parser().verifyWith(key).sig().clear().add(Jwts.SIG.RS256).and().clock(() -> JwtDates.from(clock.instant()))
                     .requireIssuer(settings.staffIssuer()).requireAudience("restofy-staff-api")
                     .require("token_type","access").require("auth_state","AUTHENTICATED").require("auth_policy","q5-idle-v1")
                     .require("restaurant_id",restaurant.toString()).build().parseSignedClaims(token).getPayload();
@@ -88,9 +109,9 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
                     || !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant())
                     || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(ttl))) throw new IllegalArgumentException();
             UUID.fromString(claims.getId());
-            if (!Set.of("ADMIN","WAITER","KITCHEN").contains(claims.get("role",String.class))) throw new IllegalArgumentException();
+            if (!Set.of(ADMIN, WAITER, "KITCHEN").contains(claims.get("role",String.class))) throw new IllegalArgumentException();
             return new Principal(restaurant,UUID.fromString(claims.getSubject()),UUID.fromString(claims.get("sid",String.class)),claims.get("role",String.class));
-        } catch (Exception invalid) { throw new IllegalArgumentException("Invalid staff identity"); }
+        } catch (Exception _) { throw new IllegalArgumentException("Invalid staff identity"); }
     }
 
     private void csrf(HttpServletRequest request) {
@@ -98,7 +119,8 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
         String origin=request.getHeader("Origin");
         var origins=settings.origins();
         if (!origins.contains(origin) || origin.contains("*") || !MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(request.getContentType()))) throw new IllegalArgumentException();
-        String token=cookie(request,"restofy_csrf"), header=request.getHeader("X-CSRF-TOKEN");
+        String token=cookie(request,"restofy_csrf");
+        String header=request.getHeader("X-CSRF-TOKEN");
         if (token==null || !token.matches("[A-Za-z0-9_.-]{20,2048}") || header==null
                 || !MessageDigest.isEqual(token.getBytes(java.nio.charset.StandardCharsets.US_ASCII),header.getBytes(java.nio.charset.StandardCharsets.US_ASCII))) throw new IllegalArgumentException();
     }
@@ -107,7 +129,8 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
         String value=null;
         int count=0;
         if (request.getCookies()!=null) for (var cookie:request.getCookies()) if (name.equals(cookie.getName())) {
-            if (++count>1) throw new IllegalArgumentException(); value=cookie.getValue();
+            if (++count>1) { throw new IllegalArgumentException(); }
+            value=cookie.getValue();
         }
         return value;
     }

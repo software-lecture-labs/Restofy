@@ -101,6 +101,19 @@ Başarı exit code `0`, hata exit code `1` döner. Mesajlar anahtar değerini i�
 
 Aktif kopya farklarında `ops/env use ... -Force` / `--force` mevcut `.env` dosyasını `.env.bak` olarak yedekleyebilir. **Önce farkları ve doğru QR anahtarını kontrol edin**; force birleştirme veya anahtar kurtarma yapmaz. Ayrıntı: [OPS rehberi](../../ops/ops.md).
 
+## QR → Order lifecycle imza anahtarı
+
+```powershell
+node ops/qr/qr-key.mjs order-init lifecycle-2026-11
+```
+
+Bu komut `secrets/qr-order-lifecycle-2026-11.env` içinde 2048 bit RSA anahtar çifti oluşturur. Var olan dosyayı korur ve anahtarları terminale yazmaz. `.env` profilleri ve QR görselleri için kullanılan AES anahtarı aynı kalır.
+
+1. QR çalışma ortamına `QR_ORDER_SERVICE_KEY_ID` ve `QR_ORDER_SERVICE_PRIVATE_KEY` değerlerini ver. Çıktı dosyasının tamamı QR'a özeldir.
+2. Order'a yalnız `ORDER_QR_SERVICE_PUBLIC_KEYS` değerini ve yetkili restoran UUID'lerini `ORDER_QR_SERVICE_RESTAURANTS` olarak ver. Bu listedeki restoranlar tüm yapılandırılmış QR lifecycle anahtarları için yetkilidir.
+3. Compose için `QR_SPRING_PROFILES_ACTIVE=qr-order` ve `ORDER_SPRING_PROFILES_ACTIVE=order-qr` kullan. Order profiline `dev` veya `test` ekleme. Ortak ortamda `ORDER_SERVICE_URL` güvenilen bir HTTPS origin olmalı. Yerel süreç testlerinde QR `test,qr-order` veya `dev,qr-order` ile Order'a loopback HTTP üzerinden erişebilir. QR'ın mevcut Q5 kontrolü, `qr-order` aktifken `CORS_ALLOWED_ORIGINS` için HTTPS istemeye devam eder.
+4. Rotasyonda yeni açık anahtarı önce bütün Order örneklerine eski anahtarla birlikte yükle. QR yeni `kid` ile imzalamaya geçtikten ve eski token süresi dolduktan sonra eski açık anahtarı kaldır. Anahtar dağıtımını gerçek ortamın secret yönetim mekanizmasıyla yap.
+
 ## Testler
 
 ```powershell
