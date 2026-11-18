@@ -102,7 +102,7 @@ try {
       || (['tcp:','http:','https:'].includes(address.protocol) && ['localhost','127.0.0.1','[::1]'].includes(address.hostname));
   } catch {}
   check(localDocker,'Network acceptance requires a local Docker endpoint');
-  const staff = keys(), command = keys(), receipt = keys();
+  const staff = keys(), command = keys(), receipt = keys(), mailKeys = keys();
   const password = `Q5-Fixture-${randomBytes(16).toString('hex')}`;
   const pgPassword = randomBytes(32).toString('base64url');
   const databasePort = String(await port());
@@ -139,6 +139,8 @@ try {
     QR_Q5_RECEIPT_PRIVATE_KEY: receipt.private, AUTH_Q5_QR_PUBLIC_KEY: receipt.public, AUTH_Q5_QR_GENERATION: randomUUID(),
     AUTH_Q5_QR_URL: `http://127.0.0.1:${proxy.address().port}`, AUTH_CSRF_SECRET: randomBytes(32).toString('base64'),
     AUTH_MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64'), AUTH_RESET_HMAC_KEY: randomBytes(32).toString('base64'),
+    AUTH_MAIL_PRIVATE_KEY: mailKeys.private, AUTH_MAIL_OUTBOX_KEY: randomBytes(32).toString('base64'),
+    MAIL_SERVICE_URL: 'http://127.0.0.1:9', AUTH_MAILOUTBOX_RELAYENABLED: 'false',
     AUTH_COOKIE_SECURE: 'false', AUTH_MFA_REQUIRED: 'false', AUTH_INITIAL_ADMIN_ENABLED: 'false', AUTH_DEV_USERS_ENABLED: 'true',
     AUTH_DEV_ADMIN_EMAIL: 'q5admin@example.com', AUTH_DEV_ADMIN_PASSWORD: password, AUTH_DEV_WAITER_EMAIL: 'q5waiter@example.com',
     AUTH_DEV_WAITER_PASSWORD: password, AUTH_DEV_KITCHEN_EMAIL: 'q5kitchen@example.com', AUTH_DEV_KITCHEN_PASSWORD: password,
@@ -263,6 +265,14 @@ try {
   await wait('PostgreSQL restart', () => sql('postgres','SELECT 1') === '1');
   check(await qrStatus(beforeRestart) === 503, 'Old database incarnation accepted staff');
   console.log('PASS database restart fails closed before resynchronization');
+  // Asıl kullanıcı senaryosu: DB yeniden başladı, kaynak ACTIVE değil ve QR'a ulaşılamıyor; çıkış yerelde tamamlanmalı.
+  const operationsBeforeLogout = sql('q5_auth', 'SELECT count(*) FROM staff_revocation_operations');
+  check((await authRequest('/logout','POST')).status === 204, 'Logout was blocked while source was not ACTIVE and QR was offline');
+  check(!jar.has('restofy_access') && !jar.has('restofy_refresh') && !jar.has('restofy_mfa') && !jar.has('restofy_csrf'),
+    'Logout after database restart did not clear every Auth cookie');
+  check(sql('q5_auth', 'SELECT count(*) FROM staff_revocation_operations') === operationsBeforeLogout,
+    'Logout while source was not ACTIVE wrote an outbox operation');
+  console.log('PASS logout completes locally after database restart while QR is unreachable');
   offline = false;
   await wait('safe database rebootstrap', () => sql('q5_auth',"SELECT phase='ACTIVE' AND database_start=pg_postmaster_start_time() FROM staff_revocation_source_state") === 't'
     && sql('q5_qr','SELECT ready AND database_start=pg_postmaster_start_time() FROM staff_revocation_guard_state') === 't');

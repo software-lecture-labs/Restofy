@@ -81,6 +81,11 @@ sequenceDiagram
 - MFA recovery-code regenerate: aktör SID korunur, diğer SID'ler iptal edilir.
 - QR'da invalid/expired JWT veya iptal SID 401; doğrulanmış kimliğin rol/CSRF reddi 403; guard/DB/readiness kesintisi 503'tür.
 - Endpoint, request DTO ve public path değişmez.
+- Personel dizini (`PUT /api/v1/auth/staff/{id}`): kullanıcıyı devre dışı bırakan, rolünü veya e-postasını değiştiren güncelleme
+  ACK_REQUIRED'dır. İlk istek 503 (`Security transition pending; retry safely`) döner; PREPARE commit edilir, iş değişikliği
+  yapılmaz. QR onayından sonra aynı istek tekrarlanınca kullanıcı sürümü ve oturum görüntüsü değişmediği için aynı işlem
+  yeniden kullanılır ve güncelleme uygulanır. İstemci 503'ü "güvenle tekrar dene" olarak ele almalıdır. Alınmış bir e-posta,
+  iptal hazırlanmadan 409 döner; başarısız istek üyenin oturumlarını kapatmaz.
 
 ## Internal komut ve ACK
 
