@@ -36,7 +36,8 @@ public class MfaAttemptLimiter {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW,
-            noRollbackFor = {BadCredentialsException.class, LoginLimitException.class})
+            noRollbackFor = {BadCredentialsException.class, LoginLimitException.class,
+                    com.restofy.auth.application.service.revocation.RevocationPendingException.class})
     public <T> T attempt(Identity identity, String peer, BiFunction<StaffMfa, UserSession, T> operation) {
         peers.check(peer);
         if (identity.role() != StaffRole.ADMIN) { throw new AccessDeniedException("MFA requires ADMIN"); }

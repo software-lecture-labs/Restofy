@@ -33,7 +33,7 @@ public class AuthSettings {
     private static final int MIN_RSA_BITS = 2048;
     private static final int MAX_ISSUER_LENGTH = 100;
     private static final Duration MIN_ACCESS_TTL = Duration.ofMinutes(5);
-    private static final Duration MAX_ACCESS_TTL = Duration.ofHours(1);
+    private static final Duration MAX_ACCESS_TTL = MIN_ACCESS_TTL;
     private static final Duration MIN_REFRESH_TTL = Duration.ofDays(1);
     private static final Duration MAX_REFRESH_TTL = Duration.ofDays(30);
     private static final Set<String> LOCAL_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");

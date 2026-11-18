@@ -42,7 +42,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-class GuestSessionPostgresIntegrationTests {
+class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired GuestSessionOpeningService opening;
     @Autowired GuestSessionValidationService validation;
     @Autowired GuestTokenCodec tokens;
@@ -263,7 +263,7 @@ class GuestSessionPostgresIntegrationTests {
     @Test
     void databaseEnforcesDigestUniquenessAndTheCompositeTenantParentKey() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("122");
         var opened = opening.open(create("1").qrToken());
         var guest = opened.guestSession();
         var duplicate = new GuestSession(guest.restaurantId(), guest.tableSessionId(), tokens.digest(opened.guestToken()), guest.joinedAt());

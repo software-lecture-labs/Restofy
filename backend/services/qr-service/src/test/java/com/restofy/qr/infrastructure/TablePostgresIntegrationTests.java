@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-class TablePostgresIntegrationTests {
+class TablePostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired TableManagementService service;
     @Autowired DiningTableRepository repository;
     @Autowired JdbcTemplate jdbc;
@@ -65,7 +65,7 @@ class TablePostgresIntegrationTests {
     @Test
     void flywayAndJpaValidateActualPostgresSchema() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("122");
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='21' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForList("select indexname from pg_indexes where tablename='dining_tables'", String.class))
                 .contains("dining_tables_pkey", "uq_dining_tables_restaurant_number", "ix_dining_tables_restaurant_state");

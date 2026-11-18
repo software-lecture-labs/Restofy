@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-class QrLifecyclePostgresIntegrationTests {
+class QrLifecyclePostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired QrCodeCreationService creation;
     @Autowired QrCodeLifecycleService lifecycle;
     @Autowired TableManagementService tables;
@@ -83,7 +83,7 @@ class QrLifecyclePostgresIntegrationTests {
     @Test
     void forwardMigrationAllowsInactiveStateWithNoRevocationTimestamp() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("121");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("122");
         var code = create();
         change(code, false, 0);
         assertThat(codes.findById(code.id()).orElseThrow().getRevokedAt()).isNull();

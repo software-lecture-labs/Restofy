@@ -17,7 +17,12 @@ import static org.assertj.core.api.Assertions.*;
 @SpringBootTest(useMainMethod = SpringBootTest.UseMainMethod.ALWAYS,
         properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 @AutoConfigureMockMvc
-class QrServiceApplicationTests {
+class QrServiceApplicationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
+    @Autowired org.springframework.jdbc.core.JdbcTemplate q5FixtureDatabase;
+    @org.junit.jupiter.api.BeforeEach
+    void keepThisUnregisteredContextUnready() {
+        q5FixtureDatabase.update("UPDATE staff_revocation_guard_state SET ready=false");
+    }
     @Autowired MockMvc mvc;
     @Autowired com.restofy.qr.application.service.GuestSessionContextReader contexts;
     @Autowired com.restofy.qr.application.port.OrderSessionAccess orders;
@@ -63,10 +68,10 @@ class QrServiceApplicationTests {
         for (String role : new String[]{"ADMIN", "WAITER", "KITCHEN"}) {
             mvc.perform(post(path).with(csrf()).with(user("test-staff").roles(role))
                     .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isUnauthorized());
         }
         mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -118,7 +123,7 @@ class QrServiceApplicationTests {
         String path = "/api/v1/qr/tables/00000000-0000-0000-0000-000000000001/session-statistics";
         mvc.perform(get(path).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN"))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(get(path).with(user("test-staff").roles("ADMIN"))).andExpect(status().isForbidden());
+        mvc.perform(get(path).with(user("test-staff").roles("ADMIN"))).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -143,23 +148,25 @@ class QrServiceApplicationTests {
     @Test
     void authenticatedDefaultUserCannotManageTables() throws Exception {
         mvc.perform(get("/api/v1/qr/tables").with(user("test-staff").roles("ADMIN")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/qr/tables").with(user("test-staff").roles("ADMIN")).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"tableNumber\":\"1\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     void missingCsrfCannotWriteAndSwaggerRemainsClosed() throws Exception {
         mvc.perform(post("/api/v1/qr/tables").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"tableNumber\":\"1\"}")).andExpect(status().isForbidden());
+                .content("{\"tableNumber\":\"1\"}")).andExpect(status().isUnauthorized());
         mvc.perform(get("/v3/api-docs")).andExpect(status().isUnauthorized());
     }
 
     @Test
     void healthIsAvailableWithoutExposingDetails() throws Exception {
-        mvc.perform(get("/actuator/health")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UP")).andExpect(jsonPath("$.components").doesNotExist());
+        // This context has no authoritative baseline. Liveness is UP; staff readiness stays closed.
+        mvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
+        mvc.perform(get("/actuator/health/readiness")).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value("DOWN")).andExpect(jsonPath("$.components").doesNotExist());
     }
 
     @Test
@@ -168,8 +175,8 @@ class QrServiceApplicationTests {
         mvc.perform(post(path).with(csrf()).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post(path).with(csrf()).with(user("test-staff").roles("ADMIN")))
-                .andExpect(status().isForbidden());
-        mvc.perform(post(path)).andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(path)).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -180,9 +187,9 @@ class QrServiceApplicationTests {
                 .andExpect(status().isUnauthorized());
         mvc.perform(post(path).with(csrf()).with(user("test-staff").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @ParameterizedTest
@@ -197,9 +204,9 @@ class QrServiceApplicationTests {
         mvc.perform(request(HttpMethod.valueOf(method), path).queryParam("version", "0").with(csrf())
                 .with(user("test-staff").roles("ADMIN")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"isActive\":false,\"version\":0}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mvc.perform(request(HttpMethod.valueOf(method), path).queryParam("version", "0"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @ParameterizedTest
@@ -212,7 +219,7 @@ class QrServiceApplicationTests {
         mvc.perform(get(path).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get(path).with(user("test-staff").roles("ADMIN")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
 	@Test

@@ -51,6 +51,9 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
         } catch (BadCredentialsException _) {
             AuthProblems.write(response, HttpServletResponse.SC_UNAUTHORIZED);
+        } catch (org.springframework.web.server.ResponseStatusException unavailable) {
+            if (unavailable.getStatusCode().value()!=503) throw unavailable;
+            AuthProblems.write(response,HttpServletResponse.SC_SERVICE_UNAVAILABLE);
         }
     }
 

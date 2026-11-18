@@ -87,6 +87,7 @@ public class MfaVerificationService {
             Long counter = totpCode == null ? null : factors.verifiedCounter(mfaState, totpCode);
             MfaRecoveryCode matched = recoveryCode == null ? null : factors.findCode(identity.userId(), recoveryCode);
             sessions.revokeOtherSessions(identity);
+            try {
             if (counter != null) { factors.advance(mfaState, counter); }
             else { factors.consume(matched); }
             factors.revokeCodes(identity.userId());
@@ -94,6 +95,10 @@ public class MfaVerificationService {
             List<String> generated = factors.newCodes(identity.userId());
             audit.publish(Event.CODES_REGENERATED, identity.userId(), identity.sessionId());
             return generated;
+            } catch (RuntimeException failure) {
+                org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                throw failure;
+            }
         });
     }
 

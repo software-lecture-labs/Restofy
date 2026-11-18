@@ -48,7 +48,7 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     @BeforeEach
     void setup() {
         // Second guard before fixture mutation; the initializer guards startup before Flyway.
-        assertThat(environment.getRequiredProperty("spring.datasource.url")).startsWith("jdbc:tc:postgresql:");
+        assertThat(environment.getRequiredProperty("spring.datasource.url")).isEqualTo("jdbc:tc:q5postgresql:17-alpine:///restofy_test");
         String url = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<String>)
                 connection -> connection.getMetaData().getURL());
         String database = jdbc.queryForObject("SELECT current_database()", String.class);
@@ -63,13 +63,15 @@ class StaffPersistenceTests extends com.restofy.auth.support.AuthSessionTestSupp
     @Test
     void flywayAppliesV1AndHibernateValidatesStaffSchema() {
         flyway.validate();
-        assertThat(flyway.info().applied()).hasSize(4);
+        assertThat(flyway.info().applied()).hasSize(5);
+        assertThat(flyway.info().applied()[4].getVersion().getVersion()).isEqualTo("7");
+        assertThat(flyway.info().applied()[4].getVersion().getVersion()).isEqualTo("7");
         assertThat(flyway.info().applied()[3].getVersion().getVersion()).isEqualTo("4");
         assertThat(flyway.info().applied()[2].getVersion().getVersion()).isEqualTo("3");
         assertThat(flyway.info().applied()[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(flyway.info().applied()[0].getVersion().getVersion()).isEqualTo("1");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='staff_users'", Integer.class))
-                .isEqualTo(9);
+                .isEqualTo(10);
         StaffUser saved = users.saveAndFlush(new StaffUser(" STAFF@EXAMPLE.COM ", hash, StaffRole.KITCHEN));
         assertThat(saved.getEmailNormalized()).isEqualTo("staff@example.com");
         assertThat(saved.getCreatedAt()).isNotNull();

@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
 class AuthTestDatabaseInitializerTests {
     // Deliberately unreachable, and never passed to a real driver: all DB operations are mocks.
     private static final String REAL_URL = "jdbc:postgresql://never-connect.invalid/restofy_auth";
-    private static final String TEST_URL = "jdbc:tc:postgresql:17-alpine:///restofy_test";
+    private static final String TEST_URL = "jdbc:tc:q5postgresql:17-alpine:///restofy_test";
 
     @ParameterizedTest(name = "rejects {0} before database startup")
     @MethodSource("unsafeProperties")
@@ -165,7 +165,13 @@ class AuthTestDatabaseInitializerTests {
         application.setBannerMode(Banner.Mode.OFF);
         application.setLogStartupInfo(false);
         application.setRegisterShutdownHook(false);
-        application.addInitializers(context -> context.getBeanFactory().registerSingleton("startupProbe", probe),
+        application.addInitializers(context -> {
+                    context.getBeanFactory().registerSingleton("startupProbe", probe);
+                    // The synthetic boot does not inherit AuthSessionTestSupport's DynamicPropertySource.
+                    // Simulated system properties/ENV still take precedence, so every unsafe-override test remains effective.
+                    context.getEnvironment().getPropertySources().addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                            new MapPropertySource("durableTestDatabaseDefault",Map.of("spring.datasource.url",TEST_URL)));
+                },
                 new AuthTestDatabaseInitializer());
         return application.run();
     }
