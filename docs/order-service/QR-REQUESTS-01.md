@@ -3,6 +3,8 @@
 **Muhatap:** Alper, QR Service  
 **Kapsam:** QR-INT-01 için QR token üretimi, HTTP adaptörü ve ortak doğrulama. Order'ın yöntemleri, DTO'ları ve hata kodları [Order entegrasyon sözleşmesinde](INTEGRATION_CONTRACTS.md#51-qr-http-alanları-ve-sonuçları).
 
+**Durum:** QR uygulama teslimi kapatıldı. Ortak QR–Order kabul testi ve Payment'a bağlı K7 doğrulaması açık.
+
 ## QR'dan istenen değişiklik
 
 `OrderSessionAccess` için doğrudan Order'a bağlanan bir HTTP adaptörü uygulayın. Yalnız QR'ın kendi doğruladığı restoran ve masa oturumu bağlamından üretilen çağrıları imzalayın. İşlem yolu, operationId, REST gövdesi ve varsa query gönderimden önce kesinleşmiş olmalı. Gateway rotası gerekmiyor. Ortak runtime'da bağlantı HTTPS olmalı.
@@ -31,4 +33,12 @@ Anahtar rotasyonunda yeni açık anahtarı önce eski anahtarla birlikte bütün
 - K13 kapsamında doğru CLOSED makbuzu zamanında ulaşmasa bile aynı komutla teyit edin. `scopeDrift` ve `driftBlockers` değişmez kaynak teyidine kaydedilir. QR yerel sonucu korur.
 - Bu aşamada gerçek token ile siparişsiz oturum okuması ve idle protokolü çalıştırılabilir. Sipariş içeren oturumda Order yetkili Payment kanıtı bulunmadığında okuma ve yeni/yenilenen izin için 503 döner. Alper'in Payment kaynak sözleşmesi hazır olduğunda [K7 bağımlılığı](INTEGRATION_CONTRACTS.md#52-payment-kaynak-bağımlılığı) yeniden ele alınacak.
 
-Ortak kabul testlerinde gerçek QR adaptörüyle imza ve kapsam, yanlış tenant ve istek bağı, 500'ü aşan adayların sıralı işlenmesi, ilk abort'tan sonra gecikmiş prepare ve timeout sonrası aynı işlemle uzlaştırma senaryolarını doğrulayın. Payment kaynağı yokken siparişli oturumun 503 davranışını da kontrol edin. Order'ın ayrı süreçlerle çalışan imzalı HTTP testinde kalıcı abort ve yeniden başlatma sonrası uzlaştırma doğrulandı. Ortak QR–Order testi QR adaptörü hazır olduğunda Alper'in sorumluluğunda.
+## QR teslimi ve ortak kabul
+
+QR uygulaması `b686f5a` ile teslim edildi.
+
+- [x] `OrderSessionAccess` için doğrudan HTTP adaptörü ve her isteğin yöntemini, ham hedefini ve gövdesini bağlayan RS256 imzası uygulandı. Anahtar üretimi ve açık anahtar dağıtımı [QR anahtar rehberinde](../qr/qr-key-uretimi.md) kayıtlı.
+- [x] Yanıt kimlikleri ve komut digest'i doğrulanıyor. IDLE isteği en fazla 500 süresi dolmuş adayı taşıyor. Kesinti sonrası aynı kalıcı komut yeni bir imzayla uzlaştırılıyor. `NOT_STARTED` ve K13 CLOSED teyidi eşlemeleri uygulandı.
+- [x] QR istemcisinin yerel HTTP testlerinde imzalı çağrı, yanlış tenant yanıtı, 500 aday sınırı, 503, timeout, yanlış digest, abort ve K13 teyidi doğrulandı. QR modülünün son `verify` koşusunda istemcinin 5 testi dâhil 626 test geçti. QR SonarQube Quality Gate geçti.
+- [ ] **Ortak kabul — doğrulanmadı.** Alper, çalışan QR ve Order süreçleriyle imza ve kapsam reddini, 500'ü aşan adayların sıralı işlenmesini, kalıcı abort sonrası gecikmiş prepare reddini ve timeout sonrası aynı işlemle uzlaştırmayı doğrulayacak. Order'ın ayrı süreç testleri kalıcı abort ve yeniden başlatma sonrası uzlaştırmayı kendi tarafında doğruladı.
+- [ ] **K7 / Payment — bağımlılık açık.** Yetkili Payment kaynağı eksikken Order'ın siparişli oturum için döndürdüğü 503, QR istemcisinin yerel HTTP testinde doğrulandı. Çalışan iki servisle 503 akışı ve Payment bağlandıktan sonra mali uygunluk ayrıca doğrulanacak.

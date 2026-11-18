@@ -45,6 +45,18 @@ public class GuestSessionValidationService {
         return writes.execute(status -> validateLocked(token, prepared));
     }
 
+    /** The verified caller's restaurant is checked before consulting any remote order protection. */
+    @Transactional(propagation = Propagation.NEVER)
+    public ValidatedGuestContext validateForOrder(String token, UUID restaurantId) {
+        var identity = contexts.locate(token);
+        if (!identity.restaurantId().equals(restaurantId)) { throw new InvalidGuestSessionException(); }
+        var evidence = protection.inspect(restaurantId, identity.sessionId());
+        return writes.execute(status -> {
+            var locked = contexts.lockIdentity(token, restaurantId, identity.sessionId(), identity.guestId());
+            return OrderGuestSessionState.requireActive(locked, evidence, protection);
+        });
+    }
+
     @Transactional(propagation = Propagation.NEVER)
     public ValidatedGuestContext validate(String token, UUID restaurantId, UUID sessionId, UUID guestId) {
         var prepared = resolve(token);

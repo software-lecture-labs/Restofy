@@ -337,3 +337,28 @@ QR testleri tenant izolasyonu, kapalı API'ler, ayrı guest süreleri/koruması,
 Yerel PostgreSQL testlerinin geçmesi gerçek Order gate'ini veya Payment doğruluğunu kanıtlamaz. Ortak kabul planı [ADR §8](../decisions/ADR-QR-001-masa-kapanisi-ve-siparis-koordinasyonu.md#8-ortak-kabul-testleri) içindedir. Backend pre-push ve bağımsız Sonar gerçek sonuçları görev raporunda tutulur; bu rehbere geçmiş sayılarla yeni çalışma başarılıymış gibi kanıt eklenmez. Frontend bu görevde çalıştırılmaz.
 
 Entegrasyonun tamamlanması için gerçek servis kimliği/tenant kontrolleri, Order gate + Payment kapsamı, token/aktivite transport'u, tarama rate limit'i, kesinti/yarış E2E ve onaylı kademeli HTTP açılışı birlikte doğrulanmalıdır. QR'ın yerel A uyarlamasının tamamlanması bütün bu servis işlerinin tamamlandığı anlamına gelmez.
+
+## 13. QR-INT-02 — Order → QR iç servis sözleşmesi
+
+Bu bölüm QR-INT-02 için güncel HTTP sözleşmesidir. ADR-QR-001 K5/K6/K8 uygulanır. QR uçları sağlar. Order istemcisini ve outbox göndericisini Order sahibi bağlar. Bu uçlar Gateway'e eklenmedi.
+
+### Kimlik ve taşıma
+
+- Order → QR uçları için `QR_SPRING_PROFILES_ACTIVE=qr-order-inbound` kullan. QR → Order entegrasyonu da etkinse `QR_SPRING_PROFILES_ACTIVE=qr-order,qr-order-inbound` kullan. `QR_ORDER_CALLER_PUBLIC_KEYS`, `kid` → Base64 SPKI DER RSA açık anahtarı eşleyen JSON nesnesidir. QR `AUTH_RESTAURANT_ID` değerini yetkili restoran olarak kullanır. Eksik/geçersiz anahtar ayarı bu profilde başlangıcı durdurur.
+- Order, ayrı RSA özel anahtarıyla (en az 2048 bit) her çağrı için JWT üretsin. QR'a yalnız açık anahtar verilir. `Authorization: Service <JWT>`, `alg=RS256`, `kid=<yapılandırılmış-id>`, `iss=restofy-order`, `sub=order-service`, `aud=["restofy-qr"]`, `token_type=service`, `scope=qr:guest-session`, `restaurant_id=<kanonik UUID>`.
+- `jti` her çağrıda yeni kanonik UUID. `iat=nbf`, süre en fazla 30 saniye. `method` HTTP fiili, `target` ham path ve varsa `?` ile ham query, `body_sha256` gönderilen baytların küçük harfli hex SHA-256 özetidir. GET gövdesi boş olmalı ve boş gövde özeti imzalanmalı. POST JSON'u bir kez UTF-8'e çevir ve aynı baytları gönder. Gövde sınırı 16 KiB.
+- Tek Authorization başlığı gönder. `Cookie`, `Origin` ve `Content-Encoding` gönderme. Ortak ortamda doğrudan HTTPS kullan. Tokenı URL, log, olay veya hata gövdesine yazma. İmza/kimlik 401, doğrulanmış token ile yanlış kapsam, restoran claim'i veya istek bağı 403, aşırı gövde 413.
+
+### Guest doğrulama ve checkout
+
+**POST `/api/v1/internal/qr/guest-sessions/validate`**, JSON `{ "guestToken": "<43 karakter URL-safe opak token>" }`. Başarılı `200` yanıtı `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId`, `state: "ACTIVE"`, `checkedAt` taşır. QR bağlamı token özetinden ve kayıtlarından çözer. Başka restoranın, bilinmeyen, kapalı veya kesin süresi dolmuş guest'in tokenı için aynı 404 döner. Yapısal doğrulama hatası 400. Süre sınırında güncel Order korumasına ihtiyaç var ve kaynak belirsizse 503.
+
+**GET `/api/v1/internal/qr/table-sessions/{sessionId}/guests/{guestId}/state`**. `200` yanıtı `{ "state": "ACTIVE|EXPIRED|CLOSED", "checkedAt": "<UTC instant>" }`. `CLOSING` ve kullanıma kapalı masa `CLOSED`, kesin süre dolumu `EXPIRED` olarak eşlenir. Bilinmeyen veya yabancı scope 404, süre sınırında eksik Order kanıtı 503. Her iki uç `Cache-Control: no-store` döner ve aktiviteyi yenilemez. Order yalnız `ACTIVE` sonucunda kendi checkout/kapanış gate'ine devam eder. QR yanıtı tekrar kullanılabilir kabul izni vermez.
+
+### Sepet aktivitesi teslimi
+
+**POST `/api/v1/internal/qr/events/cart-activity`**. Order outbox'ındaki `CartActivityRecorded` v1 gövdesini aynen kullan: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, `correlationId` (en fazla 200 karakter, opsiyonel), `restaurantId`, `tableSessionId`, `guestSessionId`, `cartId`, `activity`. Faaliyet türleri `ITEM_ADDED`, `ITEM_QUANTITY_CHANGED`, `ITEM_REMOVED`, `CART_CLEARED`. Guest tokenı gönderilmez. Yalnız başarıyla commit edilmiş sepet değişiklikleri teslim edilir.
+
+- `204` teslim sonucu kalıcıdır. İşlenen, aynı içerikle tekrar gelen ve artık geçerli olmayan eski olaylar için dönülebilir. Yeni `eventId` ile eski zaman gönderilirse süre geriye gitmez. Geçerli olay yalnız kimi ilgilendiriyorsa onun ve ana oturumun sürelerini olay zamanına göre yeniler. Diğer misafirler etkilenmez. Kesin kapanmış veya süresi dolmuş kayıt yeniden açılmaz.
+- V123'te `eventId` ve payload özeti kalıcılaşır. Makbuz ile aktivite değişimi aynı yerel transaction'a aittir. Aynı `eventId` ile farklı içerik 409. Geçersiz eşleşme 404, hatalı/eski şema veya gelecekteki zaman 400. `CLOSING` ya da gerekli Order kanıtının yokluğunda 503, makbuz rollback olur.
+- Dispatcher, geçici kesintide aynı olay gövdesi ve `eventId` ile, yeni servis JWT'si imzalayarak sınırlı tekrar yapar. Yanıt kaybı ikinci bir aktiviteye dönüşmez. 400/401/403/404/409'u başarılı teslim olarak işaretleme. Hata gövdeleri güvenli `ProblemDetail` biçimindedir.
