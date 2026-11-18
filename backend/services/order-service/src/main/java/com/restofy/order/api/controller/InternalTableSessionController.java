@@ -51,8 +51,9 @@ public class InternalTableSessionController {
                     + "placed them: each must be COMPLETED and settled, or safely CANCELLED with no refund owed, "
                     + "based on local Order facts. Direct Payment verification is pending; "
                     + "a guest who ordered nothing is not part of the scope; a session without orders is never eligible. "
-                    + "purpose IDLE: requestedAt, mainIdleExpiresAt and guests (each with its idleExpiresAt) are "
-                    + "required; the whole session may expire (effect IDLE_MAIN) only when no order protects it and its "
+                    + "purpose IDLE requires requestedAt and a list of at most 500 guest candidates. A missing main or "
+                    + "guest idle deadline is not due for expiry. The whole session may expire (effect IDLE_MAIN) "
+                    + "only when no order protects it and its "
                     + "own idle window ended, otherwise only the guests that are idle AND not protected by one of their "
                     + "orders (effect IDLE_GUESTS, idleGuestIds). The answer is a permit: sourceStatus AUTHORISED "
                     + "(effect says what), BLOCKED (definitely not) or UNKNOWN (not known well enough; never 'nothing "
@@ -64,12 +65,14 @@ public class InternalTableSessionController {
                     + "asking again with both returns the stored operation (permit renewed or withdrawn), the same "
                     + "operationId with another digest, purpose or table session is 409 IDEMPOTENCY_CONFLICT. Another "
                     + "operation that is PREPARED, or COMPLETED and ended the session, is 409 CLOSURE_IN_PROGRESS. An "
-                    + "operation never expires by time.")
+                    + "operation never expires by time. A delayed prepare after a recorded NOT_CLOSED is "
+                    + "409 INVALID_STATUS_TRANSITION.")
     @ApiResponse(responseCode = "200", description = "A permit (AUTHORISED, BLOCKED or UNKNOWN)")
     @ApiResponse(responseCode = "400", description = "INVALID_REQUEST (malformed JSON or UUID)")
     @ApiResponse(responseCode = "401", description = "Missing or invalid service credential")
     @ApiResponse(responseCode = "403", description = "Not the QR service")
-    @ApiResponse(responseCode = "409", description = "CLOSURE_IN_PROGRESS or IDEMPOTENCY_CONFLICT")
+    @ApiResponse(responseCode = "409",
+            description = "CLOSURE_IN_PROGRESS, IDEMPOTENCY_CONFLICT or INVALID_STATUS_TRANSITION")
     @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR (also: IDLE without its details)")
     @ApiResponse(responseCode = "503", description = "Service identity or authoritative Payment verification unavailable")
     public ClosureResponse prepare(@AuthenticationPrincipal ServiceActor service, @PathVariable UUID tableSessionId,
@@ -83,8 +86,8 @@ public class InternalTableSessionController {
             description = "For a QR Service that lost a response or whose permit ran out: the stored operation with the "
                     + "orders checked again, so a PREPARED permit is renewed (new verifiedAt and validUntil) or "
                     + "withdrawn (BLOCKED or UNKNOWN, with blockers) when the orders changed before anything was "
-                    + "applied. An operation this Order Service never saw, or one that belongs to another restaurant "
-                    + "or table session, is answered with sourceStatus NOT_STARTED (state NOT_STARTED), a complete and "
+                    + "applied. An operation without a preparation, including an abort before prepare, or one belonging "
+                    + "to another scope, returns sourceStatus NOT_STARTED (state NOT_STARTED), a complete and "
                     + "current answer with null purpose and the supplied digest echoed. QR sends the digest on every "
                     + "status request. A mismatch with the stored digest returns 409. Nothing is written.")
     @ApiResponse(responseCode = "200", description = "The operation, or NOT_STARTED")
@@ -112,8 +115,8 @@ public class InternalTableSessionController {
                     + "operation was prepared on (in practice a money report that arrived after the preparation), the "
                     + "answer carries scopeDrift=true and the unmet or unknown driftBlockers, and the difference is "
                     + "recorded append-only for people to reconcile; nothing is rejected. NOT_CLOSED aborts: it "
-                    + "releases the hold so orders are accepted again, and for an operation that holds nothing (never "
-                    + "prepared, or not authorised) it is a safe 200 'nothing to abort'. Repeating the same "
+                    + "releases the hold so orders are accepted again. If no preparation exists, it durably records the "
+                    + "abort and returns 200 NOT_STARTED, preventing a late prepare from acquiring a hold. Repeating the same "
                     + "confirmation is safe and returns the same answer; the opposite one after the operation is final "
                     + "is 409 INVALID_STATUS_TRANSITION. CLOSED for an operation that was never prepared is 404. "
                     + "commandDigest (the digest of the exact command) is required and must be the one the operation "

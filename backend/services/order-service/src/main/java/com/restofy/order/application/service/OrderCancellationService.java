@@ -16,6 +16,7 @@ import com.restofy.order.domain.cancellation.CancellationPolicy;
 import com.restofy.order.domain.cancellation.CancellationPolicy.Mode;
 import com.restofy.order.domain.cancellation.CancellationPolicy.Requester;
 import com.restofy.order.domain.entity.Order;
+import com.restofy.order.domain.entity.OrderItem;
 import com.restofy.order.domain.enums.CancellationStatus;
 import com.restofy.order.domain.enums.ReasonSource;
 import com.restofy.order.domain.enums.StaffRole;
@@ -270,7 +271,7 @@ public class OrderCancellationService {
 
     static List<Line> linesOf(Order order) {
         return order.getItems().stream()
-                .sorted(Comparator.comparingInt(item -> item.getLineNo()))
+                .sorted(Comparator.comparingInt(OrderItem::getLineNo))
                 .map(item -> new Line(item.getId(), item.getProductId(), item.getProductNameSnapshot(),
                         item.getOrderedQuantity(), item.getCancelledQuantity(), item.getUnitGrossMinor(),
                         item.getTaxRateBps()))

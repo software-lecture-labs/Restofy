@@ -1,9 +1,9 @@
 # ORDER-REQUESTS-01 — QR-INT-01 için Order tarafından beklenenler
 
-**Tarih:** 18 Kasım 2026  
-**Talep eden:** Alper — QR / Payment  
-**Muhatap:** Hamza — Order Service sorumlusu ve onun kodlama ajanı  
-**Durum:** İnceleme ve uygulama talebi; tamamlanmış entegrasyon veya yeni güvenlik tasarımı onayı değildir.
+- **Tarih:** 18 Kasım 2026
+- **Talep eden:** Alper — QR / Payment
+- **Muhatap:** Hamza — Order Service sorumlusu ve onun kodlama ajanı
+- **Durum:** İnceleme ve uygulama talebi; tamamlanmış entegrasyon veya yeni güvenlik tasarımı onayı değildir.
 
 ## 1. Ajana verilecek görev ve kapsam
 
@@ -44,12 +44,14 @@ Kendi dalında bu durum değişmişse dosya/commit/test kanıtıyla farkı belir
 
 ## 3. R1 — Gerçek QR servis kimliği: birincil engel
 
-- [ ] Mevcut servis güven mekanizmasını araştır. Uygun onaylanmış mekanizma varsa yeniden kullan; yoksa minimum tasarımı ve karar gerektiren noktaları Hamza/Alper'e sun. Auth'a yeni çağrı veya yeni token üretim altyapısı kendiliğinden ekleme.
-- [ ] QR'ın credential'ı nasıl elde edeceğini/yenileyeceğini ve Order'ın nasıl doğrulayacağını somutlaştır. İmzalı token seçilirse signature, algoritma allowlist'i, issuer, Order audience, süre ve doğrulanmış QR subject/scope kontrollerini; anahtar dağıtımı/rotation, iptal ve replay sınırlarını tanımla. Henüz seçilmemiş değerleri kararlaştırılmış gibi yazma.
-- [ ] Gerçek verifier'ı uygun runtime profillerinde bağla. Dev/test mock'unu gerçek kimlik doğrulama veya E2E kanıtı sayma; production'a taşıma. Mevcut fail-closed davranışı koru.
-- [ ] Yalnız yetkili QR servisinin lifecycle yollarına erişmesini sağla. Guest, personel, Kitchen ve Payment kimliği QR yetkisi kazanmasın. Serbest servis adı/rol/restoran header'ı kanıt değildir.
-- [ ] Tenant kapsamının hangi doğrulanmış kanıta dayandığını belgele. Query/body `restaurantId` tek başına yetki değildir; başka restoran/oturum ve operationId eşleşmelerini güvenli biçimde denetle.
+- [x] Mevcut servis güven mekanizmasını araştır. Uygun onaylanmış mekanizma varsa yeniden kullan; yoksa minimum tasarımı ve karar gerektiren noktaları Hamza/Alper'e sun. Auth'a yeni çağrı veya yeni token üretim altyapısı kendiliğinden ekleme.
+- [x] QR'ın credential'ı nasıl elde edeceğini/yenileyeceğini ve Order'ın nasıl doğrulayacağını somutlaştır. İmzalı token seçilirse signature, algoritma allowlist'i, issuer, Order audience, süre ve doğrulanmış QR subject/scope kontrollerini; anahtar dağıtımı/rotation, iptal ve replay sınırlarını tanımla. Henüz seçilmemiş değerleri kararlaştırılmış gibi yazma.
+- [x] Gerçek verifier'ı uygun runtime profillerinde bağla. Dev/test mock'unu gerçek kimlik doğrulama veya E2E kanıtı sayma; production'a taşıma. Mevcut fail-closed davranışı koru.
+- [x] Yalnız yetkili QR servisinin lifecycle yollarına erişmesini sağla. Guest, personel, Kitchen ve Payment kimliği QR yetkisi kazanmasın. Serbest servis adı/rol/restoran header'ı kanıt değildir.
+- [x] Tenant kapsamının hangi doğrulanmış kanıta dayandığını belgele. Query/body `restaurantId` tek başına yetki değildir; başka restoran/oturum ve operationId eşleşmelerini güvenli biçimde denetle.
 - [ ] Eksik/geçersiz credential için 401; geçerli fakat yetkisiz servis için 403; gerekli doğrulama kaynağı kesintisinde 503 davranışını gerçek HTTP testleriyle doğrula. Eksik veya bozuk zorunlu güvenlik ayarlarında güvenli başlangıç davranışını test et. Credential, anahtar veya token loglama.
+
+**Order doğrulaması.** Order tarafında request bağını doğrulayan RS256 verifier kullanılıyor. İmzalı HTTP testlerinde 401 ve 403 doğrulandı. Verifier başlatılırken eksik veya geçersiz ayarların reddedildiği konfigürasyon testinde doğrulandı. Kimlik kaynağı kullanılamadığında 503 uygulama testiyle doğrulandı. Gerçek QR token üretimi ve bu hata yolunun ortak HTTP testi açık.
 
 **Teslim:** QR geliştiricisinin tahmin yapmadan kullanabileceği header şeması, credential edinme yöntemi, doğrulama/tenant kapsamı, profil/konfigürasyon sözleşmesi ve güvenli örnekler. Gerçek sırları bu belgeye, yanıta veya repoya koyma.
 
@@ -75,19 +77,23 @@ Mevcut kimlik header şeması `Authorization: Service <credential>`. Bu şemanı
 - `OrderSessionStateResponse`: `restaurantId`, `tableSessionId`, `knowledge`, `revision`, `verifiedAt`, `validUntil`, `protectedGuests`, `cancellationReleases`, `mainCancellationAt`. QR portundaki `sessionId` ile wire DTO'daki `tableSessionId` ad farkı QR adaptöründe eşlenebilir; bunu tek başına Order kusuru sayma.
 - `ClosureResponse`: kimlikler, `purpose`, `commandDigest`, `state`, `sourceStatus`, `effect`, `outcome`, `blockers`, `sourceRevision`, `verifiedAt`, `validUntil`, `complete`, `checkoutFenced`, `idleGuestIds` ve K13 `scopeDrift/driftBlockers` korunmalı. Mevcut ek alanların çıkarılmasını istemiyoruz; QR adaptörü bilinmeyen ek alanlara toleranslı olacak.
 
-- [ ] Her endpoint için DTO nullability, enum, validation, HTTP başarı/hata kodu ve güvenli JSON örneklerini mevcut `INTEGRATION_CONTRACTS.md` içinde doğrula/güncelle. Çalışan OpenAPI ile belge çelişmesin; ikinci entegrasyon rehberi açma.
-- [ ] `NOT_STARTED` sorgusunda verilen digest geri yansısın; bu sonucun `purpose=null` olabilmesi belgelensin. Bilinmeyen işlem 200 NOT_STARTED'dır; transport hatasıyla karıştırılmasın.
-- [ ] Aynı operationId + değişmiş digest/amaç/restoran/main için mevcut `409 IDEMPOTENCY_CONFLICT`; eşzamanlı başka canlı işlem için `409 CLOSURE_IN_PROGRESS` semantiğini koru.
-- [ ] Confirmation hatalarını koru: bilinmeyen işleme CLOSED → 404; yanlış etki → `409 CLOSURE_RECEIPT_MISMATCH`; ters terminal teyit → `409 INVALID_STATUS_TRANSITION`; validation → 422. Gerçek hata gövdesi `code/message/details` ise QR tarafı onu eşlesin; sırf başka servise benzetmek için hata modelini yeniden yazma.
+- [x] Her endpoint için DTO nullability, enum, validation, HTTP başarı/hata kodu ve güvenli JSON örneklerini mevcut `INTEGRATION_CONTRACTS.md` içinde doğrula/güncelle. Çalışan OpenAPI ile belge çelişmesin; ikinci entegrasyon rehberi açma.
+- [x] `NOT_STARTED` sorgusunda verilen digest geri yansısın; bu sonucun `purpose=null` olabilmesi belgelensin. Bilinmeyen işlem 200 NOT_STARTED'dır; transport hatasıyla karıştırılmasın.
+- [x] Aynı operationId + değişmiş digest/amaç/restoran/main için mevcut `409 IDEMPOTENCY_CONFLICT`; eşzamanlı başka canlı işlem için `409 CLOSURE_IN_PROGRESS` semantiğini koru.
+- [x] Confirmation hatalarını koru: bilinmeyen işleme CLOSED → 404; yanlış etki → `409 CLOSURE_RECEIPT_MISMATCH`; ters terminal teyit → `409 INVALID_STATUS_TRANSITION`; validation → 422. Gerçek hata gövdesi `code/message/details` ise QR tarafı onu eşlesin; sırf başka servise benzetmek için hata modelini yeniden yazma.
+
+**Order doğrulaması.** Onaylanan IDLE sözleşmesi Order'da uygulandı. Boş ana veya misafir süresi dolmamış sayılır. Order testleri 500 adayın kabul edildiğini ve 501 adayın 422 döndürdüğünü doğruladı. QR adaptörü tam görüntüyü ve komut digest'ini saklayacak, bir işlemde süresi dolmuş en çok 500 aday gönderecek ve kalan adayları önceki işlem kesinleştikten sonra yeni `operationId` ile değerlendirecek. Adaptörün uygulaması ve doğrulaması açık.
 
 ## 5. R3 — K7 mali uygunluk: Order işi ile Payment bağımlılığını ayır
 
 ADR K7, Order'ın Payment'tan yetkili mali durumu doğrulayarak tam masa oturumu kapsamına uygunluk sağlamasını ister. Yerel Order ödeme olayları ve kayıtları mevcut; bunları gerçek Order → Payment sorgusu yapılmış gibi sunma.
 
-- [ ] Gerçek Payment sözleşmesini araştır. Varsa onaylanmış API ile Order tarafındaki doğrulamayı bağla. Yoksa **Payment sorumlusu Alper'den** gereken minimum sorgu, kimlik, kapsam, sürüm/tazelik ve belirsizlik sözleşmesini iste; endpoint/DTO uydurma ve Payment kodunu devralma.
+- [x] Gerçek Payment sözleşmesini araştır. Varsa onaylanmış API ile Order tarafındaki doğrulamayı bağla. Yoksa **Payment sorumlusu Alper'den** gereken minimum sorgu, kimlik, kapsam, sürüm/tazelik ve belirsizlik sözleşmesini iste; endpoint/DTO uydurma ve Payment kodunu devralma.
 - [ ] Tüm guest'lerin gerçek siparişleri, ödenmemiş COMPLETED siparişler, devam eden/belirsiz ödeme, iade ve uzlaştırma yükümlülükleri değerlendirmede bulunsun. Boş liste/istemci `paid=true` veya tek PAID alanı kapanış kanıtı olmasın. Siparişsiz guest için ödeme arama; hiç siparişsiz oturumu SETTLED_CLOSE yapma.
 - [ ] Eksik/stale/ulaşılamayan mali kanıtı uygunluk sayma. `complete`, `sourceStatus`, `checkoutFenced`, doğrulama zamanı ve izin süresi gerçek kanıtı yansıtsın. Kesinti UNKNOWN veya sözleşmeye uygun güvenli hata olarak ayrılsın.
 - [ ] Uzak HTTP'yi uzun DB lock/transaction altında tutma. Kaynak doğrulaması ile gate/yazım arasındaki yarış sınırını somutlaştır; iki servis arasında atomiklik iddia etme. Mevcut K8 ve K13 garantilerini koruyan çözüm onay gerektiriyorsa önce öneriyi sun.
+
+**Order doğrulaması.** Payment kaynak API'si henüz hazır değil. Minimum sözleşme Order entegrasyon belgesinin 5.2 bölümünde kayıtlı. Order, siparişli oturum için kaynak yokken imzalı HTTP çağrısında 503 dönüyor. Tam mali kapsam doğrulaması ve uzak kaynakla yarış yönetimi Payment sözleşmesine bağlı.
 
 **Sahiplik:** Order adaptörü/kararı Hamza'nın, Payment kaynak API'si Alper'in işidir. Payment henüz hazır değilse bu madde BLOCKED kalabilir; R1/R2 gibi bağımsız ilerleyen işler raporlanabilir. Gerçek mali doğrulama yokken tüm QR-INT-01 bağımlılıklarını DONE ilan etme.
 
@@ -95,13 +101,15 @@ ADR K7, Order'ın Payment'tan yetkili mali durumu doğrulayarak tam masa oturumu
 
 Aşağıdaki davranışların önemli kısmı mevcut. Önce testleri çalıştır; yalnız gerçek eksiklere test/düzeltme ekle:
 
-- [ ] `order-state` salt okumadır; aktivite yenilemez veya kapanış izni vermez. Siparişli main ve sahibi guest korunur; güvenli son iptal zamanları gecikmiş teslim anından yeniden başlatılmaz. Belirsiz mali durum guest'i serbest bırakmaz.
-- [ ] Checkout önce commit ederse kapanış kapsamına girer; prepare önce kalıcılaşırsa ilgili checkout kayıt yazmadan 409 olur. IDLE_GUESTS yalnız seçilen guest'leri engeller. PostgreSQL kalıcı gate'i korunur; bellek kilidiyle değiştirilmez.
-- [ ] Tekrar prepare/status aynı kalıcı işlemi kullanır. Süresi geçmiş izin aynı operationId ile yenilenir veya geri çekilir; izin süresinin dolması gate'i otomatik kaldırmaz.
-- [ ] **K13:** Doğru PREPARED işleme ait geçerli CLOSED makbuzu, sonradan kapsam sapmış olsa da COMPLETED olur. Sapma V49'daki değişmez kayda gider; aynı ACK/GET aynı sapmayı döndürür. Yanlış kimlik/digest/etki veya RELEASED işlemden CLOSED dönüşü kabul edilmiş sayılmaz.
-- [ ] NOT_CLOSED, yalnız kesin abort sonucuyla gate'i bırakır; hiç hazırlanmış olmayan işlem için digest'e bağlı güvenli sonuç döner. Timeout abort kanıtı değildir. ACK yanıt kaybı ikinci kapanış, tahsilat veya geçmiş değişikliği üretmez.
-- [ ] Gerçek verifier ile geçerli/eksik/bozuk/süresi geçmiş/yanlış audience credential; yanlış servis, başka tenant ve yanlış işlem bağı testleri çalışır. İlgili profilin mock'a sessizce düşmediği kanıtlanır.
+- [x] `order-state` salt okumadır; aktivite yenilemez veya kapanış izni vermez. Siparişli main ve sahibi guest korunur; güvenli son iptal zamanları gecikmiş teslim anından yeniden başlatılmaz. Belirsiz mali durum guest'i serbest bırakmaz.
+- [x] Checkout önce commit ederse kapanış kapsamına girer; prepare önce kalıcılaşırsa ilgili checkout kayıt yazmadan 409 olur. IDLE_GUESTS yalnız seçilen guest'leri engeller. PostgreSQL kalıcı gate'i korunur; bellek kilidiyle değiştirilmez.
+- [x] Tekrar prepare/status aynı kalıcı işlemi kullanır. Süresi geçmiş izin aynı operationId ile yenilenir veya geri çekilir; izin süresinin dolması gate'i otomatik kaldırmaz.
+- [x] **K13:** Doğru PREPARED işleme ait geçerli CLOSED makbuzu, sonradan kapsam sapmış olsa da COMPLETED olur. Sapma V49'daki değişmez kayda gider; aynı ACK/GET aynı sapmayı döndürür. Yanlış kimlik/digest/etki veya RELEASED işlemden CLOSED dönüşü kabul edilmiş sayılmaz.
+- [x] NOT_CLOSED, yalnız kesin abort sonucuyla gate'i bırakır; hiç hazırlanmış olmayan işlem için digest'e bağlı güvenli sonuç döner. Timeout abort kanıtı değildir. ACK yanıt kaybı ikinci kapanış, tahsilat veya geçmiş değişikliği üretmez.
+- [x] Gerçek verifier ile geçerli/eksik/bozuk/süresi geçmiş/yanlış audience credential; yanlış servis, başka tenant ve yanlış işlem bağı testleri çalışır. İlgili profilin mock'a sessizce düşmediği kanıtlanır.
 - [ ] 2xx, 4xx, 5xx, servis kesintisi, timeout/yanıt kaybı, stale status, restart sonrası aynı işlemle uzlaştırma ve checkout yarışı uygun sınırda test edilir. QR RestClient transport testleri QR işidir; Order ajanı QR kodunu değiştirmeden kendi HTTP/gate davranışını kanıtlar.
+
+**Order doğrulaması.** V131 ile ilk NOT_CLOSED teyidi PostgreSQL'e kalıcı yazılır ve 200 NOT_STARTED döner. Aynı işleme gecikmiş prepare 409 INVALID_STATUS_TRANSITION döner. Aynı PostgreSQL'i kullanan ayrı Order JVM'lerinde yeniden başlatma sonrası bu durum, prepare ve CLOSED yanıtları dikkate alınmadan uzlaştırma ve yinelenen CLOSED teyidi doğrulandı. Checkout yarışı ayrı PostgreSQL testinde doğrulandı. Gerçek QR RestClient ile transport hatası ve iki servis E2E testi açık.
 
 Mevcut test başlangıç noktaları: `ServiceAuthFailClosedApiTests`, `TableSessionClosureApiTests`, `TableSessionPermitApiTests`, `TableSessionIdleApiTests`, `TableSessionClosureDatabaseTests`, `TableSessionClosureConcurrencyTests`. Çoklu gerçek Order instance testi ile tek JVM PostgreSQL yarış testini ayrı raporla. Mock HTTP server/test kimliği gerçek iki servis E2E değildir.
 
@@ -113,5 +121,11 @@ Mevcut test başlangıç noktaları: `ServiceAuthFailClosedApiTests`, `TableSess
 4. Çalışan gerçek servislerle test mümkünse süreçleri/profilleri ve güven mekanizmasını belirt. QR adaptörü veya Payment hazır değilse ortak E2E'yi NOT RUN/BLOCKED raporla; mock başarıyı onun yerine koyma.
 5. Hamza'ya/QR tarafına tek teslim raporu ver: R1–R4 checklist'i DONE/PARTIAL/BLOCKED; değişen dosyalar; endpoint/DTO/header/hata örnekleri; onaylanan konfigürasyon ve migration etkileri; test sayısı/komut/exit code/log kanıtı; pre-push ve Sonar sonuçları; kalan bağımlılıklar ve sahipleri. Tamamlanmayanı UYGULANMADI, denenmeyeni DOĞRULANMADI olarak ayır.
 6. Gerçek commit atma; yalnız somut değişiklikleri ve gerçekten çalıştırılmış kontrolleri anlatan çok satırlı önerilen commit mesajı ver. Ardından dur.
+
+**18 Kasım Order doğrulaması**
+
+- Order `verify` çalıştırmasında 978 test geçti. V131 temiz PostgreSQL şemasında ve V50 üzerine yükseltmede uygulandı. Kalıcı abort kaydının güncellenemediği test edildi.
+- Tam pre-push çalıştırmasında backend, frontend, production npm audit, Docker ve HTTP kontrolleri geçti. Git / Secret Check, bu belgenin önceden stage edilmiş sürümündeki üç satır sonu boşluğuna takıldı. Çalışma kopyasında boşluklar düzeltildi.
+- SonarQube yeniden taramasında Order için güvenlik, güvenilirlik ve bakım puanları A/A/A, kapsama %94,3, tekrar %0,4 ve açık bulgu sayısı sıfır. Quality Gate tüm backend projesine uygulanıyor. Kalan 272 yeni kod bulgusu Order dışındaki dosyalarda.
 
 **QR tarafına dönüş koşulu:** QR geliştiricisi gerçek servis credential'ını nasıl kullanacağını, Order'ın bunu nasıl doğruladığını ve mevcut lifecycle DTO/hata semantiğini tahmin etmeden uygulayabilmeli. Payment hazır değilse kalan engel ve güvenli davranış açık olmalı. QR adaptörünün uygulanması, QR testleri ve ortak E2E ayrıca QR sorumlusunda kalır; bu belge bunları yapılmış saymaz.
