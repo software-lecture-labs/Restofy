@@ -35,7 +35,7 @@ class StaffAuthenticationApiTests extends AbstractCartApiTest {
         getWith(staff("not-a-known-credential"), path)
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
-                .andExpect(header().string("WWW-Authenticate", "Bearer"));
+                .andExpect(header().string("WWW-Authenticate", "Staff realm=\"order\""));
         getWith("Staff ", path).andExpect(status().isUnauthorized());
         getWith(staff("x".repeat(600)), path).andExpect(status().isUnauthorized());
     }

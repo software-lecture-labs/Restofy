@@ -1,7 +1,6 @@
 package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
@@ -41,9 +40,7 @@ abstract class AbstractCancellationApiTest extends AbstractOrderStatusApiTest {
     protected ResultActions cancel(String authorization, UUID orderId, String key, Object body) throws Exception {
         var request = post("/api/v1/orders/" + orderId + "/cancellations").contentType(MediaType.APPLICATION_JSON)
                 .content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         if (key != null) {
             request.header("Idempotency-Key", key);
         }
@@ -113,9 +110,7 @@ abstract class AbstractCancellationApiTest extends AbstractOrderStatusApiTest {
 
     protected ResultActions kitchenDecision(String authorization, Object body) throws Exception {
         var request = post(KITCHEN_CANCELLATION_EVENTS).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 

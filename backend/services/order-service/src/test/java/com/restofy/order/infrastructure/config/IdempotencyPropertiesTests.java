@@ -37,10 +37,13 @@ class IdempotencyPropertiesTests {
 
     @Test
     void rejectsNonPositiveDurationsAndBadBatchSizes() {
-        assertThrows(IllegalArgumentException.class, () -> with(Duration.ZERO, Duration.ofHours(72), 500));
-        assertThrows(IllegalArgumentException.class, () -> with(Duration.ofHours(24), Duration.ofHours(-1), 500));
-        assertThrows(IllegalArgumentException.class, () -> with(null, Duration.ofHours(72), 500));
-        assertThrows(IllegalArgumentException.class, () -> with(Duration.ofHours(24), Duration.ofHours(72), 0));
-        assertThrows(IllegalArgumentException.class, () -> with(Duration.ofHours(24), Duration.ofHours(72), 10_001));
+        Duration cartRetention = Duration.ofHours(24);
+        Duration checkoutRetention = Duration.ofHours(72);
+        Duration negative = Duration.ofHours(-1);
+        assertThrows(IllegalArgumentException.class, () -> with(Duration.ZERO, checkoutRetention, 500));
+        assertThrows(IllegalArgumentException.class, () -> with(cartRetention, negative, 500));
+        assertThrows(IllegalArgumentException.class, () -> with(null, checkoutRetention, 500));
+        assertThrows(IllegalArgumentException.class, () -> with(cartRetention, checkoutRetention, 0));
+        assertThrows(IllegalArgumentException.class, () -> with(cartRetention, checkoutRetention, 10_001));
     }
 }

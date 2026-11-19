@@ -238,8 +238,8 @@ class PriceFingerprintApiTests extends AbstractCartApiTest {
         Map<String, Object> honest = confirmation(cart(A1));
         placeOrder("not-a-known-token", newKey(), honest).andExpect(status().isUnauthorized());
         qr.register(A1, DevFixtures.guestA1(GuestSessionContext.SessionState.CLOSED));
-        placeOrder(A1, newKey(), honest).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+        placeOrder(A1, newKey(), honest).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         assertEquals(0, count("orders"));
     }
 

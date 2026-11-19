@@ -18,6 +18,7 @@ public class RestClientConfiguration {
     HttpClient serviceHttpClient(RestClientProperties properties) {
         return HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
     }
 

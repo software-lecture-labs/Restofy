@@ -139,8 +139,8 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
         for (SessionState dead : List.of(SessionState.CLOSED, SessionState.EXPIRED)) {
             qr.register(A1, DevFixtures.guestA1(dead));
             placeOrder(A1, newKey(), body)
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         }
         assertEquals(0, count("orders"));
         assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM carts", String.class));
@@ -159,7 +159,7 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
                 "\"tableId\": \"" + UUID.randomUUID() + "\"", "\"tableSessionId\": \"" + UUID.randomUUID() + "\"",
                 "\"cartId\": \"" + UUID.randomUUID() + "\"", "\"totalMinor\": 1", "\"items\": []"}) {
             mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
-                            .header("Authorization", "Bearer " + A1).header("Idempotency-Key", newKey())
+                            .with(AbstractCartApiTest.guestCookie(A1)).header("Idempotency-Key", newKey())
                             .contentType("application/json")
                             .content("{\"expectedCartVersion\": 1, \"expectedTotalMinor\": 5, " + foreign + "}"))
                     .andExpect(status().isBadRequest())
@@ -249,8 +249,8 @@ class OrderCheckoutApiTests extends AbstractCartApiTest {
         for (SessionState dead : List.of(SessionState.CLOSED, SessionState.EXPIRED)) {
             qr.register(A1, DevFixtures.guestA1(dead));
             placeOrder(A1, key, body)
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                     .andExpect(jsonPath("$.orderId").doesNotExist())
                     .andExpect(jsonPath("$.orderNo").doesNotExist());
         }

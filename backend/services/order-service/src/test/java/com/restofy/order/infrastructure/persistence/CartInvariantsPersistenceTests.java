@@ -72,8 +72,8 @@ class CartInvariantsPersistenceTests {
         tx.executeWithoutResult(status -> {
             Cart cart = carts.findActiveForUpdate(restaurant, guest).orElseThrow();
             cart.useCurrency("TRY");
-            cart.addItem(new CartItem(cart, UUID.randomUUID(), 1, "k".repeat(64), null, "Burger", "TRY", 1_000L,
-                    1_000, null, NOW));
+            cart.addItem(new CartItem(cart, UUID.randomUUID(), 1, "k".repeat(64), null,
+                    new CartItem.PriceSnapshot("Burger", "TRY", 1_000L, 1_000, null), NOW));
             cart.touch(NOW);
         });
     }
@@ -138,8 +138,8 @@ class CartInvariantsPersistenceTests {
                 status -> carts.findById(cartId).orElseThrow().checkOut(NOW.plusSeconds(1))));
         BusinessException newLine = assertThrows(BusinessException.class, () -> tx.executeWithoutResult(status -> {
             Cart cart = carts.findById(cartId).orElseThrow();
-            cart.addItem(new CartItem(cart, UUID.randomUUID(), 1, "z".repeat(64), null, "Salad", "TRY", 500L, null,
-                    null, NOW));
+            cart.addItem(new CartItem(cart, UUID.randomUUID(), 1, "z".repeat(64), null,
+                    new CartItem.PriceSnapshot("Salad", "TRY", 500L, null, null), NOW));
         }));
         BusinessException currency = assertThrows(BusinessException.class, () -> tx.executeWithoutResult(
                 status -> carts.findById(cartId).orElseThrow().useCurrency("EUR")));

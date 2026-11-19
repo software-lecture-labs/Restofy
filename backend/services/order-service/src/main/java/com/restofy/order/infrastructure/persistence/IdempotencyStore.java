@@ -42,16 +42,16 @@ public class IdempotencyStore {
      * finishes: it then returns {@code false} if that one committed, or succeeds if it rolled back.
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean tryClaim(UUID restaurantId, String actorScope, String operation, String key, String requestDigest,
-                            UUID resourceId, int responseStatus, Instant now, Instant expiresAt) {
+    public boolean tryClaim(UUID restaurantId, String actorScope, String operation, String key, Record result,
+                            Instant now, Instant expiresAt) {
         return jdbc.update("""
                 INSERT INTO idempotency_records (id, restaurant_id, actor_scope, operation, idempotency_key,
                                                  request_digest, resource_id, response_status, status, created_at,
                                                  expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
                 ON CONFLICT (restaurant_id, actor_scope, operation, idempotency_key) DO NOTHING
-                """, UUID.randomUUID(), restaurantId, actorScope, operation, key, requestDigest, resourceId,
-                responseStatus, Timestamp.from(now), Timestamp.from(expiresAt)) == 1;
+                """, UUID.randomUUID(), restaurantId, actorScope, operation, key, result.requestDigest(),
+                result.resourceId(), result.responseStatus(), Timestamp.from(now), Timestamp.from(expiresAt)) == 1;
     }
 
     /**

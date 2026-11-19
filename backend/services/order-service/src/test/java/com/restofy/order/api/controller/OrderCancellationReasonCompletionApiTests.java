@@ -3,7 +3,6 @@ package com.restofy.order.api.controller;
 import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -36,9 +35,7 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
             throws Exception {
         var request = patch("/api/v1/orders/" + orderId + "/cancellations/" + cancellationId + "/reason")
                 .contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
@@ -162,7 +159,7 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
         var body = Map.of("reasonText", "late reason");
 
         completeReason(null, orderId, cancellationId, body).andExpect(status().isUnauthorized());
-        completeReason(guest(A1), orderId, cancellationId, body).andExpect(status().isForbidden());
+        completeReason(guest(A1), orderId, cancellationId, body).andExpect(status().isUnauthorized());
         completeReason(KITCHEN, orderId, cancellationId, body).andExpect(status().isForbidden());
         completeReason(service(KITCHEN_CREDENTIAL), orderId, cancellationId, body).andExpect(status().isForbidden());
         completeReason(staff(DevFixtures.STAFF_WAITER_B), orderId, cancellationId, body).andExpect(status().isNotFound());
@@ -298,7 +295,7 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
         var body = Map.of("reasonText", "late reason");
 
         completeReason(KITCHEN, orderId, cancellationId, body).andExpect(status().isForbidden());
-        completeReason(guest(A1), orderId, cancellationId, body).andExpect(status().isForbidden());
+        completeReason(guest(A1), orderId, cancellationId, body).andExpect(status().isUnauthorized());
         completeReason(service(KITCHEN_CREDENTIAL), orderId, cancellationId, body).andExpect(status().isForbidden());
         completeReason(service(PAYMENT_CREDENTIAL), orderId, cancellationId, body).andExpect(status().isForbidden());
         assertEquals(0, count("order_cancellation_reasons"));
@@ -406,8 +403,8 @@ class OrderCancellationReasonCompletionApiTests extends AbstractCancellationApiT
         getWith(WAITER, "/api/v1/orders/" + UUID.randomUUID() + "/cancellations").andExpect(status().isNotFound());
 
         qr.register(A1, DevFixtures.guestA1(SessionState.CLOSED));
-        getWith(guest(A1), path).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+        getWith(guest(A1), path).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         getWith(WAITER, path).andExpect(status().isOk());
     }
 }

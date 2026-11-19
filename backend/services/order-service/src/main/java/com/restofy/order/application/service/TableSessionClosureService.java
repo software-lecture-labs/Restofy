@@ -20,6 +20,7 @@ import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.infrastructure.persistence.TableSessionClosureStore;
 import com.restofy.order.infrastructure.persistence.TableSessionClosureStore.Closure;
 import com.restofy.order.infrastructure.persistence.TableSessionClosureStore.Drift;
+import com.restofy.order.infrastructure.persistence.TableSessionClosureStore.UnpreparedAbort;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -115,17 +116,21 @@ public class TableSessionClosureService {
         UUID restaurantId = request.restaurantId();
         return writeTx.execute(status -> {
             closures.lockForClosure(restaurantId, tableSessionId);
+            closures.lockForOperation(request.operationId());
             Instant now = now();
-            List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
             Optional<Closure> known = closures.findByOperation(request.operationId());
             if (known.isPresent()) {
-                return authority(requireSameCommand(known.get(), request, tableSessionId), facts, now);
+                Closure sameCommand = requireSameCommand(known.get(), request, tableSessionId);
+                return checkedAuthority(service, sameCommand, closures.loadFacts(restaurantId, tableSessionId), now);
             }
+            rejectAbortedPrepare(restaurantId, tableSessionId, request);
             closures.findLive(restaurantId, tableSessionId).ifPresent(live -> {
                 throw new BusinessException(ErrorCode.CLOSURE_IN_PROGRESS,
                         "Another operation of this table session is already " + live.status().name().toLowerCase(),
                         Map.of("operationId", live.operationId(), "state", live.status()));
             });
+            List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
+            requirePaymentEvidence(service, facts);
             Decision decision = decide(request, facts);
             if (!decision.authorised()) {
                 log.info("Table session operation not authorised: service={} restaurantId={} tableSessionId={}"
@@ -143,26 +148,43 @@ public class TableSessionClosureService {
         });
     }
 
+    private void rejectAbortedPrepare(UUID restaurantId, UUID tableSessionId, PrepareClosureRequest request) {
+        closures.findUnpreparedAbort(request.operationId()).ifPresent(abort -> {
+            if (!abort.inScope(restaurantId, tableSessionId)) {
+                throw commandConflict();
+            }
+            requireSameDigest(abort.commandDigest(), request.commandDigest());
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "This operation was aborted before preparation");
+        });
+    }
+
     /**
      * What became of an operation, for a QR Service that lost a response or whose permit ran out: the stored operation
-     * with the permit re-checked against the orders as they are now. An operation this Order Service never saw is
-     * {@code NOT_STARTED}, so the QR Service knows to prepare it.
+     * with the permit re-checked against the orders as they are now. An operation without a preparation returns
+     * {@code NOT_STARTED}. A prior abort can still reject a new prepare for that operation.
      */
-    public ClosureResponse get(UUID restaurantId, UUID tableSessionId, UUID operationId, String commandDigest) {
+    public ClosureResponse get(ServiceActor service, UUID restaurantId, UUID tableSessionId, UUID operationId,
+                               String commandDigest) {
         return readTx.execute(status -> {
             Instant now = now();
             List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
             return find(restaurantId, tableSessionId, operationId)
-                    .map(closure -> authority(requireSameDigest(closure, commandDigest), facts, now))
-                    .orElseGet(() -> notStarted(restaurantId, tableSessionId, operationId, commandDigest, now));
+                    .map(closure -> checkedAuthority(service, requireSameDigest(closure, commandDigest), facts, now))
+                    .orElseGet(() -> {
+                        findScopedAbort(restaurantId, tableSessionId, operationId)
+                                .ifPresent(abort -> requireSameDigest(abort.commandDigest(), commandDigest));
+                        return notStarted(restaurantId, tableSessionId, operationId, commandDigest, now);
+                    });
         });
     }
 
     /** What the orders of the session mean for its idle rules; read-only, never a permit. */
-    public OrderSessionStateResponse orderState(UUID restaurantId, UUID tableSessionId) {
+    public OrderSessionStateResponse orderState(ServiceActor service, UUID restaurantId, UUID tableSessionId) {
         return readTx.execute(status -> {
             Instant now = now();
-            OrderSessionScope scope = OrderSessionScope.of(closures.loadFacts(restaurantId, tableSessionId));
+            List<OrderClosureFacts> facts = closures.loadFacts(restaurantId, tableSessionId);
+            requirePaymentEvidence(service, facts);
+            OrderSessionScope scope = OrderSessionScope.of(facts);
             return new OrderSessionStateResponse(restaurantId, tableSessionId, scope.knowledge(),
                     closures.scopeRevision(restaurantId, tableSessionId), now, now.plus(PERMIT_VALIDITY),
                     scope.protectedGuests().stream().sorted().toList(), scope.cancellationReleases(),
@@ -175,11 +197,15 @@ public class TableSessionClosureService {
         UUID restaurantId = request.restaurantId();
         return writeTx.execute(status -> {
             closures.lockForClosure(restaurantId, tableSessionId);
+            closures.lockForOperation(operationId);
             Instant now = now();
-            Optional<Closure> found = find(restaurantId, tableSessionId, operationId);
+            Optional<Closure> known = closures.findByOperation(operationId);
+            Optional<Closure> found = known.filter(closure -> closure.inScope(restaurantId, tableSessionId));
             if (found.isEmpty()) {
                 if (request.outcome() == ClosureConfirmation.NOT_CLOSED) {
-                    // an abort of something this Order Service holds nothing for is a definitive, safe "nothing to abort"
+                    if (known.isEmpty()) {
+                        recordUnpreparedAbort(tableSessionId, operationId, request, now);
+                    }
                     return notStarted(restaurantId, tableSessionId, operationId, request.commandDigest(), now);
                 }
                 throw notFound();
@@ -197,8 +223,24 @@ public class TableSessionClosureService {
         });
     }
 
+    private void recordUnpreparedAbort(UUID tableSessionId, UUID operationId, ConfirmClosureRequest request,
+                                       Instant now) {
+        Optional<UnpreparedAbort> known = closures.findUnpreparedAbort(operationId);
+        if (known.isEmpty()) {
+            closures.insertUnpreparedAbort(operationId,
+                    new UnpreparedAbort(request.restaurantId(), tableSessionId, request.commandDigest()), now);
+        } else if (known.get().inScope(request.restaurantId(), tableSessionId)) {
+            requireSameDigest(known.get().commandDigest(), request.commandDigest());
+        }
+    }
+
     private void confirmClosed(Closure closure, ConfirmClosureRequest.Receipt receipt, List<OrderClosureFacts> facts,
                                Instant now) {
+        if (closure.status() != ClosureStatus.RELEASED && receipt != null && receipt.effect() != closure.effect()) {
+            throw new BusinessException(ErrorCode.CLOSURE_RECEIPT_MISMATCH,
+                    "The receipt names another effect than the one that was permitted",
+                    Map.of("permitted", closure.effect(), "received", receipt.effect()));
+        }
         switch (closure.status()) {
             case COMPLETED -> {
                 // the same confirmation again: nothing to do
@@ -206,11 +248,6 @@ public class TableSessionClosureService {
             case RELEASED -> throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "This operation was released; it cannot be completed");
             case PREPARED -> {
-                if (receipt != null && receipt.effect() != closure.effect()) {
-                    throw new BusinessException(ErrorCode.CLOSURE_RECEIPT_MISMATCH,
-                            "The receipt names another effect than the one that was permitted",
-                            Map.of("permitted", closure.effect(), "received", receipt.effect()));
-                }
                 // The QR Service has already applied the change and never undoes it by itself, so a participant that
                 // said "ready" cannot refuse the final decision: CLOSED is always accepted. If the orders moved since
                 // the preparation (in practice a money report that could only be recorded) that is written down for
@@ -262,18 +299,18 @@ public class TableSessionClosureService {
      * only the guests that are idle AND not protected by one of their orders may. Everything else is BLOCKED.
      */
     private Decision decideIdle(PrepareClosureRequest request, List<OrderClosureFacts> facts, String fingerprint) {
-        if (request.requestedAt() == null || request.mainIdleExpiresAt() == null || request.guests() == null) {
+        if (request.requestedAt() == null || request.guests() == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "requestedAt, mainIdleExpiresAt and guests are required for an IDLE command");
+                    "requestedAt and guests are required for an IDLE command");
         }
         OrderSessionScope scope = OrderSessionScope.of(facts);
-        boolean mainIdle = !request.mainIdleExpiresAt().isAfter(request.requestedAt());
+        boolean mainIdle = isDue(request.mainIdleExpiresAt(), request.requestedAt());
         if (!scope.protectsMain() && mainIdle) {
             return new Decision(SourceStatus.AUTHORISED, ClosureOutcome.ELIGIBLE, ClosureEffect.IDLE_MAIN, Set.of(),
                     Set.of(), fingerprint, facts.size());
         }
         Set<UUID> idleGuests = request.guests().stream()
-                .filter(g -> !g.idleExpiresAt().isAfter(request.requestedAt()))
+                .filter(g -> isDue(g.idleExpiresAt(), request.requestedAt()))
                 .map(PrepareClosureRequest.IdleGuest::guestSessionId)
                 .filter(id -> !scope.protectedGuests().contains(id)).collect(Collectors.toCollection(TreeSet::new));
         if (!idleGuests.isEmpty()) {
@@ -284,6 +321,10 @@ public class TableSessionClosureService {
                 : ClosureBlocker.NOTHING_TO_EXPIRE;
         return new Decision(SourceStatus.BLOCKED, ClosureOutcome.NOT_ELIGIBLE, ClosureEffect.NONE, Set.of(),
                 EnumSet.of(blocker), fingerprint, facts.size());
+    }
+
+    private static boolean isDue(Instant deadline, Instant requestedAt) {
+        return deadline != null && !deadline.isAfter(requestedAt);
     }
 
     /** Is the stored operation still what the orders say? Settled: eligible and unchanged. Idle: still unprotected. */
@@ -306,6 +347,21 @@ public class TableSessionClosureService {
     }
 
     // ---- the answers ---------------------------------------------------------------------------------------------------
+
+    private ClosureResponse checkedAuthority(ServiceActor service, Closure closure, List<OrderClosureFacts> facts,
+                                             Instant now) {
+        if (closure.status() == ClosureStatus.PREPARED) {
+            requirePaymentEvidence(service, facts);
+        }
+        return authority(closure, facts, now);
+    }
+
+    /** Until K7 has a Payment source, real QR requests cannot infer financial clearance from local projections. */
+    private static void requirePaymentEvidence(ServiceActor service, List<OrderClosureFacts> facts) {
+        if (service.qrRequest() != null && !facts.isEmpty()) {
+            throw new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Authoritative Payment verification is unavailable");
+        }
+    }
 
     /** The stored operation as an authority: PREPARED is re-checked, so the permit is renewed or withdrawn. */
     private ClosureResponse authority(Closure c, List<OrderClosureFacts> facts, Instant now) {
@@ -374,15 +430,18 @@ public class TableSessionClosureService {
     /** The operation with this id, if it belongs to this restaurant and table session (anything else is not found). */
     private Optional<Closure> find(UUID restaurantId, UUID tableSessionId, UUID operationId) {
         return closures.findByOperation(operationId)
-                .filter(c -> c.restaurantId().equals(restaurantId) && c.tableSessionId().equals(tableSessionId));
+                .filter(closure -> closure.inScope(restaurantId, tableSessionId));
+    }
+
+    private Optional<UnpreparedAbort> findScopedAbort(UUID restaurantId, UUID tableSessionId, UUID operationId) {
+        return closures.findUnpreparedAbort(operationId).filter(abort -> abort.inScope(restaurantId, tableSessionId));
     }
 
     /** A known operation id must always mean the same command: same restaurant, session, purpose and digest. */
     private static Closure requireSameCommand(Closure closure, PrepareClosureRequest request, UUID tableSessionId) {
         if (!closure.restaurantId().equals(request.restaurantId()) || !closure.tableSessionId().equals(tableSessionId)
                 || closure.purpose() != request.purpose() || !closure.commandDigest().equals(request.commandDigest())) {
-            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
-                    "This operation id was already used for another command");
+            throw commandConflict();
         }
         return closure;
     }
@@ -392,11 +451,19 @@ public class TableSessionClosureService {
      * (a confirmation always names it; a question may leave it out).
      */
     private static Closure requireSameDigest(Closure closure, String commandDigest) {
-        if (commandDigest != null && !closure.commandDigest().equals(commandDigest)) {
-            throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
-                    "This operation id was already used for another command");
-        }
+        requireSameDigest(closure.commandDigest(), commandDigest);
         return closure;
+    }
+
+    private static void requireSameDigest(String recordedDigest, String commandDigest) {
+        if (commandDigest != null && !recordedDigest.equals(commandDigest)) {
+            throw commandConflict();
+        }
+    }
+
+    private static BusinessException commandConflict() {
+        return new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
+                "This operation id was already used for another command");
     }
 
     private static List<ClosureBlocker> sorted(Collection<ClosureBlocker> blockers) {

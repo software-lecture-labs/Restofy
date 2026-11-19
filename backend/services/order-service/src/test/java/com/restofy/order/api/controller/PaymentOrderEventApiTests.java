@@ -67,7 +67,7 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         paymentEvent(service("not-a-known-credential"), body).andExpect(status().isUnauthorized());
         paymentEvent(service(DevFixtures.STAFF_ADMIN_A), body).andExpect(status().isUnauthorized());
         // other kinds of credential never act as the Payment service
-        paymentEvent(guest(A1), body).andExpect(status().isForbidden());
+        paymentEvent(guest(A1), body).andExpect(status().isUnauthorized());
         paymentEvent(staff(DevFixtures.STAFF_ADMIN_A), body).andExpect(status().isForbidden());
         paymentEvent(staff(DevFixtures.STAFF_WAITER_A), body).andExpect(status().isForbidden());
         paymentEvent(service(KITCHEN_CREDENTIAL), body).andExpect(status().isForbidden());
@@ -87,10 +87,9 @@ class PaymentOrderEventApiTests extends AbstractOrderStatusApiTest {
         UUID orderId = placeSaladOrder(A1);
         for (String credential : new String[]{guest(A1), staff(DevFixtures.STAFF_ADMIN_A),
                 staff(DevFixtures.STAFF_WAITER_A), staff(DevFixtures.STAFF_KITCHEN_A)}) {
-            mvc.perform(MockMvcRequestBuilders
-                            .patch("/api/v1/orders/" + orderId + "/payment-status").header("Authorization", credential)
-                            .contentType("application/json").content("{\"status\":\"PAID\"}"))
-                    .andExpect(status().isForbidden());
+            mvc.perform(withCredential(MockMvcRequestBuilders.patch("/api/v1/orders/" + orderId + "/payment-status"),
+                            credential).contentType("application/json").content("{\"status\":\"PAID\"}"))
+                    .andExpect(status().is(credential.startsWith("Staff") ? 403 : 401));
             // a payment word in the fulfillment endpoint is simply not a fulfillment status
             if (credential.startsWith("Staff")) {
                 patchStatus(credential, orderId, "PAID").andExpect(status().isUnprocessableContent());

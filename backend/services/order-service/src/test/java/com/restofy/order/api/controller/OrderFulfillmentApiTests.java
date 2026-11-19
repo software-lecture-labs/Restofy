@@ -91,7 +91,7 @@ class OrderFulfillmentApiTests extends AbstractOrderStatusApiTest {
     @Test
     void aGuestAndAnonymousCallersCanNeverChangeAStatus() throws Exception {
         UUID orderId = placeSaladOrder(A1);
-        patchStatus(guest(A1), orderId, "PREPARING").andExpect(status().isForbidden());
+        patchStatus(guest(A1), orderId, "PREPARING").andExpect(status().isUnauthorized());
         patchStatus(null, orderId, "PREPARING").andExpect(status().isUnauthorized());
         patchStatus(staff("not-a-known-credential"), orderId, "PREPARING").andExpect(status().isUnauthorized());
         // a service credential is not staff authority either

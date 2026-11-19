@@ -170,7 +170,7 @@ class OrderPricingApiTests extends AbstractCartApiTest {
                 "\"taxRateBps\": 0", "\"items\": [{\"productId\": \"" + DevFixtures.BURGER + "\", \"price\": 1}]",
                 "\"currency\": \"USD\""}) {
             mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
-                            .header("Authorization", "Bearer " + A1).header("Idempotency-Key", newKey())
+                            .with(AbstractCartApiTest.guestCookie(A1)).header("Idempotency-Key", newKey())
                             .contentType("application/json")
                             .content("{\"expectedCartVersion\": " + real.get("expectedCartVersion")
                                     + ", \"expectedTotalMinor\": " + real.get("expectedTotalMinor") + ", " + field + "}"))

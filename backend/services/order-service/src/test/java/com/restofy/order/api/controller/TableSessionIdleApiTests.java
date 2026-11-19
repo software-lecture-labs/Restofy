@@ -7,8 +7,13 @@ import tools.jackson.databind.JsonNode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,6 +44,42 @@ class TableSessionIdleApiTests extends AbstractClosureApiTest {
     }
 
     // ---- expiring an idle session -------------------------------------------------------------------------------------
+
+    @Test
+    void aNullGuestIsRejectedBeforeGrantingAnyIdlePermit() throws Exception {
+        var request = idleBody(UUID.randomUUID(), Instant.now(), EXPIRED, Collections.singletonList(null));
+
+        prepareRaw(QR, SESSION, request).andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertEquals(0, closures());
+    }
+
+    @Test
+    void missingIdleDeadlinesDoNotExpireTheMainSessionOrTheGuest() throws Exception {
+        var request = idleBody(UUID.randomUUID(), Instant.now(), null,
+                List.of(idleGuest(DevFixtures.GUEST_A1, EXPIRED), Map.of("guestSessionId", DevFixtures.GUEST_A2)));
+
+        JsonNode answer = body(prepareRaw(QR, SESSION, request).andExpect(status().isOk())
+                .andExpect(jsonPath("$.effect").value("IDLE_GUESTS")));
+
+        assertEquals(List.of(DevFixtures.GUEST_A1.toString()), idleGuestsOf(answer));
+    }
+
+    @Test
+    void idleAcceptsFiveHundredCandidatesWithoutSilentlyTruncatingLargerRequests() throws Exception {
+        var guests = IntStream.range(0, 501).mapToObj(i -> idleGuest(UUID.randomUUID(), EXPIRED)).toList();
+        Instant requestedAt = Instant.now();
+        prepareRaw(QR, SESSION, idleBody(UUID.randomUUID(), requestedAt, null, guests))
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertEquals(0, closures());
+
+        var accepted = guests.subList(0, 500);
+        JsonNode answer = body(prepareRaw(QR, SESSION, idleBody(UUID.randomUUID(), requestedAt, null, accepted))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.effect").value("IDLE_GUESTS")));
+        var expected = accepted.stream().map(guest -> guest.get("guestSessionId").toString()).collect(Collectors.toSet());
+        assertEquals(expected, new HashSet<>(idleGuestsOf(answer)));
+        assertEquals(500, idleGuestsOf(answer).size());
+    }
 
     @Test
     void aSessionWithoutOrdersWhoseMainWindowEndedMayExpireAsAWhole() throws Exception {
@@ -243,7 +284,7 @@ class TableSessionIdleApiTests extends AbstractClosureApiTest {
     @Test
     void onlyTheQrServiceMayReadTheOrderState() throws Exception {
         orderState(null, SESSION, RESTAURANT).andExpect(status().isUnauthorized());
-        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isForbidden());
+        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isUnauthorized());
         orderState(staff(DevFixtures.STAFF_ADMIN_A), SESSION, RESTAURANT).andExpect(status().isForbidden());
         orderState(service(KITCHEN_CREDENTIAL), SESSION, RESTAURANT).andExpect(status().isForbidden());
         orderState(service(PAYMENT_CREDENTIAL), SESSION, RESTAURANT).andExpect(status().isForbidden());

@@ -122,7 +122,7 @@ class OrderListApiTests extends AbstractCartApiTest {
     void identityHintsInHeadersChangeNothing() throws Exception {
         placeSaladOrder(A1);
         mvc.perform(MockMvcRequestBuilders.get(LIST)
-                        .header("Authorization", guest(A2)).header("X-Guest-Session-Id", DevFixtures.GUEST_A1.toString())
+                        .with(AbstractCartApiTest.guestCookie(A2)).header("X-Guest-Session-Id", DevFixtures.GUEST_A1.toString())
                         .header("X-Restaurant-Id", DevFixtures.RESTAURANT_A.toString()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalItems").value(0));
     }
@@ -132,8 +132,8 @@ class OrderListApiTests extends AbstractCartApiTest {
         placeSaladOrder(A1);
         for (SessionState dead : List.of(SessionState.CLOSED, SessionState.EXPIRED)) {
             qr.register(A1, DevFixtures.guestA1(dead));
-            getWith(guest(A1), LIST).andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"))
+            getWith(guest(A1), LIST).andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                     .andExpect(jsonPath("$.items").doesNotExist());
         }
     }
@@ -171,9 +171,9 @@ class OrderListApiTests extends AbstractCartApiTest {
         // the table is used again later: same physical table, a NEW table session and a new guest
         UUID newSession = UUID.randomUUID();
         UUID newGuest = UUID.randomUUID();
-        qr.register("next-visit", new GuestSessionContext(DevFixtures.RESTAURANT_A, DevFixtures.TABLE_A1, newSession,
+        qr.register("n".repeat(43), new GuestSessionContext(DevFixtures.RESTAURANT_A, DevFixtures.TABLE_A1, newSession,
                 newGuest, SessionState.ACTIVE));
-        UUID newVisit = placeSaladOrder("next-visit");
+        UUID newVisit = placeSaladOrder("n".repeat(43));
 
         String staffAdmin = staff(DevFixtures.STAFF_ADMIN_A);
         assertEquals(Set.of(oldVisit.toString(), newVisit.toString()),
@@ -185,7 +185,7 @@ class OrderListApiTests extends AbstractCartApiTest {
         assertEquals(List.of(), ids(list(staffAdmin, "?tableId=" + newSession)));
         assertEquals(List.of(), ids(list(staffAdmin, "?tableSessionId=" + DevFixtures.TABLE_A1)));
         // the new guest never sees the previous visit's order, the old guest never sees the new one
-        assertEquals(List.of(newVisit.toString()), ids(list(guest("next-visit"), "")));
+        assertEquals(List.of(newVisit.toString()), ids(list(guest("n".repeat(43)), "")));
         assertEquals(List.of(oldVisit.toString()), ids(list(guest(A1), "")));
     }
 
