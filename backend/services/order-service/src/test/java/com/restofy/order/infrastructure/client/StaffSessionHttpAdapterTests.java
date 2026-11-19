@@ -94,14 +94,29 @@ class StaffSessionHttpAdapterTests {
                 sign(claims().claim("role", "PLATFORM_ADMIN")),
                 sign(claims().claim("sid", null)),
                 sign(claims().expiration(Date.from(NOW))),
+                sign(claims().issuedAt(Date.from(NOW.minusSeconds(30))).notBefore(Date.from(NOW.minusSeconds(30)))
+                        .expiration(Date.from(NOW.minusSeconds(1)))),
                 sign(claims().expiration(Date.from(NOW.plusSeconds(301)))),
                 sign(claims().notBefore(Date.from(NOW.plusSeconds(1)))),
+                sign(claims().issuedAt(Date.from(NOW.plusSeconds(4))).notBefore(Date.from(NOW.plusSeconds(4)))),
                 "opaque-token",
                 "x".repeat(4097)
         };
         for (String token : invalid) {
             assertTrue(adapter.resolveStaff(token).isEmpty());
         }
+        peer.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, 3})
+    void acceptsMatchingStartTimesUpToThreeSecondsAheadAfterLiveAuthValidation(long skew) {
+        Date startsAt = Date.from(NOW.plusSeconds(skew));
+        String credential = sign(claims().issuedAt(startsAt).notBefore(startsAt));
+        peer.expect(requestTo(SESSION)).andExpect(header(HttpHeaders.COOKIE, "restofy_access=" + credential))
+                .andRespond(withSuccess(session("ADMIN", "2026-11-19T10:04:00Z"), MediaType.APPLICATION_JSON));
+
+        assertEquals(new StaffActor(USER, RESTAURANT, StaffRole.ADMIN), adapter.resolveStaff(credential).orElseThrow());
         peer.verify();
     }
 

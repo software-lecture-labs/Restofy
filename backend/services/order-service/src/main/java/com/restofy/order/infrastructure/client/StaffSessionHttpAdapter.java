@@ -36,6 +36,7 @@ import java.util.regex.Pattern;
 public class StaffSessionHttpAdapter implements AuthContextPort {
     private static final String AUTHENTICATED = "AUTHENTICATED";
     private static final int MAX_TOKEN_LENGTH = 4096;
+    private static final long START_CLOCK_SKEW_SECONDS = 3;
     private static final Pattern JWT = Pattern.compile("[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+");
 
     private final URI sessionUri;
@@ -56,6 +57,7 @@ public class StaffSessionHttpAdapter implements AuthContextPort {
         this.parser = Jwts.parser().verifyWith(rsaKey(publicKey))
                 .sig().clear().add(Jwts.SIG.RS256).and()
                 .clock(() -> java.util.Date.from(clock.instant()))
+                .clockSkewSeconds(START_CLOCK_SKEW_SECONDS)
                 .requireIssuer(issuer).requireAudience("restofy-staff-api")
                 .require("token_type", "access").require("auth_state", AUTHENTICATED)
                 .require("auth_policy", "q5-idle-v1").build();
@@ -90,7 +92,8 @@ public class StaffSessionHttpAdapter implements AuthContextPort {
         Instant expiry = expiryClaim.toInstant();
         Instant notBefore = notBeforeClaim.toInstant();
         Instant now = clock.instant();
-        if (!notBefore.equals(issuedAt) || issuedAt.isAfter(now) || !expiry.isAfter(now)
+        // JJWT also applies its skew to expiration. Enforce the original expiry here.
+        if (!notBefore.equals(issuedAt) || issuedAt.isAfter(now.plusSeconds(START_CLOCK_SKEW_SECONDS)) || !expiry.isAfter(now)
                 || !expiry.isAfter(issuedAt) || expiry.isAfter(issuedAt.plusSeconds(accessTtl))) {
             return null;
         }

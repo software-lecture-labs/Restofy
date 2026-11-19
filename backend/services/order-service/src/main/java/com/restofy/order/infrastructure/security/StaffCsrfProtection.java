@@ -10,6 +10,7 @@ import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.csrf.DefaultCsrfToken;
 
+import java.time.Clock;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.UUID;
@@ -20,11 +21,13 @@ final class StaffCsrfProtection extends CsrfTokenRequestAttributeHandler impleme
     static final String ACCESS_COOKIE = "restofy_access";
     static final String CSRF_HEADER = "X-CSRF-TOKEN";
     private static final String CSRF_COOKIE = "restofy_csrf";
-    private static final Pattern PROOF = Pattern.compile("\\d{1,12}\\.[A-Za-z0-9_-]{43}\\.[A-Za-z0-9_-]{43}");
+    private static final Pattern PROOF = Pattern.compile("(\\d{1,12})\\.[A-Za-z0-9_-]{43}\\.[A-Za-z0-9_-]{43}");
     private final Set<String> origins;
+    private final Clock clock;
 
-    StaffCsrfProtection(Set<String> origins) {
+    StaffCsrfProtection(Set<String> origins, Clock clock) {
         this.origins = origins;
+        this.clock = clock;
     }
 
     static boolean appliesTo(HttpServletRequest request) {
@@ -51,7 +54,15 @@ final class StaffCsrfProtection extends CsrfTokenRequestAttributeHandler impleme
         }
         var proofs = Arrays.stream(cookies).filter(cookie -> CSRF_COOKIE.equals(cookie.getName()))
                 .map(Cookie::getValue).toList();
-        return proofs.size() == 1 && PROOF.matcher(proofs.getFirst()).matches() ? token(proofs.getFirst()) : null;
+        if (proofs.size() != 1) {
+            return null;
+        }
+        String proof = proofs.getFirst();
+        var fields = PROOF.matcher(proof);
+        if (!fields.matches() || Long.parseLong(fields.group(1)) <= clock.instant().getEpochSecond()) {
+            return null;
+        }
+        return token(proof);
     }
 
     @Override

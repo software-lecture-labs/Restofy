@@ -50,7 +50,7 @@ class StaffCookieAuthenticationApiTests {
     private static final String REPORT = "/api/v1/admin/order-cancellations";
     private static final String ACCESS = "test-staff-access";
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";
-    private static final String PROOF = "1795080000." + "a".repeat(43) + "." + "b".repeat(43);
+    private static final String PROOF = proofValue(Instant.now().plusSeconds(900));
     private static final UUID TENANT = UUID.randomUUID();
     private static final UUID USER = UUID.randomUUID();
 
@@ -143,6 +143,16 @@ class StaffCookieAuthenticationApiTests {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1})
+    void expiredBrowserProofIsRejectedEvenWhenHeaderMatchesCookie(long expiresInSeconds) throws Exception {
+        String expired = proofValue(Instant.now().plusSeconds(expiresInSeconds));
+        mvc.perform(fulfillment().cookie(new Cookie("restofy_csrf", expired)).header(HttpHeaders.ORIGIN, ORIGIN)
+                        .header(CSRF_HEADER, expired))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(auth);
+    }
+
     @Test
     void invalidOrUnavailableStaffSessionsFailClosed() throws Exception {
         when(auth.resolveStaff(ACCESS)).thenReturn(Optional.empty())
@@ -183,6 +193,10 @@ class StaffCookieAuthenticationApiTests {
 
     private static Cookie proof() {
         return new Cookie("restofy_csrf", PROOF);
+    }
+
+    private static String proofValue(Instant expiresAt) {
+        return expiresAt.getEpochSecond() + "." + "a".repeat(43) + "." + "b".repeat(43);
     }
 
     private static StaffActor staff(StaffRole role) {

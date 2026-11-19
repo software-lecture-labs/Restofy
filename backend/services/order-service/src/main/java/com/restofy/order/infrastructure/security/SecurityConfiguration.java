@@ -5,7 +5,6 @@ import com.restofy.order.application.port.QrSessionPort;
 import com.restofy.order.application.port.ServiceIdentityPort;
 import com.restofy.order.domain.enums.ServiceName;
 import com.restofy.order.domain.exception.ErrorCode;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -23,6 +22,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 
@@ -51,7 +51,7 @@ public class SecurityConfiguration {
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
                                     ServiceIdentityPort serviceIdentity, ApiErrorWriter errors, Environment environment,
-                                    @Value("${CORS_ALLOWED_ORIGINS:}") String origins) {
+                                    Clock clock) {
         boolean authEnabled = environment.matchesProfiles("order-auth");
         if (authEnabled && environment.matchesProfiles("dev", "test", "local")) {
             throw new IllegalStateException("order-auth cannot use development or test profiles");
@@ -117,8 +117,9 @@ public class SecurityConfiguration {
                         .accessDeniedHandler((request, response, ex) ->
                                 errors.write(response, ErrorCode.ACCESS_DENIED, "Access to this resource is denied")));
         if (authEnabled) {
-            Set<String> staffOrigins = StaffCookieAuthenticationFilter.allowedOrigins(origins);
-            var csrf = new StaffCsrfProtection(staffOrigins);
+            Set<String> staffOrigins = StaffCookieAuthenticationFilter.allowedOrigins(
+                    environment.getProperty("CORS_ALLOWED_ORIGINS", ""));
+            var csrf = new StaffCsrfProtection(staffOrigins, clock);
             http.csrf(config -> config.csrfTokenRepository(csrf).csrfTokenRequestHandler(csrf));
             http.cors(cors -> cors.configurationSource(staffCors(staffOrigins)));
             http.addFilterBefore(new StaffCookieAuthenticationFilter(authContext, errors, STAFF_ROUTES),
