@@ -26,4 +26,14 @@ public class GuestAuthentication extends AbstractAuthenticationToken {
     public Object getPrincipal() {
         return context;
     }
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof GuestAuthentication && super.equals(other);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
 }

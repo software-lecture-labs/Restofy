@@ -63,8 +63,8 @@ public class PaymentReconciliationRecorder {
                 order.getId(), order.getOrderNo(), reason, sourceEventId, attemptId, captureId, amountMinor,
                 normalizedCurrency, occurredAt, order.getFulfillmentStatus().name(), order.getPaymentStatus().name(),
                 order.getCurrentDueMinor());
-        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), required.eventType(),
-                required.schemaVersion(), correlationId, required, now,
+        outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), "ORDER", order.getId(),
+                order.getVersion(), required.eventType(), required.schemaVersion(), correlationId, required, now),
                 List.of(EventDestination.ADMIN, EventDestination.PAYMENT, EventDestination.NOTIFICATION));
         log.warn("Payment reported PAID that cannot be applied, reconciliation required: orderId={} reason={}"
                 + " paymentEventId={} captureId={}", order.getId(), reason, sourceEventId, captureId);

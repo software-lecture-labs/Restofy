@@ -11,8 +11,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @OpenAPIDefinition(info = @Info(title = "Restofy Order Service", version = "v1"))
 @SecurityScheme(name = "staff", type = SecuritySchemeType.APIKEY,
-        in = SecuritySchemeIn.HEADER, paramName = "Authorization",
-        description = "Staff <credential>: an opaque staff credential verified by the Auth Service")
+        in = SecuritySchemeIn.COOKIE, paramName = "restofy_access",
+        description = "Auth staff access cookie in order-auth. Writes require an allowed Origin, restofy_csrf and "
+                + "the matching X-CSRF-TOKEN header. Dev/test mock requests use Authorization: Staff <credential>.")
 @SecurityScheme(name = "service", type = SecuritySchemeType.APIKEY,
         in = SecuritySchemeIn.HEADER, paramName = "Authorization",
         description = "Service <credential>: an opaque credential of a calling service (Kitchen, Payment); internal endpoints only")

@@ -17,20 +17,28 @@
 
 Başka servisin veritabanına erişim, ortak JPA entity veya fiziksel FK yoktur. `restaurant_id`, `table_*`, `guest_*` değerleri mantıksal referanstır. Tüm parasal tutarlar `bigint` minor birimdir, fiyatlar KDV dahil brüttür, KDV/net satır başına `ROUND_HALF_UP` ile ayrıştırılır (D-08'in yalnız saklama biçimi kısmı).
 
-## 2. Kimlik ve yetki — geçici sözleşme (D-09)
+## 2. Kimlik ve yetki (D-09)
 
-Order üç kimlik türünü, her biri kendi portu üzerinden doğrular. İstemci başlıkları (`X-Role`, `X-User-Id`, `X-Restaurant-Id`) hiçbir türde yetki kaynağı değildir; çerez okunmaz, CSRF kapalıdır çünkü tarayıcının otomatik eklediği bir kimlik bilgisi kullanılmaz.
+Order üç kimlik türünü, her biri kendi portu üzerinden doğrular. `X-Role`, `X-User-Id` ve `X-Restaurant-Id` yetki kaynağı değildir. `order-auth` profilinde personel çerezle doğrulanır ve çerezle yapılan yazma isteklerine Origin ve CSRF kontrolü uygulanır.
 
-| Tür | Başlık | Doğrulayan port | Not |
+| Tür | Kimlik bilgisi | Doğrulayan port | Not |
 |---|---|---|---|
 | Misafir | `Authorization: Bearer <opak jeton>` | `QrSessionPort` | Restoran, masa, guest ve oturum durumu QR'dan gelir |
-| Personel | `Authorization: Staff <opak kimlik>` | `AuthContextPort` | Roller `ADMIN`, `WAITER`, `KITCHEN`; aktif restoran doğrulanmış kimlikten alınır |
+| Personel | `restofy_access` çerezi | `AuthContextPort` | `order-auth` profili. Roller `ADMIN`, `WAITER`, `KITCHEN`. Restoran ve kullanıcı doğrulanmış Auth JWT'sinden alınır |
 | Servis | `Authorization: Service <opak kimlik>` | `ServiceIdentityPort` | `KITCHEN`, `PAYMENT`, `QR`; yalnız `/api/v1/internal/**` |
 
-- **DOĞRULANMADI / UYGULANMADI:** Gerçek QR, Auth ve servis kimliği adaptörleri yoktur. Mock adaptörler yalnız `dev` ve `test` profilinde yüklenir; diğer profillerde üç doğrulayıcı da **fail-closed** (503) çalışır.
+- `order-auth` kapalıyken personel için `Authorization: Staff <opak kimlik>` geliştirme/test sözleşmesidir. Gerçek Auth adaptörü ve mock personel adaptörü aynı profilde yüklenmez. Bu daldaki QR ve servis kimliği adaptörleri geliştirme/test kapsamı dışında fail-closed çalışır.
 - **`dev` profili kimlik doğrulama yapmaz.** Sabit yer tutucu misafir, personel (ADMIN dahil) ve servis kimlikleri, API Gateway üzerinden gelen isteklerde de kabul edilir. Bu yüzden `dev` profili yalnızca yerel makinede kullanılmalı, paylaşılan veya erişilebilir bir sunucuda çalıştırılmamalıdır. Servis `dev` profiliyle açıldığında günlüğe tek ve belirgin bir uyarı bloğu yazılır (kimlik bilgilerini yazmaz, `dev` dışında üretilmez).
-- **Açık karar:** Personel kimliğinin taşınma biçimi (`Staff` başlığı mı, Auth'un `HttpOnly` çerezi mi) Auth sahibiyle netleşecek. Çerez seçilirse Order'ın CSRF/Origin korumasını da üstlenmesi gerekir.
 - Hedef servis kimliği yöntemi (kısa ömürlü imzalı token) SECURITY.md'de tarif edilmiştir ve **UYGULANMADI**.
+
+### 2.1 Auth personel oturumu
+
+- Order önce `restofy_access` JWT'sini Auth açık anahtarıyla yerelde doğrular. RS256, yapılandırılmış issuer, `restofy-staff-api` audience, geçerlilik süresi, UUID kimlikleri ve `q5-idle-v1` access politikası denetlenir. `iat` ile `nbf` aynı olmalı ve Order saatinden en fazla üç saniye ileride olabilir. Token ve oturum bitiş süreleri katı olarak uygulanır. Yalnız `AUTHENTICATED` access tokenı personel kimliği üretir.
+- Order ardından Auth'un mevcut `GET /api/v1/auth/session` uç noktasına yalnız access çerezini gönderir. Güncel oturum durumu, rol ve süreler her personel isteğinde doğrulanır. Oturum sorgusu personel aktivitesi kaydetmez ve sonuç önbelleğe alınmaz. Geçersiz veya iptal edilmiş oturum `401`, Auth erişim hatası veya doğrulanamayan yanıt `503` döndürür.
+- Personel yazma işlemlerinde `CORS_ALLOWED_ORIGINS` listesinden tek bir `Origin`, süresi geçmemiş tek bir `restofy_csrf` çerezi ve aynı değerde tek `X-CSRF-TOKEN` başlığı gerekir. Order çerezdeki bitiş zamanını kontrol eder ve çerez ile başlığı karşılaştırır. Auth'un refresh bilgisine bağlı CSRF imzası Auth'ta kalır. Tarayıcı başlık değerini Auth'un mevcut `GET /api/v1/auth/csrf` yanıtındaki `token` alanından alabilir.
+- CORS, yalnız personel erişimine izin verilen mevcut rota ve yöntemlerde izinli origin'lere credential'lı tarayıcı isteklerini açar. Preflight bir iş işlemi yapmaz ve Auth'a oturum sorgusu göndermez.
+- Auth doğrulaması yalnız personel erişimine izin verilen Order rotalarında çalışır. Hem misafir hem personele açık rotalarda açıkça gönderilen misafir Bearer kimliği kendi akışında doğrulanır. Personel çerezi misafir veya iç servis yetkisi vermez. Order'ın mevcut rol ve restoran kontrolleri uygulanır.
+- Compose'da yalnız `order-service` için `SPRING_PROFILES_ACTIVE=order-auth` ve Auth'un TLS sertifikasına uyan HTTPS `AUTH_SERVICE_URL` kullanın. `ORDER_AUTH_STAFF_PUBLIC_KEY` değeri Auth personel JWT anahtarının Base64 X.509 açık anahtarıdır. `JWT_ISSUER` ve `JWT_ACCESS_TTL_SECONDS` Auth ile uyumlu olmalıdır. `order-auth`, Order'ın `dev`, `test` veya `local` profiliyle birlikte açılamaz.
 
 ## 3. Uç noktalar
 
@@ -156,8 +164,7 @@ Flyway aralığı V41–V50, tamamı kullanıldı (aralıkta boş numara kalmad�
 
 ## 9. Açık işler
 
-- Gerçek Auth, QR, Kitchen, Payment entegrasyonu ve uçtan uca doğrulama (**DOĞRULANMADI**, testler mock kimliklerle çalışır).
-- Personel kimliği taşıma biçimi (Auth ile).
+- Bu dalda QR, Kitchen ve Payment için gerçek servis adaptörleri ve uçtan uca doğrulama (**DOĞRULANMADI**).
 - Order → Payment doğrulama sorgusu ve outbox dispatcher.
 - Yeni internal uç noktalar ve QR servis kimliği Order'ın taslağıdır; QR ve Payment sahiplerinin onayı gerekir (SECURITY.md). Yanıtlar QR PR #11'deki tiplere göre biçimlendirildi ama QR'ın gerçek adaptörü henüz yok: alan adları ve HTTP biçimi adaptör yazılırken QR ile birlikte kesinleşecek.
 - Sapma kayıtlarını (V49) kimin okuyacağı: şimdilik yalnızca kayıt ve log.

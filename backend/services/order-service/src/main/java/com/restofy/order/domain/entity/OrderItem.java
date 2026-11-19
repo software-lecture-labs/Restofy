@@ -1,6 +1,7 @@
 package com.restofy.order.domain.entity;
 
 import com.restofy.order.domain.pricing.MoneyConverter;
+import com.restofy.order.domain.pricing.PriceCalculator.LinePrice;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -90,24 +91,26 @@ public class OrderItem {
     @BatchSize(size = OPTION_FETCH_BATCH_SIZE)
     private Set<OrderItemOption> options = new LinkedHashSet<>();
 
-    public OrderItem(Order order, int lineNo, UUID productId, String productNameSnapshot, int orderedQuantity, String currency,
-                     long unitGrossMinor, int taxRateBps, long lineGrossMinor, long lineNetMinor, long lineVatMinor,
-                     String priceVersion, String note, Instant now) {
+    public record Snapshot(UUID productId, String productName, String currency, int taxRateBps,
+                           LinePrice price, String priceVersion) {
+    }
+
+    public OrderItem(Order order, int lineNo, int orderedQuantity, Snapshot snapshot, String note, Instant now) {
         this.id = UUID.randomUUID();
         this.order = order;
         this.restaurantId = order.getRestaurantId();
         this.lineNo = lineNo;
-        this.productId = productId;
-        this.productNameSnapshot = productNameSnapshot;
+        this.productId = snapshot.productId();
+        this.productNameSnapshot = snapshot.productName();
         this.orderedQuantity = orderedQuantity;
         this.cancelledQuantity = 0;
-        this.currency = MoneyConverter.normalizeCurrency(currency);
-        this.unitGrossMinor = unitGrossMinor;
-        this.taxRateBps = taxRateBps;
-        this.lineGrossMinor = lineGrossMinor;
-        this.lineNetMinor = lineNetMinor;
-        this.lineVatMinor = lineVatMinor;
-        this.priceVersion = priceVersion;
+        this.currency = MoneyConverter.normalizeCurrency(snapshot.currency());
+        this.unitGrossMinor = snapshot.price().unitGrossMinor();
+        this.taxRateBps = snapshot.taxRateBps();
+        this.lineGrossMinor = snapshot.price().lineGrossMinor();
+        this.lineNetMinor = snapshot.price().lineNetMinor();
+        this.lineVatMinor = snapshot.price().lineVatMinor();
+        this.priceVersion = snapshot.priceVersion();
         this.note = note;
         this.createdAt = now;
     }

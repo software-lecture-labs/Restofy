@@ -130,8 +130,8 @@ public class KitchenCancellationRequestService {
         Instant receivedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Instant now = receivedAt;
         UUID cancellationId = UUID.randomUUID();
-        if (!idempotency.tryClaim(order.getRestaurantId(), SCOPE, OPERATION, key, digest, cancellationId, OK, now,
-                now.plus(retention.cancellationRetention()))) {
+        if (!idempotency.tryClaim(order.getRestaurantId(), SCOPE, OPERATION, key,
+                new IdempotencyStore.Record(digest, cancellationId, OK), now, now.plus(retention.cancellationRetention()))) {
             IdempotencyStore.Record winner = idempotency.find(order.getRestaurantId(), SCOPE, OPERATION, key)
                     .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT,
                             "The request conflicts with the current state, please retry"));

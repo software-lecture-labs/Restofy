@@ -5,6 +5,7 @@ import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.infrastructure.config.CorrelationIdFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -23,12 +24,24 @@ public class ApiErrorWriter {
     }
 
     public void write(HttpServletResponse response, ErrorCode code, String message) throws IOException {
+        if (code == ErrorCode.UNAUTHENTICATED) {
+            unauthenticated(response, message, "Bearer");
+            return;
+        }
+        writeBody(response, code, message);
+    }
+
+    void unauthenticated(HttpServletResponse response, String message, String... challenges) throws IOException {
+        for (String challenge : challenges) {
+            response.addHeader(HttpHeaders.WWW_AUTHENTICATE, challenge);
+        }
+        writeBody(response, ErrorCode.UNAUTHENTICATED, message);
+    }
+
+    private void writeBody(HttpServletResponse response, ErrorCode code, String message) throws IOException {
         response.setStatus(code.httpStatus());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        if (code == ErrorCode.UNAUTHENTICATED) {
-            response.setHeader("WWW-Authenticate", "Bearer");
-        }
         jsonMapper.writeValue(response.getOutputStream(),
                 ErrorResponse.of(code, message, null, MDC.get(CorrelationIdFilter.MDC_KEY)));
     }

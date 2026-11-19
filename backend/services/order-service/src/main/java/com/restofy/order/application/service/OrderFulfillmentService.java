@@ -166,8 +166,9 @@ public class OrderFulfillmentService {
                 OrderFulfillmentStatusChangedEvent.SCHEMA_VERSION, now, correlationId, order.getRestaurantId(),
                 order.getTableId(), order.getTableSessionId(), order.getId(), order.getOrderNo(), from.name(),
                 target.name(), actor.type().name(), actor.role(), source);
-        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), event.eventType(),
-                event.schemaVersion(), correlationId, event, now, destinations(target, originatedByKitchen));
+        outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), "ORDER", order.getId(),
+                order.getVersion(), event.eventType(), event.schemaVersion(), correlationId, event, now),
+                destinations(target, originatedByKitchen));
     }
 
     /** Who needs to hear about a status: everyone but the Kitchen when the Kitchen itself caused it. */

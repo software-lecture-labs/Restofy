@@ -123,7 +123,7 @@ public class CartService {
             // The cart lock serializes this guest's requests, so a concurrent twin has already committed (or not
             // started) by the time we claim. A failure further down rolls the claim back with everything else.
             if (key != null && !idempotency.tryClaim(context.restaurantId(), actor, IdempotencyKeys.CART_ITEM, key,
-                    digest, cart.getId(), HttpStatus.OK.value(), now, now.plus(retention.cartItemRetention()))) {
+                    new IdempotencyStore.Record(digest, cart.getId(), HttpStatus.OK.value()), now, now.plus(retention.cartItemRetention()))) {
                 return true;
             }
             requireExpectedVersion(cart, request.expectedCartVersion());
@@ -193,7 +193,7 @@ public class CartService {
                     "The cart cannot contain more than " + limits.maxLines() + " different lines");
         }
         CartItem item = new CartItem(cart, product.productId(), quantity, selection.selectionKey(), selection.note(),
-                product.name(), product.currency(), unitGross, product.taxRateBps(), product.priceVersion(), now);
+                new CartItem.PriceSnapshot(product.name(), product.currency(), unitGross, product.taxRateBps(), product.priceVersion()), now);
         for (ResolvedOption option : selection.options()) {
             item.addOption(new CartItemOption(item, option.optionId(), option.action(), option.quantity(),
                     option.name(), option.unitPriceDeltaMinor()));
@@ -291,8 +291,9 @@ public class CartService {
         CartActivityRecordedEvent event = new CartActivityRecordedEvent(eventId, CartActivityRecordedEvent.TYPE,
                 CartActivityRecordedEvent.SCHEMA_VERSION, now, correlationId, context.restaurantId(),
                 context.tableSessionId(), context.guestSessionId(), cart.getId(), activity);
-        outbox.write(eventId, context.restaurantId(), "CART", cart.getId(), cart.getVersion() + 1, event.eventType(),
-                event.schemaVersion(), correlationId, event, now, List.of(EventDestination.QR));
+        outbox.write(new OutboxEventWriter.Event(eventId, context.restaurantId(), "CART", cart.getId(),
+                cart.getVersion() + 1, event.eventType(), event.schemaVersion(), correlationId, event, now),
+                List.of(EventDestination.QR));
     }
 
     private CartResponse view(GuestSessionContext context) {
