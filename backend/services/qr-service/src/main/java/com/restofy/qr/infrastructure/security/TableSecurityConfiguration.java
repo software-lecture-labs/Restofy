@@ -21,12 +21,12 @@ public class TableSecurityConfiguration {
             @Override protected void doFilterInternal(jakarta.servlet.http.HttpServletRequest request,
                     HttpServletResponse response,jakarta.servlet.FilterChain chain) throws IOException,jakarta.servlet.ServletException {
                 try { credentials.verifyCaller(request); }
-                catch (org.springframework.web.server.ResponseStatusException denied) { writeProblem(response,401); return; }
+                catch (org.springframework.web.server.ResponseStatusException _) { writeProblem(response,401); return; }
                 chain.doFilter(request,response);
             }
         },org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.securityMatcher("/internal/q5/**")
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/internal/q5/revocations", "/internal/q5/challenge", "/internal/q5/bootstrap"))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/internal/q5/revocations", "/internal/q5/challenge", "/internal/q5/bootstrap")) // NOSONAR S4502: stateless service-to-service bearer calls; verifyCaller rejects any Cookie/Origin, so there is no ambient browser credential to forge
                 .sessionManagement(session -> session.sessionCreationPolicy(org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/internal/q5/revocations", "/internal/q5/challenge", "/internal/q5/bootstrap").permitAll()

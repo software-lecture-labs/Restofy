@@ -112,8 +112,8 @@ class StaffRevocationStoreTests extends com.restofy.qr.support.Q5TestSecuritySup
         Command command = command(UUID.randomUUID(), sid, 1);
         var receipt = store.apply(command);
         assertThat(store.apply(command)).isEqualTo(receipt);
-        assertThatThrownBy(() -> store.apply(command(command.operationId(), UUID.randomUUID(), 1)))
-                .isInstanceOf(ResponseStatusException.class);
+        Command altered = command(command.operationId(), UUID.randomUUID(), 1);
+        assertThatThrownBy(() -> store.apply(altered)).isInstanceOf(ResponseStatusException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revoked_sessions", Long.class)).isEqualTo(1);
     }
 
