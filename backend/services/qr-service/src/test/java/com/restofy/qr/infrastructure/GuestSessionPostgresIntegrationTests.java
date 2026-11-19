@@ -46,6 +46,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Autowired GuestSessionOpeningService opening;
     @Autowired GuestSessionValidationService validation;
     @Autowired GuestTokenCodec tokens;
+    @Autowired com.restofy.qr.infrastructure.security.guest.GuestCookies cookies;
     @Autowired QrCodeCreationService creation;
     @Autowired TableManagementService tables;
     @Autowired GuestSessionRepository guests;
@@ -65,7 +66,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
         when(clock.instant()).thenAnswer(invocation -> Instant.now());
-        api = MockMvcBuilders.standaloneSetup(new TableSessionController(opening))
+        api = MockMvcBuilders.standaloneSetup(new TableSessionController(opening, cookies))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }
@@ -95,7 +96,11 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
                 .andExpect(jsonPath("$.tableSession.restaurantId").value(code.restaurantId().toString()))
                 .andExpect(jsonPath("$.tableSession.tableId").value(code.tableId().toString()))
                 .andExpect(jsonPath("$.guestSession.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.guestToken").isString()).andExpect(jsonPath("$.guestSession.tokenDigest").doesNotExist())
+                .andExpect(jsonPath("$.guestToken").doesNotExist())
+                .andExpect(result -> assertThat(result.getResponse().getHeaders("Set-Cookie")).anySatisfy(cookie -> assertThat(cookie)
+                        .startsWith("restofy_guest=").contains("HttpOnly", "SameSite=Strict", "Path=/api/v1").doesNotContain("Domain")))
+                .andExpect(result -> assertThat(result.getResponse().getHeaders("Set-Cookie")).anySatisfy(cookie -> assertThat(cookie)
+                        .startsWith("restofy_guest_csrf=").doesNotContain("HttpOnly"))).andExpect(jsonPath("$.guestSession.tokenDigest").doesNotExist())
                 .andExpect(jsonPath("$.encryptedPayload").doesNotExist()).andExpect(jsonPath("$.qrToken").doesNotExist())
                 .andExpect(jsonPath("$.role").doesNotExist()).andExpect(jsonPath("$.guestCount").doesNotExist());
         assertThat(count(code.tableId())).isEqualTo(1);

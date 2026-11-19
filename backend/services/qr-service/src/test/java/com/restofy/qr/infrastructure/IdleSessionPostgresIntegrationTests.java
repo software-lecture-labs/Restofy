@@ -1,6 +1,5 @@
 package com.restofy.qr.infrastructure;
 
-import com.restofy.qr.api.dto.request.GuestActivityRequest;
 import com.restofy.qr.application.service.SessionIdleExpiryService;
 import com.restofy.qr.domain.OrderSessionState;
 import com.restofy.qr.domain.enums.*;
@@ -42,7 +41,7 @@ class IdleSessionPostgresIntegrationTests extends TransitionIntegrationSupport {
         assertThat(resolved.tableSessionId()).isEqualTo(main(f));
         assertThat(resolved.guestSessionId()).isEqualTo(f.owner().guestSession().id());
         assertThat(sessions.findById(main(f)).orElseThrow().getVersion()).isEqualTo(mainVersion);
-        var result = activity.recordActivity(new GuestActivityRequest(f.owner().guestToken(), tenant, main(f), f.owner().guestSession().id()));
+        var result = activity.recordActivity(f.owner().guestToken());
         assertThat(result.guestExpiresAt()).isEqualTo(start.plusSeconds(1740));
         assertThat(guests.findById(spectator.guestSession().id()).orElseThrow().getExpiresAt()).isEqualTo(start.plusSeconds(900));
         time.set(start.plusSeconds(900));
@@ -111,8 +110,7 @@ class IdleSessionPostgresIntegrationTests extends TransitionIntegrationSupport {
         var f = create(); var guestToken = f.owner().guestToken(); var sessionId = main(f); Instant start = time.get(); time.set(start.plusSeconds(900));
         assertThat(expiry.expire(tenant, sessionId).mainExpired()).isTrue();
         state(f, OrderSessionState.Knowledge.OPEN_WORK, Set.of(f.owner().guestSession().id()));
-        var request = new GuestActivityRequest(guestToken, tenant, sessionId, f.owner().guestSession().id());
-        assertThatThrownBy(() -> activity.recordActivity(request))
+        assertThatThrownBy(() -> activity.recordActivity(guestToken))
                 .isInstanceOf(InvalidGuestSessionException.class);
         assertThat(sessions.findById(sessionId).orElseThrow().getStatus()).isEqualTo(TableSessionStatus.EXPIRED);
     }

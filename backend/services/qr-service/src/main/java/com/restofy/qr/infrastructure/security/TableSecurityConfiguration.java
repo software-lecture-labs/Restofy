@@ -1,5 +1,6 @@
 package com.restofy.qr.infrastructure.security;
 
+import com.restofy.qr.infrastructure.security.guest.GuestRequestFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
@@ -45,15 +46,20 @@ public class TableSecurityConfiguration {
             config.setAllowedOrigins(settings.origins());
             config.setAllowCredentials(true);
             config.setAllowedMethods(java.util.List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-            config.setAllowedHeaders(java.util.List.of("Content-Type","X-CSRF-TOKEN","Idempotency-Key"));
+            config.setAllowedHeaders(java.util.List.of("Content-Type","X-CSRF-TOKEN","X-Guest-CSRF","Idempotency-Key"));
             config.setMaxAge(300L);
             return config;
         }));
-        http.csrf(csrf -> csrf.ignoringRequestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())));
+        // Guest routes use their own Origin + double-submit proof (GuestRequestFilter), never the staff CSRF names.
+        http.csrf(csrf -> csrf.ignoringRequestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())
+                || GuestRequestFilter.guestPath(request.getMethod(), request.getRequestURI())));
         http.addFilterBefore(new StaffRequestFilter(settings, clock, store), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
+        http.addFilterBefore(new GuestRequestFilter(settings), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.authorizeHttpRequests(requests -> requests
                 .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
                 .requestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())).authenticated()
+                // Guest routes stay closed here; the rate-limit change opens them (separate public-endpoint approval).
+                .requestMatchers(request -> GuestRequestFilter.guestPath(request.getMethod(), request.getRequestURI())).denyAll()
                 .anyRequest().denyAll());
         http.exceptionHandling(errors -> errors
                 .authenticationEntryPoint((request, response, exception) -> writeProblem(response, 401))
