@@ -24,7 +24,8 @@ record LifecycleOrderTestProcess(Process process, int port) implements AutoClose
 
     private static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(60);
 
-    static LifecycleOrderTestProcess start(Path directory, String jdbcUrl, String publicKeys, String restaurant)
+    static LifecycleOrderTestProcess start(Path directory, String jdbcUrl, String publicKeys, String restaurant,
+                                           String outboundKey)
             throws IOException, InterruptedException {
         Files.createDirectories(directory);
         Path classpathJar = directory.resolve("classpath.jar");
@@ -42,15 +43,20 @@ record LifecycleOrderTestProcess(Process process, int port) implements AutoClose
         if (systemRoot != null) {
             environment.put("SystemRoot", systemRoot);
         }
-        environment.putAll(Map.of(
-                "SPRING_PROFILES_ACTIVE", "order-qr",
-                "SPRING_DATASOURCE_URL", jdbcUrl,
-                "SPRING_DATASOURCE_USERNAME", "test",
-                "SPRING_DATASOURCE_PASSWORD", "test",
-                "SERVER_ADDRESS", "127.0.0.1",
-                "SERVER_PORT", "0",
-                "ORDER_QR_SERVICE_PUBLIC_KEYS", publicKeys,
-                "ORDER_QR_SERVICE_RESTAURANTS", restaurant));
+        environment.putAll(Map.ofEntries(
+                Map.entry("SPRING_PROFILES_ACTIVE", "order-qr"),
+                Map.entry("SPRING_DATASOURCE_URL", jdbcUrl),
+                Map.entry("SPRING_DATASOURCE_USERNAME", "test"),
+                Map.entry("SPRING_DATASOURCE_PASSWORD", "test"),
+                Map.entry("SERVER_ADDRESS", "127.0.0.1"),
+                Map.entry("SERVER_PORT", "0"),
+                Map.entry("ORDER_QR_SERVICE_PUBLIC_KEYS", publicKeys),
+                Map.entry("ORDER_QR_SERVICE_RESTAURANTS", restaurant),
+                Map.entry("ORDER_QR_CALLER_KEY_ID", "local-test"),
+                Map.entry("ORDER_QR_CALLER_PRIVATE_KEY", outboundKey),
+                Map.entry("ORDER_QR_CALLER_RESTAURANT_ID", restaurant),
+                Map.entry("CORS_ALLOWED_ORIGINS", "https://guest.example"),
+                Map.entry("QR_SERVICE_URL", "https://localhost")));
         Process process = builder.start();
         try {
             int port = awaitPort(process, ready, log);

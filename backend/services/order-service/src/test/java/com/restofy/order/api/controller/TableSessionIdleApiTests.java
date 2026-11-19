@@ -284,7 +284,7 @@ class TableSessionIdleApiTests extends AbstractClosureApiTest {
     @Test
     void onlyTheQrServiceMayReadTheOrderState() throws Exception {
         orderState(null, SESSION, RESTAURANT).andExpect(status().isUnauthorized());
-        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isForbidden());
+        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isUnauthorized());
         orderState(staff(DevFixtures.STAFF_ADMIN_A), SESSION, RESTAURANT).andExpect(status().isForbidden());
         orderState(service(KITCHEN_CREDENTIAL), SESSION, RESTAURANT).andExpect(status().isForbidden());
         orderState(service(PAYMENT_CREDENTIAL), SESSION, RESTAURANT).andExpect(status().isForbidden());

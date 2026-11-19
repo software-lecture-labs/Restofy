@@ -64,7 +64,7 @@ class OrderCancellationReportApiTests extends AbstractCancellationApiTest {
         getWith(null, REPORT).andExpect(status().isUnauthorized());
         getWith(WAITER, REPORT).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
         getWith(staff(DevFixtures.STAFF_KITCHEN_A), REPORT).andExpect(status().isForbidden());
-        getWith(guest(A1), REPORT).andExpect(status().isForbidden());
+        getWith(guest(A1), REPORT).andExpect(status().isUnauthorized());
         getWith(service(KITCHEN_CREDENTIAL), REPORT).andExpect(status().isForbidden());
         getWith(service(PAYMENT_CREDENTIAL), REPORT).andExpect(status().isForbidden());
         getWith(ADMIN, REPORT).andExpect(status().isOk());

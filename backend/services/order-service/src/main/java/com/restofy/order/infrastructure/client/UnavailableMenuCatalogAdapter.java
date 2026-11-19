@@ -13,7 +13,7 @@ import java.util.UUID;
 
 /** Fail-closed stand-in used outside the dev/test profiles until the real Menu Service adapter exists. */
 @Component
-@Profile("!dev & !test")
+@Profile("(!dev & !test) | prod")
 public class UnavailableMenuCatalogAdapter implements MenuCatalogPort {
 
     @Override

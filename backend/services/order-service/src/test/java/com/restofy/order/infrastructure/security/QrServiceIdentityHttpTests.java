@@ -66,6 +66,15 @@ class QrServiceIdentityHttpTests {
     static void trust(DynamicPropertyRegistry props) {
         props.add("ORDER_QR_SERVICE_PUBLIC_KEYS", QrServiceIdentityHttpTests::configuredKeys);
         props.add("ORDER_QR_SERVICE_RESTAURANTS", RESTAURANT::toString);
+        props.add("ORDER_QR_CALLER_KEY_ID", () -> "local-test");
+        props.add("ORDER_QR_CALLER_PRIVATE_KEY", QrServiceIdentityHttpTests::outboundKey);
+        props.add("ORDER_QR_CALLER_RESTAURANT_ID", RESTAURANT::toString);
+        props.add("QR_SERVICE_URL", () -> "https://localhost");
+        props.add("CORS_ALLOWED_ORIGINS", () -> "https://guest.example");
+    }
+
+    private static String outboundKey() {
+        return Base64.getEncoder().encodeToString(OTHER_KEY.getPrivate().getEncoded());
     }
 
     private static String configuredKeys() {
@@ -198,7 +207,8 @@ class QrServiceIdentityHttpTests {
     }
 
     private static LifecycleOrderTestProcess startOrder(Path directory, String jdbcUrl) throws Exception {
-        return LifecycleOrderTestProcess.start(directory, jdbcUrl, configuredKeys(), RESTAURANT.toString());
+        return LifecycleOrderTestProcess.start(directory, jdbcUrl, configuredKeys(), RESTAURANT.toString(),
+                outboundKey());
     }
 
     private static String closedReceipt() {

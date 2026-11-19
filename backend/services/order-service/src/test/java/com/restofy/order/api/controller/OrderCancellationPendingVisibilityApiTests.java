@@ -168,7 +168,7 @@ class OrderCancellationPendingVisibilityApiTests extends AbstractCancellationApi
         waitedSince(old.cancellationId(), Instant.now().minus(1, ChronoUnit.DAYS));
 
         getWith(WAITER, REPORT + "?overdue=true").andExpect(status().isForbidden());
-        getWith(guest(A1), REPORT + "?overdue=true").andExpect(status().isForbidden());
+        getWith(guest(A1), REPORT + "?overdue=true").andExpect(status().isUnauthorized());
         getWith(staff(DevFixtures.STAFF_ADMIN_B), REPORT + "?overdue=true").andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalItems").value(0))
                 .andExpect(jsonPath("$.summary.pending.overdueCount").value(0));

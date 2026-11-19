@@ -4,7 +4,6 @@ import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.domain.enums.StaffRole;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapter;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
@@ -37,25 +36,19 @@ abstract class AbstractOrderStatusApiTest extends AbstractCartApiTest {
     protected ResultActions patchStatus(String authorization, UUID orderId, Object body) throws Exception {
         var request = patch("/api/v1/orders/" + orderId + "/fulfillment-status")
                 .contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
     protected ResultActions kitchenEvent(String authorization, Object body) throws Exception {
         var request = post(KITCHEN_EVENTS).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
     protected ResultActions paymentEvent(String authorization, Object body) throws Exception {
         var request = post(PAYMENT_EVENTS).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 

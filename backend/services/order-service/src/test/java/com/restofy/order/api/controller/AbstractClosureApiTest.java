@@ -32,9 +32,7 @@ abstract class AbstractClosureApiTest extends AbstractOrderStatusApiTest {
 
     protected ResultActions prepareRaw(String authorization, UUID session, Object body) throws Exception {
         var request = post(preparations(session)).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
@@ -76,9 +74,7 @@ abstract class AbstractClosureApiTest extends AbstractOrderStatusApiTest {
     protected ResultActions lookup(String authorization, UUID session, UUID operation, UUID restaurant)
             throws Exception {
         var request = get(preparations(session) + "/" + operation).param("restaurantId", restaurant.toString());
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
@@ -112,9 +108,7 @@ abstract class AbstractClosureApiTest extends AbstractOrderStatusApiTest {
         }
         var request = post(preparations(session) + "/" + operation + "/confirmation")
                 .contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
@@ -135,9 +129,7 @@ abstract class AbstractClosureApiTest extends AbstractOrderStatusApiTest {
     protected ResultActions orderState(String authorization, UUID session, UUID restaurant) throws Exception {
         var request = get("/api/v1/internal/table-sessions/" + session + "/order-state")
                 .param("restaurantId", restaurant.toString());
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
@@ -180,8 +172,8 @@ abstract class AbstractClosureApiTest extends AbstractOrderStatusApiTest {
     }
 
     private ResultActions cancelAll(String authorization, UUID orderId) throws Exception {
-        return mvc.perform(post("/api/v1/orders/" + orderId + "/cancellations")
-                .contentType(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, authorization)
+        return mvc.perform(withCredential(post("/api/v1/orders/" + orderId + "/cancellations"), authorization)
+                .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", newKey()).content(toJson(Map.of("cancelAll", true))));
     }
 }

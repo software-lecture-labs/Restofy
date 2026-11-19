@@ -37,9 +37,9 @@ public final class DevFixtures {
     public static final String STAFF_ADMIN_B = "dev-mock-staff-admin-b";
     public static final String STAFF_WAITER_B = "dev-mock-staff-waiter-b";
 
-    public static final String TOKEN_A1 = "dev-mock-guest-token-a1";
-    public static final String TOKEN_A2 = "dev-mock-guest-token-a2";
-    public static final String TOKEN_B1 = "dev-mock-guest-token-b1";
+    public static final String TOKEN_A1 = "a".repeat(43);
+    public static final String TOKEN_A2 = "b".repeat(43);
+    public static final String TOKEN_B1 = "c".repeat(43);
 
     public static final UUID BURGER = UUID.fromString("00000000-0000-4000-8000-0000000b0001");
     public static final UUID SALAD = UUID.fromString("00000000-0000-4000-8000-0000000b0002");

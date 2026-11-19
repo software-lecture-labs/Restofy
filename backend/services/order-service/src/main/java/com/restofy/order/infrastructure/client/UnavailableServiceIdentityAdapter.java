@@ -14,7 +14,7 @@ import java.util.Optional;
  * authenticates anybody, so the internal endpoints cannot be opened by a forged service credential in production.
  */
 @Component
-@Profile("!dev & !test & !order-qr")
+@Profile("((!dev & !test) | prod) & !order-qr")
 public class UnavailableServiceIdentityAdapter implements ServiceIdentityPort {
 
     @Override

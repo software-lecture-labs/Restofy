@@ -23,11 +23,13 @@ Order üç kimlik türünü, her biri kendi portu üzerinden doğrular. İstemci
 
 | Tür | Başlık | Doğrulayan port | Not |
 |---|---|---|---|
-| Misafir | `Authorization: Bearer <opak jeton>` | `QrSessionPort` | Restoran, masa, guest ve oturum durumu QR'dan gelir |
+| Misafir | `restofy_guest` HttpOnly cookie | `QrSessionPort` | Restoran, masa, guest ve oturum durumu QR'dan gelir |
 | Personel | `Authorization: Staff <opak kimlik>` | `AuthContextPort` | Roller `ADMIN`, `WAITER`, `KITCHEN`; aktif restoran doğrulanmış kimlikten alınır |
 | Servis | `Authorization: Service <credential>` | `ServiceIdentityPort` | `KITCHEN`, `PAYMENT`, `QR`; yalnız `/api/v1/internal/**` |
 
-- `order-qr` profili gelen QR lifecycle istekleri için gerçek RS256 doğrulayıcıyı yükler. Bu profil `dev` veya `test` ile birlikte başlatılamaz. QR'da token üretimi ve gerçek servisler arası E2E bekliyor. Order'ın QR guest ve Auth personel adaptörleri bu profilde erişimi kapalı tutar. Diğer servisler için bu anahtarlar yetki vermez. `dev`, `test` veya `order-qr` olmayan profillerde Order servis kimliği doğrulayıcısı 503 döner.
+- `order-qr` profili gelen QR lifecycle çağrılarının RS256 doğrulayıcısını, Order → QR HTTP adaptörünü ve QR sepet aktivitesi dispatcher'ını yükler. Bu profil `dev` veya `test` ile birlikte başlatılamaz. Gerçek Auth personel ve Menu katalog bağlantıları bu kapsamın dışındadır. `dev`, `test` veya `order-qr` dışındaki profillerde QR ve servis kimliği adaptörleri erişimi güvenli biçimde reddeder.
+- Order, QR'ın ürettiği `restofy_guest` cookie'sinden tek bir 43 karakterli opak token okur ve her guest isteğinde ACTIVE bağlamı QR'dan doğrulatır. Guest yazma işlemleri tam olarak bir izinli `Origin`, tek `restofy_guest_csrf` cookie'si ve aynı değerde tek `X-Guest-CSRF` header'ı gerektirir. Order, Origin'i `CORS_ALLOWED_ORIGINS` ile karşılaştırır. Personel ve iç servis kimliği ayrı kalır. Guest Bearer istekleri reddedilir.
+- Salt okunur GET ve HEAD için CSRF kanıtı aranmaz. Birden fazla veya birleştirilmiş `Authorization` değeri kimlik doğrulamasından önce `400 INVALID_REQUEST` alır. `401` challenge'ı ilgili akışa göre `GuestSession`, `Staff` veya `Service` adını taşır. `GuestSession` challenge'ı cookie sözleşmesini belirtir.
 - **`dev` profili kimlik doğrulama yapmaz.** Sabit yer tutucu misafir, personel (ADMIN dahil) ve servis kimlikleri, API Gateway üzerinden gelen isteklerde de kabul edilir. Bu yüzden `dev` profili yalnızca yerel makinede kullanılmalı, paylaşılan veya erişilebilir bir sunucuda çalıştırılmamalıdır. Servis `dev` profiliyle açıldığında günlüğe tek ve belirgin bir uyarı bloğu yazılır (kimlik bilgilerini yazmaz, `dev` dışında üretilmez).
 - **Açık karar:** Personel kimliğinin taşınma biçimi (`Staff` başlığı mı, Auth'un `HttpOnly` çerezi mi) Auth sahibiyle netleşecek. Çerez seçilirse Order'ın CSRF/Origin korumasını da üstlenmesi gerekir.
 - QR → Order credential üretimi ve dağıtım işi için [QR entegrasyon talebine](QR-REQUESTS-01.md) bakın.
@@ -89,7 +91,7 @@ Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem 
 
 ## 5. ADR-QR-001 — masa oturumu yaşam döngüsü (Order tarafı)
 
-QR masa ve oturumların, Order siparişlerin sahibidir. QR'da ayrıntılı sipariş/finans kopyası tutulmaz. Yanıtlar QR'ın `OrderSessionAccess`, `SessionTransition` ve `OrderSessionState` tiplerine eşlenir. QR HTTP adaptörü ve ortak uçtan uca doğrulama bekliyor.
+QR masa ve oturumların, Order siparişlerin sahibidir. QR'da ayrıntılı sipariş/finans kopyası tutulmaz. Yanıtlar QR'ın `OrderSessionAccess`, `SessionTransition` ve `OrderSessionState` tiplerine eşlenir. QR'ın HTTP istemcisi PR #28'de yer alır.
 
 **İzin (authority).** Hazırlama ve sorgu yanıtı `sourceStatus`, `effect`, pozitif `sourceRevision`, `verifiedAt`, `validUntil` (`verifiedAt` + 1 dakika), `complete`, `checkoutFenced` ve `idleGuestIds` taşır. QR etkiyi uygulamadan önce aynı QR komutunu, kesin kapsamı, tazeliği ve kalıcı checkout engelini doğrular. `dev/test` bütün yerel Order kapsamını değerlendirir. `order-qr` profilinde sipariş içeren bir oturum için yeni izin, mevcut `PREPARED` izninin yenilenmesi ve `order-state` **503 DEPENDENCY_UNAVAILABLE** döner. Siparişsiz oturum SETTLED kapanışına uygun değildir. Kalıcı işlemin final durumu ve K13 teyit/abort yolu kullanılabilir.
 
@@ -125,9 +127,9 @@ QR, kalıcı komutunda tam oturum görüntüsünü ve o komuttan üretilen diges
 
 **K13 ve kapsam sapması.** Kimlikleri ve digest'i eşleşen `PREPARED` işleme ait geçerli `CLOSED` teyidi işlemi `COMPLETED` yapar. Makbuz gönderildiyse etkisi hazırlanan etkiyle eşleşmelidir. İzin kapsamı sonradan değiştiyse Order aynı transaction'da V49 `table_session_closure_drifts` kaydını ekler ve `WARN` yazar. Tekrar ACK veya GET aynı kalıcı sonucu, `scopeDrift` ve `driftBlockers` değerlerini döndürür. Yanıtın okuma zamanı ve kaynak sürümü güncel olabilir. QR yerel sonucu korur, sapma uzlaştırmaya kalır. Sapma ekranı, raporu ve olayı **UYGULANMADI**.
 
-**Misafir aktivitesi (K6) — Order'ın payı UYGULANDI.** Başarılı her sepet değişikliği (ekle, miktar, sil, temizle) aynı işlemde QR hedefli `CartActivityRecorded` outbox olayı yazar. Okuma, idempotent tekrar, değişmeyen miktar, boş sepeti temizleme ve reddedilen istek olay üretmez. Olay ürün, fiyat, not veya jeton taşımaz. QR'ın bu olayı alıp süreyi yenilemesi QR'ın işidir; dispatcher olmadığı için olay şimdilik hiçbir yere teslim edilmez.
+**Misafir aktivitesi (K6) — Order'ın payı UYGULANDI.** Başarılı her sepet değişikliği (ekle, miktar, sil, temizle) aynı işlemde QR hedefli `CartActivityRecorded` outbox olayı yazar. Okuma, idempotent tekrar, değişmeyen miktar, boş sepeti temizleme ve reddedilen istek olay üretmez. Olay ürün, fiyat, not veya jeton taşımaz. Dispatcher commit edilmiş olayı QR'a teslim eder. Oturum süresini QR günceller.
 
-**UYGULANMADI:** K5'in gerçek QR çağrısı (jeton doğrulama adaptörü), K4'ün Payment tarafı, Order'dan Payment'a doğrulama sorgusu.
+**Açık bağımlılık.** K4'ün Payment tarafı ve Order'ın Payment doğrulama sorgusu bekliyor.
 
 ### 5.1 QR HTTP alanları ve sonuçları
 
@@ -225,9 +227,18 @@ Payment sahibi Alper'in kaynak API'si bekliyor. Order'ın ihtiyacı, doğrulanm�
 
 Order'ın ileride kullanacağı akışta uzak sorgu DB kilidi dışında yapılmalı. Sipariş kapsamı ve sürümü kısa yerel gate işlemi altında tekrar eşlenmeli, uyuşmazlıkta yeni izin verilmemeli. İzin geçerliliği mali kaynağın kanıt süresini aşmamalı. Kaynak değişikliği ile yerel commit arasındaki ayrı transaction sınırı, Payment kaynak garantisiyle birlikte kararlaştırılacak. K13 geçerli yerel CLOSED sonucunu korur ve sapmayı uzlaştırmaya kaydeder.
 
-## 6. Olaylar (outbox) — UYGULANDI, tüketici yok
+### 5.3 Order → QR HTTP ve yapılandırma
 
-Olaylar iş değişikliğiyle aynı işlemde `outbox_events` ve hedef başına `outbox_deliveries` olarak yazılır. **Dispatcher yoktur**: olaylar `PENDING` kalır ve hiçbir servise teslim edilmiş sayılmaz (D-10 açık). Tüketiciler `eventId` ile tekilleştirmelidir. Olay türleri: `OrderPlaced`, `OrderFulfillmentStatusChanged`, `OrderPaymentStatusChanged`, `OrderPaymentReconciliationRequired`, `OrderCancellationRequested`, `OrderCancelled`, `OrderItemsCancelled`, `OrderCancellationRejected`, `OrderAmountAdjusted`, `CartActivityRecorded`.
+- `POST /api/v1/internal/qr/guest-sessions/validate` opak `guestToken` taşır ve doğrulanmış ACTIVE bağlamı döndürür. `GET /api/v1/internal/qr/table-sessions/{sessionId}/guests/{guestId}/state` checkout öncesinde durumu tekrar sorgular. Order, QR'ın belgelenmiş guest problem gövdesine sahip `404` yanıtını oturum reddi olarak işler. Diğer `404` yanıtları, `401/403` servis kimliği hataları ve erişilemeyen kaynak `503 DEPENDENCY_UNAVAILABLE` olarak döner. `checkedAt` değerlendirildiği anda en fazla 15 saniye eski veya 2 saniye ileride olabilir. Her checkout için yeni QR sorgusu yapılır ve yerel kapanış kilidi uygulanır.
+- `POST /api/v1/internal/qr/events/cart-activity` commit edilmiş v1 olayı taşır. Üç çağrıda da ayrı Order RSA anahtarıyla imzalanmış `Authorization: Service <JWT>` kullanılır. İmza restoranı, yöntemi, ham hedefi ve gönderilen gövdenin SHA-256 özetini bağlar. JWT en fazla 30 saniye geçerlidir ve her HTTP denemesinde yenilenir. Gövde sınırı 16 KiB'dir.
+- Compose kullanırken `order-service.environment.SPRING_PROFILES_ACTIVE` değerini servis bazlı override ile `order-qr` olarak ayarlayın. Order için farklı bir QR adresi gerekiyorsa `QR_SERVICE_URL` değerini aynı Order override'ında verin. İzinli tarayıcı origin listesi `CORS_ALLOWED_ORIGINS` ile sağlanır.
+- Production dağıtımında Order için `APP_ENV=prod` veya `APP_ENV=production` kullanın. `prod` ve `production` Spring profilleri de production sayılır. Bu işaretlerden biri `dev`, `test` ya da `local` profiliyle birlikte bulunursa Order başlatmayı reddeder.
+- `QR_SERVICE_URL` HTTPS origin olmalıdır. `ORDER_QR_CALLER_KEY_ID`, Base64 PKCS#8 `ORDER_QR_CALLER_PRIVATE_KEY` ve `ORDER_QR_CALLER_RESTAURANT_ID` Order'a verilir. QR açık anahtarı `QR_ORDER_CALLER_PUBLIC_KEYS` ile alır. QR'ın `AUTH_RESTAURANT_ID` değeri Order outbound restoranıyla aynı olmalıdır. Inbound için Order hâlâ `ORDER_QR_SERVICE_PUBLIC_KEYS` ve `ORDER_QR_SERVICE_RESTAURANTS` kullanır. Anahtar çiftleri ayrı tutulur.
+- Özel CA kullanıldığında Order'a genel CA sertifikalarını içeren truststore'u salt okunur mount ile verin. Yalnız Order'ın Compose override'ında `JAVA_TOOL_OPTIONS` ile JVM truststore yolunu yapılandırın. JVM bu seçenekleri günlüğe yazabildiği için burada yalnız yol kullanın. `QR_SERVICE_URL` adı QR sertifikasının SAN alanıyla eşleşmeli. QR'ın Order'a ulaştığı HTTPS uç ayrı yapılandırılır. TLS doğrudan Order'da sonlanıyorsa Spring Boot'un `SERVER_SSL_*` ayarlarını ve salt okunur sunucu keystore'unu yalnız Order'a uygulayın. Keystore parolasını deployment secret üzerinden verin. Sertifika ve hostname doğrulaması açık kalır. QR TLS yapılandırması QR dağıtımının sorumluluğunda.
+
+## 6. Olaylar (outbox)
+
+Olaylar iş değişikliğiyle aynı transaction'da `outbox_events` ve hedef başına `outbox_deliveries` olarak yazılır. Dispatcher yalnız yapılandırılmış restoranın QR hedefli `CartActivityRecorded` v1 teslimatlarını işler. PostgreSQL teslimatı kısa süreliğine sahiplenir ve HTTP çağrısı transaction dışında yapılır. `204` teslimatı tamamlar. Geçici bağlantı ve servis hataları 5 saniyeden, `401/403/404` yapılandırma hataları 30 saniyeden başlayan artan gecikmeyle tekrar denenir. Bütün hata türleri aynı beş denemelik üst sınırı paylaşır. `409` ve tekrar edilemeyen hatalar `FAILED` kalır. Denemeler tükendiğinde olay ve hata kodu inceleme için saklanır. Son deneme sırasında süreç durursa sonucu belirsiz olarak işaretlenir. QR, `eventId` ve içerikle tekrarları tekilleştirir. Diğer olay hedeflerinde teslimat D-10 kararı kapsamında bekliyor.
 
 ## 7. Veritabanı
 
@@ -255,9 +266,9 @@ Order, V41–V50 zincirini ve onaylı V131 ek sürümünü kullanır. V50, payla
 
 ## 9. Açık işler
 
-- Gerçek QR token üretimi/HTTP adaptörü, Auth, Kitchen ve Payment bağlantıları ile servisler arası uçtan uca doğrulama bekliyor.
+- Ortak tarayıcı akışı, QR entegrasyon ve guest-cookie dallarının birleşmesine ve QR rate limit kapısına bağlı. Tarayıcı sayfası `/api/v1` dışında çalışıyorsa bu path'e bağlı CSRF cookie'si sayfanın JavaScript'inden okunamaz. QR, Gateway ve frontend için ortak çözüm ayrıca kararlaştırılacak.
 - Personel kimliği taşıma biçimi (Auth ile).
-- Order → Payment doğrulama sorgusu ve outbox dispatcher.
+- Order → Payment doğrulama sorgusu ve QR sepet aktivitesi dışındaki outbox teslimatları.
 - QR ekibinin yapacağı işler [QR-REQUESTS-01](QR-REQUESTS-01.md) belgesinde.
 - Sapma kayıtlarını (V49) kimin okuyacağı: şimdilik yalnızca kayıt ve log.
-- İmzalı HTTP testi aynı PostgreSQL'i kullanan ayrı Order JVM'lerinde hazırlığı, ikinci bir hazırlığın engellenmesini, süreç yeniden başlatıldıktan sonra teyidi, tekrar CLOSED çağrısını ve önceki abort kararının gecikmiş prepare'ı engellediğini doğrular. Test, ilk prepare ve CLOSED yanıtlarını uzlaştırmada kullanmaz. Gerçek QR süreciyle birlikte ağ kesintisi ve checkout yarışı testi bekliyor.
+- PR #28 QR ve Order süreçleri ayrı test veritabanlarıyla HTTPS üzerinden doğrulandı. Senaryolar aktif ve kullanılamayan guest doğrulamasını, gecikmiş prepare'ı, Payment olmadan SETTLED reddini, 501 misafirin 500 ve 1 aday olarak işlenmesini, kayıp `204` sonrası Order restart'ını ve QR makbuzunun tek kalmasını kapsadı. Checkout kilit yarışı Order'ın PostgreSQL testlerinde doğrulandı.

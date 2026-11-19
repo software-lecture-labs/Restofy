@@ -14,7 +14,7 @@ import java.util.Optional;
  * authenticates anybody, so no staff identity can be forged in production.
  */
 @Component
-@Profile("!dev & !test")
+@Profile("(!dev & !test) | prod")
 public class UnavailableAuthContextAdapter implements AuthContextPort {
 
     @Override

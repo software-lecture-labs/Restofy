@@ -19,7 +19,7 @@ import java.util.Optional;
 
 /**
  * Authenticates a calling SERVICE from {@code Authorization: Service <credential>} through the
- * {@link ServiceIdentityPort}. The scheme differs from the guest ({@code Bearer}) and staff ({@code Staff}) schemes, so
+ * {@link ServiceIdentityPort}. It is separate from the guest cookie and staff ({@code Staff}) scheme, so
  * none of the three credentials is ever offered to the wrong verifier. An unknown credential is a 401; an unreachable
  * or failing verifier is a 503 (fail closed). Credentials are never logged.
  */
@@ -107,6 +107,6 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private void reject(HttpServletResponse response) throws IOException {
-        errors.write(response, ErrorCode.UNAUTHENTICATED, "A valid service credential is required");
+        errors.unauthenticated(response, "A valid service credential is required", ApiErrorWriter.SERVICE_SCHEME);
     }
 }

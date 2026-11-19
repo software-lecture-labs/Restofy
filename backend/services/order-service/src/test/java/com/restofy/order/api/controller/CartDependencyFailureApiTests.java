@@ -28,11 +28,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** What the API does when the QR or Menu service cannot be reached: it fails closed with 503, never "valid". */
-@SpringBootTest
+@SpringBootTest(properties = "CORS_ALLOWED_ORIGINS=https://guest.example")
 @AutoConfigureMockMvc
 class CartDependencyFailureApiTests {
 
-    private static final String TOKEN = "any-token";
+    private static final String TOKEN = "v".repeat(43);
 
     @Autowired
     private MockMvc mvc;
@@ -57,7 +57,7 @@ class CartDependencyFailureApiTests {
         when(qr.validateGuestSession(anyString()))
                 .thenThrow(new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Session validation is currently unavailable"));
 
-        mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
+        mvc.perform(get("/api/v1/carts/current").with(AbstractCartApiTest.guestCookie(TOKEN)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_UNAVAILABLE"));
     }
@@ -66,7 +66,7 @@ class CartDependencyFailureApiTests {
     void unexpectedQrFailureIsAlsoFailClosedWithoutLeakingDetails() throws Exception {
         when(qr.validateGuestSession(anyString())).thenThrow(new IllegalStateException("jdbc:postgresql://secret-host"));
 
-        mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
+        mvc.perform(get("/api/v1/carts/current").with(AbstractCartApiTest.guestCookie(TOKEN)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_UNAVAILABLE"))
                 .andExpect(result -> assertEquals(false,
@@ -79,7 +79,7 @@ class CartDependencyFailureApiTests {
         when(menu.findProducts(any(), any()))
                 .thenThrow(new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Menu catalog is currently unavailable"));
 
-        mvc.perform(post("/api/v1/carts/current/items").header("Authorization", "Bearer " + TOKEN)
+        mvc.perform(post("/api/v1/carts/current/items").with(AbstractCartApiTest.guestCookie(TOKEN))
                         .contentType("application/json")
                         .content("{\"productId\": \"" + DevFixtures.BURGER + "\", \"quantity\": 1}"))
                 .andExpect(status().isServiceUnavailable())
@@ -87,7 +87,7 @@ class CartDependencyFailureApiTests {
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM carts", Integer.class));
 
         // an empty cart needs no catalog, so viewing it still works
-        mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
+        mvc.perform(get("/api/v1/carts/current").with(AbstractCartApiTest.guestCookie(TOKEN)))
                 .andExpect(status().isOk());
     }
 
@@ -96,7 +96,7 @@ class CartDependencyFailureApiTests {
         sessionIsActive();
         when(menu.findProducts(any(), any())).thenThrow(new IllegalStateException("select * from secrets"));
 
-        mvc.perform(post("/api/v1/carts/current/items").header("Authorization", "Bearer " + TOKEN)
+        mvc.perform(post("/api/v1/carts/current/items").with(AbstractCartApiTest.guestCookie(TOKEN))
                         .contentType("application/json").header("X-Correlation-Id", "trace-123")
                         .content("{\"productId\": \"" + DevFixtures.BURGER + "\", \"quantity\": 1}"))
                 .andExpect(status().isInternalServerError())
@@ -112,9 +112,10 @@ class CartDependencyFailureApiTests {
         GuestSessionContext closed = DevFixtures.guestA1(SessionState.CLOSED);
         when(qr.validateGuestSession(TOKEN)).thenReturn(Optional.of(active)).thenReturn(Optional.of(closed));
 
-        mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
+        mvc.perform(get("/api/v1/carts/current").with(AbstractCartApiTest.guestCookie(TOKEN)))
                 .andExpect(jsonPath("$.sessionActive").value(true));
-        mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
-                .andExpect(jsonPath("$.sessionActive").value(false));
+        mvc.perform(get("/api/v1/carts/current").with(AbstractCartApiTest.guestCookie(TOKEN)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 }

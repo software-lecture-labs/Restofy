@@ -15,8 +15,8 @@ import java.util.UUID;
 
 /**
  * Transactional outbox writer. It must run inside the business transaction ({@code MANDATORY}), so an event exists
- * if and only if the change it describes was committed. It only records the event and one PENDING delivery per
- * destination; there is no dispatcher yet, so nothing has been delivered to any other service.
+ * if and only if the change it describes was committed. It records the event and one PENDING delivery per
+ * destination. Delivery workers operate after commit.
  */
 @Slf4j
 @Component
