@@ -31,20 +31,23 @@ class MoneyConverterTests {
     @ParameterizedTest
     @CsvSource({"12.505, TRY", "0.001, TRY", "12.5000001, TRY", "1.5, JPY", "1.0005, KWD"})
     void rejectsValuesThatWouldNeedRounding(String amount, String currency) {
+        BigDecimal value = new BigDecimal(amount);
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> MoneyConverter.toMinor(new BigDecimal(amount), currency, CAP));
+                () -> MoneyConverter.toMinor(value, currency, CAP));
         assertEquals(true, error.getMessage().contains("not rounded silently"));
     }
 
     @Test
     void rejectsNegativeUnknownAndOversizedAmounts() {
-        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(new BigDecimal("-0.01"), "TRY", CAP));
-        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(new BigDecimal("1"), "XXX", CAP));
-        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(new BigDecimal("1"), "tr", CAP));
-        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(new BigDecimal("1"), null, CAP));
+        BigDecimal negative = new BigDecimal("-0.01");
+        BigDecimal oversized = new BigDecimal("10000000000.01");
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(negative, "TRY", CAP));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(BigDecimal.ONE, "XXX", CAP));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(BigDecimal.ONE, "tr", CAP));
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(BigDecimal.ONE, null, CAP));
         assertThrows(IllegalArgumentException.class, () -> MoneyConverter.toMinor(null, "TRY", CAP));
         assertThrows(IllegalArgumentException.class,
-                () -> MoneyConverter.toMinor(new BigDecimal("10000000000.01"), "TRY", CAP));
+                () -> MoneyConverter.toMinor(oversized, "TRY", CAP));
         assertEquals(CAP, MoneyConverter.toMinor(new BigDecimal("10000000000.00"), "TRY", CAP));
     }
 
@@ -57,7 +60,8 @@ class MoneyConverterTests {
     @ParameterizedTest
     @CsvSource({"8.555", "10.001", "-1", "100.01", "101"})
     void rejectsVatPercentagesThatCannotBeRepresentedOrAreOutOfRange(String percent) {
-        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.percentToBps(new BigDecimal(percent)));
+        BigDecimal value = new BigDecimal(percent);
+        assertThrows(IllegalArgumentException.class, () -> MoneyConverter.percentToBps(value));
     }
 
     // ---- the reverse direction, for the Waiter compatibility projection (exact, never rounded) -------------------------

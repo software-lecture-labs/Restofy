@@ -75,8 +75,8 @@ class CartPersistenceIntegrationTests {
         insertCart();
         UUID itemId = tx.execute(status -> {
             Cart cart = carts.findActiveForUpdate(restaurant, guest).orElseThrow();
-            CartItem item = new CartItem(cart, UUID.randomUUID(), 2, "k".repeat(64), "no salt", "Burger", "TRY",
-                    25_000L, 1_000, null, NOW);
+            CartItem item = new CartItem(cart, UUID.randomUUID(), 2, "k".repeat(64), "no salt",
+                    new CartItem.PriceSnapshot("Burger", "TRY", 25_000L, 1_000, null), NOW);
             item.addOption(new CartItemOption(item, UUID.randomUUID(), SelectionAction.REMOVE, 1, "Onion", 0L));
             item.addOption(new CartItemOption(item, UUID.randomUUID(), SelectionAction.ADD, 2, "Cheese", 2_500L));
             cart.addItem(item);
@@ -99,8 +99,10 @@ class CartPersistenceIntegrationTests {
         UUID productId = UUID.randomUUID();
         assertThrows(DataIntegrityViolationException.class, () -> tx.executeWithoutResult(status -> {
             Cart cart = carts.findActiveForUpdate(restaurant, guest).orElseThrow();
-            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null, "Burger", "TRY", 100L, null, null, NOW));
-            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null, "Burger", "TRY", 100L, null, null, NOW));
+            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null,
+                    new CartItem.PriceSnapshot("Burger", "TRY", 100L, null, null), NOW));
+            cart.addItem(new CartItem(cart, productId, 1, "a".repeat(64), null,
+                    new CartItem.PriceSnapshot("Burger", "TRY", 100L, null, null), NOW));
         }));
     }
 
@@ -112,10 +114,15 @@ class CartPersistenceIntegrationTests {
                 + " product_name_snapshot, currency, unit_gross_minor_snapshot, created_at, updated_at)"
                 + " VALUES (?, ?, ?, ?, ?, ?, 'p', 'TRY', 1, now(), now())";
 
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, UUID.randomUUID(), restaurant,
-                cartId, UUID.randomUUID(), 0, "x"));
+        UUID invalidQuantityItem = UUID.randomUUID();
+        UUID invalidQuantityProduct = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, invalidQuantityItem, restaurant,
+                cartId, invalidQuantityProduct, 0, "x"));
         // right cart id but another tenant's restaurant id: the composite FK (restaurant_id, cart_id) rejects it
-        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, UUID.randomUUID(),
-                UUID.randomUUID(), cartId, UUID.randomUUID(), 1, "x"));
+        UUID crossTenantItem = UUID.randomUUID();
+        UUID otherRestaurant = UUID.randomUUID();
+        UUID crossTenantProduct = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, crossTenantItem,
+                otherRestaurant, cartId, crossTenantProduct, 1, "x"));
     }
 }

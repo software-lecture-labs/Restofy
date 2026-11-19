@@ -151,8 +151,8 @@ public class CancellationEventPublisher {
 
     private void write(Order order, UUID eventId, String type, int schemaVersion, Object payload, Instant now,
                        List<EventDestination> destinations) {
-        outbox.write(eventId, order.getRestaurantId(), AGGREGATE, order.getId(), order.getVersion(), type,
-                schemaVersion, correlation(), payload, now, destinations);
+        outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), AGGREGATE, order.getId(),
+                order.getVersion(), type, schemaVersion, correlation(), payload, now), destinations);
     }
 
     private static String correlation() {

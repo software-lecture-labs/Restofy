@@ -46,6 +46,18 @@ class OpenApiDocumentationTests {
     }
 
     @Test
+    void closureStatusDocumentsItsDigestAndErrorResponses() throws Exception {
+        JsonNode status = document().path("paths")
+                .path("/api/v1/internal/table-sessions/{tableSessionId}/closure-preparations/{operationId}")
+                .path("get");
+        assertTrue(status.path("security").toString().contains("service"));
+        assertTrue(status.path("parameters").toString().contains("commandDigest"));
+        for (String code : new String[]{"200", "400", "401", "403", "409", "422", "503"}) {
+            assertTrue(status.path("responses").has(code), "response " + code + " must be documented");
+        }
+    }
+
+    @Test
     void orderPlacementDocumentsTheIdempotencyKeyAndTheErrorResponses() throws Exception {
         JsonNode post = document().path("paths").path("/api/v1/orders").path("post");
         boolean keyIsRequiredHeader = false;

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
  * it SHARED, so checkouts of one session never wait for each other; a preparation takes it EXCLUSIVE, so it waits for
  * every checkout already in flight and keeps new ones out until it commits. Because it lives in the database, it holds
  * across several Order Service instances. Both writers must call it as the first statement of their transaction. It
- * cannot deadlock with the cart or order-number locks: a preparation takes no other lock.
+ * cannot deadlock with the cart or order-number locks: a preparation only additionally locks its operation ID.
  */
 @Repository
 public class TableSessionClosureStore {
@@ -47,6 +47,10 @@ public class TableSessionClosureStore {
                           ClosureEffect effect, String commandDigest, Set<UUID> idleGuestIds, ClosureStatus status,
                           int orderCount, String scopeFingerprint, Instant preparedAt, Instant completedAt,
                           Instant releasedAt, Receipt receipt) {
+
+        public boolean inScope(UUID restaurant, UUID session) {
+            return restaurantId.equals(restaurant) && tableSessionId.equals(session);
+        }
 
         /** True while the operation keeps the given guest from placing an order. */
         public boolean fences(UUID guestSessionId) {
@@ -82,6 +86,14 @@ public class TableSessionClosureStore {
         }, lockKey(restaurantId, tableSessionId));
     }
 
+    /** Serializes prepare and abort by operation even when two callers provide different session scopes. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockForOperation(UUID operationId) {
+        // The two-integer advisory lock namespace is separate from the session's bigint lock.
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtext('order-closure-operation'), hashtext(?))", rs -> {
+        }, operationId.toString());
+    }
+
     private static String lockKey(UUID restaurantId, UUID tableSessionId) {
         return "table-session-closure:" + restaurantId + ":" + tableSessionId;
     }
@@ -89,6 +101,31 @@ public class TableSessionClosureStore {
     public Optional<Closure> findByOperation(UUID operationId) {
         return jdbc.query("SELECT " + COLUMNS + " FROM table_session_closures WHERE operation_id = ?",
                 (rs, row) -> map(rs), operationId).stream().findFirst();
+    }
+
+    public record UnpreparedAbort(UUID restaurantId, UUID tableSessionId, String commandDigest) {
+        public boolean inScope(UUID restaurant, UUID session) {
+            return restaurantId.equals(restaurant) && tableSessionId.equals(session);
+        }
+    }
+
+    public Optional<UnpreparedAbort> findUnpreparedAbort(UUID operationId) {
+        return jdbc.query("""
+                SELECT restaurant_id, table_session_id, command_digest
+                FROM table_session_closure_aborts WHERE operation_id = ?
+                """, (rs, row) -> new UnpreparedAbort(rs.getObject("restaurant_id", UUID.class),
+                rs.getObject("table_session_id", UUID.class), rs.getString("command_digest")), operationId)
+                .stream().findFirst();
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void insertUnpreparedAbort(UUID operationId, UnpreparedAbort abort, Instant now) {
+        jdbc.update("""
+                INSERT INTO table_session_closure_aborts
+                    (operation_id, restaurant_id, table_session_id, command_digest, aborted_at)
+                VALUES (?, ?, ?, ?, ?)
+                """, operationId, abort.restaurantId(), abort.tableSessionId(), abort.commandDigest(),
+                JdbcTimestamps.timestamp(now));
     }
 
     /**
