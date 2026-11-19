@@ -51,7 +51,7 @@ public class TableSecurityConfiguration {
             return config;
         }));
         // Guest routes use their own Origin + double-submit proof (GuestRequestFilter), never the staff CSRF names.
-        http.csrf(csrf -> csrf.ignoringRequestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())
+        http.csrf(csrf -> csrf.ignoringRequestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI()) // NOSONAR S4502: only staff/guest paths that their own filters protect; the rest keep Spring CSRF
                 || GuestRequestFilter.guestPath(request.getMethod(), request.getRequestURI())));
         http.addFilterBefore(new StaffRequestFilter(settings, clock, store), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.addFilterBefore(new GuestRequestFilter(settings), org.springframework.security.web.access.intercept.AuthorizationFilter.class);

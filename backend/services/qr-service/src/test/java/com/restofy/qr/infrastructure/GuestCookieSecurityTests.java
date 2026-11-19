@@ -93,11 +93,11 @@ class GuestCookieSecurityTests {
         var malformed = new MockHttpServletRequest();
         malformed.setCookies(new Cookie("restofy_guest", "short"));
         for (var request : List.of(duplicate, malformed, new MockHttpServletRequest())) {
-            assertThatThrownBy(() -> cookies.token(request)).isInstanceOf(InvalidGuestSessionException.class);
+            assertThatThrownBy(() -> cookies.guestToken(request)).isInstanceOf(InvalidGuestSessionException.class);
         }
         var valid = new MockHttpServletRequest();
         valid.setCookies(new Cookie("restofy_guest", TOKEN));
-        assertThat(cookies.token(valid)).isEqualTo(TOKEN);
+        assertThat(cookies.guestToken(valid)).isEqualTo(TOKEN);
     }
 
     @Test

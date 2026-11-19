@@ -34,9 +34,9 @@ public class GuestSessionActivityController {
                     "presence or a human gesture.")
     public ResponseEntity<GuestActivityResponse> recordActivity(HttpServletRequest request, HttpServletResponse response) {
         try {
-            String token = cookies.token(request);
+            String token = cookies.guestToken(request);
             var result = service.recordActivity(token);
-            cookies.refresh(response, token, cookies.csrf(request));
+            cookies.refresh(response, token, cookies.csrfProof(request));
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
         } catch (InvalidGuestSessionException invalid) {
             // A leftover cookie must not outlive the session it pointed to (same name/Path as when it was set).

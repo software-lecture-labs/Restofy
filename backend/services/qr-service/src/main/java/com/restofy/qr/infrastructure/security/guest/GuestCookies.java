@@ -52,13 +52,13 @@ public class GuestCookies {
     }
 
     /** Exactly one well-formed credential cookie; anything else is treated as an invalid guest. */
-    public String token(HttpServletRequest request) {
+    public String guestToken(HttpServletRequest request) {
         String value = single(request, TOKEN);
         if (value == null || !value.matches(PATTERN)) { throw new InvalidGuestSessionException(); }
         return value;
     }
 
-    public String csrf(HttpServletRequest request) {
+    public String csrfProof(HttpServletRequest request) {
         return single(request, CSRF);
     }
 
