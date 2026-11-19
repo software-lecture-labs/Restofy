@@ -1,5 +1,6 @@
 package com.restofy.order.application.compat.waiter;
 
+import com.restofy.order.domain.pricing.PriceCalculator;
 import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.entity.OrderItem;
 import com.restofy.order.domain.entity.OrderItemOption;
@@ -27,12 +28,14 @@ final class CompatFixtures {
         for (long[] line : unitsAndQuantities) {
             gross += line[0] * line[1];
         }
-        Order order = new Order(UUID.randomUUID(), "ORD-000001", RESTAURANT, UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), UUID.randomUUID(), currency, gross, 0, gross, null, NOW);
+        Order order = new Order(UUID.randomUUID(), "ORD-000001",
+                new Order.Source(RESTAURANT, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), currency,
+                new PriceCalculator.OrderAmounts(gross, 0, gross), null, NOW);
         int lineNo = 0;
         for (long[] line : unitsAndQuantities) {
-            order.addItem(new OrderItem(order, ++lineNo, UUID.randomUUID(), "Product " + lineNo, (int) line[1], currency,
-                    line[0], 0, line[0] * line[1], line[0] * line[1], 0, null, null, NOW));
+            order.addItem(new OrderItem(order, ++lineNo, (int) line[1],
+                    new OrderItem.Snapshot(UUID.randomUUID(), "Product " + lineNo, currency, 0,
+                            new PriceCalculator.LinePrice(line[0], line[0] * line[1], line[0] * line[1], 0L), null), null, NOW));
         }
         return order;
     }

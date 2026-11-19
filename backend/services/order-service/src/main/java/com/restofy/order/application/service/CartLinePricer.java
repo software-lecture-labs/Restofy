@@ -131,6 +131,10 @@ public class CartLinePricer {
         if (!product.currency().equals(cartCurrency)) {
             return Evaluation.failed(ErrorCode.CURRENCY_MISMATCH, "The product currency changed");
         }
+        return repriceSelections(item, product);
+    }
+
+    private static Evaluation repriceSelections(CartItem item, ProductSnapshot product) {
         Map<UUID, ProductOption> catalogOptions = new HashMap<>();
         product.options().forEach(option -> catalogOptions.put(option.optionId(), option));
         try {

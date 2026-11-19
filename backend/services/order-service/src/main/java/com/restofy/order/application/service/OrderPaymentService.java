@@ -375,8 +375,9 @@ public class OrderPaymentService {
                 order.getTableId(), order.getTableSessionId(), order.getId(), order.getOrderNo(), from.name(),
                 target.name(), order.getFulfillmentStatus().name(), order.getCurrency(), amountMinor,
                 order.getCurrentDueMinor(), report.attemptId(), report.captureId(), SOURCE_PAYMENT_EVENT);
-        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), changed.eventType(),
-                changed.schemaVersion(), correlationId, changed, now, destinations(target));
+        outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), "ORDER", order.getId(),
+                order.getVersion(), changed.eventType(), changed.schemaVersion(), correlationId, changed, now),
+                destinations(target));
     }
 
     /** Payment itself caused the change, so it is not echoed; QR also learns about PAID (a table-closing signal). */
