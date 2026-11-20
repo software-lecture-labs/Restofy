@@ -26,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -85,7 +84,7 @@ class WaiterCallApiTests extends ApiTestBase {
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
         mockMvc.perform(get("/api/v1/waiters/calls/" + id)).andExpect(status().isUnauthorized());
         for (String action : List.of("claim", "resolve")) {
-            mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/" + action).with(csrf().asHeader()).header("Idempotency-Key", newKey())
+            mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/" + action).with(staffCsrf()).header("Idempotency-Key", newKey())
                             .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
                     .andExpect(status().isUnauthorized());
         }
@@ -124,7 +123,7 @@ class WaiterCallApiTests extends ApiTestBase {
     }
 
     @Test
-    void staffMutationsStayBlockedWithoutACsrfTokenUntilAuthDecidesTheTransport() throws Exception {
+    void staffMutationsAreRefusedWithoutTheCsrfProof() throws Exception {
         UUID id = call(RESTAURANT, table1, S1, "WAITER", "OPEN", T0);
         mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).header("Idempotency-Key", newKey())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
@@ -139,7 +138,7 @@ class WaiterCallApiTests extends ApiTestBase {
         list("?" + name + "=" + OTHER_RESTAURANT).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mockMvc.perform(get("/api/v1/waiters/calls/" + id).with(asWaiter()).param(name, "x")).andExpect(status().isBadRequest());
-        mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).with(csrf().asHeader()).param(name, "x")
+        mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).with(staffCsrf()).param(name, "x")
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
                 .andExpect(status().isBadRequest());
         assertEquals("OPEN", row(id).get("status"));
@@ -474,7 +473,7 @@ class WaiterCallApiTests extends ApiTestBase {
     @Test
     void commandsRequireAKeyAndAValidExpectedVersionAndRejectIdentityInTheBody() throws Exception {
         UUID id = raise(table1, "WAITER");
-        mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).with(csrf().asHeader())
+        mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).with(staffCsrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
                 .andExpect(status().isBadRequest());
         for (String key : List.of("short", "has space in it", "bad/slash/key")) {
@@ -484,7 +483,7 @@ class WaiterCallApiTests extends ApiTestBase {
                 "{\"expectedVersion\":0,\"resolvedByUserId\":\"" + WAITER_B + "\"}",
                 "{\"expectedVersion\":0,\"restaurantId\":\"" + OTHER_RESTAURANT + "\"}",
                 "{\"expectedVersion\":0,\"status\":\"CANCELLED\"}", "[]", "nope", "")) {
-            var response = mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).with(csrf().asHeader())
+            var response = mockMvc.perform(post("/api/v1/waiters/calls/" + id + "/resolve").with(asWaiter()).with(staffCsrf())
                     .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(body))
                     .andReturn().getResponse();
             assertEquals(400, response.getStatus(), "body: " + body);

@@ -27,7 +27,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -263,7 +262,7 @@ class TableClosureApiTests extends TableCommandApiBase {
         // Query parameters are no way in either.
         mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close?force=true&restaurantId="
                 + OTHER_RESTAURANT)
-                        .with(asWaiter(WAITER_A)).with(csrf().asHeader())
+                        .with(asWaiter(WAITER_A)).with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
         assertEquals(0, closePosts().size());
@@ -281,11 +280,11 @@ class TableClosureApiTests extends TableCommandApiBase {
                 .andExpect(status().isBadRequest());
         close(asWaiter(WAITER_A), table.id(), S1, "short", versionBody(3)).andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close").with(asWaiter(WAITER_A))
-                        .with(csrf().asHeader())
+                        .with(staffCsrf())
                         .contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/waiters/tables/not-a-uuid/sessions/" + S1 + "/close").with(asWaiter(WAITER_A))
-                        .with(csrf().asHeader())
+                        .with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
         assertEquals(0, closePosts().size());
@@ -297,7 +296,7 @@ class TableClosureApiTests extends TableCommandApiBase {
     @Test
     void onlyAVerifiedWaiterMayCloseOrAskAndNothingReachesQrOtherwise() throws Exception {
         String url = "/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close";
-        mockMvc.perform(post(url).with(csrf().asHeader())
+        mockMvc.perform(post(url).with(staffCsrf())
                 .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isUnauthorized());
         for (StaffRole role : List.of(StaffRole.KITCHEN, StaffRole.ADMIN)) {
@@ -305,7 +304,7 @@ class TableClosureApiTests extends TableCommandApiBase {
         }
         close(as(new AuthenticatedGuest(RESTAURANT, table.id(), S1, UUID.randomUUID()), "GUEST"),
                 table.id(), S1, newKey(), versionBody(3)).andExpect(status().isForbidden());
-        // A mutation without the CSRF token is refused by the unchanged security chain.
+        // A mutation without the CSRF/Origin proof is refused before any authentication.
         mockMvc.perform(post(url).with(asWaiter(WAITER_A)).header("Idempotency-Key", newKey())
                 .contentType(MediaType.APPLICATION_JSON).content(versionBody(3))).andExpect(status().isForbidden());
         assertEquals(0, closePosts().size());
@@ -358,7 +357,7 @@ class TableClosureApiTests extends TableCommandApiBase {
         assertEquals("OPEN", callStatus(nextCall));
         // Closing the table "by its number" is not possible at all: the path needs a session id.
         mockMvc.perform(post("/api/v1/waiters/tables/12/close").with(asWaiter(WAITER_A))
-                        .with(csrf().asHeader())
+                        .with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().is4xxClientError());
     }

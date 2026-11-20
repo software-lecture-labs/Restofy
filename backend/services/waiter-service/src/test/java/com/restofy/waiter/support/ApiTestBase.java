@@ -17,6 +17,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import jakarta.servlet.http.Cookie;
+import org.springframework.mock.web.MockHttpServletRequest;
+
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
@@ -24,7 +27,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
@@ -49,6 +51,8 @@ public abstract class ApiTestBase {
     }
 
     protected static final UUID RESTAURANT = UUID.fromString("00000000-0000-0000-0000-00000000a001");
+    /** The only browser Origin the tests allow; any other Origin must fail the CSRF/Origin proof. */
+    protected static final String ALLOWED_ORIGIN = "https://app.restofy.test";
     protected static final UUID OTHER_RESTAURANT = UUID.fromString("00000000-0000-0000-0000-00000000b002");
 
     @DynamicPropertySource
@@ -57,6 +61,7 @@ public abstract class ApiTestBase {
         registry.add("restofy.services.order-url", () -> STUB.baseUrl().toString());
         registry.add("restofy.services.notification-url", () -> STUB.baseUrl().toString());
         registry.add("restofy.rest-client.read-timeout-ms", () -> "700");
+        registry.add("restofy.auth.allowed-origins", () -> ALLOWED_ORIGIN);
     }
 
     @Autowired
@@ -139,7 +144,7 @@ public abstract class ApiTestBase {
 
     /** Registers a guest credential at QR for the table's live session: an open session and an active guest. */
     protected FakeBackends.Guest addGuest(FakeBackends.Table table) {
-        FakeBackends.Guest guest = new FakeBackends.Guest("guest-token-" + UUID.randomUUID(), table.restaurantId(),
+        FakeBackends.Guest guest = new FakeBackends.Guest(randomProof(), table.restaurantId(),
                 table.id(), table.sessionId(), UUID.randomUUID(), "OPEN", "ACTIVE");
         backends.guests.put(guest.token(), guest);
         return guest;
@@ -190,7 +195,7 @@ public abstract class ApiTestBase {
 
     protected ResultActions raiseCall(FakeBackends.Guest guest, String key, String json) throws Exception {
         return mockMvc.perform(post("/api/v1/waiters/calls")
-                .header("X-Guest-Token", guest.token())
+                .with(guestBrowser(guest.token()))
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON).content(json));
     }
@@ -202,9 +207,70 @@ public abstract class ApiTestBase {
     protected ResultActions staffCommand(RequestPostProcessor staff, UUID callId, String action, String key,
                                          long expectedVersion) throws Exception {
         return mockMvc.perform(post("/api/v1/waiters/calls/" + callId + "/" + action)
-                .with(staff).with(csrf().asHeader())
+                .with(staff).with(staffCsrf())
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":" + expectedVersion + "}"));
+    }
+
+    // ----- browser credentials and CSRF proofs (the cookie contracts of Auth and QR) -----
+
+    /** 32 random bytes, Base64url without padding: the shape of QR's guest token and CSRF proof. */
+    protected static String randomProof() {
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** Auth's staff CSRF proof: {@code <expiry epoch seconds>.<43>.<43>}. */
+    protected static String staffCsrfProof(long expiresAtEpochSeconds) {
+        return expiresAtEpochSeconds + "." + randomProof() + "." + randomProof();
+    }
+
+    private static MockHttpServletRequest addCookies(MockHttpServletRequest request, Cookie... added) {
+        List<Cookie> all = new java.util.ArrayList<>();
+        if (request.getCookies() != null) all.addAll(Arrays.asList(request.getCookies()));
+        all.addAll(Arrays.asList(added));
+        request.setCookies(all.toArray(Cookie[]::new));
+        return request;
+    }
+
+    /** Only the guest credential cookie(s), without any CSRF proof: what a forged cross-site request looks like. */
+    protected static RequestPostProcessor guestCookie(String... tokens) {
+        return request -> addCookies(request,
+                Arrays.stream(tokens).map(token -> new Cookie("restofy_guest", token)).toArray(Cookie[]::new));
+    }
+
+    /** The guest CSRF proof alone: script-readable cookie, same value as header, and an allowed Origin. */
+    protected static RequestPostProcessor guestCsrf() {
+        String proof = randomProof();
+        return request -> {
+            addCookies(request, new Cookie("restofy_guest_csrf", proof));
+            request.addHeader("X-Guest-CSRF", proof);
+            request.addHeader("Origin", ALLOWED_ORIGIN);
+            return request;
+        };
+    }
+
+    /** A valid browser request of a guest: credential cookie(s) plus the full CSRF/Origin proof. */
+    protected static RequestPostProcessor guestBrowser(String... tokens) {
+        RequestPostProcessor csrf = guestCsrf();
+        RequestPostProcessor cookie = guestCookie(tokens);
+        return request -> csrf.postProcessRequest(cookie.postProcessRequest(request));
+    }
+
+    /** A valid CSRF/Origin proof of a staff browser request, as Auth issues it (cookie value = header value). */
+    protected static RequestPostProcessor staffCsrf() {
+        return staffCsrf(Instant.now().plusSeconds(600).getEpochSecond());
+    }
+
+    protected static RequestPostProcessor staffCsrf(long expiresAtEpochSeconds) {
+        String proof = staffCsrfProof(expiresAtEpochSeconds);
+        return request -> {
+            addCookies(request, new Cookie("restofy_csrf", proof));
+            request.addHeader("X-CSRF-TOKEN", proof);
+            request.addHeader("Origin", ALLOWED_ORIGIN);
+            return request;
+        };
     }
 
     protected static String newKey() {

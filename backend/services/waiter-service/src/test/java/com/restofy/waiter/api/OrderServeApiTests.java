@@ -33,7 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -75,7 +74,7 @@ class OrderServeApiTests extends ApiTestBase {
     }
 
     private ResultActions serve(RequestPostProcessor staff, UUID orderId, String key, String json) throws Exception {
-        return mockMvc.perform(post("/api/v1/waiters/orders/" + orderId + "/served").with(staff).with(csrf().asHeader())
+        return mockMvc.perform(post("/api/v1/waiters/orders/" + orderId + "/served").with(staff).with(staffCsrf())
                 .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
@@ -281,7 +280,7 @@ class OrderServeApiTests extends ApiTestBase {
     @Test
     void onlyAVerifiedWaiterMayServeAndNothingReachesOrderOtherwise() throws Exception {
         String json = body(S1, 4);
-        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(csrf().asHeader())
+        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isUnauthorized());
         for (StaffRole role : List.of(StaffRole.KITCHEN, StaffRole.ADMIN)) {
@@ -290,7 +289,7 @@ class OrderServeApiTests extends ApiTestBase {
         var guest = as(new AuthenticatedGuest(RESTAURANT, table.id(), S1, UUID.randomUUID()), "GUEST");
         serve(guest, order.id(), newKey(), json).andExpect(status().isForbidden());
         serve(as("someone", "WAITER"), order.id(), newKey(), json).andExpect(status().isForbidden());
-        // Without a CSRF token a mutation stays blocked until Auth decides the transport.
+        // Without the CSRF/Origin proof of Auth a mutation is refused.
         mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(asWaiter())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isForbidden());
@@ -301,7 +300,7 @@ class OrderServeApiTests extends ApiTestBase {
 
     @Test
     void theActorIsAlwaysTheVerifiedPrincipalNotWhatTheRequestClaims() throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(asWaiter(WAITER_A)).with(csrf().asHeader())
+        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(asWaiter(WAITER_A)).with(staffCsrf())
                         .header("Idempotency-Key", newKey()).header("X-User-Id", WAITER_B.toString()).header("X-Role", "ADMIN")
                         .header("X-Restaurant-Id", OTHER_RESTAURANT.toString())
                         .contentType(MediaType.APPLICATION_JSON).content(body(S1, 4)))
@@ -327,14 +326,14 @@ class OrderServeApiTests extends ApiTestBase {
         for (String key : List.of("short", "has space in it", "bad/slash/key", "ünicode-key-123456")) {
             serve(asWaiter(), order.id(), key, body(S1, 4)).andExpect(status().isBadRequest());
         }
-        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(asWaiter()).with(csrf().asHeader())
+        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(asWaiter()).with(staffCsrf())
                         .contentType(MediaType.APPLICATION_JSON).content(body(S1, 4)))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post("/api/v1/waiters/orders/not-a-uuid/served").with(asWaiter()).with(csrf().asHeader())
+        mockMvc.perform(post("/api/v1/waiters/orders/not-a-uuid/served").with(asWaiter()).with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(body(S1, 4)))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served?restaurantId=" + OTHER_RESTAURANT)
-                        .with(asWaiter()).with(csrf().asHeader()).header("Idempotency-Key", newKey())
+                        .with(asWaiter()).with(staffCsrf()).header("Idempotency-Key", newKey())
                         .contentType(MediaType.APPLICATION_JSON).content(body(S1, 4)))
                 .andExpect(status().isBadRequest());
         assertTrue(servePosts().isEmpty());
