@@ -10,9 +10,9 @@ import java.util.UUID;
  * Verified staff context: who is calling, for which restaurant and with which role. This is the single
  * place the restaurant comes from; request parameters and headers never supply it.
  *
- * <p>NOT IMPLEMENTED: nothing in this service creates this principal yet. The Auth contract (token or
- * session format, issuer, how the restaurant context is bound) is not approved, so every protected
- * request is rejected until an authentication mechanism fills the SecurityContext with this type.
+ * <p>Only {@link StaffCookieAuthenticationFilter} creates this principal, from Auth's HttpOnly staff cookie after
+ * {@link StaffSessionVerifier} proved the JWT and Auth confirmed the live session. The restaurant and role
+ * are those of that session, never of the request.
  */
 public record AuthenticatedStaff(UUID staffUserId, UUID restaurantId, StaffRole role) {
 

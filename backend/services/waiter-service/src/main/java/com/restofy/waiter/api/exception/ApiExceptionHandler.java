@@ -26,6 +26,8 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import java.util.Map;
+
 /**
  * The single error contract: RFC 9457 problem details with a stable {@code code} property. Messages never
  * contain stack traces, SQL, hosts, URLs, tokens or personal data. Timeouts, bad downstream answers,
@@ -35,6 +37,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+    private static final String INVALID_REQUEST_CODE = "INVALID_REQUEST";
+    private static final String DEPENDENCY_PROPERTY = "dependency";
+    private static final String COMMAND_ID_PROPERTY = "commandId";
 
     @ExceptionHandler(AuthenticationException.class)
     ResponseEntity<Object> authenticationRequired(AuthenticationException error, WebRequest request) {
@@ -48,12 +53,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(InvalidRequestException.class)
     ResponseEntity<Object> invalidRequest(InvalidRequestException error, WebRequest request) {
-        return problem(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", error.getMessage(), request);
+        return problem(HttpStatus.BAD_REQUEST, INVALID_REQUEST_CODE, error.getMessage(), request);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     ResponseEntity<Object> invalidParameter(MethodArgumentTypeMismatchException error, WebRequest request) {
-        return problem(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
+        return problem(HttpStatus.BAD_REQUEST, INVALID_REQUEST_CODE,
                 "Parameter '" + error.getName() + "' has an unsupported value.", request);
     }
 
@@ -67,7 +72,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         HttpStatus status = statusOf(error.failure());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", "DEPENDENCY_" + error.failure());
-        body.setProperty("dependency", error.dependency());
+        body.setProperty(DEPENDENCY_PROPERTY, error.dependency());
         return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
     }
 
@@ -90,7 +95,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         HttpStatus status = HttpStatus.valueOf(error.status());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", error.code());
-        body.setProperty("commandId", error.commandId());
+        body.setProperty(COMMAND_ID_PROPERTY, error.commandId());
         return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
     }
 
@@ -100,8 +105,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         HttpStatus status = statusOf(error.failure());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", "SERVE_RESULT_UNKNOWN");
-        body.setProperty("commandId", error.commandId());
-        body.setProperty("dependency", "order");
+        body.setProperty(COMMAND_ID_PROPERTY, error.commandId());
+        body.setProperty(DEPENDENCY_PROPERTY, "order");
         return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
     }
 
@@ -110,7 +115,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         HttpStatus status = HttpStatus.valueOf(error.status());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", error.code());
-        body.setProperty("commandId", error.commandId());
+        body.setProperty(COMMAND_ID_PROPERTY, error.commandId());
         body.setProperty("blockers", error.blockers());
         return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
     }
@@ -121,8 +126,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         HttpStatus status = statusOf(error.failure());
         ProblemDetail body = ProblemDetail.forStatusAndDetail(status, error.getMessage());
         body.setProperty("code", error.type().name() + "_RESULT_UNKNOWN");
-        body.setProperty("commandId", error.commandId());
-        body.setProperty("dependency", "qr");
+        body.setProperty(COMMAND_ID_PROPERTY, error.commandId());
+        body.setProperty(DEPENDENCY_PROPERTY, "qr");
         return handleExceptionInternal(error, body, new HttpHeaders(), status, request);
     }
 
@@ -145,11 +150,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleExceptionInternal(Exception error, Object body, HttpHeaders headers,
                                                              HttpStatusCode status, WebRequest request) {
         ResponseEntity<Object> response = super.handleExceptionInternal(error, body, headers, status, request);
-        if (response != null && response.getBody() instanceof ProblemDetail detail
-                && (detail.getProperties() == null || !detail.getProperties().containsKey("code"))) {
-            detail.setProperty("code", status.is4xxClientError() ? "INVALID_REQUEST" : "INTERNAL_ERROR");
+        if (response != null && response.getBody() instanceof ProblemDetail detail && !hasCode(detail)) {
+            detail.setProperty("code", status.is4xxClientError() ? INVALID_REQUEST_CODE : "INTERNAL_ERROR");
         }
         return response;
+    }
+
+    private static boolean hasCode(ProblemDetail detail) {
+        Map<String, Object> properties = detail.getProperties();
+        return properties != null && properties.containsKey("code");
     }
 
     private static HttpStatus statusOf(DependencyFailure failure) {

@@ -77,8 +77,9 @@ public class OrderServeService {
         String digest = IdempotencyKeys.digest("SERVE", orderId, tableSessionId, expectedVersion);
         OrderServeCommand command;
         try {
-            command = commands.saveAndFlush(OrderServeCommand.open(UUID.randomUUID(), restaurantId, orderId,
-                    tableSessionId, expectedVersion, staff.staffUserId(), key, digest, now()));
+            command = commands.saveAndFlush(OrderServeCommand.open(UUID.randomUUID(),
+                    new OrderServeCommand.Target(restaurantId, orderId, tableSessionId, expectedVersion),
+                    staff.staffUserId(), key, digest, now()));
         } catch (DataIntegrityViolationException sameKey) {
             OrderServeCommand existing = commands.findByRestaurantIdAndRequestedByUserIdAndIdempotencyKey(
                     restaurantId, staff.staffUserId(), key).orElseThrow(() -> sameKey);
@@ -104,7 +105,7 @@ public class OrderServeService {
                 commands.saveAndFlush(command);
             }
             return new Result(command, null, NOT_RECORDED);
-        } catch (ObjectOptimisticLockingFailureException concurrentUpdate) {
+        } catch (ObjectOptimisticLockingFailureException _) {
             return new Result(commands.findById(commandId).orElse(command), null, null);
         }
     }
@@ -138,7 +139,7 @@ public class OrderServeService {
         try {
             loaded.markInFlight(now());
             command = commands.saveAndFlush(loaded);
-        } catch (ObjectOptimisticLockingFailureException concurrentAttempt) {
+        } catch (ObjectOptimisticLockingFailureException _) {
             throw inProgress();
         }
         Optional<ServeStatusDto> recorded;
@@ -198,7 +199,7 @@ public class OrderServeService {
     private OrderDto currentOrderOrNull(OrderServeCommand command) {
         try {
             return orders.findOrder(command.getRestaurantId(), command.getOrderId()).orElse(null);
-        } catch (DependencyException unavailable) {
+        } catch (DependencyException _) {
             return null;   // The command is confirmed whether or not the order can be read right now.
         }
     }

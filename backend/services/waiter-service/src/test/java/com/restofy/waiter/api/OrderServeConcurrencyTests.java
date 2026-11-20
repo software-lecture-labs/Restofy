@@ -17,7 +17,6 @@ import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
@@ -50,7 +49,7 @@ class OrderServeConcurrencyTests extends ApiTestBase {
     private Callable<Answer> serve(UUID waiter, FakeBackends.Order order, String key) {
         return () -> {
             var response = mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served").with(asWaiter(waiter))
-                    .with(csrf().asHeader()).header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON)
+                    .with(staffCsrf()).header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON)
                     .content("{\"tableSessionId\":\"" + S1 + "\",\"expectedVersion\":" + order.version() + "}")).andReturn().getResponse();
             return new Answer(response.getStatus(), response.getContentAsString());
         };
@@ -72,7 +71,7 @@ class OrderServeConcurrencyTests extends ApiTestBase {
             ready.countDown();
             try {
                 go.await();
-            } catch (InterruptedException interrupted) {
+            } catch (InterruptedException _) {
                 Thread.currentThread().interrupt();
             }
             alongside.run();

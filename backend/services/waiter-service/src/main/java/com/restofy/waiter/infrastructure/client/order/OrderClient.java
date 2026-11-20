@@ -86,15 +86,19 @@ public class OrderClient {
         for (OrderDto order : result.items()) {
             requireTenant(restaurantId, order);
             if (!ids.add(order.id())) throw badResponse("duplicate order in the page");
-            if (tableId != null && !tableId.equals(order.tableId())) throw badResponse("order of another table");
-            if (sessions != null && !sessions.contains(order.tableSessionId())) {
-                throw badResponse("order of a session that was not requested");
-            }
-            if (view != null && !view.matches(order.businessStatus(), preparationOf(order), order.deliveryStatus())) {
-                throw badResponse("order does not match the requested view");
-            }
+            requireMatchesFilters(order, tableId, sessions, view);
         }
         return result;
+    }
+
+    private static void requireMatchesFilters(OrderDto order, UUID tableId, List<UUID> sessions, OrderView view) {
+        if (tableId != null && !tableId.equals(order.tableId())) throw badResponse("order of another table");
+        if (sessions != null && !sessions.contains(order.tableSessionId())) {
+            throw badResponse("order of a session that was not requested");
+        }
+        if (view != null && !view.matches(order.businessStatus(), preparationOf(order), order.deliveryStatus())) {
+            throw badResponse("order does not match the requested view");
+        }
     }
 
     public Optional<OrderDto> findOrder(UUID restaurantId, UUID orderId) {

@@ -29,11 +29,11 @@ public class CallEvents {
         this.json = json;
     }
 
-    public void record(ServiceRequest call, CallEventType type, ServiceRequestStatus from, ActorType actorType,
+    public void recordEvent(ServiceRequest call, CallEventType type, ServiceRequestStatus from, ActorType actorType,
                        UUID actorId, Instant now) {
         UUID eventId = UUID.randomUUID();
         String payload = json.writeValueAsString(ServiceCallEventDto.of(eventId, type, now, call));
-        ledger.appendEvent(eventId, call.getRestaurantId(), call.getId(), call.getVersion(), type, from,
-                call.getStatus(), actorType, actorId, now, payload);
+        ledger.appendEvent(new CallLedger.EventKey(eventId, call.getRestaurantId(), call.getId(), call.getVersion()),
+                new CallLedger.EventChange(type, from, call.getStatus(), actorType, actorId), now, payload);
     }
 }

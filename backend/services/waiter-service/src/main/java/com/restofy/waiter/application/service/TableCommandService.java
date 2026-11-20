@@ -174,7 +174,7 @@ public class TableCommandService {
             if (command.getStatus() == TableCommandStatus.PENDING) command.markUnknown(now());
             else command.touch(now());
             return new Result(commands.saveAndFlush(command), NOT_RECORDED);
-        } catch (ObjectOptimisticLockingFailureException concurrentUpdate) {
+        } catch (ObjectOptimisticLockingFailureException _) {
             return new Result(commands.findById(command.getId()).orElse(command), null);
         }
     }
@@ -186,7 +186,7 @@ public class TableCommandService {
                 command.touch(now());
                 commands.saveAndFlush(command);
             });
-        } catch (ObjectOptimisticLockingFailureException concurrentUpdate) {
+        } catch (ObjectOptimisticLockingFailureException _) {
             // Someone else just settled or touched it; that is as good as a deferral.
         }
     }
@@ -200,9 +200,9 @@ public class TableCommandService {
         for (TableCommand closed : commands.findClosedSessionsWithUnresolvedCalls(
                 PageRequest.of(0, limit))) {
             try {
-                Integer count = transaction.execute(status -> callCloser.closeCallsOf(closed, now()));
-                ended += count == null ? 0 : count;
-            } catch (ObjectOptimisticLockingFailureException concurrentChange) {
+                ended += Optional.ofNullable(transaction.execute(status -> callCloser.closeCallsOf(closed, now())))
+                        .orElse(0);
+            } catch (ObjectOptimisticLockingFailureException _) {
                 // A staff member changed a call at the same moment; the next round picks it up again.
             }
         }
@@ -215,7 +215,7 @@ public class TableCommandService {
         TableCommand command;
         try {
             command = commands.saveAndFlush(fresh);
-        } catch (DataIntegrityViolationException sameKeyOrOpenCommand) {
+        } catch (DataIntegrityViolationException _) {
             Optional<TableCommand> existing = commands.findByRestaurantIdAndRequestedByUserIdAndIdempotencyKey(
                     fresh.getRestaurantId(), fresh.getRequestedByUserId(), fresh.getIdempotencyKey());
             if (existing.isPresent()) return replay(existing.get(), fresh.getRequestDigest());
@@ -254,7 +254,7 @@ public class TableCommandService {
         try {
             loaded.markInFlight(now());
             command = commands.saveAndFlush(loaded);
-        } catch (ObjectOptimisticLockingFailureException concurrentAttempt) {
+        } catch (ObjectOptimisticLockingFailureException _) {
             throw inProgress();
         }
         Optional<Verdict> recorded;
@@ -329,7 +329,7 @@ public class TableCommandService {
                     }
                     return new Result(commands.saveAndFlush(current), null);
                 });
-            } catch (ObjectOptimisticLockingFailureException lost) {
+            } catch (ObjectOptimisticLockingFailureException _) {
                 if (attempt >= TRANSACTION_ATTEMPTS) throw inProgress();
             }
         }

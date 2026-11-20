@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -105,22 +104,22 @@ class GuestCallApiTests extends ApiTestBase {
         assertTrue(verification.body().contains(guest.token()));
         assertTrue(verification.rawQuery() == null || verification.rawQuery().isEmpty());
         assertNull(verification.header("Authorization"), "No invented service credential");
-        assertNull(verification.header("X-Guest-Token"), "The credential is forwarded in the body only");
+        assertNull(verification.header("Cookie"), "The credential is forwarded in the body only, never as a cookie");
     }
 
     @Test
     void theCredentialIsNeverStoredAnywhere() throws Exception {
         raiseCall(guest, "WAITER").andExpect(status().isCreated());
         StringBuilder everything = new StringBuilder();
-        for (String table : List.of("service_requests", "service_call_events", "notification_deliveries", "idempotency_records")) {
-            everything.append(jdbc.queryForList("SELECT * FROM " + table).toString());
+        for (String name : List.of("service_requests", "service_call_events", "notification_deliveries", "idempotency_records")) {
+            everything.append(jdbc.queryForList("SELECT * FROM " + name).toString());
         }
         assertFalse(everything.toString().contains(guest.token()));
     }
 
     @Test
     void requestWithoutACredentialIsAuthenticationRequiredAndTouchesNothing() throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/calls").header("Idempotency-Key", newKey())
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestCsrf()).header("Idempotency-Key", newKey())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
@@ -129,8 +128,17 @@ class GuestCallApiTests extends ApiTestBase {
     }
 
     @Test
-    void forgedIdentityHeadersDoNotAuthenticate() throws Exception {
+    void aBrowserRequestWithoutTheCsrfProofIsRefusedBeforeAnythingHappens() throws Exception {
         mockMvc.perform(post("/api/v1/waiters/calls").header("Idempotency-Key", newKey())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        assertTrue(STUB.requests().isEmpty());
+        assertNothingWritten();
+    }
+
+    @Test
+    void forgedIdentityHeadersDoNotAuthenticate() throws Exception {
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestCsrf()).header("Idempotency-Key", newKey())
                         .header("X-Restaurant-Id", RESTAURANT.toString()).header("X-Role", "GUEST")
                         .header("X-User-Id", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
@@ -140,7 +148,7 @@ class GuestCallApiTests extends ApiTestBase {
 
     @Test
     void credentialUnknownToQrIsRejectedWithoutSayingWhy() throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", "never-issued-token")
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(randomProof()))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"HELP\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
@@ -150,7 +158,7 @@ class GuestCallApiTests extends ApiTestBase {
     @ParameterizedTest
     @ValueSource(strings = {"has a space", "tab\tinside", "ünicode-token"})
     void malformedCredentialsNeverReachQr(String token) throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", token)
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(token))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"HELP\"}"))
                 .andExpect(status().isUnauthorized());
         assertTrue(STUB.requests().isEmpty());
@@ -159,10 +167,10 @@ class GuestCallApiTests extends ApiTestBase {
 
     @Test
     void oversizedAndRepeatedCredentialsNeverReachQr() throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", "x".repeat(513))
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser("x".repeat(513)))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"HELP\"}"))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", guest.token(), guest.token())
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(guest.token(), guest.token()))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"HELP\"}"))
                 .andExpect(status().isUnauthorized());
         assertTrue(STUB.requests().isEmpty());
@@ -173,9 +181,9 @@ class GuestCallApiTests extends ApiTestBase {
     void theCredentialAuthenticatesOnlyTheCallEndpointNotStaffEndpoints() throws Exception {
         for (String path : List.of("/api/v1/waiters/calls", "/api/v1/waiters/tables", "/api/v1/waiters/orders",
                 "/api/v1/waiters/calls/" + UUID.randomUUID())) {
-            mockMvc.perform(get(path).header("X-Guest-Token", guest.token())).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(path).with(guestCookie(guest.token()))).andExpect(status().isUnauthorized());
         }
-        mockMvc.perform(post("/api/v1/waiters/calls/" + UUID.randomUUID() + "/resolve").header("X-Guest-Token", guest.token())
+        mockMvc.perform(post("/api/v1/waiters/calls/" + UUID.randomUUID() + "/resolve").with(guestBrowser(guest.token()))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
                 .andExpect(status().isForbidden());
         assertTrue(STUB.requests().isEmpty(), "Only the call endpoint verifies a guest credential");
@@ -191,14 +199,104 @@ class GuestCallApiTests extends ApiTestBase {
         assertNothingWritten();
     }
 
+    // ----- cookie transport and CSRF/Origin (ADR-QR-002 K3, K4, K6) -----
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder call(String type) {
+        return post("/api/v1/waiters/calls").header("Idempotency-Key", newKey())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"" + type + "\"}");
+    }
+
+    @Test
+    void theHeaderCredentialOfTheOldContractIsNoLongerACredential() throws Exception {
+        mockMvc.perform(call("WAITER").with(guestCsrf()).header("X-Guest-Token", guest.token()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(call("WAITER").with(guestCsrf()).header("Authorization", "Bearer " + guest.token()))
+                .andExpect(status().isUnauthorized());
+        assertTrue(STUB.requests().isEmpty());
+        assertNothingWritten();
+    }
+
+    @Test
+    void theCredentialIsReadFromTheHttpOnlyCookieAndVerifiedByQr() throws Exception {
+        mockMvc.perform(call("BILL").with(guestBrowser(guest.token()))).andExpect(status().isCreated());
+        assertEquals(1, STUB.requests("POST", "/api/v1/internal/guest-sessions/verify").size());
+    }
+
+    @Test
+    void aValidCookieWithoutTheCsrfProofIsAForgedRequestAndIsRefused() throws Exception {
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))).andExpect(status().isForbidden());
+        assertTrue(STUB.requests().isEmpty(), "A forged cross-site request must not even reach QR");
+        assertNothingWritten();
+    }
+
+    @Test
+    void theHeaderMustEqualTheGuestCsrfCookie() throws Exception {
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .cookie(new jakarta.servlet.http.Cookie("restofy_guest_csrf", randomProof()))
+                        .header("X-Guest-CSRF", randomProof()).header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .header("X-Guest-CSRF", randomProof()).header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isForbidden());
+        assertTrue(STUB.requests().isEmpty());
+        assertNothingWritten();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://evil.example", "http://app.restofy.test", "https://app.restofy.test:8443", "null"})
+    void anOriginOutsideTheAllowlistIsRefused(String origin) throws Exception {
+        String proof = randomProof();
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .cookie(new jakarta.servlet.http.Cookie("restofy_guest_csrf", proof))
+                        .header("X-Guest-CSRF", proof).header("Origin", origin))
+                .andExpect(status().isForbidden());
+        assertTrue(STUB.requests().isEmpty());
+        assertNothingWritten();
+    }
+
+    @Test
+    void aMissingOrRepeatedOriginAndARepeatedProofHeaderAreRefused() throws Exception {
+        String proof = randomProof();
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .cookie(new jakarta.servlet.http.Cookie("restofy_guest_csrf", proof)).header("X-Guest-CSRF", proof))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .cookie(new jakarta.servlet.http.Cookie("restofy_guest_csrf", proof))
+                        .header("X-Guest-CSRF", proof).header("Origin", ALLOWED_ORIGIN, ALLOWED_ORIGIN))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .cookie(new jakarta.servlet.http.Cookie("restofy_guest_csrf", proof))
+                        .header("X-Guest-CSRF", proof, proof).header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isForbidden());
+        assertTrue(STUB.requests().isEmpty());
+        assertNothingWritten();
+    }
+
+    @Test
+    void aMalformedGuestCsrfProofIsRefused() throws Exception {
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token()))
+                        .cookie(new jakarta.servlet.http.Cookie("restofy_guest_csrf", "short"))
+                        .header("X-Guest-CSRF", "short").header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isForbidden());
+        assertTrue(STUB.requests().isEmpty());
+    }
+
+    @Test
+    void theStaffCsrfProofDoesNotStandInForTheGuestProof() throws Exception {
+        mockMvc.perform(call("WAITER").with(guestCookie(guest.token())).with(staffCsrf()))
+                .andExpect(status().isForbidden());
+        assertTrue(STUB.requests().isEmpty());
+        assertNothingWritten();
+    }
+
     @Test
     void staffCannotUseTheGuestEndpoint() throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/calls").with(asWaiter()).with(csrf().asHeader()).header("Idempotency-Key", newKey())
+        mockMvc.perform(post("/api/v1/waiters/calls").with(asWaiter()).with(guestCsrf()).header("Idempotency-Key", newKey())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
         // Even with a valid guest credential on top of a staff login, the staff identity wins and is refused.
-        mockMvc.perform(post("/api/v1/waiters/calls").with(asWaiter()).with(csrf().asHeader()).header("X-Guest-Token", guest.token())
+        mockMvc.perform(post("/api/v1/waiters/calls").with(asWaiter()).with(guestBrowser(guest.token()))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
                 .andExpect(status().isForbidden());
         assertNothingWritten();
@@ -220,14 +318,14 @@ class GuestCallApiTests extends ApiTestBase {
     @Test
     void queryParametersAndForgedHeadersCannotChangeTheTenantOrSession() throws Exception {
         mockMvc.perform(post("/api/v1/waiters/calls").param("restaurantId", OTHER_RESTAURANT.toString())
-                        .header("X-Guest-Token", guest.token()).header("Idempotency-Key", newKey())
+                        .with(guestBrowser(guest.token())).header("Idempotency-Key", newKey())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
                 .andExpect(status().isBadRequest());
         assertNothingWritten();
 
         mockMvc.perform(post("/api/v1/waiters/calls").header("X-Restaurant-Id", OTHER_RESTAURANT.toString())
                         .header("X-Table-Session-Id", OTHER_SESSION.toString())
-                        .header("X-Guest-Token", guest.token()).header("Idempotency-Key", newKey())
+                        .with(guestBrowser(guest.token())).header("Idempotency-Key", newKey())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
                 .andExpect(status().isCreated());
         Map<String, Object> row = jdbc.queryForMap("SELECT restaurant_id, table_session_id FROM service_requests");
@@ -281,7 +379,7 @@ class GuestCallApiTests extends ApiTestBase {
     void aValidIdempotencyKeyIsRequired(String key) throws Exception {
         raiseCall(guest, key, "{\"type\":\"WAITER\"}").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", guest.token())
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(guest.token()))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"WAITER\"}"))
                 .andExpect(status().isBadRequest());
         assertNothingWritten();
@@ -296,7 +394,7 @@ class GuestCallApiTests extends ApiTestBase {
 
     @Test
     void nonJsonContentIsNotAccepted() throws Exception {
-        mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", guest.token())
+        mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(guest.token()))
                         .header("Idempotency-Key", newKey()).contentType(MediaType.TEXT_PLAIN).content("WAITER"))
                 .andExpect(status().is4xxClientError());
         assertNothingWritten();
