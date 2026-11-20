@@ -1,0 +1,98 @@
+/*
+ * Design tokens. Components use the semantic utilities (bg-canvas, text-fg, ...) instead of raw colours,
+ * so the light and dark themes only differ here.
+ *
+ * Theme selection: an explicit data-theme attribute (saved in the "theme" cookie) wins; without it the
+ * operating system preference applies. The dark values therefore appear twice, once per selector.
+ */
+
+:root {
+  color-scheme: light;
+  --canvas: #ebdfc8;
+  --surface: #f5ebd8;
+  --surface-muted: #e5d7bb;
+  --line: #d2c19f;
+  --fg: #1c140e;
+  --fg-muted: #6b5d4f;
+  --brand: #ff6500;
+  --brand-hover: #ff7a24;
+  --brand-fg: #1a0f08;
+  --brand-text: #b84300;
+  --glow: 255 101 0;
+  --glow-strength: 0.28;
+  --tint-strength: 0.14;
+  --danger: #b42318;
+  --orb-opacity: 0.16;
+  --grain-opacity: 0.05;
+  --show-light: inline-block;
+  --show-dark: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: #0e0b09;
+    --surface: #17120f;
+    --surface-muted: #211a15;
+    --line: #34291f;
+    --fg: #f7f2ea;
+    --fg-muted: #b3a595;
+    --brand-text: #ff8a3d;
+    --glow-strength: 0.55;
+    --tint-strength: 0.12;
+    --danger: #ff9b8e;
+    --orb-opacity: 0.3;
+    --grain-opacity: 0.07;
+    --show-light: none;
+    --show-dark: inline-block;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0e0b09;
+  --surface: #17120f;
+  --surface-muted: #211a15;
+  --line: #34291f;
+  --fg: #f7f2ea;
+  --fg-muted: #b3a595;
+  --brand-text: #ff8a3d;
+  --glow-strength: 0.55;
+  --tint-strength: 0.12;
+  --danger: #ff9b8e;
+  --orb-opacity: 0.3;
+  --grain-opacity: 0.07;
+  --show-light: none;
+  --show-dark: inline-block;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-text: var(--brand-text);
+  --color-danger: var(--danger);
+  --font-sans:
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Show exactly one of a light/dark asset pair (for example the two logos). */
+.theme-only-light {
+  display: var(--show-light);
+}
+
+.theme-only-dark {
+  display: var(--show-dark);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}

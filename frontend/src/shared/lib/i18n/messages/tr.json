@@ -1,1 +1,124 @@
-{}
+{
+  "theme": {
+    "toggle": "Açık ve koyu tema arasında geçiş yap"
+  },
+  "auth": {
+    "roles": {
+      "label": "Giriş rolü",
+      "ADMIN": "Yönetici",
+      "WAITER": "Garson",
+      "KITCHEN": "Mutfak"
+    },
+    "login": {
+      "heading": {
+        "ADMIN": "Yönetici girişi",
+        "WAITER": "Garson girişi",
+        "KITCHEN": "Mutfak girişi"
+      },
+      "hint": {
+        "ADMIN": "Restoranı yönetmek için hesabınla giriş yap.",
+        "WAITER": "Masaları ve çağrıları takip etmek için giriş yap.",
+        "KITCHEN": "Gelen siparişleri görmek için giriş yap."
+      },
+      "email": "E-posta",
+      "password": "Parola",
+      "showPassword": "Parolayı göster",
+      "hidePassword": "Parolayı gizle",
+      "submit": "Giriş yap",
+      "errors": {
+        "emailRequired": "E-posta adresini yaz.",
+        "emailInvalid": "Geçerli bir e-posta adresi yaz.",
+        "passwordRequired": "Parolanı yaz."
+      },
+      "problems": {
+        "invalidCredentials": "E-posta veya parola hatalı.",
+        "invalidCode": "Kod hatalı ya da süresi dolmuş.",
+        "invalidInput": "Bilgilerini kontrol edip tekrar dene.",
+        "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
+        "wrongRole": "Bu hesap seçtiğin rol için değil. Doğru rolü seçip tekrar dene.",
+        "unavailable": "Şu an giriş yapılamıyor. Biraz sonra tekrar dene."
+      },
+      "forgot": "Parolamı unuttum"
+    },
+    "mfa": {
+      "heading": "İki adımlı doğrulama",
+      "setupHeading": "Doğrulama uygulamasını kur",
+      "setupHint": "Yönetici hesabı iki adımlı doğrulama ister. Bir kez kurman yeterli, sonraki girişlerde uygulamadaki kodu yazarsın.",
+      "submit": "Doğrula",
+      "back": "Geri dön",
+      "totp": {
+        "label": "Doğrulama kodu",
+        "hint": "Doğrulama uygulamandaki 6 haneli kodu yaz.",
+        "switch": "Kurtarma kodu kullan"
+      },
+      "recovery": {
+        "label": "Kurtarma kodu",
+        "hint": "Kurulumda kaydettiğin kurtarma kodlarından birini yaz. Her kod bir kez çalışır.",
+        "switch": "Uygulama kodu kullan"
+      },
+      "errors": {
+        "codeRequired": "Kodu yaz.",
+        "codeInvalid": "Kod biçimi geçersiz."
+      },
+      "setup": {
+        "stepApp": "Telefonuna bir doğrulama uygulaması (Google Authenticator, Microsoft Authenticator vb.) kur ve yeni hesap ekle.",
+        "stepScan": "Uygulamada “QR kodu tara” seçeneğiyle bu kodu okut.",
+        "qrLabel": "Doğrulama uygulaması için QR kodu",
+        "stepSecret": "Okutamıyorsan “anahtar ile ekle” seçeneğiyle şu kodu yaz:",
+        "openInApp": "Uygulamada aç",
+        "stepCode": "Uygulamanın gösterdiği 6 haneli kodu yaz.",
+        "submit": "Doğrula ve etkinleştir"
+      },
+      "recoveryCodesHeading": "Kurtarma kodların",
+      "recoveryCodesHint": "Telefonuna erişemezsen bu kodlardan biriyle girebilirsin. Her kod bir kez çalışır. Şimdi güvenli bir yere kaydet; bir daha gösterilmeyecek.",
+      "recoveryCodes": {
+        "copy": "Kodları kopyala",
+        "copied": "Kopyalandı",
+        "done": "Kaydettim, devam et"
+      }
+    },
+    "reset": {
+      "request": {
+        "heading": "Parolanı sıfırla",
+        "hint": "E-postanı ve doğrulama uygulamandaki 6 haneli kodu yaz. Sana e-postayla bir kod göndereceğiz.",
+        "totp": "Doğrulama uygulamasındaki kod",
+        "submit": "Kod gönder"
+      },
+      "code": {
+        "heading": "E-postanı kontrol et",
+        "hint": "Bilgilerin doğruysa e-postana 6 haneli bir kod gönderdik. Kod 15 dakika geçerli; gelmediyse baştan başla.",
+        "label": "E-postadaki kod",
+        "submit": "Doğrula"
+      },
+      "password": {
+        "heading": "Yeni parolanı belirle",
+        "hint": "En az 12 karakter olmalı ve eski parolandan farklı olmalı.",
+        "label": "Yeni parola",
+        "confirmation": "Yeni parola (tekrar)",
+        "submit": "Parolayı kaydet"
+      },
+      "done": {
+        "heading": "Parolan güncellendi",
+        "hint": "Yeni parolanla giriş yapabilirsin. Açık oturumların güvenlik için kapatıldı."
+      },
+      "backToLogin": "Girişe dön",
+      "startOver": "Baştan başla",
+      "errors": {
+        "codeRequired": "Kodu yaz.",
+        "codeInvalid": "Kod 6 haneli olmalı.",
+        "passwordRequired": "Yeni parolanı yaz.",
+        "passwordShort": "Parola en az 12 karakter olmalı.",
+        "passwordMismatch": "Parolalar aynı değil."
+      },
+      "problems": {
+        "invalidRequest": "E-posta ya da doğrulama kodu hatalı.",
+        "invalidCode": "Kod hatalı ya da süresi dolmuş.",
+        "invalidInput": "Bilgilerini kontrol edip tekrar dene.",
+        "weakPassword": "Parola kurallara uymuyor ya da eskisiyle aynı.",
+        "expired": "İşlemin süresi doldu. Baştan başla.",
+        "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
+        "unavailable": "Şu an işlem yapılamıyor. Biraz sonra tekrar dene."
+      }
+    }
+  }
+}
