@@ -64,7 +64,8 @@ class AuthPropertiesTests {
     @ValueSource(strings = {"*", "app.example.test", "https://app.example.test/path", "https://u@app.example.test",
             "ftp://app.example.test", "https://app.example.test?x=1"})
     void onlyExplicitHttpOriginsAreAllowed(String origin) {
-        assertThrows(IllegalStateException.class, () -> new AuthProperties("", "", "", 0, List.of(origin)));
+        List<String> origins = List.of(origin);
+        assertThrows(IllegalStateException.class, () -> new AuthProperties("", "", "", 0, origins));
     }
 
     @Test

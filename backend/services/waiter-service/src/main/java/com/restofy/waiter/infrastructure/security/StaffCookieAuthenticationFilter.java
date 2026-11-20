@@ -11,6 +11,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -34,7 +36,8 @@ import java.util.Optional;
  */
 final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
 
-    private static final String STAFF_PREFIX = "/api/v1/waiters";
+    private static final RequestMatcher STAFF_PATHS =
+            PathPatternRequestMatcher.withDefaults().matcher(SecurityConfiguration.API_PATTERN);
 
     private final StaffSessionVerifier sessions;
     private final HandlerExceptionResolver errors;
@@ -46,9 +49,7 @@ final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        boolean staffPath = path.equals(STAFF_PREFIX) || path.startsWith(STAFF_PREFIX + "/");
-        return !staffPath || GuestSessionAuthenticationFilter.isGuestCallRequest(request);
+        return !STAFF_PATHS.matches(request) || GuestSessionAuthenticationFilter.isGuestCallRequest(request);
     }
 
     @Override

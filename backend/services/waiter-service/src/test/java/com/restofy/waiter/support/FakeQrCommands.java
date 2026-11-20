@@ -160,9 +160,9 @@ public final class FakeQrCommands {
         backends.replace(table.with("CLEANING", null));
         int ended = endedGuestsReported >= 0 ? endedGuestsReported : guestSessions;
         closes.put(commandId, new CloseRecord(digest, "CLOSED", null, closedBlockers(), guestSessions, ended, tableId, sessionId));
-        Response answer = fault == Fault.GARBAGE_ANSWER ? Response.json(200, "not json")
-                : Response.json(200, FakeBackends.write(answer(commandId, closes.get(commandId))));
-        return fault == Fault.LOST_ANSWER ? answer.delayed(1500) : answer;
+        Response answer = Response.json(200, fault == Fault.GARBAGE_ANSWER ? "not json"
+                : FakeBackends.write(answer(commandId, closes.get(commandId))));
+        return answer.delayed(fault == Fault.LOST_ANSWER ? 1500 : 0);
     }
 
     private Response replay(UUID commandId, CloseRecord entry) {
@@ -238,9 +238,9 @@ public final class FakeQrCommands {
         }
         backends.replace(table.with("AVAILABLE", null));
         cleans.put(commandId, new CleanRecord(digest, true, null, tableId));
-        Response answer = fault == Fault.GARBAGE_ANSWER ? Response.json(200, "not json")
-                : Response.json(200, FakeBackends.write(cleanAnswer(commandId, "APPLIED", tableId)));
-        return fault == Fault.LOST_ANSWER ? answer.delayed(1500) : answer;
+        Response answer = Response.json(200, fault == Fault.GARBAGE_ANSWER ? "not json"
+                : FakeBackends.write(cleanAnswer(commandId, "APPLIED", tableId)));
+        return answer.delayed(fault == Fault.LOST_ANSWER ? 1500 : 0);
     }
 
     private synchronized Response cleanStatus(Request request) {

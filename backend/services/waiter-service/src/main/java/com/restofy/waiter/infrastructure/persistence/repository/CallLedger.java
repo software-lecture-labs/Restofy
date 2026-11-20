@@ -42,21 +42,41 @@ public class CallLedger {
         return found.stream().findFirst();
     }
 
-    public void recordIdempotency(UUID restaurantId, String actorScope, String operation, String key,
-                                  String requestDigest, UUID serviceRequestId, int responseStatus, Instant now) {
+    /** What an idempotency key is unique within: the restaurant, the actor scope and the operation. */
+    public record IdempotencyKey(UUID restaurantId, String actorScope, String operation, String key) {
+    }
+
+    /** Which event of which call version is written: the event id, the restaurant, the call and its version. */
+    public record EventKey(UUID eventId, UUID restaurantId, UUID serviceRequestId, long callVersion) {
+    }
+
+    /** The status change an event records and who caused it. */
+    public record EventChange(CallEventType type, ServiceRequestStatus from, ServiceRequestStatus to,
+                              ActorType actorType, UUID actorId) {
+    }
+
+    public void recordIdempotency(IdempotencyKey scope, String requestDigest, UUID serviceRequestId,
+                                  int responseStatus, Instant now) {
         jdbc.update("""
                         INSERT INTO idempotency_records (id, restaurant_id, actor_scope, operation, idempotency_key,
                                                          request_digest, service_request_id, response_status, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                UUID.randomUUID(), restaurantId, actorScope, operation, key, requestDigest, serviceRequestId,
-                responseStatus, Timestamp.from(now));
+                UUID.randomUUID(), scope.restaurantId(), scope.actorScope(), scope.operation(), scope.key(),
+                requestDigest, serviceRequestId, responseStatus, Timestamp.from(now));
     }
 
     /** Writes the audit event and queues its delivery to Notification (due immediately). */
-    public void appendEvent(UUID eventId, UUID restaurantId, UUID serviceRequestId, long callVersion,
-                            CallEventType type, ServiceRequestStatus from, ServiceRequestStatus to,
-                            ActorType actorType, UUID actorId, Instant occurredAt, String payloadJson) {
+    public void appendEvent(EventKey key, EventChange change, Instant occurredAt, String payloadJson) {
+        UUID eventId = key.eventId();
+        UUID restaurantId = key.restaurantId();
+        UUID serviceRequestId = key.serviceRequestId();
+        long callVersion = key.callVersion();
+        CallEventType type = change.type();
+        ServiceRequestStatus from = change.from();
+        ServiceRequestStatus to = change.to();
+        ActorType actorType = change.actorType();
+        UUID actorId = change.actorId();
         jdbc.update("""
                         INSERT INTO service_call_events (id, restaurant_id, service_request_id, call_version, event_type,
                                                          from_status, to_status, actor_type, actor_id, occurred_at, payload)

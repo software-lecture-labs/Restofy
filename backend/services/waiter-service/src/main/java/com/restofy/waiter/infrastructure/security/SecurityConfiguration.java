@@ -45,7 +45,7 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfiguration {
 
-    private static final String API_PATTERN = "/api/v1/waiters/**";
+    static final String API_PATTERN = "/api/v1/waiters/**";
 
     @Bean
     SecurityFilterChain waiterSecurityFilterChain(HttpSecurity http, QrClient qr, StaffSessionVerifier staffSessions,

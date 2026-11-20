@@ -111,8 +111,8 @@ class GuestCallApiTests extends ApiTestBase {
     void theCredentialIsNeverStoredAnywhere() throws Exception {
         raiseCall(guest, "WAITER").andExpect(status().isCreated());
         StringBuilder everything = new StringBuilder();
-        for (String table : List.of("service_requests", "service_call_events", "notification_deliveries", "idempotency_records")) {
-            everything.append(jdbc.queryForList("SELECT * FROM " + table).toString());
+        for (String name : List.of("service_requests", "service_call_events", "notification_deliveries", "idempotency_records")) {
+            everything.append(jdbc.queryForList("SELECT * FROM " + name).toString());
         }
         assertFalse(everything.toString().contains(guest.token()));
     }

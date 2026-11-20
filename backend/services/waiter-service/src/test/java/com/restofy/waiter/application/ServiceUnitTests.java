@@ -56,12 +56,15 @@ class ServiceUnitTests {
                 new AuthenticatedStaff(UUID.randomUUID(), restaurant, StaffRole.WAITER)));
         assertThrows(AccessDeniedException.class, () -> AuthenticatedStaff.requireWaiterRestaurant(null));
         for (StaffRole role : List.of(StaffRole.ADMIN, StaffRole.KITCHEN)) {
+            var arg1 = new AuthenticatedStaff(UUID.randomUUID(), restaurant, role);
             assertThrows(AccessDeniedException.class, () -> AuthenticatedStaff.requireWaiterRestaurant(
-                    new AuthenticatedStaff(UUID.randomUUID(), restaurant, role)));
+                    arg1));
         }
         assertThrows(NullPointerException.class, () -> new AuthenticatedStaff(null, restaurant, StaffRole.WAITER));
-        assertThrows(NullPointerException.class, () -> new AuthenticatedStaff(UUID.randomUUID(), null, StaffRole.WAITER));
-        assertThrows(NullPointerException.class, () -> new AuthenticatedStaff(UUID.randomUUID(), restaurant, null));
+        var arg2 = UUID.randomUUID();
+        assertThrows(NullPointerException.class, () -> new AuthenticatedStaff(arg2, null, StaffRole.WAITER));
+        var arg3 = UUID.randomUUID();
+        assertThrows(NullPointerException.class, () -> new AuthenticatedStaff(arg3, restaurant, null));
     }
 
     @ParameterizedTest

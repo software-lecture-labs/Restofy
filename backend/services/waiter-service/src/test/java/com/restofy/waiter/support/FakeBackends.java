@@ -8,7 +8,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
@@ -261,9 +260,9 @@ public final class FakeBackends {
         }
         orders.set(index, order.served(Instant.parse("2026-10-16T10:30:00Z")));
         serveRecords.put(commandId, new ServeRecord(digest, true, 0, null));
-        Response answer = fault == ServeFault.GARBAGE_ANSWER ? Response.json(200, "not json")
-                : Response.json(200, write(serveAnswer(commandId, "APPLIED", orders.get(index))));
-        return fault == ServeFault.LOST_ANSWER ? answer.delayed(1500) : answer;
+        Response answer = Response.json(200, fault == ServeFault.GARBAGE_ANSWER ? "not json"
+                : write(serveAnswer(commandId, "APPLIED", orders.get(index))));
+        return answer.delayed(fault == ServeFault.LOST_ANSWER ? 1500 : 0);
     }
 
     private String refusalFor(Order order, UUID sessionId, long expectedVersion) {

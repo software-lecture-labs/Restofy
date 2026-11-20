@@ -77,8 +77,9 @@ public class OrderServeService {
         String digest = IdempotencyKeys.digest("SERVE", orderId, tableSessionId, expectedVersion);
         OrderServeCommand command;
         try {
-            command = commands.saveAndFlush(OrderServeCommand.open(UUID.randomUUID(), restaurantId, orderId,
-                    tableSessionId, expectedVersion, staff.staffUserId(), key, digest, now()));
+            command = commands.saveAndFlush(OrderServeCommand.open(UUID.randomUUID(),
+                    new OrderServeCommand.Target(restaurantId, orderId, tableSessionId, expectedVersion),
+                    staff.staffUserId(), key, digest, now()));
         } catch (DataIntegrityViolationException sameKey) {
             OrderServeCommand existing = commands.findByRestaurantIdAndRequestedByUserIdAndIdempotencyKey(
                     restaurantId, staff.staffUserId(), key).orElseThrow(() -> sameKey);

@@ -65,34 +65,8 @@ class TableClosureApiTests extends TableCommandApiBase {
                 .andExpect(jsonPath("$.cleaning").value(nullValue()))
                 .andExpect(jsonPath("$.rejectionCode").value(nullValue()));
 
-        // What Waiter sent: the command id is the idempotency key; the session and version are named; the actor is the
-        // verified principal; no service credential is invented.
-        assertEquals(1, closePosts().size());
-        DownstreamStub.Request sent = closePosts().getFirst();
-        JsonNode command = FakeBackends.read(sent.body());
-        assertEquals(sent.header("Idempotency-Key"), command.get("commandId").asString());
-        assertEquals(RESTAURANT.toString(), command.get("restaurantId").asString());
-        assertEquals(table.id().toString(), command.get("tableId").asString());
-        assertEquals(S1.toString(), command.get("tableSessionId").asString());
-        assertEquals(3, command.get("expectedVersion").asInt());
-        assertEquals(WAITER_A.toString(), command.get("requestedByUserId").asString());
-        assertFalse(command.has("paid") || command.has("remainingAmount") || command.has("force"),
-                "No claim about payment or balance and no override travels with the command");
-        assertNull(sent.header("Authorization"));
-        assertEquals("CLEANING", backends.table(table.id()).status(), "QR closed the session and left the table to be cleaned");
-
-        // Only the calls of that restaurant and that session ended; they are cancelled with the reason, not resolved.
-        assertEquals("CANCELLED", callStatus(bill));
-        assertEquals("CANCELLED", callStatus(help));
-        assertEquals("RESOLVED", callStatus(done), "A call somebody resolved stays as it was");
-        assertEquals("OPEN", callStatus(olderSession), "A call of another session is out of reach");
-        assertEquals("OPEN", callStatus(otherRestaurant), "A call of another restaurant is out of reach");
-        Map<String, Object> cancelled = jdbc.queryForMap("SELECT * FROM service_requests WHERE id = ?", bill);
-        assertEquals("TABLE_SESSION_CLOSED", cancelled.get("closure_reason"));
-        assertEquals(commandId(), cancelled.get("cancelled_by_command_id"));
-        assertNotNull(cancelled.get("cancelled_at"));
-        assertNull(cancelled.get("resolved_by_user_id"), "Nobody resolved it");
-        assertNull(cancelled.get("resolved_at"));
+        assertTheCloseCommandThatWasSent();
+        assertOnlyTheCallsOfThatSessionEnded(bill, help, done, olderSession, otherRestaurant);
 
         Map<String, Object> row = commandRow();
         assertEquals("COMPLETED", row.get("status"));
@@ -113,6 +87,40 @@ class TableClosureApiTests extends TableCommandApiBase {
                 .andExpect(jsonPath("$.table.session").value(nullValue()))
                 .andExpect(jsonPath("$.table.readyForNewCustomer").value(false))
                 .andExpect(jsonPath("$.openServiceRequests", empty()));
+    }
+
+    private void assertTheCloseCommandThatWasSent() {
+        // What Waiter sent: the command id is the idempotency key; the session and version are named; the actor is the
+        // verified principal; no service credential is invented.
+        assertEquals(1, closePosts().size());
+        DownstreamStub.Request sent = closePosts().getFirst();
+        JsonNode command = FakeBackends.read(sent.body());
+        assertEquals(sent.header("Idempotency-Key"), command.get("commandId").asString());
+        assertEquals(RESTAURANT.toString(), command.get("restaurantId").asString());
+        assertEquals(table.id().toString(), command.get("tableId").asString());
+        assertEquals(S1.toString(), command.get("tableSessionId").asString());
+        assertEquals(3, command.get("expectedVersion").asInt());
+        assertEquals(WAITER_A.toString(), command.get("requestedByUserId").asString());
+        assertFalse(command.has("paid") || command.has("remainingAmount") || command.has("force"),
+                "No claim about payment or balance and no override travels with the command");
+        assertNull(sent.header("Authorization"));
+        assertEquals("CLEANING", backends.table(table.id()).status(), "QR closed the session and left the table to be cleaned");
+    }
+
+    private void assertOnlyTheCallsOfThatSessionEnded(UUID bill, UUID help, UUID done, UUID olderSession,
+                                                     UUID otherRestaurant) {
+        // Only the calls of that restaurant and that session ended; they are cancelled with the reason, not resolved.
+        assertEquals("CANCELLED", callStatus(bill));
+        assertEquals("CANCELLED", callStatus(help));
+        assertEquals("RESOLVED", callStatus(done), "A call somebody resolved stays as it was");
+        assertEquals("OPEN", callStatus(olderSession), "A call of another session is out of reach");
+        assertEquals("OPEN", callStatus(otherRestaurant), "A call of another restaurant is out of reach");
+        Map<String, Object> cancelled = jdbc.queryForMap("SELECT * FROM service_requests WHERE id = ?", bill);
+        assertEquals("TABLE_SESSION_CLOSED", cancelled.get("closure_reason"));
+        assertEquals(commandId(), cancelled.get("cancelled_by_command_id"));
+        assertNotNull(cancelled.get("cancelled_at"));
+        assertNull(cancelled.get("resolved_by_user_id"), "Nobody resolved it");
+        assertNull(cancelled.get("resolved_at"));
     }
 
     @Test

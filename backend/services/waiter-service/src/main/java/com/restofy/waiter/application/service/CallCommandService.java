@@ -102,14 +102,17 @@ public class CallCommandService {
             Optional<ServiceRequest> active = calls.findFirstByRestaurantIdAndGuestSessionIdAndRequestTypeAndStatusIn(
                     verified.restaurantId(), verified.guestSessionId(), type, ServiceRequestStatus.UNRESOLVED);
             if (active.isPresent()) {
-                ledger.recordIdempotency(verified.restaurantId(), scope, CREATE, key, digest, active.get().getId(), OK, now);
+                ledger.recordIdempotency(new CallLedger.IdempotencyKey(verified.restaurantId(), scope, CREATE, key), digest,
+                        active.get().getId(), OK, now);
                 return new Outcome(active.get(), OK);
             }
             enforceRateLimit(verified, now);
-            ServiceRequest call = calls.saveAndFlush(ServiceRequest.open(UUID.randomUUID(), verified.restaurantId(),
-                    verified.tableId(), verified.tableSessionId(), verified.guestSessionId(), type, message, now));
+            ServiceRequest call = calls.saveAndFlush(ServiceRequest.open(UUID.randomUUID(),
+                    new ServiceRequest.Origin(verified.restaurantId(), verified.tableId(), verified.tableSessionId(),
+                            verified.guestSessionId()), type, message, now));
             recordEvent(call, CallEventType.CREATED, null, ActorType.GUEST, verified.guestSessionId(), now);
-            ledger.recordIdempotency(verified.restaurantId(), scope, CREATE, key, digest, call.getId(), CREATED, now);
+            ledger.recordIdempotency(new CallLedger.IdempotencyKey(verified.restaurantId(), scope, CREATE, key), digest,
+                    call.getId(), CREATED, now);
             return new Outcome(call, CREATED);
         });
     }
@@ -166,7 +169,8 @@ public class CallCommandService {
             else call.resolve(staff.staffUserId(), now);
             calls.saveAndFlush(call);
             recordEvent(call, eventType, from, ActorType.STAFF, staff.staffUserId(), now);
-            ledger.recordIdempotency(restaurantId, scope, operation, key, digest, call.getId(), OK, now);
+            ledger.recordIdempotency(new CallLedger.IdempotencyKey(restaurantId, scope, operation, key), digest,
+                    call.getId(), OK, now);
             return new Outcome(call, OK);
         });
     }

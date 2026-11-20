@@ -71,7 +71,7 @@ class OrderServeConcurrencyTests extends ApiTestBase {
             ready.countDown();
             try {
                 go.await();
-            } catch (InterruptedException interrupted) {
+            } catch (InterruptedException _) {
                 Thread.currentThread().interrupt();
             }
             alongside.run();
