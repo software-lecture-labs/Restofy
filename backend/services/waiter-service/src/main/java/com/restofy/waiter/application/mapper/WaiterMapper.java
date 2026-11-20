@@ -88,9 +88,15 @@ public final class WaiterMapper {
         return new ServeCommandResponse(command.getId(), command.getOrderId(), command.getTableSessionId(),
                 command.getExpectedVersion(), command.getStatus(), command.getRejectionCode(), command.getCreatedAt(),
                 command.getCompletedAt(), result.reconciliation(),
-                order == null ? null : new ServeCommandResponse.ServedOrder(order.id(), order.orderNumber(),
-                        order.tableSessionId(), order.businessStatus(), order.deliveryStatus(), order.servedAt(),
-                        order.preparation() == null ? null : order.preparation().status(), order.version()));
+                servedOrder(order));
+    }
+
+    private static ServeCommandResponse.ServedOrder servedOrder(OrderDto order) {
+        if (order == null) return null;
+        var preparation = order.preparation();
+        return new ServeCommandResponse.ServedOrder(order.id(), order.orderNumber(), order.tableSessionId(),
+                order.businessStatus(), order.deliveryStatus(), order.servedAt(),
+                preparation == null ? null : preparation.status(), order.version());
     }
 
     public static ServiceCallResponse toCall(ServiceRequest call, NotificationDeliveries.Sync sync) {

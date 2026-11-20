@@ -13,6 +13,7 @@ import com.restofy.waiter.domain.enums.OrderView;
 import com.restofy.waiter.domain.enums.ServiceRequestStatus;
 import com.restofy.waiter.domain.exception.ResourceNotFoundException;
 import com.restofy.waiter.infrastructure.client.order.OrderClient;
+import com.restofy.waiter.infrastructure.client.order.OrderDto;
 import com.restofy.waiter.infrastructure.client.order.OrderPageDto;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
 import com.restofy.waiter.infrastructure.client.qr.QrSessionDto;
@@ -58,7 +59,7 @@ public class TableQueryService {
         Facts facts = factsFor(restaurantId, tables);
         List<TableSummaryResponse> matching = tables.stream()
                 .sorted(NaturalTableOrder.COMPARATOR)
-                .map(table -> facts.summary(table))
+                .map(facts::summary)
                 .filter(summary -> matches(filter, summary))
                 .toList();
         int from = (int) Math.min(page.offset(), matching.size());
@@ -82,7 +83,7 @@ public class TableQueryService {
         QrSessionDto session = table.currentSession();
         if (session == null) return PageResponse.of(List.of(), page.page(), page.size(), 0);
         OrderPageDto result = orders.search(restaurantId, tableId, List.of(session.id()), view, page.page(), page.size());
-        var hints = serveCommands.forOrders(restaurantId, result.items().stream().map(order -> order.id()).toList());
+        var hints = serveCommands.forOrders(restaurantId, result.items().stream().map(OrderDto::id).toList());
         return PageResponse.of(result.items().stream()
                 .map(order -> WaiterMapper.toOrder(order, table, hints.get(order.id()))).toList(),
                 page.page(), page.size(), result.totalElements());

@@ -50,6 +50,7 @@ public class QrClient {
     /** Largest restaurant the table snapshot supports; bigger restaurants fail instead of being cut short. */
     public static final int MAX_TABLES = 500;
     static final int PAGE_SIZE = 200;
+    private static final String RESTAURANT_ID = "restaurantId";
 
     private final RestClient client;
 
@@ -70,19 +71,12 @@ public class QrClient {
             int requested = page;
             QrTablePageDto result = DownstreamCalls.execute(DEPENDENCY, () -> client.get()
                     .uri(uri -> uri.path("/api/v1/internal/tables")
-                            .queryParam("restaurantId", restaurantId)
+                            .queryParam(RESTAURANT_ID, restaurantId)
                             .queryParam("page", requested)
                             .queryParam("size", PAGE_SIZE)
                             .build())
                     .retrieve().body(QrTablePageDto.class));
-            if (result.page() != requested || result.size() != PAGE_SIZE) {
-                throw badResponse("page metadata does not match the request");
-            }
-            if (result.totalElements() > MAX_TABLES) {
-                throw new SnapshotLimitExceededException(
-                        "The restaurant has more than " + MAX_TABLES + " tables; the table snapshot is not supported");
-            }
-            if (result.items().size() > PAGE_SIZE) throw badResponse("page is larger than requested");
+            requireConsistentPage(result, requested);
             for (QrTableDto table : result.items()) {
                 requireTenant(restaurantId, table);
                 if (!seen.add(table.id())) throw badResponse("duplicate table in the listing");
@@ -97,10 +91,21 @@ public class QrClient {
         }
     }
 
+    private static void requireConsistentPage(QrTablePageDto result, int requested) {
+        if (result.page() != requested || result.size() != PAGE_SIZE) {
+            throw badResponse("page metadata does not match the request");
+        }
+        if (result.totalElements() > MAX_TABLES) {
+            throw new SnapshotLimitExceededException(
+                    "The restaurant has more than " + MAX_TABLES + " tables; the table snapshot is not supported");
+        }
+        if (result.items().size() > PAGE_SIZE) throw badResponse("page is larger than requested");
+    }
+
     public Optional<QrTableDto> findTable(UUID restaurantId, UUID tableId) {
         Optional<QrTableDto> table = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}")
-                        .queryParam("restaurantId", restaurantId).build(tableId))
+                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId))
                 .retrieve().body(QrTableDto.class));
         table.ifPresent(found -> {
             requireTenant(restaurantId, found);
@@ -186,7 +191,7 @@ public class QrClient {
     public Optional<QrCloseResultDto> closeStatus(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID commandId) {
         Optional<QrCloseResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}/sessions/{tableSessionId}/close-commands/{commandId}")
-                        .queryParam("restaurantId", restaurantId).build(tableId, tableSessionId, commandId))
+                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId, tableSessionId, commandId))
                 .retrieve().body(QrCloseResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
@@ -228,7 +233,7 @@ public class QrClient {
     public Optional<QrCleanResultDto> cleanStatus(UUID restaurantId, UUID tableId, UUID commandId) {
         Optional<QrCleanResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}/clean-commands/{commandId}")
-                        .queryParam("restaurantId", restaurantId).build(tableId, commandId))
+                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId, commandId))
                 .retrieve().body(QrCleanResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");

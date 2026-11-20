@@ -52,27 +52,36 @@ public record QrCloseResultDto(UUID commandId, State state, UUID tableId, UUID t
         blockers = blockers == null ? List.of() : List.copyOf(blockers);
         switch (state) {
             case CLOSED -> {
-                required(closedAt, "closedAt");
-                required(guestSessions, "guestSessions");
-                if (guestSessions.ended() != guestSessions.total()) {
-                    throw new IllegalArgumentException("a closed session must have ended every guest session");
-                }
-                if (rejectionCode != null) throw new IllegalArgumentException("a closed session has no rejection");
-                if (!blockers.stream().allMatch(RECONCILIATION_REQUIRED::equals)) {
-                    throw new IllegalArgumentException("a closed session names no blocker but " + RECONCILIATION_REQUIRED);
-                }
-                if (table != null) {
-                    if (!tableId.equals(table.id())) throw new IllegalArgumentException("answer for another table");
-                    if (table.currentSession() != null && tableSessionId.equals(table.currentSession().id())) {
-                        throw new IllegalArgumentException("a closed session cannot still be the live session of the table");
-                    }
-                }
+                requireConsistentClosed(closedAt, guestSessions, rejectionCode, blockers);
+                if (table != null) requireTableAfterClose(tableId, tableSessionId, table);
             }
-            case CLOSING -> {
-                if (rejectionCode != null) throw new IllegalArgumentException("a close in progress has no rejection");
-            }
+            case CLOSING -> requireNoRejection(rejectionCode, "a close in progress has no rejection");
             case REJECTED -> requiredText(rejectionCode, "rejectionCode");
         }
+    }
+
+    private static void requireConsistentClosed(Instant closedAt, GuestSessions guestSessions, String rejectionCode,
+                                                 List<String> blockers) {
+        required(closedAt, "closedAt");
+        required(guestSessions, "guestSessions");
+        if (guestSessions.ended() != guestSessions.total()) {
+            throw new IllegalArgumentException("a closed session must have ended every guest session");
+        }
+        requireNoRejection(rejectionCode, "a closed session has no rejection");
+        if (!blockers.stream().allMatch(RECONCILIATION_REQUIRED::equals)) {
+            throw new IllegalArgumentException("a closed session names no blocker but " + RECONCILIATION_REQUIRED);
+        }
+    }
+
+    private static void requireTableAfterClose(UUID tableId, UUID tableSessionId, QrTableDto table) {
+        if (!tableId.equals(table.id())) throw new IllegalArgumentException("answer for another table");
+        if (table.currentSession() != null && tableSessionId.equals(table.currentSession().id())) {
+            throw new IllegalArgumentException("a closed session cannot still be the live session of the table");
+        }
+    }
+
+    private static void requireNoRejection(String rejectionCode, String message) {
+        if (rejectionCode != null) throw new IllegalArgumentException(message);
     }
 
     /** A {@code CLOSED} answer that carries QR's K13 reconciliation warning. */

@@ -100,11 +100,11 @@ public final class FakeQrCommands {
 
     /** QR finishes a close that had only reached CLOSING: the main session and all guest sessions end now. */
     public synchronized void finishClosing(UUID commandId) {
-        CloseRecord record = closes.get(commandId);
-        FakeBackends.Table table = backends.table(record.tableId());
+        CloseRecord entry = closes.get(commandId);
+        FakeBackends.Table table = backends.table(entry.tableId());
         backends.replace(table.with("CLEANING", null));
-        closes.put(commandId, new CloseRecord(record.digest(), "CLOSED", null, closedBlockers(), record.guests(), record.guests(),
-                record.tableId(), record.sessionId()));
+        closes.put(commandId, new CloseRecord(entry.digest(), "CLOSED", null, closedBlockers(), entry.guests(), entry.guests(),
+                entry.tableId(), entry.sessionId()));
     }
 
     private List<String> closedBlockers() {
@@ -165,11 +165,11 @@ public final class FakeQrCommands {
         return fault == Fault.LOST_ANSWER ? answer.delayed(1500) : answer;
     }
 
-    private Response replay(UUID commandId, CloseRecord record) {
-        return switch (record.state()) {
-            case "CLOSED" -> Response.json(200, FakeBackends.write(answer(commandId, record)));
-            case "CLOSING" -> Response.json(202, FakeBackends.write(answer(commandId, record)));
-            default -> refusal(409, record.rejectionCode(), record.blockers());
+    private Response replay(UUID commandId, CloseRecord entry) {
+        return switch (entry.state()) {
+            case "CLOSED" -> Response.json(200, FakeBackends.write(answer(commandId, entry)));
+            case "CLOSING" -> Response.json(202, FakeBackends.write(answer(commandId, entry)));
+            default -> refusal(409, entry.rejectionCode(), entry.blockers());
         };
     }
 
@@ -177,24 +177,24 @@ public final class FakeQrCommands {
         Matcher match = CLOSE_STATUS_PATH.matcher(request.path());
         match.matches();
         UUID commandId = UUID.fromString(match.group(3));
-        CloseRecord record = closes.get(commandId);
-        if (record == null) return Response.json(404, "{\"status\":404}");
-        return Response.json(200, FakeBackends.write(answer(commandId, record)));
+        CloseRecord entry = closes.get(commandId);
+        if (entry == null) return Response.json(404, "{\"status\":404}");
+        return Response.json(200, FakeBackends.write(answer(commandId, entry)));
     }
 
     /** QR's recorded outcome of a close, as the command answer and the status answer both show it. */
-    private Map<String, Object> answer(UUID commandId, CloseRecord record) {
+    private Map<String, Object> answer(UUID commandId, CloseRecord entry) {
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("commandId", commandId);
-        answer.put("state", record.state());
-        answer.put("tableId", record.tableId());
-        answer.put("tableSessionId", record.sessionId());
-        answer.put("closedAt", "CLOSED".equals(record.state()) ? CLOSED_AT : null);
-        answer.put("guestSessions", record.guests() == 0 && "REJECTED".equals(record.state()) ? null
-                : Map.of("total", record.guests(), "ended", record.endedGuests()));
-        answer.put("table", FakeBackends.tableJson(backends.table(record.tableId())));
-        answer.put("rejectionCode", record.rejectionCode());
-        answer.put("blockers", record.blockers());
+        answer.put("state", entry.state());
+        answer.put("tableId", entry.tableId());
+        answer.put("tableSessionId", entry.sessionId());
+        answer.put("closedAt", "CLOSED".equals(entry.state()) ? CLOSED_AT : null);
+        answer.put("guestSessions", entry.guests() == 0 && "REJECTED".equals(entry.state()) ? null
+                : Map.of("total", entry.guests(), "ended", entry.endedGuests()));
+        answer.put("table", FakeBackends.tableJson(backends.table(entry.tableId())));
+        answer.put("rejectionCode", entry.rejectionCode());
+        answer.put("blockers", entry.blockers());
         return answer;
     }
 
@@ -248,13 +248,13 @@ public final class FakeQrCommands {
         match.matches();
         UUID tableId = UUID.fromString(match.group(1));
         UUID commandId = UUID.fromString(match.group(2));
-        CleanRecord record = cleans.get(commandId);
-        if (record == null) return Response.json(404, "{\"status\":404}");
-        if (!record.applied()) {
+        CleanRecord entry = cleans.get(commandId);
+        if (entry == null) return Response.json(404, "{\"status\":404}");
+        if (!entry.applied()) {
             Map<String, Object> rejected = new LinkedHashMap<>();
             rejected.put("commandId", commandId);
             rejected.put("status", "REJECTED");
-            rejected.put("rejectionCode", record.rejectionCode());
+            rejected.put("rejectionCode", entry.rejectionCode());
             rejected.put("table", null);
             return Response.json(200, FakeBackends.write(rejected));
         }

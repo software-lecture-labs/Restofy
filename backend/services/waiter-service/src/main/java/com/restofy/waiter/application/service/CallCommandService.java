@@ -108,7 +108,7 @@ public class CallCommandService {
             enforceRateLimit(verified, now);
             ServiceRequest call = calls.saveAndFlush(ServiceRequest.open(UUID.randomUUID(), verified.restaurantId(),
                     verified.tableId(), verified.tableSessionId(), verified.guestSessionId(), type, message, now));
-            record(call, CallEventType.CREATED, null, ActorType.GUEST, verified.guestSessionId(), now);
+            recordEvent(call, CallEventType.CREATED, null, ActorType.GUEST, verified.guestSessionId(), now);
             ledger.recordIdempotency(verified.restaurantId(), scope, CREATE, key, digest, call.getId(), CREATED, now);
             return new Outcome(call, CREATED);
         });
@@ -165,7 +165,7 @@ public class CallCommandService {
             if (eventType == CallEventType.CLAIMED) call.claim(staff.staffUserId(), now);
             else call.resolve(staff.staffUserId(), now);
             calls.saveAndFlush(call);
-            record(call, eventType, from, ActorType.STAFF, staff.staffUserId(), now);
+            recordEvent(call, eventType, from, ActorType.STAFF, staff.staffUserId(), now);
             ledger.recordIdempotency(restaurantId, scope, operation, key, digest, call.getId(), OK, now);
             return new Outcome(call, OK);
         });
@@ -185,16 +185,16 @@ public class CallCommandService {
         return new Outcome(call, prior.responseStatus());
     }
 
-    private void record(ServiceRequest call, CallEventType type, ServiceRequestStatus from, ActorType actorType,
+    private void recordEvent(ServiceRequest call, CallEventType type, ServiceRequestStatus from, ActorType actorType,
                         UUID actorId, Instant now) {
-        events.record(call, type, from, actorType, actorId, now);
+        events.recordEvent(call, type, from, actorType, actorId, now);
     }
 
     private <T> T atomically(Supplier<T> work) {
         for (int attempt = 1; ; attempt++) {
             try {
                 return transaction.execute(status -> work.get());
-            } catch (ObjectOptimisticLockingFailureException lost) {
+            } catch (ObjectOptimisticLockingFailureException _) {
                 if (attempt >= ATTEMPTS) {
                     throw new CallConflictException("VERSION_CONFLICT",
                             "The call was changed by someone else; reload it before trying again");
