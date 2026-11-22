@@ -22,6 +22,7 @@ class GuestCookieSecurityTests {
     private static final String TOKEN = "A".repeat(43);
     private static final String CSRF = "B".repeat(43);
     private static final String ACTIVITY = "/api/v1/qr/guest-sessions/activity";
+    private static final String CSRF_PATH = "/api/v1/qr/guest-sessions/csrf";
 
     private static GuestCookies cookies(boolean development) {
         var settings = mock(Q5SecuritySettings.class);
@@ -42,6 +43,18 @@ class GuestCookieSecurityTests {
         request.setCookies(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF));
         request.addHeader("X-Guest-CSRF", CSRF);
         return request;
+    }
+
+    private static MockHttpServletRequest csrfRead() {
+        var request = new MockHttpServletRequest("GET", CSRF_PATH);
+        request.setRequestURI(CSRF_PATH);
+        request.addHeader("Origin", ORIGIN);
+        request.setCookies(new Cookie("restofy_guest", TOKEN));
+        return request;
+    }
+
+    private static String cookieValue(String setCookie) {
+        return setCookie.substring(setCookie.indexOf('=') + 1, setCookie.indexOf(';'));
     }
 
     private static MockHttpServletRequest open(String path) {
@@ -75,6 +88,36 @@ class GuestCookieSecurityTests {
         var response = new MockHttpServletResponse();
         cookies(true).issue(response, TOKEN);
         assertThat(response.getHeaders("Set-Cookie")).allSatisfy(cookie -> assertThat(cookie).doesNotContain("Secure"));
+    }
+
+    @Test
+    void issueReturnsTheCsrfValueItSetSoTheBodyCanCarryIt() {
+        var response = new MockHttpServletResponse();
+        String csrf = cookies(false).issue(response, TOKEN);
+        assertThat(csrf).matches(GuestCookies.PATTERN).isNotEqualTo(TOKEN);
+        assertThat(cookieValue(response.getHeaders("Set-Cookie").get(1))).isEqualTo(csrf);
+    }
+
+    @Test
+    void csrfForKeepsAValidCookieAndOtherwiseIssuesAFreshOne() {
+        var cookies = cookies(false);
+        var existing = new MockHttpServletRequest();
+        existing.setCookies(new Cookie("restofy_guest_csrf", CSRF));
+        var kept = new MockHttpServletResponse();
+        assertThat(cookies.csrfFor(existing, kept)).isEqualTo(CSRF);
+        assertThat(kept.getHeaders("Set-Cookie")).isEmpty();
+
+        var malformed = new MockHttpServletRequest();
+        malformed.setCookies(new Cookie("restofy_guest_csrf", "short"));
+        for (var request : List.of(malformed, new MockHttpServletRequest())) {
+            var fresh = new MockHttpServletResponse();
+            String csrf = cookies.csrfFor(request, fresh);
+            assertThat(csrf).matches(GuestCookies.PATTERN);
+            assertThat(fresh.getHeaders("Set-Cookie")).singleElement().satisfies(cookie -> {
+                assertThat(cookie).startsWith("restofy_guest_csrf=").contains("Path=/api/v1", "SameSite=Strict");
+                assertThat(cookieValue(cookie)).isEqualTo(csrf);
+            });
+        }
     }
 
     @Test
@@ -137,6 +180,26 @@ class GuestCookieSecurityTests {
         assertThat(run(none)).isEqualTo(401);
         assertThat(run(staff)).isEqualTo(401);
         assertThat(run(bearer)).isEqualTo(403);
+    }
+
+    @Test
+    void csrfReadNeedsOriginAndTheCredentialCookieButNoCsrfProof() throws Exception {
+        assertThat(run(csrfRead())).isEqualTo(200);
+        var missing = csrfRead(); missing.removeHeader("Origin");
+        var foreign = csrfRead(); foreign.removeHeader("Origin"); foreign.addHeader("Origin", "https://evil.example");
+        var bearer = csrfRead(); bearer.addHeader("Authorization", "Bearer " + TOKEN);
+        for (var request : List.of(missing, foreign, bearer)) { assertThat(run(request)).isEqualTo(403); }
+        var none = csrfRead(); none.setCookies();
+        var staff = csrfRead(); staff.setCookies(new Cookie("restofy_access", TOKEN));
+        assertThat(run(none)).isEqualTo(401);
+        assertThat(run(staff)).isEqualTo(401);
+    }
+
+    @Test
+    void onlyGetIsTheCsrfReadAndOtherMethodsOnItAreNotGuestRoutes() {
+        assertThat(GuestRequestFilter.guestPath("GET", CSRF_PATH)).isTrue();
+        assertThat(GuestRequestFilter.guestPath("POST", CSRF_PATH)).isFalse();
+        assertThat(GuestRequestFilter.guestPath("GET", ACTIVITY)).isFalse();
     }
 
     @Test

@@ -33,10 +33,24 @@ public class GuestCookies {
         this.secure = !settings.development();
     }
 
-    /** New guest: HttpOnly credential plus a script-readable CSRF proof. */
-    public void issue(HttpServletResponse response, String guestToken) {
+    /**
+     * New guest: HttpOnly credential plus the CSRF proof. The proof is returned for the response body because the
+     * frontend page cannot read a cookie set by the API host or scoped to Path=/api/v1.
+     */
+    public String issue(HttpServletResponse response, String guestToken) {
+        String csrf = newCsrf();
         add(response, build(TOKEN, guestToken, true, LIFETIME));
-        add(response, build(CSRF, newCsrf(), false, LIFETIME));
+        add(response, build(CSRF, csrf, false, LIFETIME));
+        return csrf;
+    }
+
+    /** The browser's current CSRF proof, or a fresh one set as a cookie when it is missing or malformed. */
+    public String csrfFor(HttpServletRequest request, HttpServletResponse response) {
+        String current = single(request, CSRF);
+        if (current != null && current.matches(PATTERN)) { return current; }
+        String csrf = newCsrf();
+        add(response, build(CSRF, csrf, false, LIFETIME));
+        return csrf;
     }
 
     /** Sliding refresh for a verified guest; keeps the browser's existing CSRF proof. */

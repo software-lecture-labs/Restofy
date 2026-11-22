@@ -20,6 +20,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public final class GuestRequestFilter extends OncePerRequestFilter {
     private static final String PREFIX = "/api/v1/qr";
     private static final String ACTIVITY = PREFIX + "/guest-sessions/activity";
+    private static final String CSRF_PATH = PREFIX + "/guest-sessions/csrf";
     private final Q5SecuritySettings settings;
 
     public GuestRequestFilter(Q5SecuritySettings settings) {
@@ -27,6 +28,7 @@ public final class GuestRequestFilter extends OncePerRequestFilter {
     }
 
     public static boolean guestPath(String method, String path) {
+        if ("GET".equals(method)) { return path.equals(CSRF_PATH); }
         return "POST".equals(method) && (path.equals(PREFIX + "/validate")
                 || path.equals(PREFIX + "/table-sessions/open") || path.equals(ACTIVITY));
     }
@@ -36,15 +38,20 @@ public final class GuestRequestFilter extends OncePerRequestFilter {
             throws IOException, ServletException {
         if (!guestPath(request.getMethod(), request.getRequestURI())) { chain.doFilter(request, response); return; }
         boolean activity = request.getRequestURI().equals(ACTIVITY);
+        boolean csrfRead = request.getRequestURI().equals(CSRF_PATH);
         try {
+            // Also required on the CSRF read: the CORS response alone would not stop a foreign page from asking.
             origin(request);
             // The guest credential is only a cookie; a Bearer header on these routes is never a supported transport.
             if (request.getHeader("Authorization") != null) { throw new IllegalArgumentException(); }
-            if (!activity) { json(request); }
+            if (!activity && !csrfRead) { json(request); }
         } catch (RuntimeException _) { problem(response, 403); return; }
-        if (activity) {
+        if (activity || csrfRead) {
             try { token(request); }
             catch (InvalidGuestSessionException _) { problem(response, 401); return; }
+        }
+        // The CSRF read has no proof yet by design; it changes nothing and only answers an allowed Origin.
+        if (activity) {
             try { csrf(request); } catch (RuntimeException _) { problem(response, 403); return; }
         }
         chain.doFilter(request, response);

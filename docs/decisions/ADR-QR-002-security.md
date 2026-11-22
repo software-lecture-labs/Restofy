@@ -19,7 +19,7 @@ Bu kayıt, Alper'in müşteri güvenliğini QR'da tutma ve QR hız sınırların
 | [Oturum açma controller'ı](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/controller/TableSessionController.java) / [yanıt DTO'su](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/dto/response/OpenedGuestSessionResponse.java) | Her kabul edilen tarama ayrı guest oluşturur; `guestToken` JSON yanıtında DÖNMEZ; yalnız HttpOnly `restofy_guest` cookie ile verilir (`GuestSessionOpenedResponse`; `OpenedGuestSessionResponse` yalnız iç servis sonucudur). Yanıt no-store kullanır. |
 | `GuestActivityRequest` | KALDIRILDI. Aktivite isteğinde gövde yoktur; guest yalnız `restofy_guest` cookie ile tanınır ve her kullanımda sunucuda doğrulanır. |
 | [GuestSessionValidationService](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/GuestSessionValidationService.java) | Tokenı gerçek guest/main bağlamıyla, güncel kullanılabilirlik ve Order kaynak sınırıyla doğrular. Doğrulama aktivite yazmaz. |
-| [HTTP güvenliği](../../backend/services/qr-service/src/main/java/com/restofy/qr/infrastructure/security/TableSecurityConfiguration.java) | Guest yolları (`/validate`, `/open`, aktivite) guest cookie, guest CSRF ve Origin filtresinden geçer; filtreyi geçen istek de K7 rate limit uygulanana kadar `denyAll` ile reddedilir. Rate limit yoktur. |
+| [HTTP güvenliği](../../backend/services/qr-service/src/main/java/com/restofy/qr/infrastructure/security/TableSecurityConfiguration.java) | Guest yolları (`/validate`, `/open`, aktivite, `GET /guest-sessions/csrf`) guest cookie, guest CSRF ve Origin filtresinden geçer; filtreyi geçen istek de K7 rate limit uygulanana kadar `denyAll` ile reddedilir. Rate limit yoktur. |
 
 Rastgele token ve sunucudaki hash saklama mevcut temeldir. Browser taşıması için onaylanan HttpOnly cookie QR'da uygulandı; Order/Waiter/Payment/frontend entegrasyonları henüz tamamlanmadı. QR credential'ı ile guest tokenı farklı amaçlara sahiptir; biri diğerinin yerine geçmez.
 
@@ -88,6 +88,8 @@ Kapanış sonrası cookie aynı isim/Path/Domain özellikleriyle temizlenecek ş
 
 Yeni guest oluşturan giriş/tarama akışı da başlangıç CSRF/Origin ve kötüye kullanım tasarımına dahil edilecek. QR'da seçilen model: `restofy_guest_csrf` cookie'si + `X-Guest-CSRF` başlığı (double-submit) ve tek izinli Origin; CSRF cookie'si henüz olmayan `/validate` ve `/open` için başlangıç kanıtı Origin + JSON'dur. Order/Waiter/Payment tarafında CSRF modeli ve guest oluşturma limitleri (K7) henüz uygulanmadı. CSRF kanıtının taşınması guest credential'ını JavaScript'e açmayı gerektirmemeli; personel ve guest bağlamları karışmamalı.
 
+**CSRF değeri frontend'e nasıl ulaşır:** Frontend `restofy_guest_csrf` cookie'sini `document.cookie` ile okuyamaz. Tarayıcı bu listede yalnız sayfanın kendi adresine gidecek cookie'leri gösterir. Bu cookie ise API host'unda ve `Path=/api/v1` ile tanımlı, frontend sayfaları da `/tr/...` gibi yollarda. Bu nedenle değer yanıt gövdesiyle verilir. Auth'taki `GET /api/v1/auth/csrf` modeli de aynıdır. `/open` yanıtı `csrfToken` alanını döndürür. Sayfa yenilendiğinde değer `GET /api/v1/qr/guest-sessions/csrf` ile yeniden alınır. Bu uç geçerli guest cookie'si ve izinli Origin ister, guest'i sunucuda doğrular ve süre yenilemez. Kullanılamaz guest'te genel 404 döner ve cookie'leri temizler. CSRF değeri credential değildir; guest tokenı yalnız HttpOnly cookie'de kalır. Diğer müşteri uçları gibi bu uç da K7'ye kadar `denyAll` ile kapalıdır. Tarayıcılar aynı origin'den gelen GET isteklerinde Origin başlığını göndermeyebilir. Frontend ile API ileride aynı origin'e taşınırsa bu ucun Origin kuralı yeniden değerlendirilmelidir.
+
 ### K7 — Hız sınırlarını QR yönetecek
 
 QR tarama/doğrulama, guest oluşturma, aktivite ve kendi personel işlemlerinin limitlerini Auth'a limit kontrol çağrısı yapmadan uygulayacak. Personel JWT doğrulaması bundan ayrı kalır. Kerem bu sorumluluk dağılımını Auth/QR için destekledi; hocanın bütün servisler için kesin onay verdiği veya diğer servis sahiplerinin ortak karar aldığı varsayılmaz. Gateway'in genel koruması servis işlem limitinin yerine geçmez.
@@ -145,7 +147,7 @@ Bu açık sorular çözülmeden taşıma/güvenlik sözleşmesi tamamlanmış ve
 | Order/Waiter/Payment browser akışı | Güvenli taşıma ve gerçek QR doğrulaması; başka guest'in yetkisini kullanamama |
 | Kapanış sonrası cookie ve token tekrarı | Cookie temizleme mümkünse uygulanır; eski token sunucuda reddedilir |
 
-QR testleriyle doğrulanan kısım (`GuestCookieSecurityTests`, `GuestRoutesClosedHttpTests` ve mevcut guest servis testleri): JSON'da ham token olmaması ve cookie özellikleri, çift/eksik/bozuk cookie reddi, eksik/yanlış CSRF ve yasak/çoklu Origin reddi, personel cookie'sinin guest yerine geçmemesi, `/validate` ve `/open` için Origin + JSON zorunluluğu ve geçerli kanıtlı isteğin bile `denyAll` ile kapalı kalması. Limit, çoklu instance, proxy, Order/Waiter/Payment browser akışı ve gerçek tarayıcı senaryoları DOĞRULANMADI.
+QR testleriyle doğrulanan kısım (`GuestCookieSecurityTests`, `GuestRoutesClosedHttpTests` ve mevcut guest servis testleri): JSON'da ham token olmaması ve cookie özellikleri, çift/eksik/bozuk cookie reddi, eksik/yanlış CSRF ve yasak/çoklu Origin reddi, personel cookie'sinin guest yerine geçmemesi, `/validate` ve `/open` için Origin + JSON zorunluluğu, CSRF değerinin `/open` gövdesinde ve `GET /guest-sessions/csrf` yanıtında cookie ile aynı dönmesi (bu uç geçersiz guest'te 404 ve cookie temizliği, yasak Origin'de 403 verir) ve geçerli kanıtlı isteğin bile `denyAll` ile kapalı kalması. Limit, çoklu instance, proxy, Order/Waiter/Payment browser akışı ve gerçek tarayıcı senaryoları DOĞRULANMADI.
 
 ## 6. Uygulama ve doğrulama durumu
 
@@ -156,7 +158,7 @@ QR testleriyle doğrulanan kısım (`GuestCookieSecurityTests`, `GuestRoutesClos
 | Guest CSRF/Origin | UYGULANDI (QR) — tüketici servislerde UYGULANMADI |
 | QR'a özel hız sınırları (K7) | UYGULANMADI — ayrı PR (`chore/rate-limit`); o zamana kadar müşteri uçları `denyAll` |
 | Gerçek browser ve servisler arası guest taşıma | DOĞRULANMADI — taraflar arası sözleşme ve E2E bekliyor |
-| QR testleri | ÇALIŞTIRILDI — qr-service 629 test, 0 hata/başarısızlık (19 Kasım 2026) |
+| QR testleri | ÇALIŞTIRILDI — qr-service 635 test, 0 hata/başarısızlık (23 Kasım 2026) |
 | Sonar ve pre-push | Sonar yerelde çalıştırıldı: QR guest değişikliklerinde açık bulgu/hotspot yok; backend kalite kapısı diğer servislerdeki bulgular nedeniyle başarısız. Pre-push son kodda yeniden ÇALIŞTIRILMADI |
 
 Alper'in 5 Kasım planı: önce personel RBAC/JWT/cookie güvenlik temeli, ayrı PR'da QR rate limit. Guest HttpOnly cookie QR tarafında uygulandı; tüketici tarafı ilgili servislerin entegrasyonlarında yapılacak. K7 limitleri ve gerçek doğrulamalar tamamlanıp test edilmeden müşteri endpoint'leri açılmayacak. Bu çalışmada ENV/migration değişikliği yapılmadı. Entegrasyon rehberi bu aşamada güncellenmedi. Commit/push, PR/yorum, review ve merge geliştiriciye aittir.

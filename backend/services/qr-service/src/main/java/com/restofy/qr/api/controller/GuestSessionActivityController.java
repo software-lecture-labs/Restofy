@@ -1,7 +1,9 @@
 package com.restofy.qr.api.controller;
 
 import com.restofy.qr.api.dto.response.GuestActivityResponse;
+import com.restofy.qr.api.dto.response.GuestCsrfResponse;
 import com.restofy.qr.application.service.GuestSessionActivityService;
+import com.restofy.qr.application.service.GuestSessionValidationService;
 import com.restofy.qr.domain.exception.InvalidGuestSessionException;
 import com.restofy.qr.infrastructure.security.guest.GuestCookies;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,10 +17,13 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/qr/guest-sessions")
 public class GuestSessionActivityController {
     private final GuestSessionActivityService service;
+    private final GuestSessionValidationService validation;
     private final GuestCookies cookies;
 
-    public GuestSessionActivityController(GuestSessionActivityService service, GuestCookies cookies) {
+    public GuestSessionActivityController(GuestSessionActivityService service, GuestSessionValidationService validation,
+                                          GuestCookies cookies) {
         this.service = service;
+        this.validation = validation;
         this.cookies = cookies;
     }
 
@@ -40,6 +45,23 @@ public class GuestSessionActivityController {
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
         } catch (InvalidGuestSessionException invalid) {
             // A leftover cookie must not outlive the session it pointed to (same name/Path as when it was set).
+            cookies.clear(response);
+            throw invalid;
+        }
+    }
+
+    @GetMapping("/csrf")
+    @Operation(summary = "Return the guest CSRF value again, for example after a page reload",
+            description = "HTTP stays closed until the rate-limit change. Requires the HttpOnly guest cookie and an " +
+                    "allowed Origin; the guest is verified against the server. The frontend cannot read the CSRF cookie " +
+                    "(API host, Path=/api/v1), so the value is returned here and sent back as X-Guest-CSRF. Does not " +
+                    "renew any idle window. An unusable guest gets the generic 404 and its cookies are cleared.")
+    public ResponseEntity<GuestCsrfResponse> csrf(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            validation.validate(cookies.guestToken(request));
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(new GuestCsrfResponse(cookies.csrfFor(request, response)));
+        } catch (InvalidGuestSessionException invalid) {
             cookies.clear(response);
             throw invalid;
         }

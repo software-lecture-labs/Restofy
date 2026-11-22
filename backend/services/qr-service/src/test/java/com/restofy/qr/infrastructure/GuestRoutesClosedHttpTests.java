@@ -1,6 +1,7 @@
 package com.restofy.qr.infrastructure;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -38,6 +39,16 @@ class GuestRoutesClosedHttpTests extends com.restofy.qr.support.Q5TestSecuritySu
             http.perform(post(path).header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"x\"}"))
                     .andExpect(status().isUnauthorized()).andExpect(header().doesNotExist("Set-Cookie"));
         }
+        http.perform(get("/api/v1/qr/guest-sessions/csrf").header("Origin", ORIGIN)
+                .cookie(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF)))
+                .andExpect(status().isUnauthorized()).andExpect(header().doesNotExist("Set-Cookie"));
+    }
+
+    @Test
+    void csrfReadFromAForeignOriginIsRejected() throws Exception {
+        http.perform(get("/api/v1/qr/guest-sessions/csrf").header("Origin", "https://evil.example")
+                .cookie(new Cookie("restofy_guest", TOKEN)))
+                .andExpect(status().isForbidden()).andExpect(header().doesNotExist("Set-Cookie"));
     }
 
     @Test
