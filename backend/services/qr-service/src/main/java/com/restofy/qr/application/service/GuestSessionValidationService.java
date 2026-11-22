@@ -45,11 +45,20 @@ public class GuestSessionValidationService {
         return writes.execute(status -> validateLocked(token, prepared));
     }
 
-    /** The verified caller's restaurant is checked before consulting any remote order protection. */
+    /**
+     * The verified caller's restaurant is checked first. Order is asked only when local timers cannot prove ACTIVE,
+     * and never while the QR lock is held.
+     */
     @Transactional(propagation = Propagation.NEVER)
     public ValidatedGuestContext validateForOrder(String token, UUID restaurantId) {
         var identity = contexts.locate(token);
         if (!identity.restaurantId().equals(restaurantId)) { throw new InvalidGuestSessionException(); }
+        var unknown = OrderSessionState.unknown(restaurantId, identity.sessionId());
+        var local = writes.execute(status -> {
+            var locked = contexts.lockIdentity(token, restaurantId, identity.sessionId(), identity.guestId());
+            return OrderGuestSessionState.needsOrder(locked) ? null : OrderGuestSessionState.requireActive(locked, unknown, protection);
+        });
+        if (local != null) { return local; }
         var evidence = protection.inspect(restaurantId, identity.sessionId());
         return writes.execute(status -> {
             var locked = contexts.lockIdentity(token, restaurantId, identity.sessionId(), identity.guestId());

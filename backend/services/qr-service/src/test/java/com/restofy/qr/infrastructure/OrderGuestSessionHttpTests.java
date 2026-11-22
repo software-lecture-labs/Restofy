@@ -36,6 +36,10 @@ import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ActiveProfiles({"test", "qr-order-inbound"})
@@ -100,6 +104,28 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         assertThat(call(POST, VALIDATE, tokenBody(guest.token())).statusCode()).isEqualTo(404);
         when(orders.inspect(TENANT, guest.sessionId())).thenReturn(evidence(guest.sessionId(), Set.of(guest.guestId())));
         assertState(guest, "ACTIVE");
+    }
+
+    @Test
+    void asksOrderOnlyWhenLocalTimersCannotProveActive() throws Exception {
+        when(orders.inspect(any(), any())).thenThrow(new IllegalStateException("Order must not be asked"));
+        var active = fixture(TENANT, 120);
+        assertThat(call(POST, VALIDATE, tokenBody(active.token())).statusCode()).isEqualTo(200);
+        assertState(active, "ACTIVE");
+        Instant occurredAt = active.openedAt().plusSeconds(30);
+        assertThat(call(POST, ACTIVITY, json.writeValueAsString(activity(active, occurredAt))).statusCode()).isEqualTo(204);
+        assertThat(lastGuestActivity(active.guestId())).isEqualTo(occurredAt);
+        var closed = fixture(TENANT, 120);
+        jdbc.update("UPDATE table_sessions SET status='CLOSED', closed_at=now() WHERE id=?", closed.sessionId());
+        assertState(closed, "CLOSED");
+        // Checked per session: the idle sweep job may ask Order about other, really idle sessions meanwhile.
+        verify(orders, never()).inspect(TENANT, active.sessionId());
+        verify(orders, never()).inspect(TENANT, closed.sessionId());
+
+        availableOrderScope();
+        var idle = fixture(TENANT, 1200);
+        assertState(idle, "EXPIRED");
+        verify(orders, atLeastOnce()).inspect(TENANT, idle.sessionId());
     }
 
     @Test
@@ -169,7 +195,7 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
     }
 
     private void availableOrderScope() {
-        when(orders.inspect(any(), any())).thenAnswer(call -> evidence(call.getArgument(1), Set.of()));
+        doAnswer(call -> evidence(call.getArgument(1), Set.of())).when(orders).inspect(any(), any());
     }
 
     private static OrderSessionState evidence(UUID session, Set<UUID> protectedGuests) {

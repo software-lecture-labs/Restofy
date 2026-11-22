@@ -35,25 +35,43 @@ public class OrderGuestSessionService {
         this.transaction = new TransactionTemplate(manager);
     }
 
+    // Order is asked only when local timers cannot decide, and never while a QR lock is held.
     @Transactional(propagation = Propagation.NEVER)
     public StateResponse state(UUID restaurantId, UUID sessionId, UUID guestId) {
+        var local = transaction.execute(status -> state(restaurantId, sessionId, guestId, null));
+        if (local != null) { return local; }
         var evidence = protection.inspect(restaurantId, sessionId);
-        return transaction.execute(status -> {
-            var locked = lockGuest(restaurantId, sessionId, guestId);
-            return new StateResponse(OrderGuestSessionState.assess(locked, evidence, protection).name(),
-                    locked.parent().checkedAt());
-        });
+        return transaction.execute(status -> state(restaurantId, sessionId, guestId, evidence));
     }
 
     @Transactional(propagation = Propagation.NEVER)
     public void recordCartActivity(UUID restaurantId, OrderCartActivity event) {
         if (!restaurantId.equals(event.restaurantId())) { throw new InvalidGuestSessionException(); }
+        if (Boolean.TRUE.equals(transaction.execute(status -> recordCartActivity(restaurantId, event, null)))) { return; }
         var evidence = protection.inspect(restaurantId, event.tableSessionId());
-        transaction.executeWithoutResult(status -> {
-            if (receipts.firstDelivery(event)) {
-                applyActivity(lockGuest(restaurantId, event.tableSessionId(), event.guestSessionId()), event, evidence);
-            }
-        });
+        transaction.execute(status -> recordCartActivity(restaurantId, event, evidence));
+    }
+
+    /** Null evidence means Order was not asked: returns null, writing nothing, when local timers cannot decide. */
+    private StateResponse state(UUID restaurantId, UUID sessionId, UUID guestId, OrderSessionState evidence) {
+        var locked = lockGuest(restaurantId, sessionId, guestId);
+        if (evidence == null && OrderGuestSessionState.needsOrder(locked)) { return null; }
+        return new StateResponse(OrderGuestSessionState.assess(locked, orUnknown(evidence, restaurantId, sessionId), protection)
+                .name(), locked.parent().checkedAt());
+    }
+
+    /** Same contract as {@link #state}: false, before the receipt is written, when Order must be asked first. */
+    private boolean recordCartActivity(UUID restaurantId, OrderCartActivity event, OrderSessionState evidence) {
+        var locked = lockGuest(restaurantId, event.tableSessionId(), event.guestSessionId());
+        if (evidence == null && OrderGuestSessionState.needsOrder(locked)) { return false; }
+        if (receipts.firstDelivery(event)) {
+            applyActivity(locked, event, orUnknown(evidence, restaurantId, event.tableSessionId()));
+        }
+        return true;
+    }
+
+    private static OrderSessionState orUnknown(OrderSessionState evidence, UUID restaurantId, UUID sessionId) {
+        return evidence != null ? evidence : OrderSessionState.unknown(restaurantId, sessionId);
     }
 
     private void applyActivity(GuestSessionContextReader.LockedGuest locked, OrderCartActivity event, OrderSessionState evidence) {
