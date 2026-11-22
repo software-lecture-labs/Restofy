@@ -72,6 +72,8 @@ Bearer header'ı taşıma biçimidir; tokenın localStorage/sessionStorage'da tu
 
 **Seçilen ayrıntılar (19 Kasım 2026):** Ad, SameSite, Path, Domain, ömür ve yenileme K3'teki somut değerlerdir. Secure yalnız açık dev/local/test profilinde kapanır; production güvenliği development kolaylığı için gevşetilmedi. Yeni ENV eklenmedi; ileride gerekirse uygulama öncesi açık onay alınacak.
 
+**Path neden `/api/v1`:** Guest cookie'sini QR'ın yanında Order, Waiter ve Payment da kullanacak. Gateway'de bu servisler `/api/v1/qr`, `/api/v1/orders`, `/api/v1/waiters` ve `/api/v1/payments` altında, cookie Path'i ise tek bir ön ek alabiliyor. Bunların hepsini kapsayan en dar yol `/api/v1`. Bu yüzden tarayıcı cookie'yi `/api/v1` altındaki diğer servislere de gönderir. Bu servisler cookie'yi kullanmaz; cookie tek başına yetki vermez, çünkü QR onu her kullanımda doğrular (K5).
+
 ### K5 — Yetki her kullanımda sunucuda doğrulanacak
 
 **Kabul edilmiş QR hedefi; taşıma yönteminden bağımsızdır.** Token veya cookie bulunması yeterli değildir. QR tokenın gerçek kaydından restoran/masa/main/guest bağını, aktiflikleri, süreleri, kapanış ve sipariş korumasını doğrulayacak. İstemcinin gönderdiği kimlikler yetki kaynağı olmayacak. Başka tenant/guest nesnesine erişim reddedilecek.
