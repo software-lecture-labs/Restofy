@@ -1,7 +1,6 @@
 package com.restofy.qr.infrastructure.security.revocation;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,10 +21,10 @@ public class RevocationInternalController {
     @PostMapping("/internal/q5/revocations")
     public Ack revoke(@RequestBody StaffRevocationStore.Command command, HttpServletRequest request) {
         if (request.getHeader("Cookie") != null || request.getHeader("Origin") != null
-                || java.util.Collections.list(request.getHeaders(HttpHeaders.AUTHORIZATION)).size() != 1) {
+                || java.util.Collections.list(request.getHeaders("Authorization")).size() != 1) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
-        credentials.verify(request.getHeader(HttpHeaders.AUTHORIZATION), command);
+        credentials.verify(request.getHeader("Authorization"), command);
         var persisted = store.apply(command); // Returns through the Spring transaction proxy, after commit.
         return new Ack(credentials.receipt(command, persisted));
     }
@@ -37,7 +36,7 @@ public class RevocationInternalController {
     @PostMapping("/internal/q5/challenge")
     public StaffRevocationStore.Challenge challenge(@RequestBody ChallengeRequest request, HttpServletRequest http) {
         requireServiceRequest(http);
-        credentials.verifyBootstrap(http.getHeader(HttpHeaders.AUTHORIZATION), request.operationId(), request.restaurantId(), request.generation(),
+        credentials.verifyBootstrap(http.getHeader("Authorization"), request.operationId(), request.restaurantId(), request.generation(),
                 "staff:bootstrap:challenge", "challenge", null);
         return store.challenge();
     }
@@ -45,7 +44,7 @@ public class RevocationInternalController {
     @PostMapping("/internal/q5/bootstrap")
     public Ack bootstrap(@RequestBody StaffRevocationStore.Baseline baseline, HttpServletRequest http) {
         requireServiceRequest(http);
-        credentials.verifyBootstrap(http.getHeader(HttpHeaders.AUTHORIZATION), baseline.operationId(), baseline.restaurantId(), baseline.generation(),
+        credentials.verifyBootstrap(http.getHeader("Authorization"), baseline.operationId(), baseline.restaurantId(), baseline.generation(),
                 "staff:bootstrap:write", StaffRevocationStore.baselineDigest(baseline), baseline.nonce());
         var receipt = store.installBaseline(baseline);
         return new Ack(credentials.baselineReceipt(baseline, receipt));
@@ -53,7 +52,7 @@ public class RevocationInternalController {
 
     private static void requireServiceRequest(HttpServletRequest request) {
         if (request.getHeader("Cookie") != null || request.getHeader("Origin") != null
-                || java.util.Collections.list(request.getHeaders(HttpHeaders.AUTHORIZATION)).size() != 1) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+                || java.util.Collections.list(request.getHeaders("Authorization")).size() != 1) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
     }
 
     public record ChallengeRequest(java.util.UUID operationId, java.util.UUID restaurantId, java.util.UUID generation) { }

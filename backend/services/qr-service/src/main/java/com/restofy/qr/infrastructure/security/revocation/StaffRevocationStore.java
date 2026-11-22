@@ -124,7 +124,7 @@ public class StaffRevocationStore {
                 || (state.get("generation") != null && !baseline.generation().equals(state.get("generation")))) throw unavailable();
         String digest = baselineDigest(baseline);
         var prior = jdbc.queryForList("SELECT manifest_digest FROM staff_revocation_receipts WHERE operation_id=?", String.class, baseline.operationId());
-        if (!prior.isEmpty() && !digest.equals(prior.getFirst())) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        if (!prior.isEmpty() && !prior.getFirst().equals(digest)) throw new ResponseStatusException(HttpStatus.CONFLICT);
         for (Entry entry : baseline.entries()) {
             var owners = jdbc.queryForList("SELECT user_id FROM staff_revoked_sessions WHERE restaurant_id=? AND session_id=?", UUID.class, baseline.restaurantId(), entry.sessionId());
             if (!owners.isEmpty() && !entry.userId().equals(owners.getFirst())) throw new ResponseStatusException(HttpStatus.CONFLICT);
