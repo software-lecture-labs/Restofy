@@ -50,6 +50,14 @@ public class SecurityConfiguration {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/carts/**").hasAuthority(GuestAuthentication.ROLE)
                         .requestMatchers(HttpMethod.POST, ORDERS).hasAuthority(GuestAuthentication.ROLE)
+                        // Active order counts of many table sessions for the floor's table list: authenticated staff
+                        // only; ADMIN and WAITER (not KITCHEN) are checked, with the tenant from the verified identity,
+                        // in OrderQueryService. Never open to a guest or a service.
+                        .requestMatchers(HttpMethod.POST, ORDERS + "/session-summaries")
+                        .hasAuthority(StaffAuthentication.ROLE)
+                        // Order search by many table sessions and statuses: the same rule as the counts above.
+                        .requestMatchers(HttpMethod.POST, ORDERS + "/search")
+                        .hasAuthority(StaffAuthentication.ROLE)
                         // Reading one order: its own guest or staff; who exactly may see which order is decided
                         // (with tenant and ownership checks) in OrderQueryService, not only here.
                         .requestMatchers(HttpMethod.GET, ORDERS, "/api/v1/orders/*", "/api/v1/orders/*/history")

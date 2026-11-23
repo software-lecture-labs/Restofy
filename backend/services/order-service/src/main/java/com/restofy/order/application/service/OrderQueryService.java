@@ -3,8 +3,11 @@ package com.restofy.order.application.service;
 import com.restofy.order.api.dto.response.OrderDetailResponse;
 import com.restofy.order.api.dto.response.OrderHistoryResponse;
 import com.restofy.order.api.dto.response.OrderListResponse;
+import com.restofy.order.api.dto.response.SessionSummariesResponse;
 import com.restofy.order.application.mapper.OrderMapper;
+import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.domain.entity.Order;
+import com.restofy.order.domain.enums.OrderView;
 import com.restofy.order.domain.enums.StaffRole;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
@@ -18,9 +21,10 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +50,8 @@ public class OrderQueryService {
 
     static final Set<StaffRole> STAFF_READERS = Set.of(StaffRole.ADMIN, StaffRole.WAITER, StaffRole.KITCHEN);
     static final Set<StaffRole> HISTORY_READERS = Set.of(StaffRole.ADMIN, StaffRole.WAITER);
+    /** The floor's table list and order screen: operational data for waiters and managers, not for the kitchen. */
+    static final Set<StaffRole> FLOOR_READERS = Set.of(StaffRole.ADMIN, StaffRole.WAITER);
 
     private final OrderRepository orders;
     private final OrderStatusHistoryStore history;
@@ -60,6 +66,40 @@ public class OrderQueryService {
     public OrderDetailResponse detail(RequestActor actor, UUID orderId) {
         Order order = load(actor, orderId);
         return isKitchen(actor) ? mapper.toKitchenDetail(order) : mapper.toDetail(order);
+    }
+
+    /**
+     * Counts the ACTIVE orders (the same fulfillment statuses as the {@code active} list view) of many table sessions of
+     * the caller's own restaurant in one query, so a table list does not need one request per table. Only sessions that
+     * have at least one active order are returned, in the order they were asked; a repeated id is counted once. A session
+     * of another restaurant or an unknown one has no orders for this restaurant and is therefore simply absent: the
+     * answer is the same, so it reveals nothing about other tenants.
+     */
+    public SessionSummariesResponse sessionSummaries(StaffActor staff, Collection<UUID> tableSessionIds) {
+        if (!FLOOR_READERS.contains(staff.role())) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not view order counts");
+        }
+        Set<UUID> asked = new LinkedHashSet<>(tableSessionIds);
+        Map<UUID, Long> counts = new HashMap<>();
+        orders.countBySession(staff.restaurantId(), asked, OrderView.ACTIVE.statuses())
+                .forEach(row -> counts.put(row.getTableSessionId(), row.getOrderCount()));
+        List<SessionSummariesResponse.Item> items = asked.stream()
+                .filter(counts::containsKey)
+                .map(id -> new SessionSummariesResponse.Item(id, counts.get(id)))
+                .toList();
+        return new SessionSummariesResponse(items);
+    }
+
+    /**
+     * The staff order search: the same filters, ordering and paging as {@link #list}, applied to the whole data set of the
+     * caller's own restaurant before it is paged, but for MANY table sessions at once and for an explicit set of
+     * fulfillment statuses. ADMIN and WAITER only: the kitchen has its own reduced view in the plain list.
+     */
+    public OrderListResponse search(StaffActor staff, OrderListQuery query) {
+        if (!FLOOR_READERS.contains(staff.role())) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "This role may not search orders");
+        }
+        return list(new RequestActor.Staff(staff), query);
     }
 
     public OrderHistoryResponse history(RequestActor actor, UUID orderId) {
@@ -112,7 +152,7 @@ public class OrderQueryService {
         boolean kitchen = isKitchen(actor);
 
         Specification<Order> filter = listFilter(restaurantId, guestSessionId, tableSessionId, query);
-        // placedAt first, the id as tie-breaker, so a page boundary can never skip or repeat an order
+        // Break timestamp ties by order id to keep the ordering deterministic across pages.
         Sort sort = Sort.by(query.direction(), "placedAt").and(Sort.by(query.direction(), "id"));
         Page<Order> page = orders.findAll(filter, PageRequest.of(query.page(), query.limit(), sort));
 
@@ -125,7 +165,7 @@ public class OrderQueryService {
                 .map(order -> toListSummary(order, units.getOrDefault(order.getId(), 0L), kitchen))
                 .toList();
         return new OrderListResponse(items, page.getNumber(), page.getSize(), page.getTotalElements(),
-                page.getTotalPages(), query.view().name().toLowerCase(Locale.ROOT));
+                page.getTotalPages(), query.viewLabel());
     }
 
     private static OrderListResponse.Summary toListSummary(Order order, long units, boolean kitchen) {
@@ -151,10 +191,13 @@ public class OrderQueryService {
             if (tableSessionId != null) {
                 all.add(builder.equal(root.get("tableSessionId"), tableSessionId));
             }
+            if (query.tableSessionIds() != null) {
+                all.add(root.get("tableSessionId").in(query.tableSessionIds()));
+            }
             if (query.tableId() != null) {
                 all.add(builder.equal(root.get("tableId"), query.tableId()));
             }
-            all.add(root.get("fulfillmentStatus").in(query.view().statuses()));
+            all.add(root.get("fulfillmentStatus").in(query.effectiveStatuses()));
             if (query.paymentStatus() != null) {
                 all.add(builder.equal(root.get("paymentStatus"), query.paymentStatus()));
             }

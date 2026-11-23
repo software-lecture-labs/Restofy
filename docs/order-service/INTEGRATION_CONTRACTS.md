@@ -48,6 +48,8 @@ Gateway yalnızca `/api/v1/orders` ve `/api/v1/carts` yollarını yönlendirir. 
 | `DELETE /api/v1/carts/current/items/{id}` ve `/items` | misafir | Satır sil / sepeti temizle |
 | `POST /api/v1/orders` | misafir | `Idempotency-Key` **zorunlu**; sepeti siparişe çevirir |
 | `GET /api/v1/orders`, `/{id}`, `/{id}/history` | misafir (kendi), personel | Filtre: `tableSessionId`, `tableId`, `view`, `paymentStatus`; KITCHEN indirgenmiş görünüm görür (tutar ve ödeme yok) |
+| `POST /api/v1/orders/session-summaries` | `WAITER`, `ADMIN` | Gövde: 1–500 elemanlı `tableSessionIds`. Masa listesi için oturum başına **aktif sipariş sayısı**, tek istekte. Yalnız ilgili restoran, kimlikten alınır; gövdede `restaurantId` bilinmeyen alan olarak `400`. KITCHEN `403` |
+| `POST /api/v1/orders/search` | `WAITER`, `ADMIN` | Birden çok masa oturumu ve hazırlık durumuyla filtreli, sıralı sipariş sayfası |
 | `PATCH /api/v1/orders/{id}/fulfillment-status` | personel | Bir adım ileri |
 | `POST /api/v1/orders/{id}/cancellations` | siparişin sahibi misafir, `WAITER`, `ADMIN` | `Idempotency-Key` zorunlu |
 | `GET /api/v1/orders/{id}/cancellations` | sahibi misafir, personel | |
@@ -55,6 +57,12 @@ Gateway yalnızca `/api/v1/orders` ve `/api/v1/carts` yollarını yönlendirir. 
 | `GET /api/v1/admin/order-cancellations` | `ADMIN` | Restoran kimlikten alınır, istek parametresinden değil |
 
 Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızdırılmaz); rol yetmiyorsa 403, kimlik yoksa 401.
+
+**Waiter sipariş araması (WAITER-01).** `POST /api/v1/orders/search` salt okunur ve mevcut `Authorization: Staff <opak kimlik>` sözleşmesini kullanır. Bu dalda personel kimliği `dev` ve `test` profillerindeki adaptörle çözümlenir. İsteğe bağlı alanlar `tableSessionIds` (verilirse 1–500 UUID), `tableId`, `view`, `fulfillmentStatuses`, `paymentStatus`, `page`, `limit` ve `sort`. Masa ve oturum filtreleri birlikte verilirse ikisi de uygulanır. Yabancı veya bilinmeyen oturumlar eşleşme üretmez. Gövdede `restaurantId` ve bozuk UUID `400`, sınır dışı değerler ve `view` ile `fulfillmentStatuses` birlikteliği `422` döner.
+
+Hazır sipariş kuyruğu için `{"fulfillmentStatuses":["READY"],"limit":100}`, geçmiş ekranı için `{"fulfillmentStatuses":["READY","SERVED","COMPLETED"]}` kullanılabilir. İki filtre de verilmediğinde `active` görünümü geçerlidir. Filtreleme sayfalamadan önce uygulanır. Yanıt `GET /api/v1/orders` ile aynı alanları taşır: `items`, `page` (0 tabanlı), `limit` (1–100, varsayılan 20), `totalItems` (filtrelenmiş toplam), `totalPages` ve `view` (açık durum listesi seçildiğinde `null`). Sıralama `placedAt,desc` (varsayılan) veya `placedAt,asc` ile yapılır, eşit zamanlarda sipariş kimliği aynı yönde sıralanır.
+
+Komut öncesi güncel sipariş ve `version` için `GET /api/v1/orders/{id}`, iptal kayıtları için `GET /api/v1/orders/{id}/cancellations` kullanılır. Her ikisi de aynı kimlikten restoran kapsamını alır. Başka restoranın siparişi `404` döner.
 
 ### 3.2 Servisten servise (UYGULANDI, DOĞRULANMADI)
 
@@ -80,6 +88,8 @@ Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem 
 **Ödeme durumu** (hazırlıktan bağımsız ikinci eksen): `NOT_REQUESTED → PENDING → PAID | FAILED | CANCELLED`, `FAILED → PENDING`; `PAID` ve `CANCELLED` sonludur. Yalnız Payment'ın doğrulanmış olayı değiştirir; istemcideki başarı sayfası kanıt sayılmaz. `PENDING`/`PAID` olayı siparişin güncel borcunu ve para birimini taşımalıdır (`409 PAYMENT_MISMATCH`).
 
 **Tahsilat güvenliği.** Her tahsilat `payment_captures` tablosunda `captureId` ile veritabanı kısıtlarıyla tekil tutulur: silinmez, yeniden yazılmaz, bir sipariş en çok bir tahsilatla kapanır. İkinci farklı tahsilat, başka siparişte kullanılmış `captureId`, tutarı uyuşmayan veya iptal edilmiş siparişe gelen `PAID` uzlaştırma vakası olur. `PENDING`'inden önce gelen `PAID` doğrulanmadan uygulanmaz, kalıcı bekler.
+
+**Oturum başına aktif sipariş sayısı.** `POST /api/v1/orders/session-summaries` bir masa listesinin her masa için ayrı istek atmamasını sağlar (WAITER-01). "Aktif", liste uçlarındaki `active` görünümüyle aynı kümedir: `RECEIVED`, `PREPARING`, `READY`, `SERVED`; `COMPLETED` ve `CANCELLED` sayılmaz, ödeme durumu etkilemez. Yanıt `{items:[{tableSessionId, activeOrderCount}]}`; aktif siparişi olmayan oturum yanıtta **yoktur**, yokluk sıfır demektir. Yanıt, oturumların sorulduğu sırayı korur; tekrar eden kimlik bir kez sayılır. Başka restoranın veya bilinmeyen bir oturum, boş bir oturumla aynı görünür (yanıtta yok), yani başka kiracı hakkında bilgi vermez. Sayma yalnız okur; bir POST olmasının sebebi 500 kimliğin URL'ye sığmamasıdır.
 
 **Sipariş oluşturma.** Fiyat, KDV ve toplam sunucuda hesaplanır, istemcinin gönderdiği tutara güvenilmez. Müşterinin onayladığı toplam ve fiyat parmak izi uyuşmazsa sipariş verilmez (`409 PRICE_CHANGED`); değişmiş fiyat ancak parmak izi + `acknowledgePriceChanges` ile kabul edilir. Sipariş anında QR oturumu yeniden sorulur. Aynı `Idempotency-Key` aynı siparişi döner, farklı gövdeyle `409`. Bir sepet en çok bir kez siparişe çevrilir.
 
