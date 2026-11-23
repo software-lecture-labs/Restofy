@@ -119,6 +119,19 @@
         "tooManyAttempts": "Too many attempts. Wait a little and try again.",
         "unavailable": "This is not possible right now. Try again shortly."
       }
+    },
+    "home": {
+      "heading": "You are signed in",
+      "loading": "Loading your session…",
+      "role": "Your role",
+      "idleExpiresAt": "Session ends if idle at",
+      "absoluteExpiresAt": "Session ends at the latest at",
+      "next": "Role-based panels (admin, waiter, kitchen) will be added in the next steps. For now you can see here that your session works.",
+      "signOut": "Sign out",
+      "signingOut": "Signing out…",
+      "problems": {
+        "unavailable": "Your session cannot be loaded right now. Try again shortly."
+      }
     }
   }
 }

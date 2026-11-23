@@ -119,6 +119,19 @@
         "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
         "unavailable": "Şu an işlem yapılamıyor. Biraz sonra tekrar dene."
       }
+    },
+    "home": {
+      "heading": "Giriş yapıldı",
+      "loading": "Oturum bilgisi alınıyor…",
+      "role": "Rolün",
+      "idleExpiresAt": "Hareketsizlikte oturum bitişi",
+      "absoluteExpiresAt": "En geç oturum bitişi",
+      "next": "Rol bazlı paneller (yönetici, garson, mutfak) sonraki adımlarda eklenecek. Şimdilik oturumun çalıştığını buradan görebilirsin.",
+      "signOut": "Çıkış yap",
+      "signingOut": "Çıkış yapılıyor…",
+      "problems": {
+        "unavailable": "Oturum bilgisi şu an alınamıyor. Biraz sonra tekrar dene."
+      }
     }
   }
 }

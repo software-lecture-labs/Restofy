@@ -69,7 +69,11 @@ async function post(path: string, body: unknown): Promise<Response> {
 
 export async function apiRequest<T = void>(path: string, { method = "GET", body }: RequestOptions = {}): Promise<T> {
   const response = method === "GET" ? await send(path, { method }) : await post(path, body);
-  if (!response.ok) throw new ApiError(response.status);
+  if (!response.ok) {
+    // The body of an error is never read; closing it lets the connection finish, so the page can settle.
+    await response.body?.cancel().catch(() => undefined);
+    throw new ApiError(response.status);
+  }
 
   if (CSRF_ROTATING_PATHS.some((prefix) => path.startsWith(prefix))) csrfToken = null;
   if (response.status === 204) return undefined as T;

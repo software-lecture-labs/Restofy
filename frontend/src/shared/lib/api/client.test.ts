@@ -145,6 +145,16 @@ describe("api client", () => {
     expect((failure as InstanceType<typeof ApiError>).status).toBe(401);
   });
 
+  it("closes the body of a failed answer so the connection can finish", async () => {
+    const response = json({ code: "UNAUTHORIZED" }, 401);
+    const cancel = vi.spyOn(response.body!, "cancel");
+    fetchMock.mockResolvedValueOnce(response);
+    const { apiRequest } = await load();
+
+    await apiRequest("/api/v1/auth/session").catch(() => undefined);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("reports status 0 when the request never gets an answer", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     const { apiRequest } = await load();
