@@ -269,6 +269,12 @@ class TableSessionPermitApiTests extends AbstractClosureApiTest {
 
         lookup(operation).andExpect(jsonPath("$.state").value("PREPARED"));
         assertEquals(0, count("table_session_closure_drifts"));
+
+        confirmRaw(QR, SESSION, operation, RESTAURANT, "CLOSED", receipt("SETTLED_CLOSE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("COMPLETED"));
+        confirmRaw(QR, SESSION, operation, RESTAURANT, "CLOSED", receipt("IDLE_MAIN")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CLOSURE_RECEIPT_MISMATCH"));
+        lookup(operation).andExpect(jsonPath("$.state").value("COMPLETED"));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.restofy.order.domain.entity;
 
+import com.restofy.order.domain.pricing.PriceCalculator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -17,18 +18,21 @@ class MoneyEntitiesCurrencyTests {
     private static final Instant NOW = Instant.parse("2026-10-29T10:00:00Z");
 
     private static Order order(String currency) {
-        return new Order(UUID.randomUUID(), "ORD-000001", UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), UUID.randomUUID(), currency, 909, 91, 1_000, null, NOW);
+        return new Order(UUID.randomUUID(), "ORD-000001",
+                new Order.Source(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), currency,
+                new PriceCalculator.OrderAmounts(909, 91, 1_000), null, NOW);
     }
 
     private static OrderItem orderLine(Order order, String currency) {
-        return new OrderItem(order, 1, UUID.randomUUID(), "Burger", 1, currency, 1_000, 1_000, 1_000, 909, 91, null,
-                null, NOW);
+        return new OrderItem(order, 1, 1,
+                new OrderItem.Snapshot(UUID.randomUUID(), "Burger", currency, 1_000,
+                        new PriceCalculator.LinePrice(1_000, 1_000, 909L, 91L), null), null, NOW);
     }
 
     private static CartItem cartLine(String currency) {
         Cart cart = new Cart();
-        return new CartItem(cart, UUID.randomUUID(), 1, "k", null, "Burger", currency, 1_000, 1_000, null, NOW);
+        return new CartItem(cart, UUID.randomUUID(), 1, "k", null,
+                new CartItem.PriceSnapshot("Burger", currency, 1_000, 1_000, null), NOW);
     }
 
     @ParameterizedTest

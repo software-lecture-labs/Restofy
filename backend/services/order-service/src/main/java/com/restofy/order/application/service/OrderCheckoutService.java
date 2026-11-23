@@ -75,6 +75,9 @@ public class OrderCheckoutService {
     private record Prepared(List<PricedItem> items, OrderAmounts amounts, Map<UUID, ProductSnapshot> catalog) {
     }
 
+    private record Claim(String key, String digest, String actor, UUID orderId) {
+    }
+
     private final CartRepository carts;
     private final OrderRepository orders;
     private final MenuCatalogPort catalog;
@@ -174,10 +177,9 @@ public class OrderCheckoutService {
                 guest.guestSessionId()).orElse(SessionState.CLOSED);
         requireActiveSession(state == SessionState.ACTIVE);
 
-        UUID orderId = UUID.randomUUID();
+        Claim claim = new Claim(key, digest, actor, UUID.randomUUID());
         String correlationId = MDC.get(CorrelationIdFilter.MDC_KEY);
-        Order placed = writeTx.execute(status -> place(guest, key, digest, actor, orderId, request, note, prepared,
-                correlationId));
+        Order placed = writeTx.execute(status -> place(guest, claim, request, note, prepared, correlationId));
         if (placed == null) {
             // A concurrent request with the same key committed first.
             IdempotencyStore.Record winner = idempotency.find(guest.restaurantId(), actor, OPERATION, key)
@@ -232,15 +234,16 @@ public class OrderCheckoutService {
     }
 
     /** Runs inside the write transaction. Returns null when the idempotency key was already claimed. */
-    private Order place(GuestSessionContext guest, String key, String digest, String actor, UUID orderId,
-                        CheckoutRequest request, String note, Prepared prepared, String correlationId) {
+    private Order place(GuestSessionContext guest, Claim claim, CheckoutRequest request, String note,
+                        Prepared prepared, String correlationId) {
         // First statement of the transaction (ADR-QR-001 K8): order this checkout against closing the table session. A
         // closure prepared or completed first refuses the order here, before the idempotency key or anything else is
         // written; a checkout that got in first is part of the scope the closure then sees.
         closures.requireOpenForCheckout(guest.restaurantId(), guest.tableSessionId(), guest.guestSessionId());
         // PostgreSQL stores microseconds; truncating here keeps the first response identical to every replay.
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
-        if (!idempotency.tryClaim(guest.restaurantId(), actor, OPERATION, key, digest, orderId, CREATED, now,
+        var result = new IdempotencyStore.Record(claim.digest(), claim.orderId(), CREATED);
+        if (!idempotency.tryClaim(guest.restaurantId(), claim.actor(), OPERATION, claim.key(), result, now,
                 now.plus(retention.checkoutRetention()))) {
             return null;
         }
@@ -254,18 +257,16 @@ public class OrderCheckoutService {
 
         // Last step before the inserts: allocating the number takes the per-restaurant counter lock.
         String orderNo = orderNumbers.next(guest.restaurantId());
-        OrderAmounts amounts = prepared.amounts();
-        Order order = new Order(orderId, orderNo, guest.restaurantId(), cart.getId(), guest.tableId(),
-                guest.tableSessionId(), guest.guestSessionId(), cart.getCurrency(), amounts.netMinor(),
-                amounts.vatMinor(), amounts.grossMinor(), note, now);
+        var source = new Order.Source(guest.restaurantId(), cart.getId(), guest.tableId(), guest.tableSessionId(),
+                guest.guestSessionId());
+        Order order = new Order(claim.orderId(), orderNo, source, cart.getCurrency(), prepared.amounts(), note, now);
         int lineNo = 0;
         for (PricedItem priced : prepared.items()) {
-            var price = priced.line().price();
-            OrderItem line = new OrderItem(order, ++lineNo, priced.item().getProductId(),
-                    priced.line().product().name(),
-                    priced.item().getQuantity(), cart.getCurrency(), price.unitGrossMinor(),
-                    priced.line().product().taxRateBps(), price.lineGrossMinor(), price.lineNetMinor(),
-                    price.lineVatMinor(), priced.line().product().priceVersion(), priced.item().getNote(), now);
+            var product = priced.line().product();
+            var snapshot = new OrderItem.Snapshot(priced.item().getProductId(), product.name(), cart.getCurrency(),
+                    product.taxRateBps(), priced.line().price(), product.priceVersion());
+            OrderItem line = new OrderItem(order, ++lineNo, priced.item().getQuantity(), snapshot,
+                    priced.item().getNote(), now);
             for (PricedOption option : priced.line().options()) {
                 line.addOption(new OrderItemOption(line, option.optionId(), option.action(), option.quantity(),
                         option.name(), option.unitPriceDeltaMinor()));
@@ -284,8 +285,9 @@ public class OrderCheckoutService {
 
         UUID eventId = UUID.randomUUID();
         OrderPlacedEvent event = orderMapper.toPlacedEvent(order, eventId, correlationId, now);
-        outbox.write(eventId, order.getRestaurantId(), "ORDER", order.getId(), order.getVersion(), event.eventType(),
-                event.schemaVersion(), correlationId, event, now, List.of(EventDestination.KITCHEN,
+        outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), "ORDER", order.getId(),
+                order.getVersion(), event.eventType(), event.schemaVersion(), correlationId, event, now),
+                List.of(EventDestination.KITCHEN,
                         EventDestination.QR, EventDestination.NOTIFICATION, EventDestination.WAITER));
         return order;
     }

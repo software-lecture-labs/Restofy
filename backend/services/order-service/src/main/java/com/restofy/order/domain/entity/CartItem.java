@@ -81,9 +81,12 @@ public class CartItem {
     @BatchSize(size = OPTION_FETCH_BATCH_SIZE)
     private Set<CartItemOption> options = new LinkedHashSet<>();
 
+    public record PriceSnapshot(String productName, String currency, long unitGrossMinor, Integer taxRateBps,
+                                String priceVersion) {
+    }
+
     public CartItem(Cart cart, UUID productId, int quantity, String selectionKey, String note,
-                    String productNameSnapshot, String currency, long unitGrossMinorSnapshot,
-                    Integer taxRateBpsSnapshot, String priceVersionSnapshot, Instant now) {
+                    PriceSnapshot price, Instant now) {
         this.id = UUID.randomUUID();
         this.cart = cart;
         this.restaurantId = cart.getRestaurantId();
@@ -91,11 +94,11 @@ public class CartItem {
         this.quantity = quantity;
         this.selectionKey = selectionKey;
         this.note = note;
-        this.productNameSnapshot = productNameSnapshot;
-        this.currency = MoneyConverter.normalizeCurrency(currency);
-        this.unitGrossMinorSnapshot = unitGrossMinorSnapshot;
-        this.taxRateBpsSnapshot = taxRateBpsSnapshot;
-        this.priceVersionSnapshot = priceVersionSnapshot;
+        this.productNameSnapshot = price.productName();
+        this.currency = MoneyConverter.normalizeCurrency(price.currency());
+        this.unitGrossMinorSnapshot = price.unitGrossMinor();
+        this.taxRateBpsSnapshot = price.taxRateBps();
+        this.priceVersionSnapshot = price.priceVersion();
         this.createdAt = now;
         this.updatedAt = now;
     }

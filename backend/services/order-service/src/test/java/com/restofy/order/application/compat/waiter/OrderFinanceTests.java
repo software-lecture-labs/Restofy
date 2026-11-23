@@ -1,5 +1,6 @@
 package com.restofy.order.application.compat.waiter;
 
+import com.restofy.order.domain.pricing.PriceCalculator;
 import com.restofy.order.domain.entity.Order;
 import com.restofy.order.domain.entity.OrderItem;
 import com.restofy.order.domain.enums.PaymentStatus;
@@ -97,11 +98,12 @@ class OrderFinanceTests {
 
     @Test
     void lineTotalsThatDoNotAddUpToTheOriginalTotalAreRefused() {
-        Order inconsistent = new Order(UUID.randomUUID(), "ORD-1", CompatFixtures.RESTAURANT,
-                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), "TRY", 10_000, 0, 10_000, null, Instant.now());
-        inconsistent.addItem(new OrderItem(inconsistent, 1, UUID.randomUUID(), "x", 1, "TRY", 9_000, 0, 9_000,
-                9_000, 0, null, null, Instant.now()));
+        Order inconsistent = new Order(UUID.randomUUID(), "ORD-1",
+                new Order.Source(CompatFixtures.RESTAURANT, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), "TRY",
+                new PriceCalculator.OrderAmounts(10_000, 0, 10_000), null, Instant.now());
+        inconsistent.addItem(new OrderItem(inconsistent, 1, 1,
+                new OrderItem.Snapshot(UUID.randomUUID(), "x", "TRY", 0,
+                        new PriceCalculator.LinePrice(9_000, 9_000, 9_000L, 0L), null), null, Instant.now()));
         assertThrows(IllegalStateException.class, () -> OrderFinance.compute(inconsistent, List.of(), 0));
     }
 }

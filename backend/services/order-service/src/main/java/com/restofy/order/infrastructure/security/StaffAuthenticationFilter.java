@@ -18,7 +18,7 @@ import java.util.Optional;
 
 /**
  * Authenticates STAFF from {@code Authorization: Staff <credential>} through the {@link AuthContextPort}. This
- * scheme is deliberately different from the guest scheme ({@code Bearer}): a guest token is never offered to the Auth
+ * scheme is separate from the guest cookie. A guest token is never offered to the Auth
  * Service and a staff credential is never offered to the QR Service. An unknown credential is a 401; an unreachable or
  * failing Auth Service is a 503 (fail closed). Credentials are never logged.
  */
@@ -74,6 +74,6 @@ public class StaffAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private void reject(HttpServletResponse response) throws IOException {
-        errors.write(response, ErrorCode.UNAUTHENTICATED, "A valid staff credential is required");
+        errors.unauthenticated(response, "A valid staff credential is required", ApiErrorWriter.STAFF_SCHEME);
     }
 }

@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const KEY = 'QR_PAYLOAD_ENCRYPTION_KEY';
 const MARKER = '# RESTOFY-ACTIVE-PROFILE=';
-const USAGE = 'Usage: node ops/qr/qr-key.mjs init|check dev|prod';
+const USAGE = 'Usage: node ops/qr/qr-key.mjs init|check dev|prod\n'
+  + '       node ops/qr/qr-key.mjs order-init <key-id>';
 
 class QrKeyError extends Error {
   constructor(code, message) {
@@ -57,6 +58,37 @@ function replaceKey(text, index, value) {
   const lines = text.split(/\r?\n/);
   lines[index] = `${KEY}=${value}`;
   return lines.join(eol);
+}
+
+function createOrderKeys(root, keyId, log) {
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(keyId)) {
+    fail('QR_ORDER_KEY_ID_INVALID', 'Use a key ID of 1 to 64 letters, numbers, dots, underscores or hyphens.');
+  }
+  const directory = path.join(root, 'secrets');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const directoryInfo = fs.lstatSync(directory);
+  if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) {
+    fail('QR_KEY_UNSAFE_FILE', 'secrets must be a regular directory.');
+  }
+  const filename = `qr-order-${keyId}.env`;
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'der' },
+    publicKeyEncoding: { type: 'spki', format: 'der' },
+  });
+  try {
+    const trust = JSON.stringify({ [keyId]: publicKey.toString('base64') });
+    const content = `# QR only: never distribute this file to Order.\nQR_ORDER_SERVICE_KEY_ID=${keyId}\n`
+      + `QR_ORDER_SERVICE_PRIVATE_KEY=${privateKey.toString('base64')}\n`
+      + `# Order: share only the public setting below.\nORDER_QR_SERVICE_PUBLIC_KEYS='${trust}'\n`;
+    fs.writeFileSync(path.join(directory, filename), content, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if (error.code === 'EEXIST') fail('QR_ORDER_KEY_EXISTS', 'A key with that ID is already stored. Use a new ID for rotation.');
+    throw error;
+  } finally {
+    privateKey.fill(0);
+  }
+  log(`[OK] secrets/${filename} created. Only the public key belongs in Order.`);
 }
 
 function writeFile(root, name, expected, content) {
@@ -129,6 +161,8 @@ export function runQrKey({ root = ROOT, args = process.argv.slice(2), environmen
   try {
     if (args.length === 1 && ['--help', '-h'].includes(args[0])) {
       log(USAGE);
+    } else if (args.length === 2 && args[0] === 'order-init') {
+      createOrderKeys(root, args[1], log);
     } else {
       const [command, profile] = args;
       if (args.length !== 2 || !['init', 'check'].includes(command) || !['dev', 'prod'].includes(profile)) {

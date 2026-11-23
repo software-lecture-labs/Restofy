@@ -163,13 +163,12 @@ class CartViewAndClearApiTests extends AbstractCartApiTest {
     }
 
     @Test
-    void closedSessionStillShowsTheCartReadOnly() throws Exception {
+    void closedSessionCannotReadTheCart() throws Exception {
         addItem(A1, product(DevFixtures.BURGER, 1)).andExpect(status().isOk());
         qr.register(A1, DevFixtures.guestA1(SessionState.CLOSED));
         getCart(A1)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionActive").value(false))
-                .andExpect(jsonPath("$.items", hasSize(1)));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     // ---- clear ------------------------------------------------------------------------------------------------
@@ -243,8 +242,8 @@ class CartViewAndClearApiTests extends AbstractCartApiTest {
         addItem(A1, product(DevFixtures.BURGER, 1)).andExpect(status().isOk());
         qr.register(A1, DevFixtures.guestA1(SessionState.EXPIRED));
         clearCart(A1)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM cart_items", Integer.class));
     }
 

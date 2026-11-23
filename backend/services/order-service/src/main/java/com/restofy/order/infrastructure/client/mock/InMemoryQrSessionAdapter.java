@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
-@Profile({"dev", "test"})
+@Profile("(dev | test) & !prod & !order-qr")
 public class InMemoryQrSessionAdapter implements QrSessionPort {
 
     private final Map<String, GuestSessionContext> sessions = new ConcurrentHashMap<>();

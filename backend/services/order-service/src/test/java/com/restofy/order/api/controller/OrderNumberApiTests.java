@@ -34,9 +34,10 @@ class OrderNumberApiTests extends AbstractCartApiTest {
 
     /** Registers a fresh guest at the fixture table of the given restaurant and returns its token. */
     private String newGuest(String token, UUID restaurant, UUID table, UUID tableSession) {
-        qr.register(token, new GuestSessionContext(restaurant, table, tableSession, UUID.randomUUID(),
+        String credential = "g".repeat(43 - token.length()) + token;
+        qr.register(credential, new GuestSessionContext(restaurant, table, tableSession, UUID.randomUUID(),
                 SessionState.ACTIVE));
-        return token;
+        return credential;
     }
 
     private JsonNode order(String token) throws Exception {

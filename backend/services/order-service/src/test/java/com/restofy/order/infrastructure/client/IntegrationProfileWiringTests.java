@@ -10,11 +10,13 @@ import com.restofy.order.infrastructure.client.mock.InMemoryAuthContextAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryMenuCatalogAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryQrSessionAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapter;
+import com.restofy.order.infrastructure.config.OrderRuntimeProfiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.core.NestedExceptionUtils;
 
 import java.util.Set;
 import java.util.UUID;
@@ -34,13 +36,19 @@ class IntegrationProfileWiringTests {
      * {@link MockEnvironment} that ignores system properties and only knows the profiles given explicitly.
      */
     private ApplicationContextRunner contextFor(String... profiles) {
+        return contextForEnvironment("", profiles);
+    }
+
+    private ApplicationContextRunner contextForEnvironment(String appEnvironment, String... profiles) {
         return new ApplicationContextRunner()
                 .withUserConfiguration(InMemoryQrSessionAdapter.class, InMemoryMenuCatalogAdapter.class,
                         UnavailableQrSessionAdapter.class, UnavailableMenuCatalogAdapter.class,
                         InMemoryAuthContextAdapter.class, UnavailableAuthContextAdapter.class,
-                        InMemoryServiceIdentityAdapter.class, UnavailableServiceIdentityAdapter.class)
+                        InMemoryServiceIdentityAdapter.class, UnavailableServiceIdentityAdapter.class,
+                        OrderRuntimeProfiles.class)
                 .withInitializer(context -> {
                     MockEnvironment environment = new MockEnvironment();
+                    environment.setProperty("APP_ENV", appEnvironment);
                     if (profiles.length > 0) {
                         environment.setActiveProfiles(profiles);
                     }
@@ -67,6 +75,20 @@ class IntegrationProfileWiringTests {
             assertEquals(0, context.getBeansOfType(InMemoryQrSessionAdapter.class).size());
             assertEquals(0, context.getBeansOfType(InMemoryMenuCatalogAdapter.class).size());
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"prod", "production"})
+    void rejectsProductionWhenDevelopmentProfilesArePresent(String production) {
+        for (String unsafe : new String[]{"dev", "test", "local"}) {
+            contextFor(production, unsafe).run(context -> assertProductionRejected(context.getStartupFailure()));
+            contextForEnvironment(production, unsafe).run(context -> assertProductionRejected(context.getStartupFailure()));
+        }
+    }
+
+    private static void assertProductionRejected(Throwable startupFailure) {
+        assertEquals("Production Order cannot use development or test profiles",
+                NestedExceptionUtils.getMostSpecificCause(startupFailure).getMessage());
     }
 
     @Test

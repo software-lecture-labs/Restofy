@@ -56,7 +56,7 @@ class LoggingHygieneApiTests extends AbstractCartApiTest {
         placeOrder(a1, key, body).andExpect(status().isCreated());
         // closed session
         qr.register(a1, DevFixtures.guestA1(GuestSessionContext.SessionState.CLOSED));
-        addItem(a1, Map.of("productId", DevFixtures.SALAD, "quantity", 1)).andExpect(status().isConflict());
+        addItem(a1, Map.of("productId", DevFixtures.SALAD, "quantity", 1)).andExpect(status().isUnauthorized());
 
         String logs = output.getAll();
         assertTrue(logs.contains("Order placed:"), "the audit line exists, so this test really inspected the logs");
