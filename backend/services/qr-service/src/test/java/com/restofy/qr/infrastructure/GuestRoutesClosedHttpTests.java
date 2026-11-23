@@ -45,7 +45,15 @@ class GuestRoutesClosedHttpTests extends com.restofy.qr.support.Q5TestSecuritySu
     }
 
     @Test
-    void csrfReadFromAForeignOriginIsRejected() throws Exception {
+    void sameOriginCsrfReadWithoutOriginReachesTheClosedGateNotAForbidden() throws Exception {
+        http.perform(get("/api/v1/qr/guest-sessions/csrf").cookie(new Cookie("restofy_guest", TOKEN)))
+                .andExpect(status().isUnauthorized()).andExpect(header().doesNotExist("Set-Cookie"));
+        http.perform(post("/api/v1/qr/validate").contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"x\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void csrfReadFromAForeignOriginIsRejected()throws Exception {
         http.perform(get("/api/v1/qr/guest-sessions/csrf").header("Origin", "https://evil.example")
                 .cookie(new Cookie("restofy_guest", TOKEN)))
                 .andExpect(status().isForbidden()).andExpect(header().doesNotExist("Set-Cookie"));

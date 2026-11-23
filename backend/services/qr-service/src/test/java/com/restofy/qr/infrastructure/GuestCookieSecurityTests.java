@@ -183,12 +183,16 @@ class GuestCookieSecurityTests {
     }
 
     @Test
-    void csrfReadNeedsOriginAndTheCredentialCookieButNoCsrfProof() throws Exception {
+    void csrfReadNeedsTheCredentialCookieAndAnyOriginMustBeAllowlistedButNoCsrfProof() throws Exception {
         assertThat(run(csrfRead())).isEqualTo(200);
-        var missing = csrfRead(); missing.removeHeader("Origin");
+        var sameOrigin = csrfRead(); sameOrigin.removeHeader("Origin");
+        assertThat(run(sameOrigin)).isEqualTo(200);
         var foreign = csrfRead(); foreign.removeHeader("Origin"); foreign.addHeader("Origin", "https://evil.example");
+        var twice = csrfRead(); twice.addHeader("Origin", ORIGIN);
         var bearer = csrfRead(); bearer.addHeader("Authorization", "Bearer " + TOKEN);
-        for (var request : List.of(missing, foreign, bearer)) { assertThat(run(request)).isEqualTo(403); }
+        for (var request : List.of(foreign, twice, bearer)) { assertThat(run(request)).isEqualTo(403); }
+        var noOriginNoCookie = csrfRead(); noOriginNoCookie.removeHeader("Origin"); noOriginNoCookie.setCookies();
+        assertThat(run(noOriginNoCookie)).isEqualTo(401);
         var none = csrfRead(); none.setCookies();
         var staff = csrfRead(); staff.setCookies(new Cookie("restofy_access", TOKEN));
         assertThat(run(none)).isEqualTo(401);

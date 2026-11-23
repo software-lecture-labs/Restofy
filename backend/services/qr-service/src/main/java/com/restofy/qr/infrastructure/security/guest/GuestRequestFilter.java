@@ -40,8 +40,9 @@ public final class GuestRequestFilter extends OncePerRequestFilter {
         boolean activity = request.getRequestURI().equals(ACTIVITY);
         boolean csrfRead = request.getRequestURI().equals(CSRF_PATH);
         try {
-            // Also required on the CSRF read: the CORS response alone would not stop a foreign page from asking.
-            origin(request);
+            // Browsers omit Origin on same-origin GET (frontend proxy), so the CSRF read may have none; if present it
+            // must still be allowlisted. Writes always need it.
+            origin(request, csrfRead);
             // The guest credential is only a cookie; a Bearer header on these routes is never a supported transport.
             if (request.getHeader("Authorization") != null) { throw new IllegalArgumentException(); }
             if (!activity && !csrfRead) { json(request); }
@@ -50,15 +51,16 @@ public final class GuestRequestFilter extends OncePerRequestFilter {
             try { token(request); }
             catch (InvalidGuestSessionException _) { problem(response, 401); return; }
         }
-        // The CSRF read has no proof yet by design; it changes nothing and only answers an allowed Origin.
+        // The CSRF read has no proof yet by design; it changes nothing and needs a valid guest cookie (SameSite=Strict).
         if (activity) {
             try { csrf(request); } catch (RuntimeException _) { problem(response, 403); return; }
         }
         chain.doFilter(request, response);
     }
 
-    private void origin(HttpServletRequest request) {
+    private void origin(HttpServletRequest request, boolean optional) {
         var origins = Collections.list(request.getHeaders("Origin"));
+        if (optional && origins.isEmpty()) { return; }
         if (origins.size() != 1 || !settings.origins().contains(origins.getFirst())) { throw new IllegalArgumentException(); }
     }
 
