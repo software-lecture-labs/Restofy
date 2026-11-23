@@ -15,13 +15,8 @@ import org.springframework.security.web.csrf.CsrfFilter;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.UUID;
 
-/**
- * Internal service callers of the guest-session routes. Order may use all of them. Waiter may only validate a guest
- * and re-check its state; the Order-only cart-activity event stays closed to it.
- */
 @Configuration(proxyBeanMethods = false)
 @Profile("qr-order-inbound")
 public class OrderCallerSecurity {
@@ -31,28 +26,21 @@ public class OrderCallerSecurity {
     @SuppressWarnings("java:S4502")
     SecurityFilterChain orderGuestChain(HttpSecurity http, Clock clock, JsonMapper json,
                                         @Value("${AUTH_RESTAURANT_ID}") UUID restaurantId,
-                                        @Value("${QR_ORDER_CALLER_PUBLIC_KEYS:}") String orderKeys,
-                                        @Value("${QR_WAITER_CALLER_PUBLIC_KEYS:}") String waiterKeys) {
+                                        @Value("${QR_ORDER_CALLER_PUBLIC_KEYS:}") String keys) {
         String prefix = OrderGuestSessionController.BASE;
-        var callers = new ArrayList<ServiceCaller>();
-        callers.add(ServiceCaller.order(json, orderKeys));
-        ServiceCaller.waiter(json, waiterKeys).ifPresent(callers::add);
         http.securityMatcher(prefix + "/**")
-                .addFilterBefore(new ServiceCallerFilter(restaurantId, clock, callers), CsrfFilter.class)
+                .addFilterBefore(new OrderCallerFilter(restaurantId, clock, json, keys), CsrfFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(csrf -> csrf.requireCsrfProtectionMatcher(request -> CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)
-                        && !Boolean.TRUE.equals(request.getAttribute(ServiceCallerFilter.VERIFIED))))
+                        && !Boolean.TRUE.equals(request.getAttribute(OrderCallerFilter.VERIFIED))))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, prefix + OrderGuestSessionController.VALIDATE)
-                        .hasAnyAuthority(ServiceCaller.ORDER_AUTHORITY, ServiceCaller.WAITER_AUTHORITY)
-                        .requestMatchers(HttpMethod.GET, prefix + OrderGuestSessionController.STATE)
-                        .hasAnyAuthority(ServiceCaller.ORDER_AUTHORITY, ServiceCaller.WAITER_AUTHORITY)
-                        .requestMatchers(HttpMethod.POST, prefix + OrderGuestSessionController.CART_ACTIVITY)
-                        .hasAuthority(ServiceCaller.ORDER_AUTHORITY)
+                        .requestMatchers(HttpMethod.POST, prefix + OrderGuestSessionController.VALIDATE,
+                                prefix + OrderGuestSessionController.CART_ACTIVITY).hasAuthority(OrderCallerFilter.AUTHORITY)
+                        .requestMatchers(HttpMethod.GET, prefix + OrderGuestSessionController.STATE).hasAuthority(OrderCallerFilter.AUTHORITY)
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((request, response, exception) -> ServiceCallerFilter.reject(response, HttpStatus.UNAUTHORIZED))
-                        .accessDeniedHandler((request, response, exception) -> ServiceCallerFilter.reject(response, HttpStatus.FORBIDDEN)));
+                        .authenticationEntryPoint((request, response, exception) -> OrderCallerFilter.reject(response, HttpStatus.UNAUTHORIZED))
+                        .accessDeniedHandler((request, response, exception) -> OrderCallerFilter.reject(response, HttpStatus.FORBIDDEN)));
         return http.build();
     }
 }
