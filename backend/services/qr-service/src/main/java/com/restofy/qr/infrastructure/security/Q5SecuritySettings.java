@@ -40,24 +40,14 @@ public final class Q5SecuritySettings {
                     || receiptKey.getModulus().equals(commandKey.getModulus()) || receiptKey.getModulus().equals(staffKey.getModulus())) throw new IllegalArgumentException();
             restaurant = UUID.fromString(environment.getRequiredProperty("qr.q5.restaurant-id"));
             staffIssuer = environment.getRequiredProperty("qr.q5.staff-issuer");
-            if (staffIssuer.isBlank() || !staffIssuer.equals(staffIssuer.strip()) || staffIssuer.length()>200
-                    || staffIssuer.chars().anyMatch(Character::isISOControl)) throw new IllegalArgumentException();
+            if (!validIssuer(staffIssuer)) throw new IllegalArgumentException();
             accessTtl = Long.parseLong(environment.getRequiredProperty("qr.q5.access-ttl-seconds"));
             if (accessTtl != 300) throw new IllegalArgumentException();
             origins = Arrays.stream(environment.getRequiredProperty("qr.q5.allowed-origins").split(",",-1)).map(String::strip).toList();
-            development = environment.getActiveProfiles().length>0
-                    && Set.of("dev","local","test").containsAll(List.of(environment.getActiveProfiles()))
-                    && Set.of("dev","local","test").contains(environment.getProperty("APP_ENV",""));
-            for (String origin:origins) {
-                URI uri=URI.create(origin);
-                boolean local=uri.getHost()!=null && Set.of("localhost","127.0.0.1","[::1]").contains(uri.getHost());
-                if (uri.getHost()==null || origin.contains("*") || uri.getRawUserInfo()!=null || uri.getRawQuery()!=null
-                        || uri.getRawFragment()!=null || !uri.getRawPath().isEmpty()
-                        || (uri.getPort()!=-1 && (uri.getPort()<1 || uri.getPort()>65535))
-                        || !("https".equals(uri.getScheme()) || (development && local && "http".equals(uri.getScheme())))) throw new IllegalArgumentException();
-            }
-            if (origins.stream().distinct().count()!=origins.size()) throw new IllegalArgumentException();
-        } catch (Exception invalid) {
+            development = developmentProfile(environment);
+            if (!origins.stream().allMatch(origin -> validOrigin(origin, development))
+                    || origins.stream().distinct().count()!=origins.size()) throw new IllegalArgumentException();
+        } catch (Exception _) {
             throw new IllegalStateException("Invalid Q5 RSA keys, restaurant, staff issuer, TTL or trusted origins");
         }
     }
@@ -76,4 +66,25 @@ public final class Q5SecuritySettings {
     public long accessTtl() { return accessTtl; }
     public List<String> origins() { return origins; }
     public boolean development() { return development; }
+
+    private static boolean validOrigin(String origin, boolean development) {
+        URI uri=URI.create(origin);
+        boolean local=uri.getHost()!=null && Set.of("localhost","127.0.0.1","[::1]").contains(uri.getHost());
+        return !(uri.getHost()==null || origin.contains("*") || uri.getRawUserInfo()!=null || uri.getRawQuery()!=null
+                || uri.getRawFragment()!=null || !uri.getRawPath().isEmpty()
+                || (uri.getPort()!=-1 && (uri.getPort()<1 || uri.getPort()>65535))
+                || !("https".equals(uri.getScheme()) || (development && local && "http".equals(uri.getScheme()))));
+    }
+
+    private static boolean validIssuer(String issuer) {
+        return !issuer.isBlank() && issuer.equals(issuer.strip()) && issuer.length() <= 200
+                && issuer.chars().noneMatch(Character::isISOControl);
+    }
+
+    private static boolean developmentProfile(Environment environment) {
+        var allowed = Set.of("dev", "local", "test");
+        return environment.getActiveProfiles().length > 0
+                && allowed.containsAll(List.of(environment.getActiveProfiles()))
+                && allowed.contains(environment.getProperty("APP_ENV", ""));
+    }
 }
