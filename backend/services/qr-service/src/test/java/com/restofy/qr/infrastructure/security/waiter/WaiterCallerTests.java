@@ -33,13 +33,25 @@ class WaiterCallerTests {
     }
 
     @Test
-    void onlyTheGuestValidateScopeGrantsAnAuthorityAndNothingFromOrder() {
+    void everyWaiterScopeGrantsItsOwnAuthorityAndNothingFromOrder() {
         assertThat(WaiterAuthorities.forScope("qr:guest-validate")).contains(WaiterAuthorities.GUEST_VALIDATE);
+        assertThat(WaiterAuthorities.forScope("qr:table-read")).contains(WaiterAuthorities.TABLE_READ);
+        assertThat(WaiterAuthorities.forScope("qr:session-close")).contains(WaiterAuthorities.SESSION_CLOSE);
+        assertThat(WaiterAuthorities.forScope("qr:table-clean")).contains(WaiterAuthorities.TABLE_CLEAN);
+        assertThat(WaiterAuthorities.forScope("qr:session-closure-read")).contains(WaiterAuthorities.SESSION_CLOSURE_READ);
         assertThat(WaiterAuthorities.forScope("qr:guest-session")).isEmpty();
-        assertThat(WaiterAuthorities.forScope("qr:table-read")).isEmpty();
-        assertThat(WaiterAuthorities.forScope("qr:guest-validate qr:guest-session")).isEmpty();
+        assertThat(WaiterAuthorities.forScope("qr:guest-validate qr:table-read")).isEmpty();
         assertThat(WaiterAuthorities.forScope(null)).isEmpty();
         assertThat(WaiterAuthorities.forScope(7)).isEmpty();
+    }
+
+    @Test
+    void onlyCloseAndCleanNeedStaffDelegation() {
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSE)).isTrue();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_CLEAN)).isTrue();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.GUEST_VALIDATE)).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_READ)).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSURE_READ)).isFalse();
     }
 
     @Test

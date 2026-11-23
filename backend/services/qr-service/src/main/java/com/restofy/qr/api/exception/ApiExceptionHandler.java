@@ -61,6 +61,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Table management access is unavailable.");
     }
 
+    @ExceptionHandler(TableCleanException.class)
+    ProblemDetail tableClean(TableCleanException exception) {
+        var detail = problem(exception.status(), exception.getMessage());
+        detail.setProperty("code", exception.code().name());
+        return detail;
+    }
+
     @ExceptionHandler(Exception.class)
     ProblemDetail unexpected(Exception exception) {
         // Exception messages, causes and stack traces can contain credentials or SQL.

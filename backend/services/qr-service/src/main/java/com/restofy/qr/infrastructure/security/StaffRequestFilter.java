@@ -4,15 +4,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
-import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import com.restofy.qr.infrastructure.security.revocation.StaffRevocationStore;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,14 +37,14 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
     private static final Set<String> NONE = Set.of();
     private static final Set<String> FLOOR = Set.of(ADMIN, WAITER);
     private static final Set<String> ADMIN_ONLY = Set.of(ADMIN);
-    private static final Set<String> STAFF_ROLES = Set.of(ADMIN, WAITER, "KITCHEN");
 
     private final Q5SecuritySettings settings;
+    private final StaffTokenVerifier verifier;
     private final Clock clock;
     private final StaffRevocationStore store;
 
     public StaffRequestFilter(Q5SecuritySettings settings, Clock clock, StaffRevocationStore store) {
-        this.settings=settings; this.clock=clock; this.store=store;
+        this.settings=settings; this.clock=clock; this.store=store; this.verifier=new StaffTokenVerifier(settings, clock, store);
     }
 
     static boolean staffPath(String method, String path) { return !policy(method,path).isEmpty(); }
@@ -115,32 +112,9 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
             if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) throw new IllegalArgumentException();
             String token=cookie(request,"restofy_access");
             if (cookie(request,"restofy_mfa")!=null || cookie(request,"restofy_refresh")!=null) throw new IllegalArgumentException();
-            if (token==null || token.length()>4096) throw new IllegalArgumentException();
-            var key=settings.staffKey();
-            UUID restaurant=settings.restaurant();
-            var claims=Jwts.parser().verifyWith(key).sig().clear().add(Jwts.SIG.RS256).and().clock(() -> java.util.Date.from(clock.instant()))
-                    .requireIssuer(settings.staffIssuer()).requireAudience("restofy-staff-api")
-                    .require("token_type","access").require("auth_state","AUTHENTICATED").require("auth_policy","q5-idle-v1")
-                    .require("restaurant_id",restaurant.toString()).build().parseSignedClaims(token).getPayload();
-            requireFresh(claims, settings.accessTtl());
-            String role=claims.get("role",String.class);
-            if (!STAFF_ROLES.contains(role)) throw new IllegalArgumentException();
-            return new Principal(restaurant,UUID.fromString(claims.getSubject()),UUID.fromString(claims.get("sid",String.class)),role);
+            if (token==null) throw new IllegalArgumentException();
+            return verifier.verify(token);
         } catch (Exception _) { throw new IllegalArgumentException("Invalid staff identity"); }
-    }
-
-    /** iat/nbf/exp/jti present, issued in the past, not expired, positive lifetime of at most the fixed 300 s TTL. */
-    private void requireFresh(Claims claims, long ttl) {
-        if (ttl != 300 || claims.getIssuedAt()==null || claims.getNotBefore()==null || claims.getExpiration()==null || claims.getId()==null) {
-            throw new IllegalArgumentException();
-        }
-        Instant now=clock.instant();
-        Instant issued=claims.getIssuedAt().toInstant();
-        Instant expires=claims.getExpiration().toInstant();
-        if (issued.isAfter(now) || !now.isBefore(expires) || !expires.isAfter(issued) || expires.isAfter(issued.plusSeconds(ttl))) {
-            throw new IllegalArgumentException();
-        }
-        UUID.fromString(claims.getId());
     }
 
     private void csrf(HttpServletRequest request) {
