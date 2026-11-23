@@ -1,29 +1,47 @@
 package com.restofy.qr.infrastructure.security;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import com.restofy.qr.infrastructure.security.revocation.StaffRevocationStore;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.server.ResponseStatusException;
 
 /** Exact staff route inventory. Unknown, guest and delegated service paths remain denied by the chain. */
 public final class StaffRequestFilter extends OncePerRequestFilter {
     private static final String ID = "[0-9a-fA-F-]{36}";
+    private static final String PREFIX = "/api/v1/qr";
+    private static final String TABLES = "/tables";
+    private static final String TABLE = TABLES + "/" + ID;
+    private static final String ADMIN = "ADMIN";
+    private static final String WAITER = "WAITER";
+    private static final String GET = "GET";
+    private static final String POST = "POST";
+    private static final String PATCH = "PATCH";
+    private static final String CSRF_HEADER = "X-CSRF-TOKEN";
+    private static final Set<String> NONE = Set.of();
+    private static final Set<String> FLOOR = Set.of(ADMIN, WAITER);
+    private static final Set<String> ADMIN_ONLY = Set.of(ADMIN);
+    private static final Set<String> STAFF_ROLES = Set.of(ADMIN, WAITER, "KITCHEN");
+
     private final Q5SecuritySettings settings;
     private final Clock clock;
     private final StaffRevocationStore store;
@@ -32,36 +50,58 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
         this.settings=settings; this.clock=clock; this.store=store;
     }
 
-    static boolean staffPath(String method, String path) { return policy(method,path) != null; }
+    static boolean staffPath(String method, String path) { return !policy(method,path).isEmpty(); }
 
+    /** Empty means: not a staff route, the chain decides (default deny). */
     private static Set<String> policy(String method, String path) {
-        String route = path.startsWith("/api/v1/qr") ? path.substring("/api/v1/qr".length()) : "";
-        if (method.equals("GET") && (route.equals("/tables") || route.matches("/tables/"+ID+"(/session-statistics)?")
-                || route.matches("/table-sessions/"+ID+"/close-commands/"+ID))) return Set.of("ADMIN","WAITER");
-        if (method.equals("POST") && route.matches("/table-sessions/"+ID+"/(close|cleaned)")) return Set.of("ADMIN","WAITER");
-        if ((method.equals("POST") && route.equals("/tables")) || (method.equals("PUT") && route.matches("/tables/"+ID))
-                || (method.equals("PATCH") && route.matches("/tables/"+ID+"/active"))
-                || (method.equals("GET") && route.matches("/tables/"+ID+"/qr-codes(/"+ID+"(/(image|download))?)?"))
-                || (method.equals("POST") && route.matches("/tables/"+ID+"/qr-codes(/"+ID+"/rotate)?"))
-                || (method.equals("PATCH") && route.matches("/tables/"+ID+"/qr-codes/"+ID+"/active"))
-                || (method.equals("DELETE") && route.matches("/tables/"+ID+"/qr-codes/"+ID))) return Set.of("ADMIN");
-        return null;
+        String route = path.startsWith(PREFIX) ? path.substring(PREFIX.length()) : "";
+        if (floorRoute(method, route)) return FLOOR;
+        if (tableAdminRoute(method, route) || qrCodeAdminRoute(method, route)) return ADMIN_ONLY;
+        return NONE;
+    }
+
+    private static boolean floorRoute(String method, String route) {
+        if (GET.equals(method)) {
+            return route.equals(TABLES) || route.matches(TABLE+"(/session-statistics)?")
+                    || route.matches("/table-sessions/"+ID+"/close-commands/"+ID);
+        }
+        return POST.equals(method) && route.matches("/table-sessions/"+ID+"/(close|cleaned)");
+    }
+
+    private static boolean tableAdminRoute(String method, String route) {
+        return switch (method) {
+            case POST -> route.equals(TABLES);
+            case "PUT" -> route.matches(TABLE);
+            case PATCH -> route.matches(TABLE+"/active");
+            default -> false;
+        };
+    }
+
+    private static boolean qrCodeAdminRoute(String method, String route) {
+        String codes = TABLE+"/qr-codes";
+        return switch (method) {
+            case GET -> route.matches(codes+"(/"+ID+"(/(image|download))?)?");
+            case POST -> route.matches(codes+"(/"+ID+"/rotate)?");
+            case PATCH -> route.matches(codes+"/"+ID+"/active");
+            case "DELETE" -> route.matches(codes+"/"+ID);
+            default -> false;
+        };
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
         Set<String> roles = policy(request.getMethod(), request.getRequestURI());
-        if (roles == null) { chain.doFilter(request,response); return; }
+        if (roles.isEmpty()) { chain.doFilter(request,response); return; }
         Principal principal;
         try { principal=verify(request); }
-        catch (RuntimeException invalid) { problem(response,401); return; }
+        catch (RuntimeException _) { problem(response,401); return; }
         if (!roles.contains(principal.role())) { problem(response,403); return; }
-        if (!request.getMethod().equals("GET")) {
-            try { csrf(request); } catch (RuntimeException invalid) { problem(response,403); return; }
+        if (!request.getMethod().equals(GET)) {
+            try { csrf(request); } catch (RuntimeException _) { problem(response,403); return; }
         }
         try { store.requireAllowed(principal.restaurantId(), principal.userId(), principal.sessionId()); }
-        catch (org.springframework.web.server.ResponseStatusException denied) { problem(response,denied.getStatusCode().value()); return; }
-        catch (RuntimeException databaseUnavailable) { problem(response,503); return; }
+        catch (ResponseStatusException denied) { problem(response,denied.getStatusCode().value()); return; }
+        catch (RuntimeException _) { problem(response,503); return; }
         var context=SecurityContextHolder.createEmptyContext();
         context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal,null,
                 List.of(new SimpleGrantedAuthority("ROLE_"+principal.role()))));
@@ -72,42 +112,56 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
 
     private Principal verify(HttpServletRequest request) {
         try {
-            if (request.getHeader("Authorization") != null) throw new IllegalArgumentException();
+            if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) throw new IllegalArgumentException();
             String token=cookie(request,"restofy_access");
             if (cookie(request,"restofy_mfa")!=null || cookie(request,"restofy_refresh")!=null) throw new IllegalArgumentException();
             if (token==null || token.length()>4096) throw new IllegalArgumentException();
             var key=settings.staffKey();
             UUID restaurant=settings.restaurant();
-            var claims=Jwts.parser().verifyWith(key).sig().clear().add(Jwts.SIG.RS256).and().clock(() -> Date.from(clock.instant()))
+            var claims=Jwts.parser().verifyWith(key).sig().clear().add(Jwts.SIG.RS256).and().clock(() -> java.util.Date.from(clock.instant()))
                     .requireIssuer(settings.staffIssuer()).requireAudience("restofy-staff-api")
                     .require("token_type","access").require("auth_state","AUTHENTICATED").require("auth_policy","q5-idle-v1")
                     .require("restaurant_id",restaurant.toString()).build().parseSignedClaims(token).getPayload();
-            long ttl=settings.accessTtl();
-            if (ttl != 300 || claims.getIssuedAt()==null || claims.getNotBefore()==null || claims.getExpiration()==null || claims.getId()==null
-                    || claims.getIssuedAt().toInstant().isAfter(clock.instant()) || !clock.instant().isBefore(claims.getExpiration().toInstant())
-                    || !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant())
-                    || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(ttl))) throw new IllegalArgumentException();
-            UUID.fromString(claims.getId());
-            if (!Set.of("ADMIN","WAITER","KITCHEN").contains(claims.get("role",String.class))) throw new IllegalArgumentException();
-            return new Principal(restaurant,UUID.fromString(claims.getSubject()),UUID.fromString(claims.get("sid",String.class)),claims.get("role",String.class));
-        } catch (Exception invalid) { throw new IllegalArgumentException("Invalid staff identity"); }
+            requireFresh(claims, settings.accessTtl());
+            String role=claims.get("role",String.class);
+            if (!STAFF_ROLES.contains(role)) throw new IllegalArgumentException();
+            return new Principal(restaurant,UUID.fromString(claims.getSubject()),UUID.fromString(claims.get("sid",String.class)),role);
+        } catch (Exception _) { throw new IllegalArgumentException("Invalid staff identity"); }
+    }
+
+    /** iat/nbf/exp/jti present, issued in the past, not expired, positive lifetime of at most the fixed 300 s TTL. */
+    private void requireFresh(Claims claims, long ttl) {
+        if (ttl != 300 || claims.getIssuedAt()==null || claims.getNotBefore()==null || claims.getExpiration()==null || claims.getId()==null) {
+            throw new IllegalArgumentException();
+        }
+        Instant now=clock.instant();
+        Instant issued=claims.getIssuedAt().toInstant();
+        Instant expires=claims.getExpiration().toInstant();
+        if (issued.isAfter(now) || !now.isBefore(expires) || !expires.isAfter(issued) || expires.isAfter(issued.plusSeconds(ttl))) {
+            throw new IllegalArgumentException();
+        }
+        UUID.fromString(claims.getId());
     }
 
     private void csrf(HttpServletRequest request) {
-        if (Collections.list(request.getHeaders("Origin")).size()!=1 || Collections.list(request.getHeaders("X-CSRF-TOKEN")).size()!=1) throw new IllegalArgumentException();
-        String origin=request.getHeader("Origin");
+        if (Collections.list(request.getHeaders(HttpHeaders.ORIGIN)).size()!=1 || Collections.list(request.getHeaders(CSRF_HEADER)).size()!=1) throw new IllegalArgumentException();
+        String origin=request.getHeader(HttpHeaders.ORIGIN);
         var origins=settings.origins();
         if (!origins.contains(origin) || origin.contains("*") || !MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(request.getContentType()))) throw new IllegalArgumentException();
-        String token=cookie(request,"restofy_csrf"), header=request.getHeader("X-CSRF-TOKEN");
+        String token=cookie(request,"restofy_csrf");
+        String header=request.getHeader(CSRF_HEADER);
         if (token==null || !token.matches("[A-Za-z0-9_.-]{20,2048}") || header==null
-                || !MessageDigest.isEqual(token.getBytes(java.nio.charset.StandardCharsets.US_ASCII),header.getBytes(java.nio.charset.StandardCharsets.US_ASCII))) throw new IllegalArgumentException();
+                || !MessageDigest.isEqual(token.getBytes(StandardCharsets.US_ASCII),header.getBytes(StandardCharsets.US_ASCII))) throw new IllegalArgumentException();
     }
 
     private static String cookie(HttpServletRequest request, String name) {
+        if (request.getCookies()==null) return null;
         String value=null;
         int count=0;
-        if (request.getCookies()!=null) for (var cookie:request.getCookies()) if (name.equals(cookie.getName())) {
-            if (++count>1) throw new IllegalArgumentException(); value=cookie.getValue();
+        for (var cookie:request.getCookies()) {
+            if (!name.equals(cookie.getName())) continue;
+            if (++count>1) throw new IllegalArgumentException();
+            value=cookie.getValue();
         }
         return value;
     }
