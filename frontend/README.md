@@ -28,11 +28,22 @@ Compose yalnızca PostgreSQL ile 13 backend mikroservisini içerir.
 
 ## ENV ve API Gateway
 
-`frontend/.env.local` için gerekli public değişken:
+`frontend/.env.local` oluşturmak için `frontend/.env.example` dosyasını kopyala. Varsayılan haliyle
+`NEXT_PUBLIC_API_BASE_URL` **boş** kalır:
 
 ```dotenv
-NEXT_PUBLIC_API_BASE_URL=http://localhost:5050
+NEXT_PUBLIC_API_BASE_URL=
 ```
+
+Tarayıcı yalnızca frontend'in kendi adresine (`http://localhost:5000`) istek atar; `/api` istekleri
+`next.config.ts` içindeki rewrite ile sunucu tarafında API Gateway'e (`API_GATEWAY_URL`, varsayılan
+`http://localhost:5050`) iletilir. Böylece cross-origin istek ve CORS preflight oluşmaz (Gateway
+OPTIONS isteklerine cevap vermez). `NEXT_PUBLIC_API_BASE_URL` yalnızca tarayıcının Gateway'e doğrudan
+gitmesi bilerek isteniyorsa doldurulur; o zaman Gateway'in CORS'u karşılaması gerekir.
+
+`API_GATEWAY_URL` Next.js'in rewrite ayarında kullanılır ve **build sırasında** okunur. Üretimde (`npm run build` +
+`npm run start`) değeri değiştirmek için uygulamayı yeniden build etmek gerekir; geliştirme sunucusunda ise yeniden
+başlatmak yeter.
 
 Next.js ENV dosyalarını frontend proje kökünden okur; repository kökündeki
 `.env.dev` otomatik yüklenmez. `.env.example` Git'te paylaşılır,
@@ -42,7 +53,7 @@ gizli bilgi içermemelidir. ENV değiştiğinde geliştirme sunucusunu yeniden b
 
 Bütün backend API çağrıları API Gateway (`5050`) üzerinden yapılmalıdır.
 Mikroservislerin `5051–5062` portlarına frontend'den doğrudan istek gönderilmez.
-Bu iskelette API client, endpoint, interceptor veya token yönetimi bulunmaz.
+Oturum HttpOnly cookie ile tutulur; frontend token okumaz veya saklamaz (`src/shared/lib/api`).
 
 ## Feature-Based yapı
 

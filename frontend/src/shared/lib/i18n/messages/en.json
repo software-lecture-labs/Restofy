@@ -1,1 +1,137 @@
-{}
+{
+  "theme": {
+    "toggle": "Switch between light and dark theme"
+  },
+  "auth": {
+    "roles": {
+      "label": "Sign-in role",
+      "ADMIN": "Admin",
+      "WAITER": "Waiter",
+      "KITCHEN": "Kitchen"
+    },
+    "login": {
+      "heading": {
+        "ADMIN": "Admin sign-in",
+        "WAITER": "Waiter sign-in",
+        "KITCHEN": "Kitchen sign-in"
+      },
+      "hint": {
+        "ADMIN": "Sign in with your account to manage the restaurant.",
+        "WAITER": "Sign in to follow tables and calls.",
+        "KITCHEN": "Sign in to see incoming orders."
+      },
+      "email": "Email",
+      "password": "Password",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "submit": "Sign in",
+      "errors": {
+        "emailRequired": "Enter your email address.",
+        "emailInvalid": "Enter a valid email address.",
+        "passwordRequired": "Enter your password."
+      },
+      "problems": {
+        "invalidCredentials": "Wrong email or password.",
+        "invalidCode": "The code is wrong or has expired.",
+        "invalidInput": "Check your details and try again.",
+        "tooManyAttempts": "Too many attempts. Wait a little and try again.",
+        "wrongRole": "This account is not for the role you picked. Pick the right role and try again.",
+        "unavailable": "Sign-in is not available right now. Try again shortly."
+      },
+      "forgot": "Forgot my password"
+    },
+    "mfa": {
+      "heading": "Two-step verification",
+      "setupHeading": "Set up your authenticator app",
+      "setupHint": "Admin accounts need two-step verification. You only set it up once; after that you enter the code from the app on each sign-in.",
+      "submit": "Verify",
+      "back": "Go back",
+      "totp": {
+        "label": "Verification code",
+        "hint": "Enter the 6-digit code from your authenticator app.",
+        "switch": "Use a recovery code"
+      },
+      "recovery": {
+        "label": "Recovery code",
+        "hint": "Enter one of the recovery codes you saved during setup. Each works once.",
+        "switch": "Use the app code"
+      },
+      "errors": {
+        "codeRequired": "Enter the code.",
+        "codeInvalid": "The code format is not valid."
+      },
+      "setup": {
+        "stepApp": "Install an authenticator app (Google Authenticator, Microsoft Authenticator, etc.) on your phone and add a new account.",
+        "stepScan": "In the app choose “scan a QR code” and scan this code.",
+        "qrLabel": "QR code for the authenticator app",
+        "stepSecret": "If you cannot scan it, choose “enter a setup key” and type this code:",
+        "openInApp": "Open in app",
+        "stepCode": "Enter the 6-digit code the app shows.",
+        "submit": "Verify and activate"
+      },
+      "recoveryCodesHeading": "Your recovery codes",
+      "recoveryCodesHint": "If you lose your phone you can sign in with one of these codes. Each works once. Save them somewhere safe now; they will not be shown again.",
+      "recoveryCodes": {
+        "copy": "Copy codes",
+        "copied": "Copied",
+        "done": "I saved them, continue"
+      }
+    },
+    "reset": {
+      "request": {
+        "heading": "Reset your password",
+        "hint": "Enter your e-mail and the 6-digit code from your authenticator app. We will e-mail you a code.",
+        "totp": "Code from your authenticator app",
+        "submit": "Send code"
+      },
+      "code": {
+        "heading": "Check your e-mail",
+        "hint": "If your details are right we e-mailed you a 6-digit code. It is valid for 15 minutes; if it does not arrive, start over.",
+        "label": "Code from the e-mail",
+        "submit": "Verify"
+      },
+      "password": {
+        "heading": "Choose a new password",
+        "hint": "At least 12 characters, and different from your old password.",
+        "label": "New password",
+        "confirmation": "New password (again)",
+        "submit": "Save password"
+      },
+      "done": {
+        "heading": "Your password is updated",
+        "hint": "You can sign in with your new password. Your open sessions were closed for safety."
+      },
+      "backToLogin": "Back to sign in",
+      "startOver": "Start over",
+      "errors": {
+        "codeRequired": "Enter the code.",
+        "codeInvalid": "The code must be 6 digits.",
+        "passwordRequired": "Enter your new password.",
+        "passwordShort": "The password must be at least 12 characters.",
+        "passwordMismatch": "The passwords do not match."
+      },
+      "problems": {
+        "invalidRequest": "The e-mail or the verification code is wrong.",
+        "invalidCode": "The code is wrong or has expired.",
+        "invalidInput": "Check your details and try again.",
+        "weakPassword": "The password breaks the rules or is the same as the old one.",
+        "expired": "The request has expired. Start over.",
+        "tooManyAttempts": "Too many attempts. Wait a little and try again.",
+        "unavailable": "This is not possible right now. Try again shortly."
+      }
+    },
+    "home": {
+      "heading": "You are signed in",
+      "loading": "Loading your session…",
+      "role": "Your role",
+      "idleExpiresAt": "Session ends if idle at",
+      "absoluteExpiresAt": "Session ends at the latest at",
+      "next": "Role-based panels (admin, waiter, kitchen) will be added in the next steps. For now you can see here that your session works.",
+      "signOut": "Sign out",
+      "signingOut": "Signing out…",
+      "problems": {
+        "unavailable": "Your session cannot be loaded right now. Try again shortly."
+      }
+    }
+  }
+}
