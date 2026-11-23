@@ -11,6 +11,21 @@ export function getSession(): Promise<StaffSession> {
   return apiRequest<StaffSession>(`${BASE}/session`);
 }
 
+let refreshing: Promise<StaffSession> | null = null;
+
+/**
+ * Trades the long-lived refresh cookie for a new access cookie; answers with the renewed session. The Auth
+ * service rotates the refresh cookie and treats a spent one as stolen once a short grace period has passed, so
+ * callers that ask at the same time (React runs effects twice in development) share one request instead of
+ * relying on that grace period.
+ */
+export function refresh(): Promise<StaffSession> {
+  refreshing ??= apiRequest<StaffSession>(`${BASE}/refresh`, { method: "POST" }).finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
 export function verifyTotp(code: string): Promise<StaffSession> {
   return apiRequest<StaffSession>(`${BASE}/mfa/verify`, { method: "POST", body: { code } });
 }

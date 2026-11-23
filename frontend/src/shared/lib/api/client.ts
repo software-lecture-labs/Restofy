@@ -63,6 +63,7 @@ async function post(path: string, body: unknown): Promise<Response> {
   const response = await attempt();
   if (response.status !== 403) return response;
   // The token may simply be stale: fetch a new one and try once more.
+  await response.body?.cancel().catch(() => undefined);
   csrfToken = null;
   return attempt();
 }

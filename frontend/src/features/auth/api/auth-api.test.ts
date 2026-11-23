@@ -46,10 +46,26 @@ describe("auth api", () => {
       "/api/v1/auth/password-reset/confirm",
       { method: "POST", body: { newPassword: "a-new-long-password" } },
     ],
+    ["refresh", () => authApi.refresh(), "/api/v1/auth/refresh", { method: "POST" }],
     ["logout", () => authApi.logout(), "/api/v1/auth/logout", { method: "POST" }],
   ])("%s calls %s with the agreed method and body", async (_name, call, path, options) => {
     await call();
     expect(apiRequest).toHaveBeenCalledWith(path, options);
+  });
+
+  it("shares one refresh request between callers that ask at the same time", async () => {
+    let finish: (session: unknown) => void = () => undefined;
+    apiRequest.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+
+    const first = authApi.refresh();
+    const second = authApi.refresh();
+    finish({ status: "AUTHENTICATED" });
+    await Promise.all([first, second]);
+
+    expect(apiRequest).toHaveBeenCalledOnce();
+    // Once it has finished, the next refresh is a new request.
+    await authApi.refresh();
+    expect(apiRequest).toHaveBeenCalledTimes(2);
   });
 
   it("reads the session with a plain GET", async () => {

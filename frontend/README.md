@@ -41,6 +41,10 @@ Tarayıcı yalnızca frontend'in kendi adresine (`http://localhost:5000`) istek 
 OPTIONS isteklerine cevap vermez). `NEXT_PUBLIC_API_BASE_URL` yalnızca tarayıcının Gateway'e doğrudan
 gitmesi bilerek isteniyorsa doldurulur; o zaman Gateway'in CORS'u karşılaması gerekir.
 
+`API_GATEWAY_URL` Next.js'in rewrite ayarında kullanılır ve **build sırasında** okunur. Üretimde (`npm run build` +
+`npm run start`) değeri değiştirmek için uygulamayı yeniden build etmek gerekir; geliştirme sunucusunda ise yeniden
+başlatmak yeter.
+
 Next.js ENV dosyalarını frontend proje kökünden okur; repository kökündeki
 `.env.dev` otomatik yüklenmez. `.env.example` Git'te paylaşılır,
 `.env.local` ise ignore edilir. `NEXT_PUBLIC_*` değerleri tarayıcıya açıldığından

@@ -4,7 +4,7 @@ import { renderWithIntl } from "@test/render-with-intl";
 import { ApiError } from "@/shared/lib/api";
 
 const replace = vi.hoisted(() => vi.fn());
-const api = vi.hoisted(() => ({ getSession: vi.fn(), logout: vi.fn() }));
+const api = vi.hoisted(() => ({ getSession: vi.fn(), refresh: vi.fn(), logout: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 vi.mock("@/shared/lib/theme/actions", () => ({ setTheme: vi.fn() }));
@@ -35,8 +35,27 @@ describe("StaffHome", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("sends a person without a session to the login", async () => {
+  it("renews an expired access cookie with the refresh cookie instead of signing the person out", async () => {
     api.getSession.mockRejectedValue(new ApiError(401));
+    api.refresh.mockResolvedValue(session({ role: "KITCHEN" }));
+    renderWithIntl(<StaffHome />);
+
+    expect(await screen.findByText("Mutfak")).toBeInTheDocument();
+    expect(api.refresh).toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not try to refresh when the Auth service is merely unreachable", async () => {
+    api.getSession.mockRejectedValue(new ApiError(0));
+    renderWithIntl(<StaffHome />);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(api.refresh).not.toHaveBeenCalled();
+  });
+
+  it("sends a person whose refresh is refused too to the login", async () => {
+    api.getSession.mockRejectedValue(new ApiError(401));
+    api.refresh.mockRejectedValue(new ApiError(401));
     renderWithIntl(<StaffHome />);
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
@@ -44,6 +63,14 @@ describe("StaffHome", () => {
 
   it("sends a session that still waits for its second factor to the login", async () => {
     api.getSession.mockResolvedValue(session({ status: "MFA_PENDING" }));
+    renderWithIntl(<StaffHome />);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+  });
+
+  it("treats a 403 from the CSRF check like a missing session", async () => {
+    api.getSession.mockRejectedValue(new ApiError(401));
+    api.refresh.mockRejectedValue(new ApiError(403));
     renderWithIntl(<StaffHome />);
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));

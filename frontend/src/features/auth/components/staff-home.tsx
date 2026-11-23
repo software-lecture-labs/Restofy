@@ -11,6 +11,11 @@ import { AuthShell } from "./auth-shell";
 
 const LOGIN_PATH = "/login";
 
+/** A refused request (not an unreachable service): without a valid cookie Auth answers 401, or 403 from its CSRF check. */
+function isSignedOut(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 type State =
   | { kind: "loading" }
   | { kind: "ready"; session: StaffSession }
@@ -31,8 +36,14 @@ export function StaffHome() {
 
   useEffect(() => {
     let active = true;
+    // The access cookie lives only a few minutes while the session itself lasts longer, so an answer of 401 or 403 first
+    // tries the refresh cookie; only when that is refused as well is the person really signed out.
     authApi
       .getSession()
+      .catch((error: unknown) => {
+        if (isSignedOut(error)) return authApi.refresh();
+        throw error;
+      })
       .then((session) => {
         if (!active) return;
         if (session.status !== "AUTHENTICATED") router.replace(LOGIN_PATH);
@@ -40,7 +51,7 @@ export function StaffHome() {
       })
       .catch((error: unknown) => {
         if (!active) return;
-        if (error instanceof ApiError && error.status === 401) router.replace(LOGIN_PATH);
+        if (isSignedOut(error)) router.replace(LOGIN_PATH);
         else setState({ kind: "unavailable" });
       });
     return () => {

@@ -145,6 +145,20 @@ describe("api client", () => {
     expect((failure as InstanceType<typeof ApiError>).status).toBe(401);
   });
 
+  it("closes the refused first answer before it retries with a new token", async () => {
+    const refused = json({}, 403);
+    const cancel = vi.spyOn(refused.body!, "cancel");
+    fetchMock
+      .mockResolvedValueOnce(csrf("old"))
+      .mockResolvedValueOnce(refused)
+      .mockResolvedValueOnce(csrf("new"))
+      .mockResolvedValueOnce(json({}));
+    const { apiRequest } = await load();
+
+    await apiRequest("/api/v1/auth/refresh", { method: "POST" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("closes the body of a failed answer so the connection can finish", async () => {
     const response = json({ code: "UNAUTHORIZED" }, 401);
     const cancel = vi.spyOn(response.body!, "cancel");
