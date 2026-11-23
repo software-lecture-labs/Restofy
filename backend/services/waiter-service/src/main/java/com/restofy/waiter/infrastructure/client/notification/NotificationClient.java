@@ -21,6 +21,7 @@ import java.util.UUID;
 public class NotificationClient {
 
     public static final String DEPENDENCY = "notification";
+    @SuppressWarnings("java:S1075") // The path belongs to Notification's wire contract; only the base URL is configurable.
     public static final String EVENTS_PATH = "/api/v1/internal/service-call-events";
 
     private final RestClient client;
