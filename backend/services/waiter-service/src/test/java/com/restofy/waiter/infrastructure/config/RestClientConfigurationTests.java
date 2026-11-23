@@ -5,6 +5,7 @@ import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.infrastructure.client.notification.NotificationClient;
 import com.restofy.waiter.infrastructure.client.order.OrderClient;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
+import com.restofy.waiter.infrastructure.client.qr.WaiterQrRequestSigner;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
 import org.junit.jupiter.api.AfterEach;
@@ -70,8 +71,9 @@ class RestClientConfigurationTests {
     private ApplicationContextRunner runner(Map<String, Object> env) {
         return new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, RestClientAutoConfiguration.class))
-                .withUserConfiguration(RestClientConfiguration.class, QrClient.class, OrderClient.class,
-                        NotificationClient.class)
+                .withBean(java.time.Clock.class, java.time.Clock::systemUTC)
+                .withUserConfiguration(RestClientConfiguration.class, QrClient.class, WaiterQrRequestSigner.class,
+                        OrderClient.class, NotificationClient.class)
                 .withInitializer(context -> {
                     var sources = context.getEnvironment().getPropertySources();
                     sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);

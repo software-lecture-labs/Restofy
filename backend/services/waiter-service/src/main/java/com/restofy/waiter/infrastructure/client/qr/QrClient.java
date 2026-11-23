@@ -7,6 +7,8 @@ import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.domain.exception.SnapshotLimitExceededException;
 import com.restofy.waiter.infrastructure.client.DownstreamCalls;
 import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -35,8 +37,9 @@ import java.util.UUID;
  * <p>Every call uses the shared {@code /api/v1/internal} prefix. Only the close command and its status follow a
  * contract QR has implemented: ADR-QR-001 K11 (reviewed at QR commit 1f98fbb). QR keeps those endpoints closed until
  * the Waiter service identity and the staff delegation are verified; Waiter sends neither yet, so QR answers 401
- * today. The guest verification uses QR's shared QR-INT-02 endpoint ({@link #GUEST_VALIDATE}); QR accepts only
- * Order's service identity there today, so it also answers 401 to Waiter until a Waiter identity is agreed. The table
+ * today. The guest verification uses QR's shared QR-INT-02 endpoint ({@link #GUEST_VALIDATE}) and sends Waiter's own
+ * service identity ({@link WaiterQrRequestSigner}, scope {@code qr:guest-validate}, QR PR #41); while no service key
+ * is configured nothing is signed and QR answers 401. The table
  * reads and the cleaning command are Waiter's DRAFT paths under the same prefix: QR has no internal counterpart for
  * them yet, and moving them onto QR's staff endpoints would change their identity and idempotency semantics, so they
  * wait for a shared contract.
@@ -60,8 +63,13 @@ public class QrClient {
     static final String UNAVAILABLE_GUEST = "Guest session is unavailable.";
 
     private final RestClient client;
+    private final JsonMapper requests;
+    private final WaiterQrRequestSigner signer;
 
-    public QrClient(RestClient.Builder builder, ServiceUrlProperties urls, JsonMapper json) {
+    public QrClient(RestClient.Builder builder, ServiceUrlProperties urls, JsonMapper json,
+                    WaiterQrRequestSigner signer) {
+        this.requests = json;
+        this.signer = signer;
         JsonMapper answers = json.rebuild().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
         this.client = builder.clone().baseUrl(urls.qrUrl().toString())
                 .configureMessageConverters(converters -> converters.withJsonConverter(
@@ -130,11 +138,15 @@ public class QrClient {
      * itself, not of the guest.
      */
     public Optional<QrGuestContextDto> verifyGuest(String guestToken) {
+        // The credential is bound to the digest of the exact bytes sent, so the body is serialized once, here.
+        byte[] body = requests.writeValueAsBytes(new QrGuestVerifyRequest(guestToken));
         try {
             QrGuestContextDto context = client.post()
                     .uri(GUEST_VALIDATE)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new QrGuestVerifyRequest(guestToken))
+                    .headers(headers -> signer.authorization(HttpMethod.POST, GUEST_VALIDATE, body)
+                            .ifPresent(credential -> headers.set(HttpHeaders.AUTHORIZATION, credential)))
+                    .body(body)
                     .retrieve().body(QrGuestContextDto.class);
             if (context == null) throw badResponse("empty answer to the guest validation");
             return Optional.of(context);
