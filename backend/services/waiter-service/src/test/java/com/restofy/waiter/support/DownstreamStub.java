@@ -52,6 +52,11 @@ public final class DownstreamStub implements AutoCloseable {
             return new Response(status, "application/json", body, 0);
         }
 
+        /** An RFC 9457 problem answer, as Spring's ProblemDetail handlers send it. */
+        public static Response problem(int status, String body) {
+            return new Response(status, "application/problem+json", body, 0);
+        }
+
         public Response delayed(long millis) {
             return new Response(status, contentType, body, millis);
         }

@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -296,29 +295,24 @@ class CallRulesUnitTests {
     }
 
     @ParameterizedTest
-    @CsvSource({"OPEN,ACTIVE,true", "OPEN,ENDED,false", "OPEN,EXPIRED,false", "CLOSING,ACTIVE,false", "CLOSED,ACTIVE,false",
-            "EXPIRED,ACTIVE,false"})
-    void onlyAnOpenSessionWithAnActiveGuestMayRaiseCalls(QrGuestContextDto.TableSessionState table,
-                                                         QrGuestContextDto.GuestSessionState guest, boolean active) {
+    @CsvSource({"ENDED", "EXPIRED", "CLOSED", "OPEN", "active"})
+    void qrAnswersOnlyActiveGuestsSoAnyOtherStateIsAContractViolation(String state) {
         UUID id = UUID.randomUUID();
-        QrGuestContextDto context = new QrGuestContextDto(id, id, new QrGuestContextDto.TableSession(id, table),
-                new QrGuestContextDto.GuestSession(id, guest));
-        assertEquals(active, context.isActive());
+        Instant now = Instant.now();
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, id, state, now));
+        assertEquals(QrGuestContextDto.ACTIVE, new QrGuestContextDto(id, id, id, id, "ACTIVE", now).state());
     }
 
     @Test
     void anIncompleteQrAnswerIsAContractViolation() {
         UUID id = UUID.randomUUID();
-        var open = new QrGuestContextDto.TableSession(id, QrGuestContextDto.TableSessionState.OPEN);
-        var active = new QrGuestContextDto.GuestSession(id, QrGuestContextDto.GuestSessionState.ACTIVE);
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(null, id, open, active));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, null, open, active));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, null, active));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, open, null));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.TableSession(null,
-                QrGuestContextDto.TableSessionState.OPEN));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.GuestSession(id, null));
-        assertNotNull(open.status());
+        Instant now = Instant.now();
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(null, id, id, id, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, null, id, id, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, null, id, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, null, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, id, null, now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, id, "ACTIVE", null));
     }
 
     @Test

@@ -28,13 +28,15 @@ QR'ın personel masa API'si `content`, `isActive` ve en fazla 100 kayıt kullan�
 
 ## PR 2 · Garson, yardım ve hesap çağrısı için guest doğrulama (WAITER-02)
 
-**İstenen uç** `POST /api/v1/internal/guest-sessions/verify`
+**Kullanılan uç** `POST /api/v1/internal/qr/guest-sessions/validate` (QR-INT-02, #28 ile eklendi; Order da aynı ucu kullanıyor)
 
-Waiter'ın mevcut iç istemcisi `{ "guestToken": "…" }` gönderiyor ve `{ restaurantId, tableId, tableSession: { id, status }, guestSession: { id, status } }` bekliyor. QR'daki `GuestSessionValidationService` doğrulamayı zaten yapıyor. İstediğim, bu davranışın iç HTTP üzerinden erişilebilir olması. Order'ın da aynı doğrulamaya ihtiyacı olduğu için iç DTO'yu Hamza'yla birlikte netleştirelim.
+Hocanın ortak uç isteği doğrultusunda Waiter için ayrı bir uç istemiyorum. Waiter'ın `QrClient`'ı bu ortak uca `{ "guestToken": "<43 karakter token>" }` gönderiyor ve QR'ın düz yanıtını okuyor: `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId`, `state` (`"ACTIVE"`), `checkedAt`. Çağrının restoran, masa ve oturum kimlikleri yalnız bu yanıttan alınır.
 
-- `200` yanıtı `OPEN` ana oturum ve ona bağlı `ACTIVE` guest döndürür. Waiter çağrının restoran, masa ve oturum kimliklerini bu yanıttan alır.
-- QR'ın mevcut doğrulama davranışıyla uyumlu önerim, tanınmayan veya artık kullanılamayan guest için genel `404`. Servis yetkisi reddi `401/403`, doğrulama altyapısı kesintisi ayrı bağımlılık hatası olarak ele alınır.
-- Doğrulama oturum aktivitesini yenilemez. Ham token yanıta, URL'ye veya loga girmez. QR doğrulama sınırını kendi tarafında uygular. Waiter'ın çağrı oluşturma limiti ayrı kalır. QR bu uçta `429` döndürecekse Waiter eşlemesini aynı entegrasyonda yapalım. Mevcut istemci QR'dan gelen `429` yanıtını genel bağımlılık hatasına çeviriyor.
+- `200` yalnız açık ana oturuma bağlı `ACTIVE` guest için gelir. Başka bir `state` veya eksik alan sözleşme ihlali sayılır (`502 DEPENDENCY_BAD_RESPONSE`).
+- Tanınmayan veya artık kullanılamayan guest için QR'ın `404` problem yanıtı (`detail: "Guest session is unavailable."`) müşteriye `401` olarak döner, nedeni söylenmez. Bu gövdeyi taşımayan `404` (örneğin eksik rota veya kapalı profil) guest reddi sayılmaz, bağımlılık hatası olur.
+- Servis kimliği reddi (`401/403`) Waiter'ın kendisinin reddidir (`502 DEPENDENCY_REJECTED`), guest hatası olarak gösterilmez. Kesinti `503`, zaman aşımı `504` olur.
+- **Açık konu: Waiter'ın servis kimliği.** Bu uç bugün yalnız Order'ın servis kimliğini (`Authorization: Service <JWT>`, `iss=restofy-order`) kabul ediyor. Waiter henüz kimlik göndermediği için gerçek QR'a karşı `401` alır. Waiter'ın QR'a hangi kimlikle gideceği `docs/SECURITY.md` gereği onay gerektiren ayrı bir karar; Alper, Hamza ve ben birlikte netleştireceğiz. **Gerçek QR'a karşı henüz doğrulanmadı**, testler yerel sahte QR'a karşı çalışıyor.
+- Doğrulama oturum aktivitesini yenilemez. Ham token yanıta, URL'ye veya loga girmez. Waiter'ın çağrı oluşturma limiti ayrı kalır. QR bu uçta `429` döndürürse mevcut istemci bunu genel bağımlılık hatasına çeviriyor.
 - **Tarayıcı tarafı** 5 Kasım'daki ADR-QR-002 kararı HttpOnly guest cookie. QR'ın `chore/qr-guest-session` dalındaki sözleşmesine (`restofy_guest`, `restofy_guest_csrf` çerezleri, `X-Guest-CSRF` başlığı, tek ve izinli `Origin`) göre Waiter'ı uyarladım: `X-Guest-Token` kalktı, çağrı yazma ucu çerezi okuyup CSRF/Origin kanıtını arıyor ve doğrulamayı yine QR'a yaptırıyor (`WAITER-INT-01`). Bu dal `dev`'e girmediği için canlı uçtan uca doğrulama yapılmadı. Cookie süresi ve yenileme ayrıntıları QR'da kalıyor. Bu karar tarayıcı ile servis arasındaki taşıma için geçerli.
 
 **Kabul ölçütleri**

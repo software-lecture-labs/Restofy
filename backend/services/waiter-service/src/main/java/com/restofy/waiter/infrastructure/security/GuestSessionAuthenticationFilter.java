@@ -1,6 +1,5 @@
 package com.restofy.waiter.infrastructure.security;
 
-import com.restofy.waiter.domain.exception.CallConflictException;
 import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
 import com.restofy.waiter.infrastructure.client.qr.QrGuestContextDto;
@@ -31,8 +30,9 @@ import java.util.regex.Pattern;
  * answer, not the request, decides restaurant, table, table session and guest session. Nothing else in the
  * request is trusted.
  *
- * <p>This is not a public endpoint: without a credential that QR accepts the request is a 401, and a known
- * credential whose session has ended is a 409. The credential is never logged or stored. Because a browser
+ * <p>This is not a public endpoint: without a credential that QR accepts the request is a 401. QR does not say
+ * why it refuses a guest (unknown, ended, expired, or a table session that is no longer open), so neither does
+ * Waiter. The credential is never logged or stored. Because a browser
  * attaches a cookie on its own, the request is protected by {@link BrowserCsrfProtection} first (Origin plus
  * the {@code X-Guest-CSRF} double submit, ADR-QR-002 K6). The former {@code X-Guest-Token} header is no longer a
  * credential: it is ignored, so a request that only carries it stays a 401. A staff cookie never authenticates
@@ -89,14 +89,10 @@ final class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
             errors.resolveException(request, response, null, new BadCredentialsException("Unknown guest credential"));
             return;
         }
+        // QR answers 200 only for an active guest of an open table session; the DTO rejects any other state.
         QrGuestContextDto verified = context.get();
-        if (!verified.isActive()) {
-            errors.resolveException(request, response, null, new CallConflictException("SESSION_NOT_ACTIVE",
-                    "The table session or guest session is no longer active"));
-            return;
-        }
         AuthenticatedGuest guest = new AuthenticatedGuest(verified.restaurantId(), verified.tableId(),
-                verified.tableSession().id(), verified.guestSession().id());
+                verified.tableSessionId(), verified.guestSessionId());
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
         securityContext.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(guest, null,
                 List.of(new SimpleGrantedAuthority("ROLE_GUEST"))));

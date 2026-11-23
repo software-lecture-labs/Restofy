@@ -28,13 +28,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * The customer-facing call endpoint. The guest authenticates with a credential that QR verifies; restaurant,
- * table, table session and guest session come only from QR's answer. QR is the local HTTP stub of the DRAFT
- * contract, so these tests do not prove behaviour against the real QR service.
+ * table, table session and guest session come only from QR's answer. QR is a local HTTP stub of its shared guest
+ * validation endpoint (QR-INT-02, {@code POST /api/v1/internal/qr/guest-sessions/validate}), so these tests do not
+ * prove behaviour against the real QR service.
  */
 class GuestCallApiTests extends ApiTestBase {
 
     private static final UUID SESSION = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID OTHER_SESSION = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
+
+    /** Every identifier of QR's answer; the cases below complete it with state and checkedAt. */
+    private static final String VALID_PREFIX = "{\"restaurantId\":\"00000000-0000-0000-0000-00000000a001\","
+            + "\"tableId\":\"00000000-0000-0000-0000-0000000000f1\",\"tableSessionId\":\"00000000-0000-0000-0000-0000000000a1\","
+            + "\"guestSessionId\":\"00000000-0000-0000-0000-0000000000a2\",";
 
     private FakeBackends.Table table;
     private FakeBackends.Guest guest;
@@ -98,7 +104,7 @@ class GuestCallApiTests extends ApiTestBase {
     @Test
     void qrIsAskedToVerifyTheCredentialInTheBodyNeverInTheUrl() throws Exception {
         raiseCall(guest, "WAITER").andExpect(status().isCreated());
-        List<DownstreamStub.Request> verifications = STUB.requests("POST", "/api/v1/internal/guest-sessions/verify");
+        List<DownstreamStub.Request> verifications = STUB.requests("POST", FakeBackends.GUEST_VALIDATE);
         assertEquals(1, verifications.size());
         DownstreamStub.Request verification = verifications.getFirst();
         assertTrue(verification.body().contains(guest.token()));
@@ -192,10 +198,12 @@ class GuestCallApiTests extends ApiTestBase {
     @ParameterizedTest
     @CsvSource({"CLOSED,ACTIVE", "EXPIRED,ACTIVE", "CLOSING,ACTIVE", "OPEN,ENDED", "OPEN,EXPIRED"})
     void endedClosingOrExpiredSessionsCannotRaiseCalls(String tableSession, String guestSession) throws Exception {
+        // QR refuses such a guest with the same 404 as an unknown one, so Waiter does not say why either.
         backends.guests.put(guest.token(), guest.withStatuses(tableSession, guestSession));
         raiseCall(guest, "BILL")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION_NOT_ACTIVE"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+        assertEquals(1, STUB.requests("POST", FakeBackends.GUEST_VALIDATE).size());
         assertNothingWritten();
     }
 
@@ -219,7 +227,7 @@ class GuestCallApiTests extends ApiTestBase {
     @Test
     void theCredentialIsReadFromTheHttpOnlyCookieAndVerifiedByQr() throws Exception {
         mockMvc.perform(call("BILL").with(guestBrowser(guest.token()))).andExpect(status().isCreated());
-        assertEquals(1, STUB.requests("POST", "/api/v1/internal/guest-sessions/verify").size());
+        assertEquals(1, STUB.requests("POST", FakeBackends.GUEST_VALIDATE).size());
     }
 
     @Test
@@ -481,7 +489,7 @@ class GuestCallApiTests extends ApiTestBase {
 
     @Test
     void qrOutageIsServiceUnavailableNotAnonymousAndNotAWrite() throws Exception {
-        STUB.override("POST", "/api/v1/internal/guest-sessions/verify", request -> Response.json(503, "{}"));
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.json(503, "{}"));
         raiseCall(guest, "WAITER").andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_UNAVAILABLE")).andExpect(jsonPath("$.dependency").value("qr"));
         assertNothingWritten();
@@ -489,18 +497,34 @@ class GuestCallApiTests extends ApiTestBase {
 
     @Test
     void qrTimeoutIsAGatewayTimeoutWithoutInternalAddresses() throws Exception {
-        STUB.override("POST", "/api/v1/internal/guest-sessions/verify", request -> Response.json(200, "{}").delayed(1500));
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.json(200, "{}").delayed(1500));
         String body = raiseCall(guest, "WAITER").andExpect(status().isGatewayTimeout())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_TIMEOUT")).andReturn().getResponse().getContentAsString();
         assertFalse(body.contains("127.0.0.1"));
         assertNothingWritten();
     }
 
-    @Test
-    void qrRejectingWaiterItselfIsABadGatewayNotAGuestProblem() throws Exception {
-        STUB.override("POST", "/api/v1/internal/guest-sessions/verify", request -> Response.json(401, "{}"));
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403})
+    void qrRejectingWaiterItselfIsABadGatewayNotAGuestProblem(int status) throws Exception {
+        // QR accepts only Order's service identity on this endpoint today, so a real QR answers this way.
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.json(status, "{}"));
         raiseCall(guest, "WAITER").andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_REJECTED"));
+        assertNothingWritten();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"status\":404}",
+            "{\"status\":404,\"detail\":\"No static resource api/v1/internal/qr/guest-sessions/validate.\"}"})
+    void aNotFoundThatIsNotQrsGuestRefusalIsNotMistakenForAnUnknownGuest(String body) throws Exception {
+        // A missing route or a QR without the inbound profile must surface, not turn every guest into a 401.
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.problem(404, body));
+        raiseCall(guest, "WAITER").andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"));
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.json(404, FakeBackends.UNAVAILABLE_GUEST));
+        raiseCall(guest, "WAITER").andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"));
         assertNothingWritten();
     }
 
@@ -508,13 +532,19 @@ class GuestCallApiTests extends ApiTestBase {
     @ValueSource(strings = {
             "{}", "not json", "[]",
             "{\"restaurantId\":\"00000000-0000-0000-0000-00000000a001\"}",
+            VALID_PREFIX + "\"state\":\"EXPIRED\",\"checkedAt\":\"2026-11-23T10:00:00Z\"}",
+            VALID_PREFIX + "\"state\":\"CLOSED\",\"checkedAt\":\"2026-11-23T10:00:00Z\"}",
+            VALID_PREFIX + "\"checkedAt\":\"2026-11-23T10:00:00Z\"}",
+            VALID_PREFIX + "\"state\":\"ACTIVE\"}",
             "{\"restaurantId\":\"00000000-0000-0000-0000-00000000a001\",\"tableId\":\"00000000-0000-0000-0000-0000000000f1\","
-                    + "\"tableSession\":{\"id\":\"00000000-0000-0000-0000-0000000000a1\",\"status\":\"PAUSED\"},"
-                    + "\"guestSession\":{\"id\":\"00000000-0000-0000-0000-0000000000a2\",\"status\":\"ACTIVE\"}}",
+                    + "\"tableSessionId\":\"00000000-0000-0000-0000-0000000000a1\",\"state\":\"ACTIVE\","
+                    + "\"checkedAt\":\"2026-11-23T10:00:00Z\"}",
+            // The former DRAFT shape with nested sessions is not QR's answer.
             "{\"restaurantId\":\"00000000-0000-0000-0000-00000000a001\",\"tableId\":\"00000000-0000-0000-0000-0000000000f1\","
-                    + "\"tableSession\":{\"id\":\"00000000-0000-0000-0000-0000000000a1\",\"status\":\"OPEN\"}}"})
+                    + "\"tableSession\":{\"id\":\"00000000-0000-0000-0000-0000000000a1\",\"status\":\"OPEN\"},"
+                    + "\"guestSession\":{\"id\":\"00000000-0000-0000-0000-0000000000a2\",\"status\":\"ACTIVE\"}}"})
     void anIncompleteOrUnknownQrAnswerIsNeverTrustedAsAnIdentity(String answer) throws Exception {
-        STUB.override("POST", "/api/v1/internal/guest-sessions/verify", request -> Response.json(200, answer));
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.json(200, answer));
         raiseCall(guest, "WAITER").andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"));
         assertNothingWritten();
