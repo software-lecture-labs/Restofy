@@ -61,6 +61,8 @@ public class QrClient {
     static final String GUEST_VALIDATE = "/api/v1/internal/qr/guest-sessions/validate";
     /** The detail QR puts in every guest refusal, so that it can be told apart from a missing route. */
     static final String UNAVAILABLE_GUEST = "Guest session is unavailable.";
+    /** The one fixed code QR (PR #44) puts in every guest refusal; it does not say why the guest is unavailable. */
+    static final String GUEST_SESSION_UNAVAILABLE = "GUEST_SESSION_UNAVAILABLE";
 
     private final RestClient client;
     private final JsonMapper requests;
@@ -158,7 +160,11 @@ public class QrClient {
         }
     }
 
-    /** QR's guest refusal: a 404 problem with the fixed detail of its InvalidGuestSessionException. */
+    /**
+     * QR's guest refusal: a 404 problem. QR marks it with the fixed {@code code} (PR #44). While the transition lasts,
+     * the older fixed {@code detail} of its InvalidGuestSessionException is accepted as well; drop that comparison
+     * once both environments send the code.
+     */
     private static boolean isUnavailableGuest(RestClientResponseException refusal) {
         if (refusal.getStatusCode().value() != HttpStatus.NOT_FOUND.value()) return false;
         MediaType type = refusal.getResponseHeaders() == null ? null : refusal.getResponseHeaders().getContentType();
@@ -166,7 +172,8 @@ public class QrClient {
         try {
             JsonNode problem = REJECTION_JSON.readTree(refusal.getResponseBodyAsString());
             return problem.path("status").asInt(0) == HttpStatus.NOT_FOUND.value()
-                    && UNAVAILABLE_GUEST.equals(problem.path("detail").asString(""));
+                    && (GUEST_SESSION_UNAVAILABLE.equals(problem.path("code").asString(""))
+                    || UNAVAILABLE_GUEST.equals(problem.path("detail").asString("")));
         } catch (RuntimeException _) {
             return false;
         }
