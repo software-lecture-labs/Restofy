@@ -33,6 +33,7 @@ public class SecurityConfiguration {
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
                                     ServiceIdentityPort serviceIdentity, ApiErrorWriter errors,
+                                    WaiterServeSignatureVerifier waiterSignatures,
                                     @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment) {
         if (environment.matchesProfiles("order-qr") && guestOrigins.isBlank()) {
             throw new IllegalStateException("CORS_ALLOWED_ORIGINS is required for order-qr");
@@ -92,6 +93,8 @@ public class SecurityConfiguration {
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/payment")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.PAYMENT))
+                        .requestMatchers(WaiterServeAuthenticationFilter::matches)
+                        .hasAuthority(WaiterServeAuthenticationFilter.AUTHORITY)
                         // Table-session closure (ADR-QR-001): only the QR Service, which owns tables and their sessions.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/table-sessions/*/closure-preparations")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
@@ -108,6 +111,8 @@ public class SecurityConfiguration {
                 .addFilterBefore(new AuthorizationHeaderFilter(errors), GuestSessionAuthenticationFilter.class)
                 .addFilterBefore(new StaffAuthenticationFilter(authContext, errors),
                         AnonymousAuthenticationFilter.class)
+                .addFilterBefore(new WaiterServeAuthenticationFilter(waiterSignatures, authContext, errors),
+                        StaffAuthenticationFilter.class)
                 .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors),
                         AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
