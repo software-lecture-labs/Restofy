@@ -27,8 +27,16 @@ class ServiceCallerTests {
         var waiter = ServiceCaller.waiter(json, keys("waiter-1")).orElseThrow();
         assertThat(waiter.issuer()).isEqualTo("restofy-waiter");
         assertThat(waiter.subject()).isEqualTo("waiter-service");
-        assertThat(waiter.scope()).isEqualTo("qr:guest-validate");
-        assertThat(waiter.authority()).isEqualTo(ServiceCaller.WAITER_AUTHORITY).isNotEqualTo(ServiceCaller.ORDER_AUTHORITY);
+        assertThat(waiter.authorityFor("qr:guest-validate")).contains(ServiceCaller.WAITER_AUTHORITY);
+        assertThat(waiter.authorityFor("qr:table-read")).contains(ServiceCaller.WAITER_TABLE_READ_AUTHORITY);
+        assertThat(ServiceCaller.WAITER_AUTHORITY).isNotEqualTo(ServiceCaller.ORDER_AUTHORITY)
+                .isNotEqualTo(ServiceCaller.WAITER_TABLE_READ_AUTHORITY);
+        assertThat(waiter.authorityFor("qr:guest-session")).isEmpty();
+        assertThat(waiter.authorityFor(null)).isEmpty();
+        assertThat(waiter.authorityFor(List.of("qr:table-read"))).isEmpty();
+        var order = ServiceCaller.order(json, keys("order-1"));
+        assertThat(order.authorityFor("qr:guest-session")).contains(ServiceCaller.ORDER_AUTHORITY);
+        assertThat(order.authorityFor("qr:table-read")).isEmpty();
     }
 
     @Test

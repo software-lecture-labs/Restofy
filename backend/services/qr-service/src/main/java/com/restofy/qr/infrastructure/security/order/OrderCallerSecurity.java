@@ -1,5 +1,6 @@
 package com.restofy.qr.infrastructure.security.order;
 
+import com.restofy.qr.api.controller.InternalTableController;
 import com.restofy.qr.api.controller.OrderGuestSessionController;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -19,8 +20,9 @@ import java.util.ArrayList;
 import java.util.UUID;
 
 /**
- * Internal service callers of the guest-session routes. Order may use all of them. Waiter may only validate a guest
- * and re-check its state; the Order-only cart-activity event stays closed to it.
+ * Internal service callers of the guest-session routes and the read-only table routes. Order may use the guest
+ * routes. Waiter may only validate a guest and re-check its state (scope qr:guest-validate) or read tables (scope
+ * qr:table-read); the Order-only cart-activity event and every table command stay closed to it.
  */
 @Configuration(proxyBeanMethods = false)
 @Profile("qr-order-inbound")
@@ -37,7 +39,7 @@ public class OrderCallerSecurity {
         var callers = new ArrayList<ServiceCaller>();
         callers.add(ServiceCaller.order(json, orderKeys));
         ServiceCaller.waiter(json, waiterKeys).ifPresent(callers::add);
-        http.securityMatcher(prefix + "/**")
+        http.securityMatcher(prefix + "/**", InternalTableController.BASE, InternalTableController.BASE + "/*")
                 .addFilterBefore(new ServiceCallerFilter(restaurantId, clock, callers), CsrfFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(csrf -> csrf.requireCsrfProtectionMatcher(request -> CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)
@@ -47,6 +49,8 @@ public class OrderCallerSecurity {
                         .hasAnyAuthority(ServiceCaller.ORDER_AUTHORITY, ServiceCaller.WAITER_AUTHORITY)
                         .requestMatchers(HttpMethod.GET, prefix + OrderGuestSessionController.STATE)
                         .hasAnyAuthority(ServiceCaller.ORDER_AUTHORITY, ServiceCaller.WAITER_AUTHORITY)
+                        .requestMatchers(HttpMethod.GET, InternalTableController.BASE, InternalTableController.BASE + "/*")
+                        .hasAuthority(ServiceCaller.WAITER_TABLE_READ_AUTHORITY)
                         .requestMatchers(HttpMethod.POST, prefix + OrderGuestSessionController.CART_ACTIVITY)
                         .hasAuthority(ServiceCaller.ORDER_AUTHORITY)
                         .anyRequest().denyAll())

@@ -84,7 +84,7 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
             reject(response, HttpStatus.FORBIDDEN);
             return;
         }
-        serve(request, response, chain, body, authenticated.caller());
+        serve(request, response, chain, body, authenticated.authority());
     }
 
     private Authenticated authenticate(String header) {
@@ -106,7 +106,7 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
                 || expiration.toInstant().isAfter(issued.toInstant().plusSeconds(30)) || !standardUuid(claims.getId())) {
             throw new IllegalArgumentException("Invalid service credential lifetime or identifier");
         }
-        return new Authenticated(caller, claims);
+        return new Authenticated(caller, claims, caller.authorityFor(claims.get("scope")).orElse(null));
     }
 
     private static boolean standardUuid(String value) {
@@ -136,17 +136,17 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         var claims = authenticated.claims();
         String query = request.getQueryString();
         String target = request.getRequestURI() + (query == null ? "" : "?" + query);
-        return authenticated.caller().scope().equals(claims.get("scope")) && restaurantId.toString().equals(claims.get("restaurant_id"))
+        return authenticated.authority() != null && restaurantId.toString().equals(claims.get("restaurant_id"))
                 && request.getMethod().equals(claims.get("method")) && target.equals(claims.get("target"))
                 && OrderSignedRequest.digest(body).equals(claims.get("body_sha256"))
                 && (!"GET".equals(request.getMethod()) || body.length == 0);
     }
 
     private void serve(HttpServletRequest request, HttpServletResponse response, FilterChain chain, byte[] body,
-                       ServiceCaller caller) throws IOException, ServletException {
+                       String authority) throws IOException, ServletException {
         var context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(restaurantId, null,
-                AuthorityUtils.createAuthorityList(caller.authority())));
+                AuthorityUtils.createAuthorityList(authority)));
         SecurityContextHolder.setContext(context);
         request.setAttribute(VERIFIED, Boolean.TRUE);
         try {
@@ -163,5 +163,5 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         response.getWriter().write("{\"status\":" + status.value() + ",\"title\":\"" + status.getReasonPhrase() + "\"}");
     }
 
-    private record Authenticated(ServiceCaller caller, Claims claims) { }
+    private record Authenticated(ServiceCaller caller, Claims claims, String authority) { }
 }

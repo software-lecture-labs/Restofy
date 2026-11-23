@@ -13,17 +13,19 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * One trusted internal caller: its token identity, the single scope it may present, the authority a verified call
- * receives and the public keys that belong to it. Keys are never shared between callers.
+ * One trusted internal caller: its token identity, the scopes it may present (a token carries exactly one), the
+ * authority each scope grants to a verified call and the public keys that belong to it. Keys are never shared
+ * between callers.
  */
-record ServiceCaller(String issuer, String subject, String scope, String authority, Map<String, RSAPublicKey> keys) {
+record ServiceCaller(String issuer, String subject, Map<String, String> authoritiesByScope, Map<String, RSAPublicKey> keys) {
     static final String ORDER_AUTHORITY = "ORDER_QR_GUEST_SESSION";
     static final String WAITER_AUTHORITY = "WAITER_QR_GUEST_VALIDATE";
+    static final String WAITER_TABLE_READ_AUTHORITY = "WAITER_QR_TABLE_READ";
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     /** Order is the original caller. Its keys are mandatory while the inbound profile is active. */
     static ServiceCaller order(JsonMapper json, String configuration) {
-        return new ServiceCaller("restofy-order", "order-service", "qr:guest-session", ORDER_AUTHORITY,
+        return new ServiceCaller("restofy-order", "order-service", Map.of("qr:guest-session", ORDER_AUTHORITY),
                 parse(json, configuration, "QR_ORDER_CALLER_PUBLIC_KEYS", "Order"));
     }
 
@@ -32,8 +34,14 @@ record ServiceCaller(String issuer, String subject, String scope, String authori
         if (configuration == null || configuration.isBlank()) {
             return Optional.empty();
         }
-        return Optional.of(new ServiceCaller("restofy-waiter", "waiter-service", "qr:guest-validate", WAITER_AUTHORITY,
+        return Optional.of(new ServiceCaller("restofy-waiter", "waiter-service",
+                Map.of("qr:guest-validate", WAITER_AUTHORITY, "qr:table-read", WAITER_TABLE_READ_AUTHORITY),
                 parse(json, configuration, "QR_WAITER_CALLER_PUBLIC_KEYS", "Waiter")));
+    }
+
+    /** The authority granted for a presented scope claim, or empty when this caller may not present that scope. */
+    Optional<String> authorityFor(Object scope) {
+        return scope instanceof String value ? Optional.ofNullable(authoritiesByScope.get(value)) : Optional.empty();
     }
 
     private static Map<String, RSAPublicKey> parse(JsonMapper json, String configuration, String variable, String name) {
