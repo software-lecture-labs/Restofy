@@ -62,12 +62,13 @@ test('Compose passes lifecycle signing and verification settings only to QR', t 
   const model = config(t, undefined, {
     QR_SPRING_PROFILES_ACTIVE: 'qr-order,qr-order-inbound',
     QR_ORDER_SERVICE_PRIVATE_KEY: 'fixture-private', QR_ORDER_SERVICE_KEY_ID: 'fixture',
-    QR_ORDER_CALLER_PUBLIC_KEYS: 'fixture-public',
+    QR_ORDER_CALLER_PUBLIC_KEYS: 'fixture-public', QR_WAITER_CALLER_PUBLIC_KEYS: 'fixture-waiter-public',
   });
   for (const [name, service] of Object.entries(model.services)) {
     const env = service.environment ?? {};
     assert.equal(env.QR_ORDER_SERVICE_PRIVATE_KEY, name === 'qr-service' ? 'fixture-private' : undefined);
     assert.equal(env.QR_ORDER_CALLER_PUBLIC_KEYS, name === 'qr-service' ? 'fixture-public' : undefined);
+    assert.equal(env.QR_WAITER_CALLER_PUBLIC_KEYS, name === 'qr-service' ? 'fixture-waiter-public' : undefined);
   }
   assert.equal(model.services['qr-service'].environment.SPRING_PROFILES_ACTIVE, 'qr-order,qr-order-inbound');
   assert.equal(model.services['order-service'].environment.SPRING_PROFILES_ACTIVE, 'test');

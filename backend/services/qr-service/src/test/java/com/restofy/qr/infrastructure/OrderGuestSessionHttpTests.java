@@ -47,6 +47,15 @@ import static org.mockito.Mockito.when;
         properties = "qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
     private static final KeyPair ORDER = Jwts.SIG.RS256.keyPair().build();
+    private static final KeyPair WAITER = Jwts.SIG.RS256.keyPair().build();
+    private static final String ORDER_IDENTITY = "restofy-order";
+    private static final String WAITER_IDENTITY = "restofy-waiter";
+    private static final String ORDER_SUBJECT = "order-service";
+    private static final String WAITER_SUBJECT = "waiter-service";
+    private static final String ORDER_SCOPE = "qr:guest-session";
+    private static final String WAITER_SCOPE = "qr:guest-validate";
+    private static final String ORDER_KEY_ID = "order-test";
+    private static final String WAITER_KEY_ID = "waiter-test";
     private static final UUID TENANT = UUID.randomUUID();
     private static final String BASE = "/api/v1/internal/qr";
     private static final String VALIDATE = BASE + "/guest-sessions/validate";
@@ -67,6 +76,65 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
     static void orderTrust(DynamicPropertyRegistry registry) {
         registry.add("AUTH_RESTAURANT_ID", TENANT::toString);
         registry.add("QR_ORDER_CALLER_PUBLIC_KEYS", () -> "{\"order-test\":\"" + encoded(ORDER.getPublic().getEncoded()) + "\"}");
+        registry.add("QR_WAITER_CALLER_PUBLIC_KEYS", () -> "{\"waiter-test\":\"" + encoded(WAITER.getPublic().getEncoded()) + "\"}");
+    }
+
+    @Test
+    void waiterValidatesAndRechecksStateWithItsOwnIdentityWithoutRefreshingTheSession() throws Exception {
+        availableOrderScope();
+        var guest = fixture(TENANT, 120);
+        var verified = callAsWaiter(POST, VALIDATE, tokenBody(guest.token()));
+        assertThat(verified.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(verified.body()).get("guestSessionId").asString()).isEqualTo(guest.guestId().toString());
+        var state = callAsWaiter(GET, statePath(guest.sessionId(), guest.guestId()), EMPTY);
+        assertThat(state.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(state.body()).get("state").asString()).isEqualTo("ACTIVE");
+        assertThat(lastGuestActivity(guest.guestId())).isEqualTo(guest.openedAt());
+        assertThat(lastMainActivity(guest.sessionId())).isEqualTo(guest.openedAt());
+        assertThat(callAsWaiter(POST, VALIDATE, tokenBody("a".repeat(43))).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void waiterCannotUseTheOrderOnlyCartActivityEventOrAnyOtherRoute() throws Exception {
+        availableOrderScope();
+        var guest = fixture(TENANT, 120);
+        var event = activity(guest, guest.openedAt().plusSeconds(30));
+        assertThat(callAsWaiter(POST, ACTIVITY, json.writeValueAsString(event)).statusCode()).isEqualTo(403);
+        assertThat(lastGuestActivity(guest.guestId())).isEqualTo(guest.openedAt());
+        assertThat(receipts(event.eventId())).isZero();
+        assertThat(callAsWaiter(GET, BASE + "/other", EMPTY).statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void callerIdentitiesAreBoundToTheirOwnKeysAndScopes() throws Exception {
+        var guest = fixture(TENANT, 120);
+        String body = tokenBody(guest.token());
+        // A caller's key cannot present another caller's identity.
+        assertThat(sendSigned(body, ORDER_KEY_ID, WAITER_IDENTITY, WAITER_SUBJECT, WAITER_SCOPE, ORDER).statusCode()).isEqualTo(401);
+        assertThat(sendSigned(body, WAITER_KEY_ID, ORDER_IDENTITY, ORDER_SUBJECT, ORDER_SCOPE, WAITER).statusCode()).isEqualTo(401);
+        assertThat(sendSigned(body, WAITER_KEY_ID, WAITER_IDENTITY, ORDER_SUBJECT, WAITER_SCOPE, WAITER).statusCode()).isEqualTo(401);
+        // A caller may only present its own scope.
+        assertThat(sendSigned(body, WAITER_KEY_ID, WAITER_IDENTITY, WAITER_SUBJECT, ORDER_SCOPE, WAITER).statusCode()).isEqualTo(403);
+        assertThat(sendSigned(body, ORDER_KEY_ID, ORDER_IDENTITY, ORDER_SUBJECT, WAITER_SCOPE, ORDER).statusCode()).isEqualTo(403);
+        // Unknown key ID, or a Waiter token signed with a foreign key.
+        assertThat(sendSigned(body, "unknown-key", WAITER_IDENTITY, WAITER_SUBJECT, WAITER_SCOPE, WAITER).statusCode()).isEqualTo(401);
+        assertThat(sendSigned(body, WAITER_KEY_ID, WAITER_IDENTITY, WAITER_SUBJECT, WAITER_SCOPE, STAFF).statusCode()).isEqualTo(401);
+        // Both genuine identities still work.
+        assertThat(sendSigned(body, WAITER_KEY_ID, WAITER_IDENTITY, WAITER_SUBJECT, WAITER_SCOPE, WAITER).statusCode()).isEqualTo(200);
+        assertThat(sendSigned(body, ORDER_KEY_ID, ORDER_IDENTITY, ORDER_SUBJECT, ORDER_SCOPE, ORDER).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void waiterTokenFromAnotherTenantOrWithAChangedBodyIsRejected() throws Exception {
+        var guest = fixture(TENANT, 120);
+        String body = tokenBody(guest.token());
+        String other = signAs(POST, VALIDATE, body, UUID.randomUUID(), WAITER, Instant.now(), WAITER_KEY_ID, WAITER_IDENTITY,
+                WAITER_SUBJECT, WAITER_SCOPE);
+        assertThat(send(POST, VALIDATE, body, other, false).statusCode()).isEqualTo(403);
+        String valid = signAs(POST, VALIDATE, body, TENANT, WAITER, Instant.now(), WAITER_KEY_ID, WAITER_IDENTITY,
+                WAITER_SUBJECT, WAITER_SCOPE);
+        assertThat(send(POST, VALIDATE, body + " ", valid, false).statusCode()).isEqualTo(403);
+        assertThat(send(POST, VALIDATE, body, valid, true).statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -263,6 +331,16 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         return send(method, target, body, sign(method, target, body, TENANT, ORDER), false);
     }
 
+    private HttpResponse<String> callAsWaiter(String method, String target, String body) throws Exception {
+        return send(method, target, body, signAs(method, target, body, TENANT, WAITER, Instant.now(), WAITER_KEY_ID,
+                WAITER_IDENTITY, WAITER_SUBJECT, WAITER_SCOPE), false);
+    }
+
+    private HttpResponse<String> sendSigned(String body, String keyId, String issuer, String subject, String scope, KeyPair key)
+            throws Exception {
+        return send(POST, VALIDATE, body, signAs(POST, VALIDATE, body, TENANT, key, Instant.now(), keyId, issuer, subject, scope), false);
+    }
+
     private HttpResponse<String> send(String method, String target, String body, String credential, boolean browser) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + target))
                 .method(method, body.isEmpty() ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body))
@@ -277,12 +355,17 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
     }
 
     private static String sign(String method, String target, String body, UUID tenant, KeyPair key, Instant issuedAt) throws Exception {
+        return signAs(method, target, body, tenant, key, issuedAt, ORDER_KEY_ID, ORDER_IDENTITY, ORDER_SUBJECT, ORDER_SCOPE);
+    }
+
+    private static String signAs(String method, String target, String body, UUID tenant, KeyPair key, Instant issuedAt,
+                                 String keyId, String issuer, String subject, String scope) throws Exception {
         var now = issuedAt.truncatedTo(ChronoUnit.SECONDS);
         String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body.getBytes(StandardCharsets.UTF_8)));
-        return "Service " + Jwts.builder().header().keyId("order-test").and().issuer("restofy-order").subject("order-service")
+        return "Service " + Jwts.builder().header().keyId(keyId).and().issuer(issuer).subject(subject)
                 .audience().add("restofy-qr").and().id(UUID.randomUUID().toString())
                 .issuedAt(JwtDates.from(now)).notBefore(JwtDates.from(now)).expiration(JwtDates.from(now.plusSeconds(30)))
-                .claim("token_type", "service").claim("scope", "qr:guest-session").claim("restaurant_id", tenant.toString())
+                .claim("token_type", "service").claim("scope", scope).claim("restaurant_id", tenant.toString())
                 .claim("method", method).claim("target", target).claim("body_sha256", digest).signWith(key.getPrivate(), Jwts.SIG.RS256).compact();
     }
 
