@@ -4,7 +4,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
-/** Replaces the fail-closed production providers (staff actor, Kitchen service caller) for tests that import it. */
+/** Replaces the fail-closed production providers (staff actor, Kitchen and Order service callers) for tests that import it. */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestActorConfiguration {
 
@@ -18,5 +18,11 @@ public class TestActorConfiguration {
     @Primary
     TestKitchenCallerProvider testKitchenCallerProvider() {
         return new TestKitchenCallerProvider();
+    }
+
+    @Bean
+    @Primary
+    TestOrderCallerProvider testOrderCallerProvider() {
+        return new TestOrderCallerProvider();
     }
 }

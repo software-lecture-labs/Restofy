@@ -4,6 +4,7 @@ import com.restofy.menu.domain.entity.ProductOption;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,4 +22,7 @@ public interface ProductOptionRepository extends JpaRepository<ProductOption, UU
     List<ProductOption> findByRestaurantIdAndProductIdAndActiveTrue(UUID restaurantId, UUID productId);
 
     long countByRestaurantIdAndProductIdAndActiveTrue(UUID restaurantId, UUID productId);
+
+    /** Batch lookup of ALL options (active or not) of several products of one restaurant; no per-product queries. */
+    List<ProductOption> findByRestaurantIdAndProductIdIn(UUID restaurantId, Collection<UUID> productIds);
 }

@@ -8,9 +8,9 @@
 | **Talep eden** | Menu Service (Merve) |
 | **İlgili servis ve ekip** | Order Service (Hamza). Madde 4.7 servis kimliği olduğu için Auth (Kerem); madde 6 soru 12 ortak ENV/Compose olduğu için Alper |
 | **Bağlı PDA görevi** | MENU-INT-02 — Order → Menu için gerekli API'lerin sağlanması |
-| **Durum** | **Karar bekliyor.** MENU-INT-02 **başlamadı**; Menu'da Order için bir uç yok |
+| **Durum** | **Karar bekliyor.** MENU-INT-02 **KISMİ**: Menu iç uygulama katmanı hazır ([ADR-MENU-006](../../decisions/ADR-MENU-006-order-katalog-sorgusu.md)); HTTP ucu **açılmadı**, servis kimliği ve tel biçimi kararları bekleniyor |
 
-Bu belge yalnız bir taleptir. Order, Auth, Kitchen veya QR kodunda değişiklik içermez; Menu üretim kodunu da değiştirmez. Aşağıda "Mevcut" diye anılan her şey koddan okunmuştur; "İstenen" ve "Öneri" başlıkları henüz uygulanmamıştır.
+Bu belge bir taleptir. Order, Auth, Kitchen veya QR kodunda değişiklik içermez. İlk commit'te yalnız belgeydi; MENU-INT-02 ile Menu tarafında kararlardan bağımsız iç katman eklendi (`OrderCatalogService`, kimliği doğrulanmış çağıran kapısı, DTO'lar, testler). Aşağıdaki "Mevcut" bölümleri bu eklemeden **önceki** `dev` durumunu anlatır; "İstenen" ve "Öneri" başlıklarından HTTP ucu ve servis kimliği **uygulanmamıştır**. Neyin yapıldığı ve neyin beklediği: bölüm 9.
 
 ## Dayanak
 
@@ -245,3 +245,19 @@ Order'dan (Hamza) beklenen kararlar:
 ## 8. Sonraki adım
 
 Kararlar bu belgeye yanıt olarak (PR yorumu veya ayrı yanıt belgesi) geldikten sonra MENU-INT-02 kapsamında Menu tarafında iç uç, servis kimliği doğrulaması (fail-closed) ve sözleşme testleri ayrı bir PR'da geliştirilecek. Order'daki gerçek HTTP adaptörü Order ekibinin işidir.
+
+## 9. MENU-INT-02 uygulama durumu (Menu tarafı)
+
+| Madde | Durum |
+|---|---|
+| Birden çok ürünü tek çağrıda sorgulama (`OrderCatalogService.lookup`, en çok 50 farklı id, geçici) | **UYGULANDI** (iç katman) |
+| Restoran izolasyonu: başka restoranın veya bilinmeyen id'nin yanıtta olmaması; çağıranın restoranı dışında sorgu `Forbidden` | **UYGULANDI** |
+| DTO: ad, para birimi, ham fiyat/KDV, türetilmiş brüt minor ve baz puan, `published`/`available`/`availabilityStatus`, seçenekler | **UYGULANDI** (iç kayıtlar; tel biçimi **kararlaştırılmadı**) |
+| KDV hariç, fazla ondalıklı veya aralık dışı fiyat: brüt üretilmez, yuvarlanmaz, `priceIssue` ile belirtilir | **UYGULANDI** (varsayılan fail-closed; 4.2 kararı bekliyor) |
+| Arşivli/taslak/kapalı ürün: yanıtta işaretli, sipariş edilemez | **UYGULANDI** (arşivlinin çıkarılması açık soru) |
+| Fiyat veya availability değişikliğinden sonra güncel veri | **UYGULANDI** (önbellek yok, tek anlık görüntü) |
+| Doğrulanmış servis çağıranı kapısı | **UYGULANDI, fail-closed**: üretimde hiçbir çağıran doğrulanmaz, her sorgu 401 |
+| HTTP ucu | **UYGULANMADI.** D-09 ve yol/biçim kararları olmadan açılmaz |
+| Servis kimliği doğrulayıcı (Order → Menu) | **UYGULANMADI** (Auth/Order kararı) |
+| `priceVersion` | **UYGULANMADI** (karar yok; üretilmez) |
+| Gerçek Order → Menu uçtan uca testi | **DOĞRULANMADI** (Order'ın gerçek adaptörü yok) |
