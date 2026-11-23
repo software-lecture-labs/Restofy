@@ -3,6 +3,7 @@ package com.restofy.order.domain.entity;
 import com.restofy.order.domain.enums.FulfillmentStatus;
 import com.restofy.order.domain.enums.PaymentStatus;
 import com.restofy.order.domain.pricing.MoneyConverter;
+import com.restofy.order.domain.pricing.PriceCalculator.OrderAmounts;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -98,24 +99,25 @@ public class Order {
     @OrderBy("lineNo ASC")
     private Set<OrderItem> items = new LinkedHashSet<>();
 
+    public record Source(UUID restaurantId, UUID cartId, UUID tableId, UUID tableSessionId, UUID guestSessionId) {
+    }
+
     /** Creates a freshly placed order: RECEIVED, payment NOT_REQUESTED, due equal to the initial gross. */
-    public Order(UUID id, String orderNo, UUID restaurantId, UUID cartId, UUID tableId, UUID tableSessionId,
-                 UUID guestSessionId, String currency, long netMinor, long vatMinor, long grossMinor, String note,
-                 Instant now) {
+    public Order(UUID id, String orderNo, Source source, String currency, OrderAmounts amounts, String note, Instant now) {
         this.id = id;
         this.orderNo = orderNo;
-        this.restaurantId = restaurantId;
-        this.cartId = cartId;
-        this.tableId = tableId;
-        this.tableSessionId = tableSessionId;
-        this.guestSessionId = guestSessionId;
+        this.restaurantId = source.restaurantId();
+        this.cartId = source.cartId();
+        this.tableId = source.tableId();
+        this.tableSessionId = source.tableSessionId();
+        this.guestSessionId = source.guestSessionId();
         this.fulfillmentStatus = FulfillmentStatus.RECEIVED;
         this.paymentStatus = PaymentStatus.NOT_REQUESTED;
         this.currency = MoneyConverter.normalizeCurrency(currency);
-        this.initialNetMinor = netMinor;
-        this.initialVatMinor = vatMinor;
-        this.initialGrossMinor = grossMinor;
-        this.currentDueMinor = grossMinor;
+        this.initialNetMinor = amounts.netMinor();
+        this.initialVatMinor = amounts.vatMinor();
+        this.initialGrossMinor = amounts.grossMinor();
+        this.currentDueMinor = amounts.grossMinor();
         this.note = note;
         this.placedAt = now;
         this.createdAt = now;

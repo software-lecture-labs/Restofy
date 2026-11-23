@@ -68,9 +68,9 @@ class OrderSessionBindingApiTests extends AbstractCartApiTest {
         // a guest of the same restaurant at another table is bound to that table's session
         UUID otherTable = UUID.randomUUID();
         UUID otherSession = UUID.randomUUID();
-        qr.register("other-table", new GuestSessionContext(DevFixtures.RESTAURANT_A, otherTable, otherSession,
+        qr.register("t".repeat(43), new GuestSessionContext(DevFixtures.RESTAURANT_A, otherTable, otherSession,
                 UUID.randomUUID(), SessionState.ACTIVE));
-        order("other-table");
+        order("t".repeat(43));
         assertEquals(otherSession, jdbc.queryForObject("SELECT table_session_id FROM orders WHERE table_id = ?",
                 UUID.class, otherTable));
     }
@@ -94,7 +94,7 @@ class OrderSessionBindingApiTests extends AbstractCartApiTest {
         addItem(A1, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
         Map<String, Object> body = confirmedCheckout(A1);
         mvc.perform(MockMvcRequestBuilders.post("/api/v1/orders")
-                        .header("Authorization", "Bearer " + A1).header("Idempotency-Key", newKey())
+                        .with(AbstractCartApiTest.guestCookie(A1)).header("Idempotency-Key", newKey())
                         .header("X-Restaurant-Id", DevFixtures.RESTAURANT_B.toString())
                         .contentType("application/json")
                         .content("{\"expectedCartVersion\": " + body.get("expectedCartVersion")

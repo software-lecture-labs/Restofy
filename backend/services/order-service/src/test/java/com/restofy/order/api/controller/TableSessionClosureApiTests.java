@@ -29,18 +29,18 @@ class TableSessionClosureApiTests extends AbstractClosureApiTest {
 
         prepareRaw(null, SESSION, body).andExpect(status().isUnauthorized());
         prepareRaw(service("not-a-known-credential"), SESSION, body).andExpect(status().isUnauthorized());
-        prepareRaw(guest(DevFixtures.TOKEN_A1), SESSION, body).andExpect(status().isForbidden());
+        prepareRaw(guest(DevFixtures.TOKEN_A1), SESSION, body).andExpect(status().isUnauthorized());
         prepareRaw(staff(DevFixtures.STAFF_ADMIN_A), SESSION, body).andExpect(status().isForbidden());
         prepareRaw(service(KITCHEN_CREDENTIAL), SESSION, body).andExpect(status().isForbidden());
         prepareRaw(service(PAYMENT_CREDENTIAL), SESSION, body).andExpect(status().isForbidden());
 
-        lookup(guest(DevFixtures.TOKEN_A1), SESSION, operation, RESTAURANT).andExpect(status().isForbidden());
+        lookup(guest(DevFixtures.TOKEN_A1), SESSION, operation, RESTAURANT).andExpect(status().isUnauthorized());
         lookup(service(KITCHEN_CREDENTIAL), SESSION, operation, RESTAURANT).andExpect(status().isForbidden());
         confirm(staff(DevFixtures.STAFF_ADMIN_A), SESSION, operation, RESTAURANT, "CLOSED")
                 .andExpect(status().isForbidden());
         confirm(service(PAYMENT_CREDENTIAL), SESSION, operation, RESTAURANT, "CLOSED")
                 .andExpect(status().isForbidden());
-        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isForbidden());
+        orderState(guest(DevFixtures.TOKEN_A1), SESSION, RESTAURANT).andExpect(status().isUnauthorized());
 
         assertEquals(0, closures());
     }

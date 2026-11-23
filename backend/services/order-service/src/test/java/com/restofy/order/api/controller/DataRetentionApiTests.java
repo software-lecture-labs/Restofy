@@ -131,13 +131,14 @@ class DataRetentionApiTests extends AbstractCartApiTest {
         jdbc.update("DELETE FROM idempotency_records");
 
         UUID cartId = jdbc.queryForObject("SELECT cart_id FROM orders", UUID.class);
+        UUID duplicateOrderId = UUID.randomUUID();
         // even a hand-written insert (a bug, a replayed migration, a second instance) hits the unique constraint
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
                 "INSERT INTO orders (id, restaurant_id, order_no, cart_id, table_id, table_session_id, guest_session_id,"
                         + " fulfillment_status, payment_status, currency, initial_net_minor, initial_vat_minor,"
                         + " initial_gross_minor, current_due_minor, placed_at, version, created_at, updated_at)"
                         + " VALUES (?, ?, 'ORD-999999', ?, ?, ?, ?, 'RECEIVED', 'NOT_REQUESTED', 'TRY', 1, 0, 1, 1,"
-                        + " now(), 0, now(), now())", UUID.randomUUID(), DevFixtures.RESTAURANT_A, cartId,
+                        + " now(), 0, now(), now())", duplicateOrderId, DevFixtures.RESTAURANT_A, cartId,
                 DevFixtures.TABLE_A1, DevFixtures.TABLE_SESSION_A1, DevFixtures.GUEST_A1));
         assertEquals(1, count("orders"));
     }

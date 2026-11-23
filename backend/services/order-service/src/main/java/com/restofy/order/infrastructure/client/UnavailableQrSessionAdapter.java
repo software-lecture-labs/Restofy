@@ -11,11 +11,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Fail-closed stand-in used outside the dev/test profiles until the real QR Service adapter exists.
+ * Fail-closed stand-in used when neither the real QR profile nor dev/test is active.
  * It never validates anything, so no session can be forged in production.
  */
 @Component
-@Profile("!dev & !test")
+@Profile("((!dev & !test) | prod) & !order-qr")
 public class UnavailableQrSessionAdapter implements QrSessionPort {
 
     @Override

@@ -2,7 +2,6 @@ package com.restofy.order.api.controller;
 
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
@@ -41,9 +40,7 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
     private ResultActions kitchenAsks(String authorization, Object body)
             throws Exception {
         var request = post(PATH).contentType(MediaType.APPLICATION_JSON).content(toJson(body));
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
+        withCredential(request, authorization);
         return mvc.perform(request);
     }
 
@@ -606,7 +603,7 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
         kitchenAsks(staff(DevFixtures.STAFF_KITCHEN_A), body).andExpect(status().isForbidden());
         kitchenAsks(ADMIN, body).andExpect(status().isForbidden());
         kitchenAsks(WAITER, body).andExpect(status().isForbidden());
-        kitchenAsks(guest(A1), body).andExpect(status().isForbidden());
+        kitchenAsks(guest(A1), body).andExpect(status().isUnauthorized());
         // a forged role or restaurant header opens nothing
         var forged = post(PATH).contentType("application/json").content(toJson(body)).header("X-Role", "KITCHEN")
                 .header("X-Restaurant-Id", DevFixtures.RESTAURANT_A.toString());

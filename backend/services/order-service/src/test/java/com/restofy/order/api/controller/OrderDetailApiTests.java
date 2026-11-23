@@ -106,7 +106,7 @@ class OrderDetailApiTests extends AbstractCartApiTest {
         UUID orderId = customizedOrder(A1);
         mvc.perform(MockMvcRequestBuilders
                         .get("/api/v1/orders/" + orderId).param("guestSessionId", DevFixtures.GUEST_A1.toString())
-                        .header("Authorization", guest(A2)).header("X-Guest-Session-Id", DevFixtures.GUEST_A1.toString())
+                        .with(AbstractCartApiTest.guestCookie(A2)).header("X-Guest-Session-Id", DevFixtures.GUEST_A1.toString())
                         .header("X-Restaurant-Id", DevFixtures.RESTAURANT_A.toString()))
                 .andExpect(status().isNotFound());
     }
@@ -124,8 +124,8 @@ class OrderDetailApiTests extends AbstractCartApiTest {
         for (SessionState dead : List.of(SessionState.CLOSED, SessionState.EXPIRED)) {
             qr.register(A1, DevFixtures.guestA1(dead));
             getWith(guest(A1), "/api/v1/orders/" + orderId)
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                     .andExpect(jsonPath("$.orderNo").doesNotExist());
         }
         qr.register(A1, DevFixtures.guestA1(SessionState.ACTIVE));

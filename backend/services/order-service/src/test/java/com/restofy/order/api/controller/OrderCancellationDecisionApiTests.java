@@ -260,7 +260,7 @@ class OrderCancellationDecisionApiTests extends AbstractCancellationApiTest {
         kitchenDecision(service(PAYMENT_CREDENTIAL), body).andExpect(status().isForbidden());
         kitchenDecision(staff(DevFixtures.STAFF_ADMIN_A), body).andExpect(status().isForbidden());
         kitchenDecision(staff(DevFixtures.STAFF_KITCHEN_A), body).andExpect(status().isForbidden());
-        kitchenDecision(guest(A1), body).andExpect(status().isForbidden());
+        kitchenDecision(guest(A1), body).andExpect(status().isUnauthorized());
 
         assertEquals("REQUESTED", cancellationStatus(waiting.cancellationId()));
         assertEquals("PREPARING", fulfillmentOf(waiting.orderId()));

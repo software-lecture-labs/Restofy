@@ -29,6 +29,11 @@ korunur ve dev'i çalıştırmış hiçbir Order veritabanının yeniden oluştu
 Güncel Order zinciri: V41-V50. Order aralığında boş numara kalmadı; yeni bir Order migration'ı
 için aralık genişletme kararı gerekir (D-13).
 
+V131        - ORDER-SERVICE (EK SÜRÜM) - HAMZA
+
+18 Kasım 2026: Order için V131 ayrıldı. Bu migration, hazırlık kaydı oluşmadan
+önce verilen QR kapanış abort kararını kalıcılaştırır. Order zinciri V41–V50 ve V131.
+
 18 Kasım 2026: QR-INT-02 kapsamında Alper, V123'ü Order `CartActivityRecorded`
 olaylarının QR tarafında kalıcı tekilleştirilmesi için onayladı. V122 mevcut Q5
 personel iptal korumasıdır. Güncel QR zinciri V21,V22,V26–V30,V121–V123.

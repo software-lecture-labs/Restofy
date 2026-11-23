@@ -41,8 +41,24 @@ class OpenApiDocumentationTests {
                 + paths.path("/api/v1/carts/current/items/{cartItemId}").size());
 
         JsonNode scheme = document().path("components").path("securitySchemes").path("guestSession");
-        assertEquals("http", scheme.path("type").asString());
-        assertEquals("bearer", scheme.path("scheme").asString());
+        assertEquals("apiKey", scheme.path("type").asString());
+        assertEquals("cookie", scheme.path("in").asString());
+        assertEquals("restofy_guest", scheme.path("name").asString());
+        String authContract = document().path("info").path("description").asString();
+        assertTrue(authContract.contains("Multiple Authorization") && authContract.contains("GuestSession")
+                && authContract.contains("X-Guest-CSRF"));
+    }
+
+    @Test
+    void closureStatusDocumentsItsDigestAndErrorResponses() throws Exception {
+        JsonNode status = document().path("paths")
+                .path("/api/v1/internal/table-sessions/{tableSessionId}/closure-preparations/{operationId}")
+                .path("get");
+        assertTrue(status.path("security").toString().contains("service"));
+        assertTrue(status.path("parameters").toString().contains("commandDigest"));
+        for (String code : new String[]{"200", "400", "401", "403", "409", "422", "503"}) {
+            assertTrue(status.path("responses").has(code), "response " + code + " must be documented");
+        }
     }
 
     @Test

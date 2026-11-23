@@ -127,7 +127,7 @@ class CartAddRemoveApiTests extends AbstractCartApiTest {
         addItem(null, product(DevFixtures.BURGER, 1))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
-                .andExpect(header().string("WWW-Authenticate", "Bearer"));
+                .andExpect(header().string("WWW-Authenticate", "GuestSession realm=\"order\""));
         addItem("unknown-token", product(DevFixtures.BURGER, 1))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
@@ -194,11 +194,11 @@ class CartAddRemoveApiTests extends AbstractCartApiTest {
         for (SessionState dead : List.of(SessionState.CLOSED, SessionState.EXPIRED)) {
             qr.register(A1, DevFixtures.guestA1(dead));
             addItem(A1, product(DevFixtures.SALAD, 1))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
             removeItem(A1, lineId)
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         }
         qr.register(A1, DevFixtures.guestA1(SessionState.ACTIVE));
         getCart(A1).andExpect(jsonPath("$.items", hasSize(1)));

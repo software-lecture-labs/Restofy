@@ -427,8 +427,8 @@ class OrderCancellationApiTests extends AbstractCancellationApiTest {
         UUID orderId = placeSaladOrder(A1);
         qr.register(A1, DevFixtures.guestA1(SessionState.CLOSED));
 
-        cancelAll(guest(A1), orderId).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"));
+        cancelAll(guest(A1), orderId).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         assertEquals("RECEIVED", fulfillmentOf(orderId));
         // staff are not tied to the guest's session
         cancelAll(WAITER, orderId).andExpect(status().isCreated());

@@ -150,8 +150,8 @@ class CartIdempotencyApiTests extends AbstractCartApiTest {
         for (SessionState dead : List.of(SessionState.CLOSED, SessionState.EXPIRED)) {
             qr.register(A1, DevFixtures.guestA1(dead));
             addWithKey(A1, key, product(DevFixtures.BURGER, 2))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("TABLE_SESSION_NOT_ACTIVE"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                     .andExpect(jsonPath("$.items").doesNotExist())
                     .andExpect(jsonPath("$.cartId").doesNotExist());
         }
