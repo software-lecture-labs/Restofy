@@ -13,18 +13,17 @@ import java.net.URI;
 public record ServiceUrlProperties(URI qrUrl, URI orderUrl, URI notificationUrl) {
 
     public ServiceUrlProperties {
-        qrUrl = requireHttpBaseUrl("qr-url", qrUrl);
-        orderUrl = requireHttpBaseUrl("order-url", orderUrl);
-        notificationUrl = requireHttpBaseUrl("notification-url", notificationUrl);
+        requireHttpBaseUrl("qr-url", qrUrl);
+        requireHttpBaseUrl("order-url", orderUrl);
+        requireHttpBaseUrl("notification-url", notificationUrl);
     }
 
-    private static URI requireHttpBaseUrl(String name, URI value) {
+    private static void requireHttpBaseUrl(String name, URI value) {
         if (value == null) throw new IllegalArgumentException(name + " must be configured");
         String scheme = value.getScheme();
         boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
         if (!http || value.getHost() == null || value.getUserInfo() != null) {
             throw new IllegalArgumentException(name + " must be an absolute http(s) URL without credentials");
         }
-        return value;
     }
 }

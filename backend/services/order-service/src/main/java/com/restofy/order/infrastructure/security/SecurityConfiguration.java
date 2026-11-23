@@ -5,6 +5,9 @@ import com.restofy.order.application.port.QrSessionPort;
 import com.restofy.order.application.port.ServiceIdentityPort;
 import com.restofy.order.domain.enums.ServiceName;
 import com.restofy.order.domain.exception.ErrorCode;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -26,9 +29,13 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 
+import java.io.IOException;
+
 /**
- * Deny-by-default HTTP security. The order-auth profile protects cookie-authenticated writes with CSRF.
- * Guest and service credentials keep their independent, explicit Authorization schemes.
+ * Deny-by-default HTTP security. The guest filter verifies Origin and CSRF for its cookie-authenticated writes.
+ * The order-auth profile authenticates staff by the Auth Service access cookie and protects those writes with CSRF;
+ * without it, staff use an explicit Authorization header. Internal service credentials use explicit Authorization
+ * headers and their own filter.
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
@@ -45,19 +52,26 @@ public class SecurityConfiguration {
             PATHS.matcher(HttpMethod.PATCH, CANCELLATION_REASON), PATHS.matcher(HttpMethod.GET, ADMIN_REPORT));
     private static final RequestMatcher STAFF_OR_GUEST = new OrRequestMatcher(PATHS.matcher(HttpMethod.GET, ORDERS),
             PATHS.matcher(HttpMethod.GET, ORDER), PATHS.matcher(HttpMethod.GET, HISTORY),
-            PATHS.matcher(HttpMethod.GET, CANCELLATIONS), PATHS.matcher(HttpMethod.POST, CANCELLATIONS));
+            PATHS.matcher(HttpMethod.GET, CANCELLATIONS), PATHS.matcher(HttpMethod.POST, CANCELLATIONS),
+            PATHS.matcher(HttpMethod.HEAD, ORDERS), PATHS.matcher(HttpMethod.HEAD, ORDER),
+            PATHS.matcher(HttpMethod.HEAD, HISTORY), PATHS.matcher(HttpMethod.HEAD, CANCELLATIONS));
     private static final RequestMatcher STAFF_ROUTES = new OrRequestMatcher(STAFF_ONLY, STAFF_OR_GUEST);
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
-                                    ServiceIdentityPort serviceIdentity, ApiErrorWriter errors, Environment environment,
+                                    ServiceIdentityPort serviceIdentity, ApiErrorWriter errors,
+                                    @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment,
                                     Clock clock) {
         boolean authEnabled = environment.matchesProfiles("order-auth");
         if (authEnabled && environment.matchesProfiles("dev", "test", "local")) {
             throw new IllegalStateException("order-auth cannot use development or test profiles");
         }
+        if (environment.matchesProfiles("order-qr") && guestOrigins.isBlank()) {
+            throw new IllegalStateException("CORS_ALLOWED_ORIGINS is required for order-qr");
+        }
         // Staff cookie authentication uses this same route matcher and handles only requests without Authorization.
-        // The other schemes require an explicit header that the browser does not attach automatically.
+        // The other schemes require an explicit header that the browser does not attach automatically. The guest
+        // filter does its own Origin and CSRF check, so the framework CSRF applies to staff cookie requests only.
         http.csrf(config -> config.requireCsrfProtectionMatcher(
                         request -> authEnabled && STAFF_ROUTES.matches(request) && StaffCsrfProtection.appliesTo(request)))
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -73,9 +87,15 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, ORDERS).hasAuthority(GuestAuthentication.ROLE)
                         // Reading one order: its own guest or staff; who exactly may see which order is decided
                         // (with tenant and ownership checks) in OrderQueryService, not only here.
+                        // GET and HEAD of orders, their history and cancellations, and cancelling an order (POST): its own
+                        // guest or staff; the role (WAITER, ADMIN), tenant and ownership checks are made in the
+                        // application services. Never open to a service credential.
                         .requestMatchers(STAFF_OR_GUEST)
                         .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
-                        // Staff roles and verified restaurant scope are enforced by the application services.
+                        // Changing a status, a waiter completing a missing cancellation reason, and the cancellation
+                        // report: authenticated staff only. Which role may do what is decided (with tenant checks taken
+                        // from the verified identity) in OrderFulfillmentService, OrderCancellationService and
+                        // CancellationReportService. Never open to a guest or a service.
                         .requestMatchers(STAFF_ONLY)
                         .hasAuthority(StaffAuthentication.ROLE)
                         // Internal events: only the named calling service, never a guest or staff credential.
@@ -98,22 +118,14 @@ public class SecurityConfiguration {
                                 "/api/v1/internal/table-sessions/*/closure-preparations/*/confirmation")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
                         .anyRequest().denyAll())
-                .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors),
+                .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors, guestOrigins),
                         AnonymousAuthenticationFilter.class)
+                .addFilterBefore(new AuthorizationHeaderFilter(errors), GuestSessionAuthenticationFilter.class)
                 .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors),
                         AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
-                        .authenticationEntryPoint((request, response, ex) -> {
-                            String message = "A valid guest session or staff credential is required";
-                            if (authEnabled && STAFF_ONLY.matches(request)) {
-                                errors.unauthenticated(response, "A valid staff session is required",
-                                        StaffCookieAuthenticationFilter.CHALLENGE);
-                            } else if (authEnabled && STAFF_OR_GUEST.matches(request)) {
-                                errors.unauthenticated(response, message, "Bearer", StaffCookieAuthenticationFilter.CHALLENGE);
-                            } else {
-                                errors.write(response, ErrorCode.UNAUTHENTICATED, message);
-                            }
-                        })
+                        .authenticationEntryPoint((request, response, ex) ->
+                                requireAuthentication(request, response, errors, authEnabled))
                         .accessDeniedHandler((request, response, ex) ->
                                 errors.write(response, ErrorCode.ACCESS_DENIED, "Access to this resource is denied")));
         if (authEnabled) {
@@ -149,5 +161,24 @@ public class SecurityConfiguration {
         cancellations.setAllowedMethods(List.of("GET", "POST"));
         source.registerCorsConfiguration(CANCELLATIONS, cancellations);
         return source;
+    }
+
+    /** With order-auth staff come with the Auth Service access cookie; otherwise with {@code Authorization: Staff}. */
+    private static void requireAuthentication(HttpServletRequest request, HttpServletResponse response,
+                                              ApiErrorWriter errors, boolean authEnabled) throws IOException {
+        String staffScheme = authEnabled ? ApiErrorWriter.STAFF_SESSION_SCHEME : ApiErrorWriter.STAFF_SCHEME;
+        String path = request.getRequestURI();
+        if (path.startsWith("/api/v1/internal/")) {
+            errors.unauthenticated(response, "A valid service credential is required", ApiErrorWriter.SERVICE_SCHEME);
+        } else if (path.startsWith("/api/v1/carts/")
+                || ("POST".equals(request.getMethod()) && ORDERS.equals(path))) {
+            errors.unauthenticated(response, "A valid guest session is required", ApiErrorWriter.GUEST_SCHEME);
+        } else if (GuestSessionAuthenticationFilter.guestRoute(request)) {
+            errors.unauthenticated(response, "A valid guest session or staff credential is required",
+                    ApiErrorWriter.GUEST_SCHEME, staffScheme);
+        } else {
+            errors.unauthenticated(response, authEnabled ? "A valid staff session is required"
+                    : "A valid staff credential is required", staffScheme);
+        }
     }
 }

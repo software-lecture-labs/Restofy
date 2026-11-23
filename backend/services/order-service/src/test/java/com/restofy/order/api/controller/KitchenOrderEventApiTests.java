@@ -35,7 +35,7 @@ class KitchenOrderEventApiTests extends AbstractOrderStatusApiTest {
         kitchenEvent(service("not-a-known-credential"), body).andExpect(status().isUnauthorized());
         kitchenEvent("Service ", body).andExpect(status().isUnauthorized());
         // other kinds of credential never act as a service
-        kitchenEvent(guest(A1), body).andExpect(status().isForbidden());
+        kitchenEvent(guest(A1), body).andExpect(status().isUnauthorized());
         kitchenEvent(staff(DevFixtures.STAFF_KITCHEN_A), body).andExpect(status().isForbidden());
         kitchenEvent(staff(DevFixtures.STAFF_ADMIN_A), body).andExpect(status().isForbidden());
         kitchenEvent(service(DevFixtures.STAFF_ADMIN_A), body).andExpect(status().isUnauthorized());

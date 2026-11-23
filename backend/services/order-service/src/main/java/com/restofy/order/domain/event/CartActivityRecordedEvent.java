@@ -8,8 +8,7 @@ import java.util.UUID;
  * the 15-minute idle clock of that guest and their table session (ADR-QR-001 K6). Only a successful change of the
  * cart counts: reading the cart, an idempotent replay or a refused change never produce it. It carries no product,
  * price, note or token, just who (internal ids) and what kind of activity. Consumers must deduplicate on
- * {@code eventId}, and a late event never reopens a closed or expired session. The contract is a draft: no consumer
- * receives it yet (see the outbox).
+ * {@code eventId}, and a late event never reopens a closed or expired session.
  */
 public record CartActivityRecordedEvent(UUID eventId, String eventType, int schemaVersion, Instant occurredAt,
                                         String correlationId, UUID restaurantId, UUID tableSessionId,

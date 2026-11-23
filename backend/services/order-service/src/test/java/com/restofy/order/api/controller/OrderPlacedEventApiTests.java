@@ -29,7 +29,7 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
                 .andExpect(status().isOk());
         addItem(A1, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
         Map<String, Object> body = confirmedCheckout(A1);
-        var response = mvc.perform(post("/api/v1/orders").header("Authorization", "Bearer " + A1)
+        var response = mvc.perform(post("/api/v1/orders").with(AbstractCartApiTest.guestCookie(A1))
                         .header("Idempotency-Key", newKey()).header("X-Correlation-Id", correlationId)
                         .contentType("application/json")
                         .content(toJson(Map.of("expectedCartVersion", body.get("expectedCartVersion"),

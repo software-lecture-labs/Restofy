@@ -185,7 +185,8 @@ class TableCommandPersistenceTests {
     void onlyOneUnansweredCloseMayExistPerMainSession() {
         close("PENDING", "key-pending-001");
         for (String status : List.of("PENDING", "IN_PROGRESS", "UNKNOWN")) {
-            assertThrows(DataIntegrityViolationException.class, () -> close(status, "key-" + UUID.randomUUID()),
+            var arg1 = "key-" + UUID.randomUUID();
+            assertThrows(DataIntegrityViolationException.class, () -> close(status, arg1),
                     "A second " + status + " close for the session is refused by the database");
         }
         // Answered closes and closes of other sessions or restaurants do not compete.
@@ -242,29 +243,34 @@ class TableCommandPersistenceTests {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, null, STAFF,
                 "key-shape-0003",
                 "why", "PENDING", null, null, null, null, null, null, null));
+        var arg2 = "x".repeat(301);
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0004",
-                "x".repeat(301), "PENDING", null, null, null, null, null, null, null));
+                arg2, "PENDING", null, null, null, null, null, null, null));
+        var arg3 = Timestamp.from(Instant.now());
         // A rejection carries its code and only a rejection does; a final status carries its completion time.
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0005",
-                null, "REJECTED", null, Timestamp.from(Instant.now()), null, null, null, null, null));
+                null, "REJECTED", null, arg3, null, null, null, null, null));
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0006",
                 null, "UNKNOWN", "SESSION_NOT_OPEN", null, null, null, null, null, null));
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0007",
                 null, "REJECTED", "SESSION_NOT_OPEN", null, null, null, null, null, null));
+        var arg4 = Timestamp.from(Instant.now());
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0008",
-                null, "PENDING", null, Timestamp.from(Instant.now()), null, null, null, null, null));
+                null, "PENDING", null, arg4, null, null, null, null, null));
+        var arg5 = Timestamp.from(Instant.now());
         // A completed close names what QR confirmed; a completed cleaning the table version and readiness.
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0009",
-                null, "COMPLETED", null, Timestamp.from(Instant.now()), null, null, null, null, null));
+                null, "COMPLETED", null, arg5, null, null, null, null, null));
+        var arg6 = Timestamp.from(Instant.now());
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLEAN", TABLE, null, STAFF,
                 "key-shape-0010",
-                null, "COMPLETED", null, Timestamp.from(Instant.now()), null, null, null, null, null));
+                null, "COMPLETED", null, arg6, null, null, null, null, null));
         // Unknown status and type, negative counts and versions.
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0011",
@@ -272,9 +278,11 @@ class TableCommandPersistenceTests {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "OPEN", TABLE, session, STAFF,
                 "key-shape-0012",
                 null, "PENDING", null, null, null, null, null, null, null));
+        var arg7 = Timestamp.from(Instant.now());
+        var arg8 = Timestamp.from(Instant.now());
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF,
                 "key-shape-0013",
-                null, "COMPLETED", null, Timestamp.from(Instant.now()), Timestamp.from(Instant.now()), -1, 0, null, null));
+                null, "COMPLETED", null, arg7, arg8, -1, 0, null, null));
         // And the valid shapes go in.
         jdbc.update(insert, RESTAURANT, "CLOSE", TABLE, session, STAFF, "key-shape-0020",
                 "Müşteri ayrıldı", "COMPLETED", null, Timestamp.from(Instant.now()), Timestamp.from(Instant.now()), 3, 2, null, null);
@@ -290,22 +298,23 @@ class TableCommandPersistenceTests {
         Timestamp at = Timestamp.from(Instant.now());
         insertCall(UUID.randomUUID(), RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, command);
 
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), RESTAURANT, "CANCELLED", null, at, command), "no reason");
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", null, command), "no time");
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, null), "no command");
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), RESTAURANT, "CANCELLED", "SOMETHING_ELSE", at, command), "unknown reason");
+        var arg9 = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg9, RESTAURANT, "CANCELLED", null, at, command), "no reason");
+        var arg10 = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg10, RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", null, command), "no time");
+        var arg11 = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg11, RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, null), "no command");
+        var arg12 = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg12, RESTAURANT, "CANCELLED", "SOMETHING_ELSE", at, command), "unknown reason");
+        var arg13 = UUID.randomUUID();
         // A call that was not cancelled cannot carry a closure.
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), RESTAURANT, "OPEN", "TABLE_SESSION_CLOSED", at, command));
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg13, RESTAURANT, "OPEN", "TABLE_SESSION_CLOSED", at, command));
+        var arg14 = UUID.randomUUID();
         // The command must belong to the call's own restaurant (composite foreign key).
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), OTHER_RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, command));
-        assertThrows(DataIntegrityViolationException.class,
-                () -> insertCall(UUID.randomUUID(), RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, UUID.randomUUID()));
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg14, OTHER_RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, command));
+        var arg15 = UUID.randomUUID();
+        var arg16 = UUID.randomUUID();
+        assertThrows(DataIntegrityViolationException.class, () -> insertCall(arg15, RESTAURANT, "CANCELLED", "TABLE_SESSION_CLOSED", at, arg16));
     }
 
     @Test

@@ -1,13 +1,13 @@
 # ADR-QR-002 — QR müşteri oturumu, cookie ve hız sınırı güvenliği
 
-- **Durum:** Guest tokenının HttpOnly cookie ile taşınması Hamza, Umut ve Alper tarafından 5.11.2026 toplantısında ONAYLANDI. K3 ile bağlı K4/K6 güvenlik yükümlülükleri kabul edilen hedeftir; gerekli değişiklikler servis entegrasyonları sırasında uygulanacak. K1, K2, K5, K7 ve K8 QR kapsamında kabul edilen hedeflerdir. Cookie/CSRF/rate limit uygulaması yapılmadı.
-- **Oluşturulma:** 1 Kasım 2026. **Son güncelleme:** 5 Kasım 2026.
+- **Durum:** Guest tokenının HttpOnly cookie ile taşınması Hamza, Umut ve Alper tarafından 5.11.2026 toplantısında ONAYLANDI. K3 ile bağlı K4/K6 güvenlik yükümlülükleri kabul edilen hedeftir; gerekli değişiklikler servis entegrasyonları sırasında uygulanacak. K1, K2, K5, K7 ve K8 QR kapsamında kabul edilen hedeflerdir. K3/K4/K5/K6 QR kodunda uygulandı (19 Kasım 2026, `chore/qr-guest-session`): HttpOnly `restofy_guest` cookie, guest CSRF + Origin, her kullanımda sunucu doğrulaması; gövdede `guestToken` yoktur. Müşteri uçları rate limit değişikliğine kadar kapalıdır (`denyAll`); K7 rate limit uygulanmadı.
+- **Oluşturulma:** 1 Kasım 2026. **Son güncelleme:** 19 Kasım 2026.
 - **Hazırlayan ve QR karar sahibi:** Alper — QR / Payment sorumlusu.
 - **Toplantı ve karar sahipleri:** 5.11.2026 — Hamza (Order), Umut (Waiter), Alper (QR / Payment). Toplantı kararı Alper'in talebiyle bu ADR'ye kaydedildi; ayrıca PR yorumuyla onay bekleme koşulu yoktur.
-- **Etkilenen taraflar:** QR, Order, Waiter, frontend ve guest kimliğini kullanacak Payment entegrasyonları. Kesin cookie/CSRF ayrıntıları ve tüketici uyarlamaları entegrasyon işlerinde somutlaştırılacak.
+- **Etkilenen taraflar:** QR, Order, Waiter, frontend ve guest kimliğini kullanacak Payment entegrasyonları. QR tarafındaki cookie/CSRF ayrıntıları K3'te kayıtlıdır; tüketici uyarlamaları entegrasyon işlerinde somutlaştırılacak.
 - **İlgili personel çalışması:** [ADR-QR-003](ADR-QR-003-qr-auth-entegrasyonu.md) (önceki adı ADR-QR-AUTH-001).
 
-Bu kayıt, Alper'in müşteri güvenliğini QR'da tutma ve QR hız sınırlarını servis içinde yönetme kararını; guest tokenının HttpOnly cookie ile taşınması içinse Hamza, Umut ve Alper'in ortak toplantı onayını belgeler. K3 artık yalnız QR'ın tek taraflı önerisi değildir. Karar onayı ile uygulama ve doğrulama ayrı durumlardır. Kod, ENV, migration, güvenlik filtreleri ve entegrasyon rehberi bu belgeyle değiştirilmemiştir.
+Bu kayıt, Alper'in müşteri güvenliğini QR'da tutma ve QR hız sınırlarını servis içinde yönetme kararını; guest tokenının HttpOnly cookie ile taşınması içinse Hamza, Umut ve Alper'in ortak toplantı onayını belgeler. K3 artık yalnız QR'ın tek taraflı önerisi değildir. Karar onayı ile uygulama ve doğrulama ayrı durumlardır. K3/K4/K5/K6'nın QR tarafı `chore/qr-guest-session` dalında kod ve testlerle uygulandı (§6). ENV, migration ve entegrasyon rehberi değiştirilmedi.
 
 **Review dayanağı:** [Hocanın 2 Kasım yorumu](https://github.com/software-lecture-labs/Restofy/pull/17#pullrequestreview-5743201623), [Kerem'in 4 Kasım yanıtı](https://github.com/software-lecture-labs/Restofy/pull/17#issuecomment-6634331755) ve [sabit Auth yanıtı](https://github.com/software-lecture-labs/Restofy/blob/0356bb530cd37c83a2142fc8b5fe44004e8ee99c/docs/auth-service/qr-auth-integration-response.md). İki yanıt da guest cookie değişikliğinin Hamza/Order ve Umut/Waiter onayına bağlanmasını ister. Hocanın bellek + Bearer alternatifi seçilmiş karar değildir. Reviewer'ın numara önerisiyle personel belgesi ADR-QR-003 oldu; bu belgenin ADR-QR-002 kimliği korundu.
 
@@ -16,12 +16,12 @@ Bu kayıt, Alper'in müşteri güvenliğini QR'da tutma ve QR hız sınırların
 | Kaynak | İncelenen davranış |
 | --- | --- |
 | [GuestTokenCodec](../../backend/services/qr-service/src/main/java/com/restofy/qr/infrastructure/security/GuestTokenCodec.java) | 32 byte SecureRandom ile Base64URL guest tokenı üretir; biçim kontrolü ve domain ayrımıyla SHA-256 digest hesaplar. |
-| [Oturum açma controller'ı](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/controller/TableSessionController.java) / [yanıt DTO'su](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/dto/response/OpenedGuestSessionResponse.java) | Her kabul edilen tarama ayrı guest oluşturur; `guestToken` ilk JSON yanıtında döner. Yanıt no-store kullanır. |
-| [GuestActivityRequest](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/dto/request/GuestActivityRequest.java) | Mevcut istek gövdesi token ve beklenen restoran/main/guest kimliklerini içerir. Cookie modeline göre henüz uyarlanmamıştır. |
+| [Oturum açma controller'ı](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/controller/TableSessionController.java) / [yanıt DTO'su](../../backend/services/qr-service/src/main/java/com/restofy/qr/api/dto/response/OpenedGuestSessionResponse.java) | Her kabul edilen tarama ayrı guest oluşturur; `guestToken` JSON yanıtında DÖNMEZ; yalnız HttpOnly `restofy_guest` cookie ile verilir (`GuestSessionOpenedResponse`; `OpenedGuestSessionResponse` yalnız iç servis sonucudur). Yanıt no-store kullanır. |
+| `GuestActivityRequest` | KALDIRILDI. Aktivite isteğinde gövde yoktur; guest yalnız `restofy_guest` cookie ile tanınır ve her kullanımda sunucuda doğrulanır. |
 | [GuestSessionValidationService](../../backend/services/qr-service/src/main/java/com/restofy/qr/application/service/GuestSessionValidationService.java) | Tokenı gerçek guest/main bağlamıyla, güncel kullanılabilirlik ve Order kaynak sınırıyla doğrular. Doğrulama aktivite yazmaz. |
-| [HTTP güvenliği](../../backend/services/qr-service/src/main/java/com/restofy/qr/infrastructure/security/TableSecurityConfiguration.java) | Sağlık dışında iş endpoint'leri denyAll arkasındadır; gerçek browser guest cookie/CSRF/rate limit entegrasyonu yoktur. |
+| [HTTP güvenliği](../../backend/services/qr-service/src/main/java/com/restofy/qr/infrastructure/security/TableSecurityConfiguration.java) | Guest yolları (`/validate`, `/open`, aktivite, `GET /guest-sessions/csrf`) guest cookie, guest CSRF ve Origin filtresinden geçer; filtreyi geçen istek de K7 rate limit uygulanana kadar `denyAll` ile reddedilir. Rate limit yoktur. |
 
-Rastgele token ve sunucudaki hash saklama mevcut temeldir. Browser taşıması için onaylanan hedef HttpOnly cookie'dir; teknik uygulama ve servis entegrasyonları henüz tamamlanmadı. QR credential'ı ile guest tokenı farklı amaçlara sahiptir; biri diğerinin yerine geçmez.
+Rastgele token ve sunucudaki hash saklama mevcut temeldir. Browser taşıması için onaylanan HttpOnly cookie QR'da uygulandı; Order/Waiter/Payment/frontend entegrasyonları henüz tamamlanmadı. QR credential'ı ile guest tokenı farklı amaçlara sahiptir; biri diğerinin yerine geçmez.
 
 **Tüketici uyumluluğu:** Yereldeki [Order guest filtresi](../../backend/services/order-service/src/main/java/com/restofy/order/infrastructure/security/GuestSessionAuthenticationFilter.java) `Authorization: Bearer` kullanır. [Order güvenlik yapılandırması](../../backend/services/order-service/src/main/java/com/restofy/order/infrastructure/security/SecurityConfiguration.java), browser'ın otomatik eklemediği header kimliğine dayanır ve cookie eklenmeden CSRF entegrasyonu ister. Waiter PR #14'ün [5811d2c güvenlik yapılandırması](https://github.com/software-lecture-labs/Restofy/blob/5811d2cf7091b5a63ecb3756fee37ca7888d9207/backend/services/waiter-service/src/main/java/com/restofy/waiter/infrastructure/security/SecurityConfiguration.java), guest çağrısını header credential varsayımıyla CSRF kontrolünden istisna eder; staff mutasyonlarında CSRF kalır. Waiter salt okunur incelendi; dalı çekilmedi. Cookie'ye geçiş yalnız QR JSON yanıtını değiştiren yerel bir sadeleştirme değildir.
 
@@ -39,11 +39,13 @@ QR mevcut güçlü, rastgele guest tokenını üretmeye devam edecek; veritaban�
 
 ### K3 — Browser guest tokenı HttpOnly cookie ile taşınacak
 
-**Durum: KABUL EDİLDİ / UYGULANMADI.** Guest tokenının HttpOnly cookie ile taşınması Hamza (Order), Umut (Waiter) ve Alper (QR / Payment) tarafından 5.11.2026 tarihli toplantıda onaylanmıştır. Gerekli cookie taşıma, QR doğrulama ve CSRF/Origin değişikliklerinin ilgili servislerin entegrasyonu sırasında yapılmasına karar verilmiştir.
+**Durum: KABUL EDİLDİ / QR'DA UYGULANDI (19 Kasım 2026) — tüketici entegrasyonu bekliyor.** Guest tokenının HttpOnly cookie ile taşınması Hamza (Order), Umut (Waiter) ve Alper (QR / Payment) tarafından 5.11.2026 tarihli toplantıda onaylanmıştır. Gerekli cookie taşıma, QR doğrulama ve CSRF/Origin değişikliklerinin ilgili servislerin entegrasyonu sırasında yapılmasına karar verilmiştir.
 
 **Kararın uygulanması:** Browser oturum açma yanıtındaki ham `guestToken` kaldırılacak; QR tokenı `Set-Cookie` ile verecek. İş gereği gerekli, hassas olmayan oturum bilgileri JSON'da kalabilir; kimlik alanları tek başına yetki kazandırmaz. Amaç guest credential'ının JavaScript tarafından doğrudan okunmasını sınırlamaktır. Kesin cookie/CSRF/servis taşıma ayrıntıları ve tüketici geçişi entegrasyon PR'larında tamamlanacak; toplantı onayının yerine geçecek ek PR yorumu beklenmez.
 
-Cookie geçişinde browser aktivite isteği ve etkilenen tüketiciler birlikte uyarlanacak; eski JSON/gövde token yolunun kalıcı fallback olarak açık tutulması kararlaştırılmış değildir. Mevcut kod bu belgeyle değiştirilmedi; teknik sözleşme ve güvenli dağıtım/geçiş sırası uygulama işlerinde birlikte doğrulanacak. Browser dışındaki iç servis sözleşmesi ayrı kalır. Personel Auth cookie'si ile guest cookie'si farklı kimlik türleridir.
+**Uygulanan somut değerler (19 Kasım 2026):** Credential cookie `restofy_guest` (HttpOnly, Secure (yalnız açık dev/local/test profilinde kapalı), SameSite=Strict, Path=`/api/v1`, Domain yok, Max-Age 12 saat; her aktivitede yenilenir). Cookie ömrü oturum geçerliliği değildir: kullanılamaz guest 404 alır ve cookie’ler aynı ad/Path ile silinir. CSRF: JS’in okuyabildiği `restofy_guest_csrf` cookie’si `X-Guest-CSRF` başlığıyla birebir eşleşmeli ve tek Origin izinli listede olmalı; personel `restofy_csrf`/`X-CSRF-TOKEN` adlarından ayrıdır. `/validate` ve `/open` şimdilik Origin + JSON ister (CSRF cookie’si henüz yoktur). Aynı tarayıcıda yeni tarama önceki guest cookie’sinin yerine geçer.
+
+Cookie geçişinde browser aktivite isteği ve etkilenen tüketiciler birlikte uyarlanacak; eski JSON/gövde token yolunun kalıcı fallback olarak açık tutulması kararlaştırılmış değildir; QR'da eski gövde token yolu kaldırıldı. Tüketicilerle teknik sözleşme ve güvenli dağıtım/geçiş sırası entegrasyon işlerinde birlikte doğrulanacak. Browser dışındaki iç servis sözleşmesi ayrı kalır. Personel Auth cookie'si ile guest cookie'si farklı kimlik türleridir.
 
 | Sorumlu | Servis entegrasyonunda yapılacak iş |
 | --- | --- |
@@ -52,7 +54,7 @@ Cookie geçişinde browser aktivite isteği ve etkilenen tüketiciler birlikte u
 | Umut / Waiter | Guest çağrılarını cookie sözleşmesine uyarlama; QR doğrulamasını koruma; Bearer varsayımına dayanan CSRF istisnasını yeni modele göre düzenleme |
 | Alper / Payment ve frontend entegrasyonları | İlgili guest akışlarını aynı taşıma/sahiplik sözleşmesine bağlama; credential'ı JavaScript depolamasına taşımama; gerekli browser CSRF kanıtını gönderme |
 
-Bu tablo entegrasyon sorumluluğunu kaydeder; herhangi bir servis değişikliğinin veya testin tamamlandığını göstermez.
+Bu tablo entegrasyon sorumluluğunu kaydeder. Yalnız Alper / QR satırı QR testleriyle uygulandı (§6); diğer satırlar tamamlanmış sayılmaz.
 
 **Değerlendirilen alternatifler:**
 
@@ -66,9 +68,11 @@ Bearer header'ı taşıma biçimidir; tokenın localStorage/sessionStorage'da tu
 
 ### K4 — Guest cookie güvenlik özellikleri
 
-**K3 kararının güvenlik koşulları:** Guest cookie credential'ı HttpOnly, production HTTPS üzerinde Secure ve uygun SameSite ile kullanılacak. Cookie gerekli en dar Path/host kapsamıyla sınırlanacak; Auth personel/refresh/MFA/CSRF cookie'leriyle çakışmayacak. Token localStorage, sessionStorage, IndexedDB veya kalıcı JS erişilebilir store'a taşınmayacak. Kesin cookie ayarları entegrasyon sırasında somutlaştırılacak; bu gereklilikler atlanamaz.
+**K3 kararının güvenlik koşulları:** Guest cookie credential'ı HttpOnly, production HTTPS üzerinde Secure ve uygun SameSite ile kullanılacak. Cookie gerekli en dar Path/host kapsamıyla sınırlanacak; Auth personel/refresh/MFA/CSRF cookie'leriyle çakışmayacak. Token localStorage, sessionStorage, IndexedDB veya kalıcı JS erişilebilir store'a taşınmayacak. Bu gereklilikler atlanamaz.
 
-**Açık ayrıntılar:** Cookie adı, SameSite değeri, Path, Domain verilmemesi/host kapsamı, yaşam süresi ve yenileme biçimi henüz seçilmedi. Yerel HTTP/HTTPS davranışı ayrıca tanımlanacak; production güvenliği development kolaylığı için gevşetilmeyecek. Yeni ENV gerekiyorsa uygulama öncesi açık onay alınacak.
+**Seçilen ayrıntılar (19 Kasım 2026):** Ad, SameSite, Path, Domain, ömür ve yenileme K3'teki somut değerlerdir. Secure yalnız açık dev/local/test profilinde kapanır; production güvenliği development kolaylığı için gevşetilmedi. Yeni ENV eklenmedi; ileride gerekirse uygulama öncesi açık onay alınacak.
+
+**Path neden `/api/v1`:** Guest cookie'sini QR'ın yanında Order, Waiter ve Payment da kullanacak. Gateway'de bu servisler `/api/v1/qr`, `/api/v1/orders`, `/api/v1/waiters` ve `/api/v1/payments` altında, cookie Path'i ise tek bir ön ek alabiliyor. Bunların hepsini kapsayan en dar yol `/api/v1`. Bu yüzden tarayıcı cookie'yi `/api/v1` altındaki diğer servislere de gönderir. Bu servisler cookie'yi kullanmaz; cookie tek başına yetki vermez, çünkü QR onu her kullanımda doğrular (K5).
 
 ### K5 — Yetki her kullanımda sunucuda doğrulanacak
 
@@ -82,7 +86,9 @@ Kapanış sonrası cookie aynı isim/Path/Domain özellikleriyle temizlenecek ş
 
 **K3 kararının entegrasyon yükümlülüğü:** Guest aktivitesi ve diğer cookie'li durum değişiklikleri için etkilenen her serviste sunucuda CSRF doğrulaması ve uygun Origin politikası uygulanacak. HttpOnly tokenın JavaScript tarafından okunmasını sınırlar; CSRF'yi veya XSS üzerinden yapılabilecek bütün işlemleri tek başına engellemez. SameSite ve CORS tek başına CSRF doğrulamasının yerine konmayacak. Order/Waiter'ın header varsayımına dayanan istisnaları entegrasyon sırasında yeni modele göre düzenlenecek.
 
-Yeni guest oluşturan giriş/tarama akışı da başlangıç CSRF/Origin ve kötüye kullanım tasarımına dahil edilecek. Kullanılacak token/header/cookie adı, başlangıç kanıtının alınması ve oturum değişimindeki yenileme henüz seçilmedi. CSRF kanıtının taşınması guest credential'ını JavaScript'e açmayı gerektirmemeli; personel ve guest bağlamları karışmamalı.
+Yeni guest oluşturan giriş/tarama akışı da başlangıç CSRF/Origin ve kötüye kullanım tasarımına dahil edilecek. QR'da seçilen model: `restofy_guest_csrf` cookie'si + `X-Guest-CSRF` başlığı (double-submit) ve tek izinli Origin; CSRF cookie'si henüz olmayan `/validate` ve `/open` için başlangıç kanıtı Origin + JSON'dur. Order/Waiter/Payment tarafında CSRF modeli ve guest oluşturma limitleri (K7) henüz uygulanmadı. CSRF kanıtının taşınması guest credential'ını JavaScript'e açmayı gerektirmemeli; personel ve guest bağlamları karışmamalı.
+
+**CSRF değeri frontend'e nasıl ulaşır:** Frontend `restofy_guest_csrf` cookie'sini `document.cookie` ile okuyamaz. Tarayıcı bu listede yalnız sayfanın kendi adresine gidecek cookie'leri gösterir. Bu cookie ise API host'unda ve `Path=/api/v1` ile tanımlı, frontend sayfaları da `/tr/...` gibi yollarda. Bu nedenle değer yanıt gövdesiyle verilir. Auth'taki `GET /api/v1/auth/csrf` modeli de aynıdır. `/open` yanıtı `csrfToken` alanını döndürür. Sayfa yenilendiğinde değer `GET /api/v1/qr/guest-sessions/csrf` ile yeniden alınır. Bu uç geçerli guest cookie'si ister, guest'i sunucuda doğrular ve süre yenilemez. Kullanılamaz guest'te genel 404 döner ve cookie'leri temizler. CSRF değeri credential değildir; guest tokenı yalnız HttpOnly cookie'de kalır. Diğer müşteri uçları gibi bu uç da K7'ye kadar `denyAll` ile kapalıdır. Frontend, `/api` isteklerini aynı origin üzerinden proxy ile Gateway'e ilettiği için tarayıcı bu GET'e Origin eklemez (Fetch standardı: GET/HEAD'de yalnız cross-origin isteklerde gönderilir). Bu yüzden bu uçta Origin isteğe bağlıdır: yoksa geçer, varsa tek ve izinli olmalıdır; yabancı veya çoklu Origin 403 alır. Auth'un güvenli metotlardaki kuralı da aynıdır. Güvenlik: başka siteden gelen tarayıcı isteği Origin taşır ve reddedilir, guest cookie'si SameSite=Strict olduğu için cross-site istekle gitmez, uç hiçbir şeyi değiştirmez ve Origin'siz istemci de geçerli guest cookie'si ister. `/validate`, `/open` ve `/activity` POST'ları tarayıcıda her zaman Origin taşıdığı için Origin'i zorunlu kalır.
 
 ### K7 — Hız sınırlarını QR yönetecek
 
@@ -105,13 +111,13 @@ QR linkinin kopyalanabilmesi fiziksel masada bulunmayı kanıtlamaz. Cookie'ye g
 
 | Konu | Yanıtlanacak ayrıntı / etkilenen taraf |
 | --- | --- |
-| Ortak taşıma sözleşmesinin teknik ayrıntıları | Cookie kararı 5.11.2026 toplantısında onaylandı. Cookie adı/kapsamı, CSRF sözleşmesi, DTO ve tüketici geçiş sırası entegrasyon PR'larında netleştirilecek; ek karar/onay yorumu beklenmiyor. |
+| Ortak taşıma sözleşmesinin teknik ayrıntıları | Cookie kararı 5.11.2026 toplantısında onaylandı. QR tarafında cookie adı/kapsamı, CSRF sözleşmesi ve DTO seçildi (K3); tüketici geçiş sırası entegrasyon PR'larında netleştirilecek; ek karar/onay yorumu beklenmiyor. |
 | Order/Waiter/Payment'a guest taşıması | Frontend HttpOnly tokenı okuyup header'a koyamaz. Gerekli browser yolları, tüketici değişiklikleri/CSRF ve gerçek QR doğrulaması servis entegrasyonlarında uygulanmalı. Çalışan adapter/BFF varmış gibi davranılmayacak. |
 | Farklı masa ve çoklu sekme | Aynı browser kapsamındaki sekmeler cookie'yi paylaşır. Başka QR okutulduğunda mevcut oturum, hesap erişimi ve cookie'nin üzerine yazılması davranışı seçilmeli; aynı anda çoklu masa desteği varsayılmayacak. |
 | Tekrarlı tarama ve kayıp yanıt | Mevcut her tarama ayrı guest davranışıyla cookie yenilenmesi, reload ve yanıt kaybında tekrar açma/guest çoğalması birlikte değerlendirilmeli. Otomatik guest birleştirme kararı verilmedi. |
 | Credential/cookie ömrü | Siparişli koruma, bağımsız guest idle süresi, browser kapanışı ve kayıp credential davranışıyla uyumlu politika seçilmeli. Geçersiz oturum yenilemeyle diriltilmemeli. |
 | İstemci geçişi | JSON yanıtı ve activity gövdesi değişince mevcut frontend ve servis istemcilerinin etkisi incelenmeli; sürümleme/geçiş ve dağıtım sırası tanımlanmalı. |
-| Cookie ve CSRF ayrıntıları | İsim, Path/host, SameSite, ömür, bootstrap/yenileme/temizleme ve yerel geliştirme davranışı somutlaştırılmalı. |
+| Cookie ve CSRF ayrıntıları | QR için seçildi (K3/K4/K6). Tüketici servislerde aynı cookie'nin nasıl kullanılacağı ve CSRF doğrulaması açık. |
 | Limit ve proxy ayrıntıları | Sayısal bütçe, sayaç tutarlılığı, kapasite/kesinti ve güvenilir istemci adresi ilgili geliştiricilerle belirlenmeli. |
 
 Bu açık sorular çözülmeden taşıma/güvenlik sözleşmesi tamamlanmış veya bütün müşteri API'leri açılabilir sayılmaz. Aktif guest kapasitesini aşan istekleri reddetmek, mevcut guest'leri rastgele silme yetkisi vermez.
@@ -122,9 +128,9 @@ Bu açık sorular çözülmeden taşıma/güvenlik sözleşmesi tamamlanmış ve
 - Kapanmış veya süresi dolup kullanılamaz olmuş guest, gecikmiş bildirimle yeniden açılmaz. Sipariş koruması ve güvenli son iptal sonrası 15 dakika kuralları ADR-QR-001'e göre korunur.
 - Guest tokenı sipariş kabulü, Payment tahsilat kanıtı veya personel/servis kimliği yerine geçmez. Order checkout/kapanış koordinasyonu ve guest sahipliği kendi yetkili sınırlarında korunur.
 - Yeni public endpoint, tüm API'leri permitAll açma, Auth/Order/Waiter/Payment kod değişikliği, yeni broker veya ortak domain kütüphanesi bu çalışmanın kapsamında değildir.
-- QR personel RBAC matrisi Alper tarafından [ADR-QR-003 Q3.1](ADR-QR-003-qr-auth-entegrasyonu.md) kapsamında kabul edildi; uygulaması yapılmadı. Güncel oturum/iptal mekanizması Kerem'in revize yanıtını bekliyor. Bu çalışma müşteri taşıma kararını personel entegrasyonuna zorunlu bağımlılık yapmaz.
+- QR personel RBAC matrisi Alper tarafından [ADR-QR-003 Q3.1](ADR-QR-003-qr-auth-entegrasyonu.md) kapsamında kabul edildi; uygulama ve doğrulama durumu ADR-QR-003'te izlenir. Bu çalışma müşteri taşıma kararını personel entegrasyonuna zorunlu bağımlılık yapmaz.
 
-## 5. Kabul ölçütleri — henüz çalıştırılmadı
+## 5. Kabul ölçütleri — kısmen QR testleriyle doğrulandı
 
 | Senaryo | Beklenen davranış |
 | --- | --- |
@@ -141,16 +147,20 @@ Bu açık sorular çözülmeden taşıma/güvenlik sözleşmesi tamamlanmış ve
 | Order/Waiter/Payment browser akışı | Güvenli taşıma ve gerçek QR doğrulaması; başka guest'in yetkisini kullanamama |
 | Kapanış sonrası cookie ve token tekrarı | Cookie temizleme mümkünse uygulanır; eski token sunucuda reddedilir |
 
+QR testleriyle doğrulanan kısım (`GuestCookieSecurityTests`, `GuestRoutesClosedHttpTests` ve mevcut guest servis testleri): JSON'da ham token olmaması ve cookie özellikleri, çift/eksik/bozuk cookie reddi, eksik/yanlış CSRF ve yasak/çoklu Origin reddi, personel cookie'sinin guest yerine geçmemesi, `/validate` ve `/open` için Origin + JSON zorunluluğu, CSRF değerinin `/open` gövdesinde ve `GET /guest-sessions/csrf` yanıtında cookie ile aynı dönmesi (bu uç geçersiz guest'te 404 ve cookie temizliği, Origin'siz isteği kabul eder, yasak Origin'de 403 verir) ve geçerli kanıtlı isteğin bile `denyAll` ile kapalı kalması. Limit, çoklu instance, proxy, Order/Waiter/Payment browser akışı ve gerçek tarayıcı senaryoları DOĞRULANMADI.
+
 ## 6. Uygulama ve doğrulama durumu
 
 | Parça | Durum |
 | --- | --- |
 | Rastgele guest tokenı, digest saklama ve yerel guest doğrulama temeli | MEVCUT — kaynak incelendi; bu çalışmada değiştirilmedi |
-| JSON'dan Set-Cookie'ye geçiş, activity uyarlaması, cookie yaşam döngüsü | Hamza/Umut/Alper tarafından 5.11.2026'da kabul edildi; servis entegrasyonlarında uygulanacak — UYGULANMADI |
-| Guest CSRF/Origin ve QR'a özel hız sınırları | UYGULANMADI — uygulama ayrıntıları açık |
+| JSON'dan Set-Cookie'ye geçiş, activity uyarlaması, cookie yaşam döngüsü | UYGULANDI (QR, 19 Kasım 2026) — Order/Waiter/Payment/frontend tarafı UYGULANMADI |
+| Guest CSRF/Origin | UYGULANDI (QR) — tüketici servislerde UYGULANMADI |
+| QR'a özel hız sınırları (K7) | UYGULANMADI — ayrı PR (`chore/rate-limit`); o zamana kadar müşteri uçları `denyAll` |
 | Gerçek browser ve servisler arası guest taşıma | DOĞRULANMADI — taraflar arası sözleşme ve E2E bekliyor |
-| Bu belgedeki kabul testleri, pre-push ve Sonar | ÇALIŞTIRILMADI — yalnız dokümantasyon değişikliği |
+| QR testleri | ÇALIŞTIRILDI — qr-service 636 test, 0 hata/başarısızlık (23 Kasım 2026) |
+| Sonar ve pre-push | Sonar yerelde çalıştırıldı: QR guest değişikliklerinde açık bulgu/hotspot yok; backend kalite kapısı diğer servislerdeki bulgular nedeniyle başarısız. Pre-push son kodda yeniden ÇALIŞTIRILMADI |
 
-Alper'in 5 Kasım planı: önce personel RBAC/JWT/cookie güvenlik temeli, ayrı PR'da QR rate limit. Guest HttpOnly cookie kararı toplantıda onaylandı; uygulaması ilgili servislerin entegrasyonlarında yapılacak. Browser cookie güvenliği, CSRF, limitler ve gerçek doğrulamalar tamamlanıp test edilmeden müşteri endpoint'leri açılmayacak. ENV/migration ihtiyacı uygulanacak tasarımdan sonra belirlenir; bu belgeyle bunlarda değişiklik yapılmadı. Entegrasyon rehberi bu aşamada güncellenmedi. Commit/push, PR/yorum, review ve merge geliştiriciye aittir.
+Alper'in 5 Kasım planı: önce personel RBAC/JWT/cookie güvenlik temeli, ayrı PR'da QR rate limit. Guest HttpOnly cookie QR tarafında uygulandı; tüketici tarafı ilgili servislerin entegrasyonlarında yapılacak. K7 limitleri ve gerçek doğrulamalar tamamlanıp test edilmeden müşteri endpoint'leri açılmayacak. Bu çalışmada ENV/migration değişikliği yapılmadı. Entegrasyon rehberi bu aşamada güncellenmedi. Commit/push, PR/yorum, review ve merge geliştiriciye aittir.
 
 Kaynaklar: [SECURITY](../SECURITY.md) §3–5, §8, §11–12; [Auth limiter ADR'si](ADR-AUTH-002-rate-limit-ve-kilitler.md); [Spring Security CSRF rehberi](https://docs.spring.io/spring-security/reference/features/exploits/csrf.html).

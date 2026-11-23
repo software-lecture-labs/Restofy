@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -48,6 +50,11 @@ public final class DownstreamStub implements AutoCloseable {
 
         public static Response json(int status, String body) {
             return new Response(status, "application/json", body, 0);
+        }
+
+        /** An RFC 9457 problem answer, as Spring's ProblemDetail handlers send it. */
+        public static Response problem(int status, String body) {
+            return new Response(status, "application/problem+json", body, 0);
         }
 
         public Response delayed(long millis) {
@@ -122,8 +129,9 @@ public final class DownstreamStub implements AutoCloseable {
                     .orElse(Response.json(404, "{\"error\":\"unrouted\"}"));
             if (response.delayMillis() > 0) {
                 try {
-                    Thread.sleep(response.delayMillis());
-                } catch (InterruptedException interrupted) {
+                    // A deliberately slow answer: wait on a latch that is never released, up to the delay.
+                    new CountDownLatch(1).await(response.delayMillis(), TimeUnit.MILLISECONDS);
+                } catch (InterruptedException _) {
                     Thread.currentThread().interrupt();
                     return;
                 }
@@ -132,7 +140,7 @@ public final class DownstreamStub implements AutoCloseable {
             exchange.getResponseHeaders().set("Content-Type", response.contentType());
             exchange.sendResponseHeaders(response.status(), body.length == 0 ? -1 : body.length);
             if (body.length > 0) exchange.getResponseBody().write(body);
-        } catch (IOException ignoredAfterClientTimeout) {
+        } catch (IOException _) {
             // The Waiter side may already have given up (timeout tests); nothing to report.
         }
     }

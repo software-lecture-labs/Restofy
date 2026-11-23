@@ -1,5 +1,6 @@
 package com.restofy.qr.infrastructure;
 
+import com.restofy.qr.api.controller.GuestSessionActivityController;
 import com.restofy.qr.api.controller.TableSessionController;
 import com.restofy.qr.api.dto.request.*;
 import com.restofy.qr.api.dto.response.*;
@@ -12,6 +13,7 @@ import com.restofy.qr.domain.exception.TableSessionConflictException;
 import com.restofy.qr.infrastructure.persistence.repository.*;
 import com.restofy.qr.infrastructure.security.GuestTokenCodec;
 import com.restofy.qr.infrastructure.security.TableManagementAccess;
+import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
@@ -38,6 +40,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -45,7 +48,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuritySupport {
     @Autowired GuestSessionOpeningService opening;
     @Autowired GuestSessionValidationService validation;
+    @Autowired GuestSessionActivityService activity;
     @Autowired GuestTokenCodec tokens;
+    @Autowired com.restofy.qr.infrastructure.security.guest.GuestCookies cookies;
     @Autowired QrCodeCreationService creation;
     @Autowired TableManagementService tables;
     @Autowired GuestSessionRepository guests;
@@ -65,7 +70,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
         when(clock.instant()).thenAnswer(invocation -> Instant.now());
-        api = MockMvcBuilders.standaloneSetup(new TableSessionController(opening))
+        api = MockMvcBuilders.standaloneSetup(new TableSessionController(opening, cookies))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }
@@ -95,7 +100,19 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
                 .andExpect(jsonPath("$.tableSession.restaurantId").value(code.restaurantId().toString()))
                 .andExpect(jsonPath("$.tableSession.tableId").value(code.tableId().toString()))
                 .andExpect(jsonPath("$.guestSession.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.guestToken").isString()).andExpect(jsonPath("$.guestSession.tokenDigest").doesNotExist())
+                .andExpect(jsonPath("$.guestToken").doesNotExist())
+                .andExpect(result -> assertThat(result.getResponse().getHeaders("Set-Cookie")).anySatisfy(cookie -> assertThat(cookie)
+                        .startsWith("restofy_guest=").contains("HttpOnly", "SameSite=Strict", "Path=/api/v1").doesNotContain("Domain")))
+                .andExpect(result -> assertThat(result.getResponse().getHeaders("Set-Cookie")).anySatisfy(cookie -> assertThat(cookie)
+                        .startsWith("restofy_guest_csrf=").doesNotContain("HttpOnly")))
+                .andExpect(result -> {
+                    // The body carries the same CSRF value the cookie holds; the frontend cannot read that cookie.
+                    String csrf = com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.csrfToken");
+                    assertThat(csrf).matches(com.restofy.qr.infrastructure.security.guest.GuestCookies.PATTERN);
+                    assertThat(result.getResponse().getHeaders("Set-Cookie")).anySatisfy(cookie ->
+                            assertThat(cookie).startsWith("restofy_guest_csrf=" + csrf + ";"));
+                })
+                .andExpect(jsonPath("$.guestSession.tokenDigest").doesNotExist())
                 .andExpect(jsonPath("$.encryptedPayload").doesNotExist()).andExpect(jsonPath("$.qrToken").doesNotExist())
                 .andExpect(jsonPath("$.role").doesNotExist()).andExpect(jsonPath("$.guestCount").doesNotExist());
         assertThat(count(code.tableId())).isEqualTo(1);
@@ -121,6 +138,41 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
         assertThat(jdbc.queryForList("select column_name from information_schema.columns where table_name='guest_sessions'", String.class))
                 .containsExactlyInAnyOrder("id", "restaurant_id", "table_session_id", "token_digest", "status", "joined_at", "last_activity_at", "expires_at", "ended_at", "version");
         assertThat(jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId())).isEqualTo(3);
+    }
+
+    @Test
+    void csrfReadReturnsTheBrowserValueForAUsableGuestAndClearsCookiesOtherwise() throws Exception {
+        var guestApi = MockMvcBuilders.standaloneSetup(new GuestSessionActivityController(activity, validation, cookies))
+                .setControllerAdvice(new ApiExceptionHandler())
+                .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
+        var opened = opening.open(create("1").qrToken());
+        var before = guests.findById(opened.guestSession().id()).orElseThrow();
+        String existing = "B".repeat(43);
+        guestApi.perform(get("/api/v1/qr/guest-sessions/csrf")
+                        .cookie(new Cookie("restofy_guest", opened.guestToken()), new Cookie("restofy_guest_csrf", existing)))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.csrfToken").value(existing)).andExpect(header().doesNotExist("Set-Cookie"))
+                .andExpect(jsonPath("$.guestToken").doesNotExist());
+        guestApi.perform(get("/api/v1/qr/guest-sessions/csrf").cookie(new Cookie("restofy_guest", opened.guestToken())))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String csrf = com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.csrfToken");
+                    assertThat(result.getResponse().getHeaders("Set-Cookie")).singleElement().satisfies(cookie ->
+                            assertThat(cookie).startsWith("restofy_guest_csrf=" + csrf + ";").contains("Path=/api/v1"));
+                });
+        // Reading the CSRF value is not activity: it renews nothing.
+        var after = guests.findById(opened.guestSession().id()).orElseThrow();
+        assertThat(after.getVersion()).isEqualTo(before.getVersion());
+        assertThat(after.getLastActivityAt()).isEqualTo(before.getLastActivityAt());
+
+        jdbc.update("update guest_sessions set status='ENDED',ended_at=last_activity_at where id=?", opened.guestSession().id());
+        for (String token : List.of(opened.guestToken(), "A".repeat(43))) {
+            guestApi.perform(get("/api/v1/qr/guest-sessions/csrf")
+                            .cookie(new Cookie("restofy_guest", token), new Cookie("restofy_guest_csrf", existing)))
+                    .andExpect(status().isNotFound()).andExpect(jsonPath("$.csrfToken").doesNotExist())
+                    .andExpect(result -> assertThat(result.getResponse().getHeaders("Set-Cookie")).hasSize(2)
+                            .allSatisfy(cookie -> assertThat(cookie).contains("Max-Age=0", "Path=/api/v1")));
+        }
     }
 
     @Test
@@ -263,7 +315,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Test
     void databaseEnforcesDigestUniquenessAndTheCompositeTenantParentKey() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("122");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("123");
         var opened = opening.open(create("1").qrToken());
         var guest = opened.guestSession();
         var duplicate = new GuestSession(guest.restaurantId(), guest.tableSessionId(), tokens.digest(opened.guestToken()), guest.joinedAt());

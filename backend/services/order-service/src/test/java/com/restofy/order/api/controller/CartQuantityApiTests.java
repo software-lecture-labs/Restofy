@@ -67,7 +67,7 @@ class CartQuantityApiTests extends AbstractCartApiTest {
         for (String raw : List.of("{\"quantity\": 1.5}", "{\"quantity\": \"3\"}", "{\"quantity\": 99999999999999}",
                 "{\"quantity\": 2147483648}", "{\"quantity\": null}", "{}")) {
             mvc.perform(MockMvcRequestBuilders
-                            .patch(CART + "/items/" + lineId).header("Authorization", "Bearer " + A1)
+                            .patch(CART + "/items/" + lineId).with(AbstractCartApiTest.guestCookie(A1))
                             .contentType("application/json").content(raw))
                     .andExpect(result -> assertTrue(
                             List.of(400, 422).contains(result.getResponse().getStatus()),
@@ -138,7 +138,7 @@ class CartQuantityApiTests extends AbstractCartApiTest {
                 .andExpect(jsonPath("$.code").value("CART_VERSION_CONFLICT"));
         mvc.perform(MockMvcRequestBuilders
                         .delete(CART + "/items/" + lineId + "?expectedCartVersion=" + (version + 7))
-                        .header("Authorization", "Bearer " + A1))
+                        .with(AbstractCartApiTest.guestCookie(A1)))
                 .andExpect(status().isConflict());
         getCart(A1).andExpect(jsonPath("$.items", hasSize(1)));
     }

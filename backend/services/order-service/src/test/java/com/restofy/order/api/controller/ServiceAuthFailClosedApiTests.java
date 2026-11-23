@@ -101,9 +101,8 @@ class ServiceAuthFailClosedApiTests {
         verifyNoInteractions(services, qr);
 
         Mockito.clearInvocations(services, auth, qr);
-        call("Bearer guest-token").andReturn();
-        verify(qr).validateGuestSession("guest-token");
-        verifyNoInteractions(services, auth);
+        call("Bearer guest-token").andExpect(status().isUnauthorized());
+        verifyNoInteractions(services, auth, qr);
     }
 
     @Test

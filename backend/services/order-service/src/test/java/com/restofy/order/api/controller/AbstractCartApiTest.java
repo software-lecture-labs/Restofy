@@ -4,6 +4,7 @@ import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import com.restofy.order.infrastructure.client.mock.InMemoryAuthContextAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryMenuCatalogAdapter;
 import com.restofy.order.infrastructure.client.mock.InMemoryQrSessionAdapter;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -30,11 +32,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * Real HTTP-layer + PostgreSQL tests of the cart API. The QR and Menu services are the dev/test MOCK adapters;
  * they are reset before every test.
  */
-@SpringBootTest
+@SpringBootTest(properties = "CORS_ALLOWED_ORIGINS=https://guest.example")
 @AutoConfigureMockMvc
 abstract class AbstractCartApiTest {
 
     protected static final String CART = "/api/v1/carts/current";
+    protected static final String GUEST_ORIGIN = "https://guest.example";
+    protected static final String GUEST_CSRF = "p".repeat(43);
+    private static final String GUEST_FIXTURE = "test-guest:";
     private static final String CART_ACTIVITY = "CartActivityRecorded";
 
     @Autowired
@@ -95,7 +100,7 @@ abstract class AbstractCartApiTest {
     }
 
     protected static String guest(String token) {
-        return "Bearer " + token;
+        return GUEST_FIXTURE + token;
     }
 
     protected static String staff(String credential) {
@@ -106,13 +111,9 @@ abstract class AbstractCartApiTest {
         return "Service " + credential;
     }
 
-    /** GET with a complete Authorization header value (Bearer for guests, Staff for staff). */
+    /** GET with a guest cookie or an explicit staff/service credential. */
     protected ResultActions getWith(String authorization, String path) throws Exception {
-        var request = get(path);
-        if (authorization != null) {
-            request.header(HttpHeaders.AUTHORIZATION, authorization);
-        }
-        return mvc.perform(request);
+        return mvc.perform(withCredential(get(path), authorization));
     }
 
     /** A guest fills the cart with one salad and orders it; returns the new order id. */
@@ -178,7 +179,28 @@ abstract class AbstractCartApiTest {
     }
 
     protected static MockHttpServletRequestBuilder authorized(MockHttpServletRequestBuilder request, String token) {
-        return token == null ? request : request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        return token == null ? request : request.with(guestCookie(token));
+    }
+
+    protected static MockHttpServletRequestBuilder withCredential(MockHttpServletRequestBuilder request, String value) {
+        if (value != null) {
+            if (value.startsWith(GUEST_FIXTURE)) {
+                return authorized(request, value.substring(GUEST_FIXTURE.length()));
+            }
+            return request.header(HttpHeaders.AUTHORIZATION, value);
+        }
+        return request;
+    }
+
+    protected static RequestPostProcessor guestCookie(String token) {
+        return request -> {
+            var guest = new Cookie("restofy_guest", token);
+            guest.setHttpOnly(true);
+            request.setCookies(guest, new Cookie("restofy_guest_csrf", GUEST_CSRF));
+            request.addHeader(HttpHeaders.ORIGIN, GUEST_ORIGIN);
+            request.addHeader("X-Guest-CSRF", GUEST_CSRF);
+            return request;
+        };
     }
 
     protected String toJson(Object body) {

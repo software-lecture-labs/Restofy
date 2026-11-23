@@ -77,7 +77,7 @@ class CallConcurrencyTests extends ApiTestBase {
 
     private Callable<Answer> guest(FakeBackends.Guest guest, String key, String body) {
         return () -> {
-            var response = mockMvc.perform(post("/api/v1/waiters/calls").header("X-Guest-Token", guest.token())
+            var response = mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(guest.token()))
                     .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content(body)).andReturn().getResponse();
             return new Answer(response.getStatus(), response.getContentAsString());
         };

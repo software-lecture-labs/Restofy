@@ -75,29 +75,29 @@ class StaffAccessDeniedApiTests extends AbstractCartApiTest {
             if (orderPlacement || guestMayCall(route)) {
                 continue;
             }
-            mvc.perform(call(route).header("Authorization", "Bearer " + A1).header("X-Role", "ADMIN"))
-                    .andExpect(result -> assertEquals(403, result.getResponse().getStatus(), route[0] + " " + route[1]))
-                    .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+            mvc.perform(call(route).with(AbstractCartApiTest.guestCookie(A1)).header("X-Role", "ADMIN"))
+                    .andExpect(result -> assertEquals(401, result.getResponse().getStatus(), route[0] + " " + route[1]))
+                    .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
         }
     }
 
     @Test
     void guestsMayOnlyPlaceAndReadTheirOwnOrders() throws Exception {
         // reading an unknown order reaches the service and is a plain 404 (no existence leak), not 401/403
-        mvc.perform(request(HttpMethod.GET, "/api/v1/orders/" + SOME_ID).header("Authorization", "Bearer " + A1))
+        mvc.perform(request(HttpMethod.GET, "/api/v1/orders/" + SOME_ID).with(AbstractCartApiTest.guestCookie(A1)))
                 .andExpect(status().isNotFound());
         mvc.perform(request(HttpMethod.GET, "/api/v1/orders/" + SOME_ID + "/history")
-                        .header("Authorization", "Bearer " + A1))
+                        .with(AbstractCartApiTest.guestCookie(A1)))
                 .andExpect(status().isNotFound());
         // POST /api/v1/orders with a guest session reaches the controller: a validation error, not 401/403
-        mvc.perform(request(HttpMethod.POST, "/api/v1/orders").header("Authorization", "Bearer " + A1)
+        mvc.perform(request(HttpMethod.POST, "/api/v1/orders").with(AbstractCartApiTest.guestCookie(A1))
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isUnprocessableContent());
         // the same path with other methods is closed
         for (HttpMethod method : List.of(HttpMethod.PUT, HttpMethod.DELETE, HttpMethod.PATCH)) {
-            mvc.perform(request(method, "/api/v1/orders").header("Authorization", "Bearer " + A1)
+            mvc.perform(request(method, "/api/v1/orders").with(AbstractCartApiTest.guestCookie(A1))
                             .contentType("application/json").content("{}"))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isUnauthorized());
         }
     }
 }

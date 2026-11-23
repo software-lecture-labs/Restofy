@@ -8,7 +8,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
@@ -101,7 +100,10 @@ public final class FakeBackends {
     /** D-02 is open: whether a partially cancelled order may be served is Order's decision, not Waiter's. */
     public enum PartialCancellation { ALLOW, REJECT }
 
-    /** A guest credential as QR would know it; the statuses are the DRAFT contract values. */
+    /**
+     * A guest credential as QR would know it. The statuses are QR's internal states; QR's answer only says whether the
+     * guest is usable (an active guest of an open table session) and refuses every other guest with the same 404.
+     */
     public record Guest(String token, UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
                         String tableSessionStatus, String guestStatus) {
 
@@ -118,6 +120,11 @@ public final class FakeBackends {
     /** Known guest credentials by token; an unknown token is answered with 404. */
     public final Map<String, Guest> guests = new ConcurrentHashMap<>();
 
+    /** QR's shared guest validation (QR-INT-02) and the 404 problem it gives for every refused guest. */
+    public static final String GUEST_VALIDATE = "/api/v1/internal/qr/guest-sessions/validate";
+    public static final String UNAVAILABLE_GUEST = "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,"
+            + "\"detail\":\"Guest session is unavailable.\"}";
+
     private static final Pattern TABLE_ID = Pattern.compile("/api/v1/internal/tables/([0-9a-f-]{36})");
     private static final Pattern ORDER_ID = Pattern.compile("/api/v1/internal/orders/([0-9a-f-]{36})");
 
@@ -127,7 +134,7 @@ public final class FakeBackends {
         stub.route("POST", "/api/v1/internal/orders/session-summaries", this::sessionSummaries);
         stub.route("POST", "/api/v1/internal/orders/search", this::searchOrders);
         stub.route("GET", ORDER_ID.pattern(), this::getOrder);
-        stub.route("POST", "/api/v1/internal/guest-sessions/verify", this::verifyGuest);
+        stub.route("POST", GUEST_VALIDATE, this::verifyGuest);
         stub.route("POST", "/api/v1/internal/orders/[0-9a-f-]{36}/serve", this::serveOrder);
         stub.route("GET", "/api/v1/internal/orders/[0-9a-f-]{36}/serve-commands/[0-9a-f-]{36}", this::serveStatus);
         return this;
@@ -261,9 +268,9 @@ public final class FakeBackends {
         }
         orders.set(index, order.served(Instant.parse("2026-10-16T10:30:00Z")));
         serveRecords.put(commandId, new ServeRecord(digest, true, 0, null));
-        Response answer = fault == ServeFault.GARBAGE_ANSWER ? Response.json(200, "not json")
-                : Response.json(200, write(serveAnswer(commandId, "APPLIED", orders.get(index))));
-        return fault == ServeFault.LOST_ANSWER ? answer.delayed(1500) : answer;
+        Response answer = Response.json(200, fault == ServeFault.GARBAGE_ANSWER ? "not json"
+                : write(serveAnswer(commandId, "APPLIED", orders.get(index))));
+        return answer.delayed(fault == ServeFault.LOST_ANSWER ? 1500 : 0);
     }
 
     private String refusalFor(Order order, UUID sessionId, long expectedVersion) {
@@ -315,12 +322,16 @@ public final class FakeBackends {
 
     private Response verifyGuest(Request request) {
         Guest guest = guests.get(read(request.body()).get("guestToken").asString());
-        if (guest == null) return Response.json(404, "{\"status\":404}");
+        if (guest == null || !"OPEN".equals(guest.tableSessionStatus()) || !"ACTIVE".equals(guest.guestStatus())) {
+            return Response.problem(404, UNAVAILABLE_GUEST);
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("restaurantId", guest.restaurantId());
         body.put("tableId", guest.tableId());
-        body.put("tableSession", Map.of("id", guest.tableSessionId(), "status", guest.tableSessionStatus()));
-        body.put("guestSession", Map.of("id", guest.guestSessionId(), "status", guest.guestStatus()));
+        body.put("tableSessionId", guest.tableSessionId());
+        body.put("guestSessionId", guest.guestSessionId());
+        body.put("state", "ACTIVE");
+        body.put("checkedAt", java.time.Instant.now().toString());
         return Response.json(200, write(body));
     }
 

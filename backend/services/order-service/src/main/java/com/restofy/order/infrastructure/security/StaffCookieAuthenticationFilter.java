@@ -21,7 +21,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
-    static final String CHALLENGE = "StaffSession realm=\"order\"";
     private final AuthContextPort authContext;
     private final ApiErrorWriter errors;
     private final RequestMatcher staffRoutes;
@@ -61,6 +60,13 @@ final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
             // Explicit guest or service credentials are handled by their own filters.
+            chain.doFilter(request, response);
+            return;
+        }
+        // A guest session cookie on a guest route belongs to the guest filter, like an explicit guest credential: a stale
+        // or foreign staff cookie in the same browser must neither authenticate nor reject the guest request.
+        if (GuestSessionAuthenticationFilter.guestRoute(request)
+                && !cookies(request, GuestSessionAuthenticationFilter.SESSION_COOKIE).isEmpty()) {
             chain.doFilter(request, response);
             return;
         }
@@ -106,6 +112,6 @@ final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private void reject(HttpServletResponse response) throws IOException {
-        errors.unauthenticated(response, "A valid staff session is required", CHALLENGE);
+        errors.unauthenticated(response, "A valid staff session is required", ApiErrorWriter.STAFF_SESSION_SCHEME);
     }
 }

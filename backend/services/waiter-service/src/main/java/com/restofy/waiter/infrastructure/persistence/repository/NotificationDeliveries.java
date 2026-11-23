@@ -9,7 +9,6 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +31,36 @@ public class NotificationDeliveries {
                        int attemptCount, String lastErrorCode, Instant lastAttemptAt, Instant deliveredAt) {
     }
 
+    private static final String RETIRE_OBSOLETE = """
+            UPDATE notification_deliveries d SET status = ?, updated_at = ?
+            WHERE d.status = ? AND EXISTS (
+                SELECT 1 FROM notification_deliveries n
+                WHERE n.service_request_id = d.service_request_id AND n.call_version > d.call_version
+                  AND n.status IN (?, ?))
+            """;
+
+    private static final String LEASE_DUE = """
+            SELECT d.event_id, d.service_request_id, d.call_version, d.attempt_count, e.payload::text AS payload
+            FROM notification_deliveries d JOIN service_call_events e ON e.id = d.event_id
+            WHERE d.status = ? AND d.next_attempt_at <= ?
+            ORDER BY d.created_at, d.call_version
+            LIMIT ? FOR UPDATE OF d SKIP LOCKED
+            """;
+
+    private static final String MARK_ATTEMPT = """
+            UPDATE notification_deliveries
+            SET attempt_count = ?, last_attempt_at = ?, next_attempt_at = ?, updated_at = ?
+            WHERE event_id = ?
+            """;
+
+    private static final String LATEST_FOR_CALLS = """
+            SELECT DISTINCT ON (service_request_id) service_request_id, event_id, call_version, status,
+                   attempt_count, last_error_code, last_attempt_at, delivered_at
+            FROM notification_deliveries
+            WHERE restaurant_id = ? AND service_request_id = ANY (?)
+            ORDER BY service_request_id, call_version DESC
+            """;
+
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
 
@@ -48,33 +77,17 @@ public class NotificationDeliveries {
      */
     public List<DueDelivery> leaseDue(Instant now, int limit, Duration lease) {
         return transaction.execute(status -> {
-            jdbc.update("""
-                            UPDATE notification_deliveries d SET status = ?, updated_at = ?
-                            WHERE d.status = ? AND EXISTS (
-                                SELECT 1 FROM notification_deliveries n
-                                WHERE n.service_request_id = d.service_request_id AND n.call_version > d.call_version
-                                  AND n.status IN (?, ?))
-                            """,
+            jdbc.update(RETIRE_OBSOLETE,
                     NotificationDeliveryStatus.SUPERSEDED.name(), Timestamp.from(now),
                     NotificationDeliveryStatus.PENDING.name(), NotificationDeliveryStatus.PENDING.name(),
                     NotificationDeliveryStatus.DELIVERED.name());
-            List<DueDelivery> due = jdbc.query("""
-                            SELECT d.event_id, d.service_request_id, d.call_version, d.attempt_count, e.payload::text AS payload
-                            FROM notification_deliveries d JOIN service_call_events e ON e.id = d.event_id
-                            WHERE d.status = ? AND d.next_attempt_at <= ?
-                            ORDER BY d.created_at, d.call_version
-                            LIMIT ? FOR UPDATE OF d SKIP LOCKED
-                            """,
+            List<DueDelivery> due = jdbc.query(LEASE_DUE,
                     (rs, row) -> new DueDelivery(rs.getObject("event_id", UUID.class),
                             rs.getObject("service_request_id", UUID.class), rs.getLong("call_version"),
                             rs.getInt("attempt_count") + 1, rs.getString("payload")),
                     NotificationDeliveryStatus.PENDING.name(), Timestamp.from(now), limit);
             for (DueDelivery delivery : due) {
-                jdbc.update("""
-                                UPDATE notification_deliveries
-                                SET attempt_count = ?, last_attempt_at = ?, next_attempt_at = ?, updated_at = ?
-                                WHERE event_id = ?
-                                """,
+                jdbc.update(MARK_ATTEMPT,
                         delivery.attemptCount(), Timestamp.from(now), Timestamp.from(now.plus(lease)),
                         Timestamp.from(now), delivery.eventId());
             }
@@ -108,20 +121,13 @@ public class NotificationDeliveries {
     /** Latest event per call, tenant-scoped; calls without any event are simply absent. */
     public Map<UUID, Sync> latestFor(UUID restaurantId, Collection<UUID> serviceRequestIds) {
         if (serviceRequestIds.isEmpty()) return Map.of();
-        String placeholders = String.join(",", Collections.nCopies(serviceRequestIds.size(), "?"));
-        Object[] arguments = new Object[serviceRequestIds.size() + 1];
-        arguments[0] = restaurantId;
-        int index = 1;
-        for (UUID id : serviceRequestIds) arguments[index++] = id;
+        UUID[] ids = serviceRequestIds.toArray(UUID[]::new);
         Map<UUID, Sync> latest = new HashMap<>();
-        jdbc.query("""
-                        SELECT DISTINCT ON (service_request_id) service_request_id, event_id, call_version, status,
-                               attempt_count, last_error_code, last_attempt_at, delivered_at
-                        FROM notification_deliveries
-                        WHERE restaurant_id = ? AND service_request_id IN (""" + placeholders + """
-                        )
-                        ORDER BY service_request_id, call_version DESC
-                        """,
+        jdbc.query(LATEST_FOR_CALLS,
+                statement -> {
+                    statement.setObject(1, restaurantId);
+                    statement.setArray(2, statement.getConnection().createArrayOf("uuid", ids));
+                },
                 rs -> {
                     UUID call = rs.getObject("service_request_id", UUID.class);
                     Timestamp attempted = rs.getTimestamp("last_attempt_at");
@@ -130,8 +136,7 @@ public class NotificationDeliveries {
                             NotificationDeliveryStatus.valueOf(rs.getString("status")), rs.getInt("attempt_count"),
                             rs.getString("last_error_code"), attempted == null ? null : attempted.toInstant(),
                             delivered == null ? null : delivered.toInstant()));
-                },
-                arguments);
+                });
         return latest;
     }
 }

@@ -166,14 +166,29 @@ class StaffCookieAuthenticationApiTests {
 
     @Test
     void explicitGuestRequestsAndGuestOrServiceOnlyRoutesDoNotUseStaffCookies() throws Exception {
-        when(qr.validateGuestSession("guest-token")).thenReturn(Optional.of(new GuestSessionContext(
+        String guestToken = "g".repeat(43);
+        when(qr.validateGuestSession(guestToken)).thenReturn(Optional.of(new GuestSessionContext(
                 TENANT, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), GuestSessionContext.SessionState.ACTIVE)));
-        mvc.perform(get("/api/v1/orders").cookie(access()).header(HttpHeaders.AUTHORIZATION, "Bearer guest-token"))
+        mvc.perform(get("/api/v1/orders").cookie(access(), new Cookie("restofy_guest", guestToken)))
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/carts/current").cookie(access())).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/internal/table-sessions/" + UUID.randomUUID() + "/order-state").cookie(access()))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(auth);
+    }
+
+    @Test
+    void aGuestCookieOnlyWinsOnGuestRoutesAndNeverBlocksAStaffOnlyRoute() throws Exception {
+        String guestToken = "h".repeat(43);
+        when(qr.validateGuestSession(guestToken)).thenReturn(Optional.of(new GuestSessionContext(
+                TENANT, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), GuestSessionContext.SessionState.ACTIVE)));
+        // a stale staff cookie next to a valid guest cookie neither rejects the guest nor reaches the Auth Service
+        mvc.perform(get("/api/v1/orders").cookie(new Cookie("restofy_access", "stale-staff-cookie"),
+                new Cookie("restofy_guest", guestToken))).andExpect(status().isOk());
+        verifyNoInteractions(auth);
+        // the same two cookies on a staff-only route: the guest cookie is ignored and the staff session decides
+        when(auth.resolveStaff(ACCESS)).thenReturn(Optional.of(staff(StaffRole.ADMIN)));
+        mvc.perform(get(REPORT).cookie(access(), new Cookie("restofy_guest", guestToken))).andExpect(status().isOk());
     }
 
     private static MockHttpServletRequestBuilder fulfillment() {

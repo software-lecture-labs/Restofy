@@ -13,7 +13,7 @@ import java.util.Optional;
  * Fail-closed stand-in when staff authentication is not configured.
  */
 @Component
-@Profile("!dev & !test & !order-auth")
+@Profile("((!dev & !test) | prod) & !order-auth")
 public class UnavailableAuthContextAdapter implements AuthContextPort {
 
     @Override

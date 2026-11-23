@@ -40,11 +40,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * The QR session is asked again at the moment of ordering. The request-time check can be stale: the session may
  * be closed between the cart review and the order, so the answer of the second call decides.
  */
-@SpringBootTest
+@SpringBootTest(properties = "CORS_ALLOWED_ORIGINS=https://guest.example")
 @AutoConfigureMockMvc
 class OrderSessionRecheckApiTests {
 
-    private static final String TOKEN = "recheck-token";
+    private static final String TOKEN = "v".repeat(43);
     private static final GuestSessionContext ACTIVE = DevFixtures.guestA1(SessionState.ACTIVE);
 
     @Autowired
@@ -70,17 +70,17 @@ class OrderSessionRecheckApiTests {
         }
         when(qr.validateGuestSession(anyString())).thenReturn(Optional.of(ACTIVE));
         when(qr.currentSessionState(any(), any(), any())).thenReturn(Optional.of(SessionState.ACTIVE));
-        mvc.perform(post("/api/v1/carts/current/items").header("Authorization", "Bearer " + TOKEN)
+        mvc.perform(post("/api/v1/carts/current/items").with(AbstractCartApiTest.guestCookie(TOKEN))
                         .contentType("application/json")
                         .content("{\"productId\": \"" + DevFixtures.SALAD + "\", \"quantity\": 1}"))
                 .andExpect(status().isOk());
     }
 
     private ResultActions order() throws Exception {
-        var cart = mvc.perform(get("/api/v1/carts/current").header("Authorization", "Bearer " + TOKEN))
+        var cart = mvc.perform(get("/api/v1/carts/current").with(AbstractCartApiTest.guestCookie(TOKEN)))
                 .andReturn().getResponse().getContentAsString();
         var node = new JsonMapper().readTree(cart);
-        return mvc.perform(post("/api/v1/orders").header("Authorization", "Bearer " + TOKEN)
+        return mvc.perform(post("/api/v1/orders").with(AbstractCartApiTest.guestCookie(TOKEN))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType("application/json")
                 .content("{\"expectedCartVersion\": " + node.path("version").asLong()
@@ -134,7 +134,7 @@ class OrderSessionRecheckApiTests {
 
     @Test
     void rejectedRequestsDoNotBotherTheQrServiceAgain() throws Exception {
-        mvc.perform(post("/api/v1/orders").header("Authorization", "Bearer " + TOKEN)
+        mvc.perform(post("/api/v1/orders").with(AbstractCartApiTest.guestCookie(TOKEN))
                         .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType("application/json")
                         .content("{\"expectedCartVersion\": 0, \"expectedTotalMinor\": 1}"))
@@ -165,7 +165,7 @@ class OrderSessionRecheckApiTests {
 
         // from now on the closed session is seen and nothing further can be ordered
         Mockito.reset(orderMapper);
-        mvc.perform(post("/api/v1/carts/current/items").header("Authorization", "Bearer " + TOKEN)
+        mvc.perform(post("/api/v1/carts/current/items").with(AbstractCartApiTest.guestCookie(TOKEN))
                         .contentType("application/json")
                         .content("{\"productId\": \"" + DevFixtures.SALAD + "\", \"quantity\": 1}"))
                 .andExpect(status().isOk());

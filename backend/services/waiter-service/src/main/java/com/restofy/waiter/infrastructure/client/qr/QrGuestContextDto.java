@@ -1,45 +1,29 @@
 package com.restofy.waiter.infrastructure.client.qr;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static com.restofy.waiter.infrastructure.client.Fields.required;
 
 /**
- * DRAFT QR contract v0: what QR answers when asked to verify a guest credential. QR is the only authority
- * for the restaurant, table, table session and guest session behind a guest token; Waiter never decodes or
- * stores the token itself.
+ * QR's answer to {@code POST /api/v1/internal/qr/guest-sessions/validate} (QR-INT-02, the endpoint Order uses too).
+ * QR is the only authority for the restaurant, table, table session and guest session behind a guest token; Waiter
+ * never decodes or stores the token itself. QR answers {@code 200} only for an active guest of an open table session;
+ * every other guest (unknown, ended, expired, closing or closed session) is the same {@code 404}. A {@code 200} with
+ * any other state is therefore a contract violation, not an inactive guest.
  */
-public record QrGuestContextDto(UUID restaurantId, UUID tableId, TableSession tableSession, GuestSession guestSession) {
+public record QrGuestContextDto(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
+                                String state, Instant checkedAt) {
 
-    /** Main table session states proposed in docs/database.md section 5. */
-    public enum TableSessionState { OPEN, CLOSING, CLOSED, EXPIRED }
-
-    /** Guest session states: a DRAFT proposal, to be aligned with the QR team. */
-    public enum GuestSessionState { ACTIVE, ENDED, EXPIRED }
-
-    public record TableSession(UUID id, TableSessionState status) {
-        public TableSession {
-            required(id, "tableSession.id");
-            required(status, "tableSession.status");
-        }
-    }
-
-    public record GuestSession(UUID id, GuestSessionState status) {
-        public GuestSession {
-            required(id, "guestSession.id");
-            required(status, "guestSession.status");
-        }
-    }
+    /** The only state QR puts in a successful answer. */
+    public static final String ACTIVE = "ACTIVE";
 
     public QrGuestContextDto {
         required(restaurantId, "restaurantId");
         required(tableId, "tableId");
-        required(tableSession, "tableSession");
-        required(guestSession, "guestSession");
-    }
-
-    /** Only an open main session with an active guest session may raise a call. */
-    public boolean isActive() {
-        return tableSession.status() == TableSessionState.OPEN && guestSession.status() == GuestSessionState.ACTIVE;
+        required(tableSessionId, "tableSessionId");
+        required(guestSessionId, "guestSessionId");
+        if (!ACTIVE.equals(required(state, "state"))) throw new IllegalArgumentException("state must be ACTIVE");
+        required(checkedAt, "checkedAt");
     }
 }

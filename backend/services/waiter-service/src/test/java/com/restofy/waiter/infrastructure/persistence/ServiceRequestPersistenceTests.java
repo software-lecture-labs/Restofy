@@ -147,73 +147,91 @@ class ServiceRequestPersistenceTests {
     @Test
     void databaseRejectsUnknownTypeUnknownStatusAndNegativeVersion() {
         UUID id = UUID.randomUUID();
-        var typeError = assertThrows(DataIntegrityViolationException.class,
-                () -> insert(id, RESTAURANT, SESSION, "COMPLAINT", "OPEN", Instant.now()));
+        var arg1 = Instant.now();
+        var typeError = assertThrows(DataIntegrityViolationException.class, () -> insert(id, RESTAURANT, SESSION, "COMPLAINT", "OPEN", arg1));
         assertTrue(constraintOf(typeError).contains("ck_service_requests_type"));
-        var statusError = assertThrows(DataIntegrityViolationException.class,
-                () -> insert(UUID.randomUUID(), RESTAURANT, SESSION, "WAITER", "ACKNOWLEDGED", Instant.now()));
+        var arg2 = UUID.randomUUID();
+        var arg3 = Instant.now();
+        var statusError = assertThrows(DataIntegrityViolationException.class, () -> insert(arg2, RESTAURANT, SESSION, "WAITER", "ACKNOWLEDGED", arg3));
         assertTrue(constraintOf(statusError).contains("ck_service_requests_status"));
+        var arg4 = UUID.randomUUID();
+        var arg5 = UUID.randomUUID();
         var versionError = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type,
                                               status, version)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', -1)
-                """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID()));
+                """, arg4, RESTAURANT, TABLE, SESSION, arg5));
         assertTrue(constraintOf(versionError).contains("ck_service_requests_version"));
     }
 
     @Test
     void requiredColumnsAreNotNullAndIdIsUnique() {
+        var arg6 = UUID.randomUUID();
+        var arg7 = UUID.randomUUID();
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
                 "INSERT INTO service_requests (id, table_id, table_session_id, guest_session_id, request_type, status) VALUES (?, ?, ?, ?, "
                         + "'WAITER', 'OPEN')",
-                UUID.randomUUID(), TABLE, SESSION, UUID.randomUUID()));
+                arg6, TABLE, SESSION, arg7));
         UUID id = UUID.randomUUID();
         insert(id, RESTAURANT, SESSION, "WAITER", "OPEN", Instant.now());
-        assertThrows(DataIntegrityViolationException.class, () -> insert(id, RESTAURANT, SESSION, "HELP", "OPEN", Instant.now()));
+        var arg8 = Instant.now();
+        assertThrows(DataIntegrityViolationException.class, () -> insert(id, RESTAURANT, SESSION, "HELP", "OPEN", arg8));
     }
 
     @Test
     void newRowsMustCarryTheTableAndConsistentClaimAndResolveFacts() {
+        var arg9 = UUID.randomUUID();
+        var arg10 = UUID.randomUUID();
         var noTable = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_session_id, guest_session_id, request_type, status)
                 VALUES (?, ?, ?, ?, 'WAITER', 'OPEN')
-                """, UUID.randomUUID(), RESTAURANT, SESSION, UUID.randomUUID()));
+                """, arg9, RESTAURANT, SESSION, arg10));
         assertTrue(constraintOf(noTable).contains("ck_service_requests_table"));
 
+        var arg11 = UUID.randomUUID();
+        var arg12 = UUID.randomUUID();
         var claimedWithoutClaimer = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'CLAIMED')
-                """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID()));
+                """, arg11, RESTAURANT, TABLE, SESSION, arg12));
         assertTrue(constraintOf(claimedWithoutClaimer).contains("ck_service_requests_claimed"));
 
+        var arg13 = UUID.randomUUID();
+        var arg14 = UUID.randomUUID();
         var resolvedWithoutResolver = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type, status)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'RESOLVED')
-                """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID()));
+                """, arg13, RESTAURANT, TABLE, SESSION, arg14));
         assertTrue(constraintOf(resolvedWithoutResolver).contains("ck_service_requests_resolved"));
 
+        var arg15 = UUID.randomUUID();
+        var arg16 = UUID.randomUUID();
+        var arg17 = UUID.randomUUID();
         var openWithResolver = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id, request_type,
                                               status, resolved_by_user_id)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', ?)
-                """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID(), UUID.randomUUID()));
+                """, arg15, RESTAURANT, TABLE, SESSION, arg16, arg17));
         assertTrue(constraintOf(openWithResolver).contains("ck_service_requests_open"));
     }
 
     @Test
     void messageLengthIsBoundedByTheDatabaseToo() {
         UUID guest = UUID.randomUUID();
+        var arg18 = UUID.randomUUID();
         var empty = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id,
                                               request_type, status, message)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', '')
-                """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, guest));
+                """, arg18, RESTAURANT, TABLE, SESSION, guest));
         assertTrue(constraintOf(empty).contains("ck_service_requests_message"));
+        var arg19 = UUID.randomUUID();
+        var arg20 = "x".repeat(301);
         var tooLong = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id,
                                               request_type, status, message)
                 VALUES (?, ?, ?, ?, ?, 'WAITER', 'OPEN', ?)
-                """, UUID.randomUUID(), RESTAURANT, TABLE, SESSION, guest, "x".repeat(301)));
+                """, arg19, RESTAURANT, TABLE, SESSION, guest, arg20));
         assertTrue(constraintOf(tooLong).contains("ck_service_requests_message"));
         jdbc.update("""
                 INSERT INTO service_requests (id, restaurant_id, table_id, table_session_id, guest_session_id,
@@ -242,8 +260,9 @@ class ServiceRequestPersistenceTests {
     void oneActiveCallPerGuestAndTypeButNeverMergedAcrossGuestsOrTypes() {
         UUID guest = UUID.randomUUID();
         insert(UUID.randomUUID(), RESTAURANT, SESSION, guest, "WAITER", "OPEN", Instant.now());
-        var duplicate = assertThrows(DataIntegrityViolationException.class,
-                () -> insert(UUID.randomUUID(), RESTAURANT, SESSION, guest, "WAITER", "CLAIMED", Instant.now()));
+        var arg21 = UUID.randomUUID();
+        var arg22 = Instant.now();
+        var duplicate = assertThrows(DataIntegrityViolationException.class, () -> insert(arg21, RESTAURANT, SESSION, guest, "WAITER", "CLAIMED", arg22));
         assertTrue(constraintOf(duplicate).contains("uq_service_requests_active_per_guest"));
 
         // Another type, another guest of the same table, and the same guest in another restaurant are all fine.
@@ -297,8 +316,7 @@ class ServiceRequestPersistenceTests {
     @Test
     void newCallsArePersistedNotMergedAndGetVersionZero() {
         UUID id = UUID.randomUUID();
-        ServiceRequest created = repository.saveAndFlush(ServiceRequest.open(id, RESTAURANT, TABLE, SESSION,
-                UUID.randomUUID(), ServiceRequestType.HELP, "Yardım", Instant.now().truncatedTo(ChronoUnit.MICROS)));
+        ServiceRequest created = repository.saveAndFlush(ServiceRequest.open(id, new ServiceRequest.Origin(RESTAURANT, TABLE, SESSION, UUID.randomUUID()), ServiceRequestType.HELP, "Yardım", Instant.now().truncatedTo(ChronoUnit.MICROS)));
         assertEquals(0L, created.getVersion());
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM service_requests WHERE id = ?", Integer.class, id));
     }
@@ -321,17 +339,19 @@ class ServiceRequestPersistenceTests {
         UUID call = UUID.randomUUID();
         insert(call, RESTAURANT, SESSION, "WAITER", "OPEN", Instant.now());
         insertEvent(UUID.randomUUID(), RESTAURANT, call, 0);
-        var sameVersion = assertThrows(DataIntegrityViolationException.class,
-                () -> insertEvent(UUID.randomUUID(), RESTAURANT, call, 0));
+        var arg23 = UUID.randomUUID();
+        var sameVersion = assertThrows(DataIntegrityViolationException.class, () -> insertEvent(arg23, RESTAURANT, call, 0));
         assertTrue(constraintOf(sameVersion).contains("uq_service_call_events_version"));
-        var wrongTenant = assertThrows(DataIntegrityViolationException.class,
-                () -> insertEvent(UUID.randomUUID(), OTHER_RESTAURANT, call, 1));
+        var arg24 = UUID.randomUUID();
+        var wrongTenant = assertThrows(DataIntegrityViolationException.class, () -> insertEvent(arg24, OTHER_RESTAURANT, call, 1));
         assertTrue(constraintOf(wrongTenant).contains("fk_service_call_events_call"));
+        var arg25 = UUID.randomUUID();
+        var arg26 = UUID.randomUUID();
         var badType = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("""
                 INSERT INTO service_call_events (id, restaurant_id, service_request_id, call_version, event_type, to_status,
                                                  actor_type, actor_id, occurred_at, payload)
                 VALUES (?, ?, ?, 2, 'DELETED', 'OPEN', 'GUEST', ?, now(), '{}'::jsonb)
-                """, UUID.randomUUID(), RESTAURANT, call, UUID.randomUUID()));
+                """, arg25, RESTAURANT, call, arg26));
         assertTrue(constraintOf(badType).contains("ck_service_call_events_type"));
     }
 
@@ -365,17 +385,17 @@ class ServiceRequestPersistenceTests {
                 """;
         String digest = "a".repeat(64);
         jdbc.update(sql, UUID.randomUUID(), RESTAURANT, "STAFF:1", "RESOLVE", digest, call, 200);
-        var repeat = assertThrows(DataIntegrityViolationException.class,
-                () -> jdbc.update(sql, UUID.randomUUID(), RESTAURANT, "STAFF:1", "RESOLVE", digest, call, 200));
+        var arg27 = UUID.randomUUID();
+        var repeat = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, arg27, RESTAURANT, "STAFF:1", "RESOLVE", digest, call, 200));
         assertTrue(constraintOf(repeat).contains("uq_idempotency_records_key"));
         // Another actor or another operation may reuse the same key text.
         jdbc.update(sql, UUID.randomUUID(), RESTAURANT, "STAFF:2", "RESOLVE", digest, call, 200);
         jdbc.update(sql, UUID.randomUUID(), RESTAURANT, "STAFF:1", "CLAIM", digest, call, 200);
-        var badStatus = assertThrows(DataIntegrityViolationException.class,
-                () -> jdbc.update(sql, UUID.randomUUID(), RESTAURANT, "STAFF:3", "CLAIM", digest, call, 500));
+        var arg28 = UUID.randomUUID();
+        var badStatus = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, arg28, RESTAURANT, "STAFF:3", "CLAIM", digest, call, 500));
         assertTrue(constraintOf(badStatus).contains("ck_idempotency_records_status"));
-        var foreignTenant = assertThrows(DataIntegrityViolationException.class,
-                () -> jdbc.update(sql, UUID.randomUUID(), OTHER_RESTAURANT, "STAFF:1", "RESOLVE", digest, call, 200));
+        var arg29 = UUID.randomUUID();
+        var foreignTenant = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, arg29, OTHER_RESTAURANT, "STAFF:1", "RESOLVE", digest, call, 200));
         assertTrue(constraintOf(foreignTenant).contains("fk_idempotency_records_call"));
     }
 
@@ -439,7 +459,7 @@ class ServiceRequestPersistenceTests {
                 .noneMatch(method -> method.getName().startsWith("set")), "State changes go through claim and resolve");
         assertTrue(Arrays.stream(ServiceRequest.class.getConstructors()).findAny().isEmpty(),
                 "No public constructor: calls are created through ServiceRequest.open");
-        assertNull(ServiceRequest.open(UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID(),
+        assertNull(ServiceRequest.open(UUID.randomUUID(), new ServiceRequest.Origin(RESTAURANT, TABLE, SESSION, UUID.randomUUID()),
                 ServiceRequestType.WAITER, null, Instant.now()).getMessage());
     }
 }

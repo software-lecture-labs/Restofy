@@ -27,7 +27,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,34 +65,8 @@ class TableClosureApiTests extends TableCommandApiBase {
                 .andExpect(jsonPath("$.cleaning").value(nullValue()))
                 .andExpect(jsonPath("$.rejectionCode").value(nullValue()));
 
-        // What Waiter sent: the command id is the idempotency key; the session and version are named; the actor is the
-        // verified principal; no service credential is invented.
-        assertEquals(1, closePosts().size());
-        DownstreamStub.Request sent = closePosts().getFirst();
-        JsonNode command = FakeBackends.read(sent.body());
-        assertEquals(sent.header("Idempotency-Key"), command.get("commandId").asString());
-        assertEquals(RESTAURANT.toString(), command.get("restaurantId").asString());
-        assertEquals(table.id().toString(), command.get("tableId").asString());
-        assertEquals(S1.toString(), command.get("tableSessionId").asString());
-        assertEquals(3, command.get("expectedVersion").asInt());
-        assertEquals(WAITER_A.toString(), command.get("requestedByUserId").asString());
-        assertFalse(command.has("paid") || command.has("remainingAmount") || command.has("force"),
-                "No claim about payment or balance and no override travels with the command");
-        assertNull(sent.header("Authorization"));
-        assertEquals("CLEANING", backends.table(table.id()).status(), "QR closed the session and left the table to be cleaned");
-
-        // Only the calls of that restaurant and that session ended; they are cancelled with the reason, not resolved.
-        assertEquals("CANCELLED", callStatus(bill));
-        assertEquals("CANCELLED", callStatus(help));
-        assertEquals("RESOLVED", callStatus(done), "A call somebody resolved stays as it was");
-        assertEquals("OPEN", callStatus(olderSession), "A call of another session is out of reach");
-        assertEquals("OPEN", callStatus(otherRestaurant), "A call of another restaurant is out of reach");
-        Map<String, Object> cancelled = jdbc.queryForMap("SELECT * FROM service_requests WHERE id = ?", bill);
-        assertEquals("TABLE_SESSION_CLOSED", cancelled.get("closure_reason"));
-        assertEquals(commandId(), cancelled.get("cancelled_by_command_id"));
-        assertNotNull(cancelled.get("cancelled_at"));
-        assertNull(cancelled.get("resolved_by_user_id"), "Nobody resolved it");
-        assertNull(cancelled.get("resolved_at"));
+        assertTheCloseCommandThatWasSent();
+        assertOnlyTheCallsOfThatSessionEnded(bill, help, done, olderSession, otherRestaurant);
 
         Map<String, Object> row = commandRow();
         assertEquals("COMPLETED", row.get("status"));
@@ -114,6 +87,40 @@ class TableClosureApiTests extends TableCommandApiBase {
                 .andExpect(jsonPath("$.table.session").value(nullValue()))
                 .andExpect(jsonPath("$.table.readyForNewCustomer").value(false))
                 .andExpect(jsonPath("$.openServiceRequests", empty()));
+    }
+
+    private void assertTheCloseCommandThatWasSent() {
+        // What Waiter sent: the command id is the idempotency key; the session and version are named; the actor is the
+        // verified principal; no service credential is invented.
+        assertEquals(1, closePosts().size());
+        DownstreamStub.Request sent = closePosts().getFirst();
+        JsonNode command = FakeBackends.read(sent.body());
+        assertEquals(sent.header("Idempotency-Key"), command.get("commandId").asString());
+        assertEquals(RESTAURANT.toString(), command.get("restaurantId").asString());
+        assertEquals(table.id().toString(), command.get("tableId").asString());
+        assertEquals(S1.toString(), command.get("tableSessionId").asString());
+        assertEquals(3, command.get("expectedVersion").asInt());
+        assertEquals(WAITER_A.toString(), command.get("requestedByUserId").asString());
+        assertFalse(command.has("paid") || command.has("remainingAmount") || command.has("force"),
+                "No claim about payment or balance and no override travels with the command");
+        assertNull(sent.header("Authorization"));
+        assertEquals("CLEANING", backends.table(table.id()).status(), "QR closed the session and left the table to be cleaned");
+    }
+
+    private void assertOnlyTheCallsOfThatSessionEnded(UUID bill, UUID help, UUID done, UUID olderSession,
+                                                     UUID otherRestaurant) {
+        // Only the calls of that restaurant and that session ended; they are cancelled with the reason, not resolved.
+        assertEquals("CANCELLED", callStatus(bill));
+        assertEquals("CANCELLED", callStatus(help));
+        assertEquals("RESOLVED", callStatus(done), "A call somebody resolved stays as it was");
+        assertEquals("OPEN", callStatus(olderSession), "A call of another session is out of reach");
+        assertEquals("OPEN", callStatus(otherRestaurant), "A call of another restaurant is out of reach");
+        Map<String, Object> cancelled = jdbc.queryForMap("SELECT * FROM service_requests WHERE id = ?", bill);
+        assertEquals("TABLE_SESSION_CLOSED", cancelled.get("closure_reason"));
+        assertEquals(commandId(), cancelled.get("cancelled_by_command_id"));
+        assertNotNull(cancelled.get("cancelled_at"));
+        assertNull(cancelled.get("resolved_by_user_id"), "Nobody resolved it");
+        assertNull(cancelled.get("resolved_at"));
     }
 
     @Test
@@ -263,7 +270,7 @@ class TableClosureApiTests extends TableCommandApiBase {
         // Query parameters are no way in either.
         mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close?force=true&restaurantId="
                 + OTHER_RESTAURANT)
-                        .with(asWaiter(WAITER_A)).with(csrf().asHeader())
+                        .with(asWaiter(WAITER_A)).with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
         assertEquals(0, closePosts().size());
@@ -281,11 +288,11 @@ class TableClosureApiTests extends TableCommandApiBase {
                 .andExpect(status().isBadRequest());
         close(asWaiter(WAITER_A), table.id(), S1, "short", versionBody(3)).andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close").with(asWaiter(WAITER_A))
-                        .with(csrf().asHeader())
+                        .with(staffCsrf())
                         .contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/waiters/tables/not-a-uuid/sessions/" + S1 + "/close").with(asWaiter(WAITER_A))
-                        .with(csrf().asHeader())
+                        .with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isBadRequest());
         assertEquals(0, closePosts().size());
@@ -297,7 +304,7 @@ class TableClosureApiTests extends TableCommandApiBase {
     @Test
     void onlyAVerifiedWaiterMayCloseOrAskAndNothingReachesQrOtherwise() throws Exception {
         String url = "/api/v1/waiters/tables/" + table.id() + "/sessions/" + S1 + "/close";
-        mockMvc.perform(post(url).with(csrf().asHeader())
+        mockMvc.perform(post(url).with(staffCsrf())
                 .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().isUnauthorized());
         for (StaffRole role : List.of(StaffRole.KITCHEN, StaffRole.ADMIN)) {
@@ -305,7 +312,7 @@ class TableClosureApiTests extends TableCommandApiBase {
         }
         close(as(new AuthenticatedGuest(RESTAURANT, table.id(), S1, UUID.randomUUID()), "GUEST"),
                 table.id(), S1, newKey(), versionBody(3)).andExpect(status().isForbidden());
-        // A mutation without the CSRF token is refused by the unchanged security chain.
+        // A mutation without the CSRF/Origin proof is refused before any authentication.
         mockMvc.perform(post(url).with(asWaiter(WAITER_A)).header("Idempotency-Key", newKey())
                 .contentType(MediaType.APPLICATION_JSON).content(versionBody(3))).andExpect(status().isForbidden());
         assertEquals(0, closePosts().size());
@@ -358,7 +365,7 @@ class TableClosureApiTests extends TableCommandApiBase {
         assertEquals("OPEN", callStatus(nextCall));
         // Closing the table "by its number" is not possible at all: the path needs a session id.
         mockMvc.perform(post("/api/v1/waiters/tables/12/close").with(asWaiter(WAITER_A))
-                        .with(csrf().asHeader())
+                        .with(staffCsrf())
                         .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content(versionBody(3)))
                 .andExpect(status().is4xxClientError());
     }

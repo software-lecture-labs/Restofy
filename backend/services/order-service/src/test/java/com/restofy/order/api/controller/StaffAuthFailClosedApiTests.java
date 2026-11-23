@@ -67,8 +67,9 @@ class StaffAuthFailClosedApiTests {
         verifyNoInteractions(qr);
 
         clearInvocations(auth, qr);
-        mvc.perform(get(PATH).header("Authorization", "Bearer some-guest-token")).andReturn();
-        verify(qr).validateGuestSession("some-guest-token");
+        String guestToken = "g".repeat(43);
+        mvc.perform(get(PATH).with(AbstractCartApiTest.guestCookie(guestToken))).andReturn();
+        verify(qr).validateGuestSession(guestToken);
         verifyNoInteractions(auth);
     }
 
