@@ -8,9 +8,9 @@
 | **Talep eden** | Menu Service (Merve) |
 | **İlgili servis ve ekip** | Kitchen Service (Nisa). Madde 5 servis kimliği olduğu için Auth (Kerem); ortak ENV/Compose için Alper |
 | **Bağlı PDA görevi** | MENU-INT-03 — Kitchen → Menu entegrasyonu |
-| **Durum** | **Karar bekliyor.** Menu'da komut işleyicisi var, Kitchen'da istemci portu var; **iki taraf arasında gerçek bağlantı yok ve mevcut modeller birebir uyumlu değil** |
+| **Durum** | **Karar bekliyor.** MENU-INT-03 **KISMİ**: Menu'da komut işleyicisi ve salt okunur kapalı ürün sorgusu ([ADR-MENU-007](../../decisions/ADR-MENU-007-kitchen-kapali-urun-sorgusu.md)) hazır; HTTP ucu **açılmadı**; **modeller birebir uyumlu değil** ve gerçek bağlantı yok |
 
-Bu belge yalnız bir taleptir. Kitchen, Auth, Order veya QR kodunda değişiklik içermez; Menu üretim kodunu da değiştirmez. "Mevcut" diye anılan her şey koddan okunmuştur; "İstenen", "Öneri" ve "Seçenek" başlıkları henüz uygulanmamıştır. Bu belge [ADR-MENU-002](../../decisions/ADR-MENU-002-kitchen-availability-komutlari.md)'yi tekrar etmez; onun kararlarını Kitchen'ın **şu anki** kodu ile karşılaştırır ve Kitchen'dan karar ister.
+Bu belge bir taleptir. Kitchen, Auth, Order veya QR kodunda değişiklik içermez. İlk commit'te yalnız belgeydi; MENU-INT-03 ile Menu tarafında kararlardan bağımsız bir okuma katmanı eklendi (bölüm 9). Komut işleyicisi **değişmedi**. Aşağıdaki "Mevcut" bölümleri bu eklemeden **önceki** durumu anlatır (özellikle "Menu'de karşılık yoktur" denen kapalı ürün listesi); "İstenen", "Öneri" ve "Seçenek" başlıkları, bölüm 9'da UYGULANDI denmedikçe, uygulanmamıştır. Bu belge [ADR-MENU-002](../../decisions/ADR-MENU-002-kitchen-availability-komutlari.md)'yi tekrar etmez; onun kararlarını Kitchen'ın **şu anki** kodu ile karşılaştırır ve Kitchen'dan karar ister.
 
 ## Dayanak
 
@@ -145,3 +145,17 @@ Her madde için Menu'nün önerisi verilir; **karar Kitchen/ürün sahibi/Auth i
 ## 8. Sonraki adım
 
 Kararlar bu belgeye yanıt olarak (PR yorumu veya ayrı yanıt belgesi) geldikten sonra, madde 1 ve 2'ye göre Menu tarafında gerekli değişiklikler (neden kuralı, makbuz, okuma sorgusu, fail-closed servis kimliği kapısı, sözleşme testleri) ayrı bir PR'da ve gerekiyorsa ayrı bir migration ile yapılır. Kitchen'daki gerçek HTTP adaptörü ve model uyarlaması Kitchen ekibinin işidir. Servis kimliği (madde 8) çözülmeden hiçbir iç uç açılmaz.
+
+## 9. MENU-INT-03 uygulama durumu (Menu tarafı)
+
+| Madde | Durum |
+|---|---|
+| Kitchen komutlarını karşılayan iç işleyici (`KitchenAvailabilityCommandService`): restoran bazlı ürün doğrulaması, kalıcı `commandId` idempotency, isteğe bağlı `expectedVersion`, `APPLIED`/`NO_CHANGE`/`replayed` | **Mevcuttu, değiştirilmedi** (ADR-MENU-002; testleri zaten kapsamlı) |
+| Salt okunur kapalı ürün sorgusu (`KitchenClosedProductsService`): çağıranın restoranı, süzgeç, sıra `changedAt DESC, productId ASC`, sayfalama ve eşleşen toplam, tek anlık görüntü | **UYGULANDI** (iç katman; tel biçimi **kararlaştırılmadı**) |
+| Listelenen availability `version` değerinin komutun `expectedVersion`ı ile eşleşmesi | **UYGULANDI ve testle doğrulandı** |
+| `active` ve `published` ham bayrak olarak; arşivli/yayınsız kapalı ürün listeden çıkarılmaz | **UYGULANDI** (varsayılan, yorumsuz; 6. madde 5 ve 6 kararı bekliyor) |
+| Doğrulanmış servis çağıranı kapısı (komutlarla ortak) | **Mevcuttu, fail-closed**: üretimde her komut ve sorgu 401 |
+| HTTP ucu (komut ve sorgu) | **UYGULANMADI.** D-09 ve yol/biçim kararları olmadan açılmaz |
+| Kapatma nedeninin isteğe bağlı olması, makbuza `changedAt`/`productId`, `NO_CHANGE`/`replayed` değişikliği, zorunlu `expectedVersion`, `PRODUCT_INACTIVE` kuralı | **UYGULANMADI** (6. madde 1–5; Kitchen/ürün sahibi kararı) |
+| Servis kimliği doğrulayıcı (Kitchen → Menu), ENV/Compose | **UYGULANMADI** (Auth/Kitchen kararı, 6. madde 8) |
+| Gerçek Kitchen → Menu uçtan uca testi | **DOĞRULANMADI** (Kitchen'ın gerçek adaptörü yok) |
