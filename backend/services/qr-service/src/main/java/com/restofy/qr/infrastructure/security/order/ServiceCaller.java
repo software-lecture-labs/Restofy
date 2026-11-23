@@ -22,6 +22,7 @@ record ServiceCaller(String issuer, String subject, Map<String, String> authorit
     static final String WAITER_AUTHORITY = "WAITER_QR_GUEST_VALIDATE";
     static final String WAITER_TABLE_READ_AUTHORITY = "WAITER_QR_TABLE_READ";
     static final String WAITER_SESSION_CLOSE_AUTHORITY = "WAITER_QR_SESSION_CLOSE";
+    static final String WAITER_TABLE_CLEAN_AUTHORITY = "WAITER_QR_TABLE_CLEAN";
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     /** Order is the original caller. Its keys are mandatory while the inbound profile is active. */
@@ -37,8 +38,13 @@ record ServiceCaller(String issuer, String subject, Map<String, String> authorit
         }
         return Optional.of(new ServiceCaller("restofy-waiter", "waiter-service",
                 Map.of("qr:guest-validate", WAITER_AUTHORITY, "qr:table-read", WAITER_TABLE_READ_AUTHORITY,
-                        "qr:session-close", WAITER_SESSION_CLOSE_AUTHORITY),
+                        "qr:session-close", WAITER_SESSION_CLOSE_AUTHORITY, "qr:table-clean", WAITER_TABLE_CLEAN_AUTHORITY),
                 parse(json, configuration, "QR_WAITER_CALLER_PUBLIC_KEYS", "Waiter")));
+    }
+
+    /** Authorities whose routes also need a delegated, verified staff token (X-Staff-Token). */
+    static boolean requiresStaffDelegation(String authority) {
+        return WAITER_SESSION_CLOSE_AUTHORITY.equals(authority) || WAITER_TABLE_CLEAN_AUTHORITY.equals(authority);
     }
 
     /** The authority granted for a presented scope claim, or empty when this caller may not present that scope. */

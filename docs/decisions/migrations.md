@@ -22,6 +22,11 @@ V122-V130 boş. Bu tahsis Order/Waiter onayı veya entegrasyonun tamamlandığı
 QR branch CREATE birleştirmesinde V23-V25 kaldırıldı; bu tarihsel numaralar yeniden kullanılmayacak.
 Güncel QR zinciri: V21,V22,V26-V30,V121. Yerel/paylaşılan geçmiş sınırları ADR-QR-001 §6'dadır.
 
+24 Kasım 2026: Waiter masa bazlı temizleme (`POST /api/v1/internal/tables/{tableId}/cleaned`)
+için Alper, V125'i `table_clean_commands` (komut kimliği, istek özeti ve QR yerel
+sonucu; idempotency ve durum okuma kaydı) olarak onayladı. V124 `received_at`
+göçü için ayrılmış ve boş kalır. Güncel QR zinciri V21,V22,V26–V30,V121–V123,V125.
+
 11 Kasım 2026: Order sorumlusu Hamza, Order <-> Kitchen entegrasyon kararını (iptal nedeni
 kataloğuna CUSTOMER_REQUEST ve order_cancellations.decided_order_version: kararın sipariş
 sürümü, bir kez yazılır) V50 olarak ekledi. dev'de paylaşılmış V47 DEĞİŞTİRİLMEDİ; checksum'ı

@@ -93,7 +93,7 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
             return;
         }
         StaffRequestFilter.Principal staff = null;
-        if (ServiceCaller.WAITER_SESSION_CLOSE_AUTHORITY.equals(authenticated.authority())) {
+        if (ServiceCaller.requiresStaffDelegation(authenticated.authority())) {
             staff = delegatedStaff(request, response, authenticated.claims());
             if (staff == null) { return; }
         }
