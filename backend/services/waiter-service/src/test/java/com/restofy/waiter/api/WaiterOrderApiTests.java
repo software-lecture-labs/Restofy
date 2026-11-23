@@ -17,7 +17,6 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -32,24 +31,21 @@ class WaiterOrderApiTests extends ApiTestBase {
 
     private FakeBackends.Table t1;
     private FakeBackends.Table t2;
-    private FakeBackends.Order preparing;
     private FakeBackends.Order awaiting;
     private FakeBackends.Order servedAndPaid;
     private FakeBackends.Order cancelled;
     private FakeBackends.Order previousSession;
-    private FakeBackends.Order notYetInKitchen;
-    private FakeBackends.Order otherTableReady;
 
     @BeforeEach
     void restaurantWithTwoLiveTables() {
         t1 = addTable("1", "OCCUPIED", S1);
         t2 = addTable("2", "OCCUPIED", S2);
-        preparing = addOrder(t1, S1, "ORD-1", "ACCEPTED", "PENDING", "PREPARING", "2026-10-16T09:00:00Z");
+        addOrder(t1, S1, "ORD-1", "ACCEPTED", "PENDING", "PREPARING", "2026-10-16T09:00:00Z");
         awaiting = addOrder(t1, S1, "ORD-2", "ACCEPTED", "PENDING", "READY", "2026-10-16T09:05:00Z");
         servedAndPaid = addOrder(t1, S1, "ORD-3", "COMPLETED", "SERVED", "READY", "2026-10-16T08:00:00Z");
         cancelled = addOrder(t1, S1, "ORD-4", "CANCELLED", "PENDING", "CANCELLED", "2026-10-16T08:30:00Z");
-        notYetInKitchen = addOrder(t1, S1, "ORD-5", "ACCEPTED", "PENDING", null, "2026-10-16T09:10:00Z");
-        otherTableReady = addOrder(t2, S2, "ORD-6", "ACCEPTED", "PENDING", "READY", "2026-10-16T09:01:00Z");
+        addOrder(t1, S1, "ORD-5", "ACCEPTED", "PENDING", null, "2026-10-16T09:10:00Z");
+        addOrder(t2, S2, "ORD-6", "ACCEPTED", "PENDING", "READY", "2026-10-16T09:01:00Z");
         previousSession = addOrder(t1, S1_PREVIOUS, "ORD-OLD", "ACCEPTED", "SERVED", "READY", "2026-10-15T20:00:00Z");
         // Another restaurant: same table session ids on purpose.
         FakeBackends.Table foreignTable = addTable(OTHER_RESTAURANT, "1", "OCCUPIED", S1);

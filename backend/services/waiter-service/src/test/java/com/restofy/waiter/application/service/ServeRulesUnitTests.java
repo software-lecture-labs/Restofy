@@ -26,7 +26,8 @@ class ServeRulesUnitTests {
     private static final Instant NOW = Instant.parse("2026-10-16T09:00:00Z");
 
     private static OrderServeCommand command() {
-        return OrderServeCommand.open(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 4,
+        return OrderServeCommand.open(UUID.randomUUID(),
+                new OrderServeCommand.Target(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 4),
                 UUID.randomUUID(), "key-00000001", "a".repeat(64), NOW);
     }
 

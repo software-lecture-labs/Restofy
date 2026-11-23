@@ -17,7 +17,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Duration;
@@ -426,12 +425,12 @@ class NotificationSyncTests extends ApiTestBase {
         UUID id = raise("WAITER");
         for (String path : List.of("/api/v1/waiters/calls/" + id + "/read", "/api/v1/waiters/calls/" + id + "/acknowledge",
                 "/api/v1/waiters/notifications", "/api/v1/waiters/notifications/" + id + "/read")) {
-            mockMvc.perform(post(path).with(asWaiter()).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader())
+            mockMvc.perform(post(path).with(asWaiter()).with(staffCsrf())
                             .header("Idempotency-Key", newKey()).contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
                     .andExpect(status().is4xxClientError());
         }
         mockMvc.perform(put("/api/v1/waiters/calls/" + id).with(asWaiter())
-                        .with(SecurityMockMvcRequestPostProcessors.csrf().asHeader())
+                        .with(staffCsrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"RESOLVED\"}"))
                 .andExpect(status().is4xxClientError());
         assertEquals("OPEN", callStatusInDatabase(id));

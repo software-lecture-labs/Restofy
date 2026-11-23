@@ -11,7 +11,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({RestClientProperties.class, ServiceUrlProperties.class})
+@EnableConfigurationProperties({RestClientProperties.class, ServiceUrlProperties.class, AuthProperties.class})
 public class RestClientConfiguration {
 
     @Bean(destroyMethod = "close")

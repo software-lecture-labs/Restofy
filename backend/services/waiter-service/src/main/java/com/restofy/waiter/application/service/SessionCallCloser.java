@@ -37,7 +37,7 @@ class SessionCallCloser {
             ServiceRequestStatus from = call.getStatus();
             call.cancelForTableClosure(closeCommand.getId(), now);
             calls.saveAndFlush(call);
-            events.record(call, CallEventType.CANCELLED, from, ActorType.STAFF, closeCommand.getRequestedByUserId(), now);
+            events.recordEvent(call, CallEventType.CANCELLED, from, ActorType.STAFF, closeCommand.getRequestedByUserId(), now);
         }
         return unresolved.size();
     }

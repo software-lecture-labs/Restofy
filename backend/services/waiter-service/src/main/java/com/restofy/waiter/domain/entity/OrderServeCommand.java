@@ -71,15 +71,18 @@ public class OrderServeCommand {
     protected OrderServeCommand() {
     }
 
-    public static OrderServeCommand open(UUID id, UUID restaurantId, UUID orderId, UUID tableSessionId,
-                                         long expectedVersion, UUID requestedByUserId, String idempotencyKey,
+    /** What the staff member asked for: the order, the session they saw and the version they saw. */
+    public record Target(UUID restaurantId, UUID orderId, UUID tableSessionId, long expectedVersion) {
+    }
+
+    public static OrderServeCommand open(UUID id, Target target, UUID requestedByUserId, String idempotencyKey,
                                          String requestDigest, Instant now) {
         OrderServeCommand command = new OrderServeCommand();
         command.id = id;
-        command.restaurantId = restaurantId;
-        command.orderId = orderId;
-        command.tableSessionId = tableSessionId;
-        command.expectedVersion = expectedVersion;
+        command.restaurantId = target.restaurantId();
+        command.orderId = target.orderId();
+        command.tableSessionId = target.tableSessionId();
+        command.expectedVersion = target.expectedVersion();
         command.requestedByUserId = requestedByUserId;
         command.idempotencyKey = idempotencyKey;
         command.requestDigest = requestDigest;

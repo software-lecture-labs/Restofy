@@ -125,17 +125,10 @@ class RestClientConfigurationTests {
             "QR_SERVICE_URL|http://user:secret@qr-service:8080", "QR_SERVICE_URL|''", "QR_SERVICE_URL|http://",
             "ORDER_SERVICE_URL|file:///etc/passwd", "ORDER_SERVICE_URL|http://user@order-service:8080",
             "ORDER_SERVICE_URL|order-service", "NOTIFICATION_SERVICE_URL|notification-service:8080",
-            "NOTIFICATION_SERVICE_URL|http://user:secret@notification-service:8080", "NOTIFICATION_SERVICE_URL|ftp://notification-service"})
-    void invalidServiceUrlsStopStartup(String variable, String value) {
-        Map<String, Object> env = environment();
-        env.put(variable, value);
-        runner(env).run(context -> assertNotNull(context.getStartupFailure()));
-    }
-
-    @ParameterizedTest
-    @CsvSource({"REST_CLIENT_CONNECT_TIMEOUT_MS,0", "REST_CLIENT_CONNECT_TIMEOUT_MS,-1", "REST_CLIENT_CONNECT_TIMEOUT_MS,invalid",
-            "REST_CLIENT_READ_TIMEOUT_MS,0", "REST_CLIENT_READ_TIMEOUT_MS,-1", "REST_CLIENT_READ_TIMEOUT_MS,invalid"})
-    void invalidTimeoutsStopStartup(String variable, String value) {
+            "NOTIFICATION_SERVICE_URL|http://user:secret@notification-service:8080", "NOTIFICATION_SERVICE_URL|ftp://notification-service",
+            "REST_CLIENT_CONNECT_TIMEOUT_MS|0", "REST_CLIENT_CONNECT_TIMEOUT_MS|-1", "REST_CLIENT_CONNECT_TIMEOUT_MS|invalid",
+            "REST_CLIENT_READ_TIMEOUT_MS|0", "REST_CLIENT_READ_TIMEOUT_MS|-1", "REST_CLIENT_READ_TIMEOUT_MS|invalid"})
+    void invalidSettingsStopStartup(String variable, String value) {
         Map<String, Object> env = environment();
         env.put(variable, value);
         runner(env).run(context -> assertNotNull(context.getStartupFailure()));
@@ -169,16 +162,21 @@ class RestClientConfigurationTests {
         env.put("ORDER_SERVICE_URL", unusable.toString());
         env.put("NOTIFICATION_SERVICE_URL", unusable.toString());
         runner(env).run(context -> {
-            DependencyException qr = assertThrows(DependencyException.class,
-                    () -> context.getBean(QrClient.class).listAllTables(UUID.randomUUID()));
+            QrClient qrClient = context.getBean(QrClient.class);
+            OrderClient orderClient = context.getBean(OrderClient.class);
+            NotificationClient notificationClient = context.getBean(NotificationClient.class);
+            UUID restaurantId = UUID.randomUUID();
+            UUID orderId = UUID.randomUUID();
+            UUID eventId = UUID.randomUUID();
+            DependencyException qr = assertThrows(DependencyException.class, () -> qrClient.listAllTables(restaurantId));
             assertEquals(DependencyFailure.UNAVAILABLE, qr.failure());
             assertEquals("qr", qr.dependency());
             DependencyException order = assertThrows(DependencyException.class,
-                    () -> context.getBean(OrderClient.class).findOrder(UUID.randomUUID(), UUID.randomUUID()));
+                    () -> orderClient.findOrder(restaurantId, orderId));
             assertEquals(DependencyFailure.UNAVAILABLE, order.failure());
             assertTrue(!order.getMessage().contains("127.0.0.1"), "Internal addresses must not appear in messages");
             DependencyException notification = assertThrows(DependencyException.class,
-                    () -> context.getBean(NotificationClient.class).publish(UUID.randomUUID(), "{}"));
+                    () -> notificationClient.publish(eventId, "{}"));
             assertEquals(DependencyFailure.UNAVAILABLE, notification.failure());
             assertEquals("notification", notification.dependency());
         });
@@ -193,7 +191,8 @@ class RestClientConfigurationTests {
             UUID restaurant = UUID.randomUUID();
             assertThrows(IllegalArgumentException.class, () -> client.activeOrderCounts(restaurant, tooMany));
             assertThrows(IllegalArgumentException.class, () -> client.search(restaurant, null, tooMany, null, 0, 20));
-            assertThrows(IllegalArgumentException.class, () -> client.search(restaurant, null, List.of(), null, 0, 20));
+            List<UUID> noSessions = List.of();
+            assertThrows(IllegalArgumentException.class, () -> client.search(restaurant, null, noSessions, null, 0, 20));
         });
         assertTrue(peer.requests().isEmpty());
     }

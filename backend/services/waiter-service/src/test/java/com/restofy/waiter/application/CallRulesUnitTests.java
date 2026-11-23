@@ -34,7 +34,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -46,8 +45,7 @@ class CallRulesUnitTests {
     private static final Instant NOW = Instant.parse("2026-10-16T09:00:00Z");
 
     private static ServiceRequest openCall() {
-        return ServiceRequest.open(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), ServiceRequestType.BILL, "Hesap", NOW);
+        return ServiceRequest.open(UUID.randomUUID(), new ServiceRequest.Origin(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), ServiceRequestType.BILL, "Hesap", NOW);
     }
 
     // ----- message -----
@@ -59,8 +57,10 @@ class CallRulesUnitTests {
         assertEquals(300, CallMessage.normalize("a".repeat(300)).length());
         assertEquals(300, CallMessage.normalize("😀".repeat(300)).codePointCount(0, 600),
                 "Characters, not UTF-16 units, are counted");
-        assertThrows(InvalidRequestException.class, () -> CallMessage.normalize("a".repeat(301)));
-        assertThrows(InvalidRequestException.class, () -> CallMessage.normalize("😀".repeat(301)));
+        var arg1 = "a".repeat(301);
+        assertThrows(InvalidRequestException.class, () -> CallMessage.normalize(arg1));
+        var arg2 = "😀".repeat(301);
+        assertThrows(InvalidRequestException.class, () -> CallMessage.normalize(arg2));
     }
 
     @ParameterizedTest
@@ -88,9 +88,11 @@ class CallRulesUnitTests {
     @Test
     void keyLengthLimitsAreInclusive() {
         assertEquals(120, IdempotencyKeys.require("A".repeat(120)).length());
-        assertThrows(InvalidRequestException.class, () -> IdempotencyKeys.require("a".repeat(121)));
+        var arg3 = "a".repeat(121);
+        assertThrows(InvalidRequestException.class, () -> IdempotencyKeys.require(arg3));
         assertEquals(8, IdempotencyKeys.require("a".repeat(8)).length());
-        assertThrows(InvalidRequestException.class, () -> IdempotencyKeys.require("a".repeat(7)));
+        var arg4 = "a".repeat(7);
+        assertThrows(InvalidRequestException.class, () -> IdempotencyKeys.require(arg4));
     }
 
     @Test
@@ -130,10 +132,12 @@ class CallRulesUnitTests {
     void filterRejectsTooManyValuesAndEmptyOrInvertedWindows() {
         List<ServiceRequestType> many = Collections.nCopies(11, ServiceRequestType.BILL);
         assertThrows(InvalidRequestException.class, () -> CallFilter.of(many, null, null, null, null, null, null));
-        assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, Collections.nCopies(11, ServiceRequestStatus.OPEN),
+        var arg5 = Collections.nCopies(11, ServiceRequestStatus.OPEN);
+        assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, arg5,
                 null, null, null, null, null));
         assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, null, null, null, NOW, NOW, null));
-        assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, null, null, null, NOW.plusSeconds(1), NOW, null));
+        var arg6 = NOW.plusSeconds(1);
+        assertThrows(InvalidRequestException.class, () -> CallFilter.of(null, null, null, null, arg6, NOW, null));
         CallFilter.of(null, null, null, null, NOW, NOW.plusSeconds(1), null);
         CallFilter.of(null, null, null, null, NOW, null, null);
         CallFilter.of(null, null, null, null, null, NOW, null);
@@ -186,14 +190,17 @@ class CallRulesUnitTests {
         ServiceRequest claimed = openCall();
         UUID first = UUID.randomUUID();
         claimed.claim(first, NOW);
-        assertEquals("CALL_ALREADY_CLAIMED", assertThrows(CallConflictException.class, () -> claimed.claim(UUID.randomUUID(), NOW)).code());
+        var arg7 = UUID.randomUUID();
+        assertEquals("CALL_ALREADY_CLAIMED", assertThrows(CallConflictException.class, () -> claimed.claim(arg7, NOW)).code());
         assertEquals(first, claimed.getClaimedByUserId(), "A claimer is never replaced");
 
         ServiceRequest resolved = openCall();
         resolved.resolve(first, NOW);
-        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.resolve(UUID.randomUUID(), NOW))
+        var arg8 = UUID.randomUUID();
+        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.resolve(arg8, NOW))
                 .code());
-        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.claim(UUID.randomUUID(), NOW))
+        var arg9 = UUID.randomUUID();
+        assertEquals("CALL_ALREADY_RESOLVED", assertThrows(CallConflictException.class, () -> resolved.claim(arg9, NOW))
                 .code());
         assertEquals(first, resolved.getResolvedByUserId(), "A resolver is never replaced");
 
@@ -237,7 +244,8 @@ class CallRulesUnitTests {
     @Test
     void acknowledgementsNeedAnEventAndAnOutcome() {
         assertThrows(IllegalArgumentException.class, () -> new NotificationAckDto(null, NotificationAckDto.Outcome.APPLIED));
-        assertThrows(IllegalArgumentException.class, () -> new NotificationAckDto(UUID.randomUUID(), null));
+        var arg10 = UUID.randomUUID();
+        assertThrows(IllegalArgumentException.class, () -> new NotificationAckDto(arg10, null));
         assertEquals(3, NotificationAckDto.Outcome.values().length);
     }
 
@@ -287,29 +295,24 @@ class CallRulesUnitTests {
     }
 
     @ParameterizedTest
-    @CsvSource({"OPEN,ACTIVE,true", "OPEN,ENDED,false", "OPEN,EXPIRED,false", "CLOSING,ACTIVE,false", "CLOSED,ACTIVE,false",
-            "EXPIRED,ACTIVE,false"})
-    void onlyAnOpenSessionWithAnActiveGuestMayRaiseCalls(QrGuestContextDto.TableSessionState table,
-                                                         QrGuestContextDto.GuestSessionState guest, boolean active) {
+    @CsvSource({"ENDED", "EXPIRED", "CLOSED", "OPEN", "active"})
+    void qrAnswersOnlyActiveGuestsSoAnyOtherStateIsAContractViolation(String state) {
         UUID id = UUID.randomUUID();
-        QrGuestContextDto context = new QrGuestContextDto(id, id, new QrGuestContextDto.TableSession(id, table),
-                new QrGuestContextDto.GuestSession(id, guest));
-        assertEquals(active, context.isActive());
+        Instant now = Instant.now();
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, id, state, now));
+        assertEquals(QrGuestContextDto.ACTIVE, new QrGuestContextDto(id, id, id, id, "ACTIVE", now).state());
     }
 
     @Test
     void anIncompleteQrAnswerIsAContractViolation() {
         UUID id = UUID.randomUUID();
-        var open = new QrGuestContextDto.TableSession(id, QrGuestContextDto.TableSessionState.OPEN);
-        var active = new QrGuestContextDto.GuestSession(id, QrGuestContextDto.GuestSessionState.ACTIVE);
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(null, id, open, active));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, null, open, active));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, null, active));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, open, null));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.TableSession(null,
-                QrGuestContextDto.TableSessionState.OPEN));
-        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto.GuestSession(id, null));
-        assertFalse(open.status() == null);
+        Instant now = Instant.now();
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(null, id, id, id, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, null, id, id, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, null, id, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, null, "ACTIVE", now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, id, null, now));
+        assertThrows(IllegalArgumentException.class, () -> new QrGuestContextDto(id, id, id, id, "ACTIVE", null));
     }
 
     @Test
@@ -317,7 +320,9 @@ class CallRulesUnitTests {
         URI ok = URI.create("http://service:8080");
         new ServiceUrlProperties(ok, ok, ok);
         assertThrows(IllegalArgumentException.class, () -> new ServiceUrlProperties(ok, ok, null));
-        assertThrows(IllegalArgumentException.class, () -> new ServiceUrlProperties(ok, ok, URI.create("ftp://service")));
-        assertThrows(IllegalArgumentException.class, () -> new ServiceUrlProperties(ok, ok, URI.create("http://user:pw@service")));
+        var arg11 = URI.create("ftp://service");
+        assertThrows(IllegalArgumentException.class, () -> new ServiceUrlProperties(ok, ok, arg11));
+        var arg12 = URI.create("http://user:pw@service");
+        assertThrows(IllegalArgumentException.class, () -> new ServiceUrlProperties(ok, ok, arg12));
     }
 }

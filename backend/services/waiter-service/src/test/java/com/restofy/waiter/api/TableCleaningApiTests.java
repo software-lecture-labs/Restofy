@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -290,7 +289,7 @@ class TableCleaningApiTests extends TableCommandApiBase {
     void onlyAVerifiedWaiterOfTheRestaurantMayCleanAndNothingReachesQrOtherwise() throws Exception {
         closeTheSession();
         String url = "/api/v1/waiters/tables/" + table.id() + "/cleaned";
-        mockMvc.perform(post(url).with(csrf().asHeader()).header("Idempotency-Key", newKey())
+        mockMvc.perform(post(url).with(staffCsrf()).header("Idempotency-Key", newKey())
                 .contentType(MediaType.APPLICATION_JSON).content(versionBody(8))).andExpect(status().isUnauthorized());
         for (StaffRole role : List.of(StaffRole.KITCHEN, StaffRole.ADMIN)) {
             clean(asStaff(role, RESTAURANT), table.id(), newKey(), versionBody(8)).andExpect(status().isForbidden());

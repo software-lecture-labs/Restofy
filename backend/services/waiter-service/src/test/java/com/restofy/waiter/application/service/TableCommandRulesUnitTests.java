@@ -115,7 +115,7 @@ class TableCommandRulesUnitTests {
 
     @Test
     void aCallThatEndsWithItsTableSessionIsCancelledNotResolved() {
-        ServiceRequest call = ServiceRequest.open(UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID(),
+        ServiceRequest call = ServiceRequest.open(UUID.randomUUID(), new ServiceRequest.Origin(RESTAURANT, TABLE, SESSION, UUID.randomUUID()),
                 ServiceRequestType.BILL, null, NOW);
         call.claim(STAFF, NOW);
         UUID command = UUID.randomUUID();
@@ -130,16 +130,18 @@ class TableCommandRulesUnitTests {
 
     @Test
     void aFinishedCallCannotBeCancelledAgain() {
-        ServiceRequest resolved = ServiceRequest.open(UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID(),
+        ServiceRequest resolved = ServiceRequest.open(UUID.randomUUID(), new ServiceRequest.Origin(RESTAURANT, TABLE, SESSION, UUID.randomUUID()),
                 ServiceRequestType.HELP, null, NOW);
         resolved.resolve(STAFF, NOW);
+        var arg1 = UUID.randomUUID();
         assertEquals("CALL_ALREADY_RESOLVED",
-                assertThrows(CallConflictException.class, () -> resolved.cancelForTableClosure(UUID.randomUUID(), NOW)).code());
-        ServiceRequest cancelled = ServiceRequest.open(UUID.randomUUID(), RESTAURANT, TABLE, SESSION, UUID.randomUUID(),
+                assertThrows(CallConflictException.class, () -> resolved.cancelForTableClosure(arg1, NOW)).code());
+        ServiceRequest cancelled = ServiceRequest.open(UUID.randomUUID(), new ServiceRequest.Origin(RESTAURANT, TABLE, SESSION, UUID.randomUUID()),
                 ServiceRequestType.HELP, null, NOW);
         cancelled.cancelForTableClosure(UUID.randomUUID(), NOW);
+        var arg2 = UUID.randomUUID();
         assertEquals("INVALID_TRANSITION",
-                assertThrows(CallConflictException.class, () -> cancelled.cancelForTableClosure(UUID.randomUUID(), NOW)).code());
+                assertThrows(CallConflictException.class, () -> cancelled.cancelForTableClosure(arg2, NOW)).code());
         assertEquals("INVALID_TRANSITION",
                 assertThrows(CallConflictException.class, () -> cancelled.resolve(STAFF, NOW)).code());
     }
@@ -150,8 +152,10 @@ class TableCommandRulesUnitTests {
     void aCloseIsNotClosedWhileAnyGuestSessionIsLeft() {
         UUID commandId = UUID.randomUUID();
         var partial = new QrCloseResultDto.GuestSessions(3, 2);
+        var arg3 = table(TableOperationalStatus.CLEANING, null);
+        List<String> arg4 = List.of();
         assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(commandId, QrCloseResultDto.State.CLOSED,
-                TABLE, SESSION, NOW, partial, table(TableOperationalStatus.CLEANING, null), null, List.of()));
+                TABLE, SESSION, NOW, partial, arg3, null, arg4));
         assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto.GuestSessions(1, 2));
         QrCloseResultDto all = new QrCloseResultDto(commandId, QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW,
                 new QrCloseResultDto.GuestSessions(3, 3), table(TableOperationalStatus.CLEANING, null), null, List.of());
@@ -160,9 +164,13 @@ class TableCommandRulesUnitTests {
 
     @Test
     void aClosedSessionCannotStillBeTheLiveSessionOfItsTable() {
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(),
-                QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, new QrCloseResultDto.GuestSessions(1, 1),
-                table(TableOperationalStatus.OCCUPIED, SESSION), null, List.of()));
+        var arg5 = UUID.randomUUID();
+        var arg6 = new QrCloseResultDto.GuestSessions(1, 1);
+        var arg7 = table(TableOperationalStatus.OCCUPIED, SESSION);
+        List<String> arg8 = List.of();
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg5,
+                QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, arg6,
+                arg7, null, arg8));
         // A different, newer session of the same table is fine: the old one is simply closed.
         new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW,
                 new QrCloseResultDto.GuestSessions(1, 1), table(TableOperationalStatus.OCCUPIED, UUID.randomUUID()), null, List.of());
@@ -178,11 +186,15 @@ class TableCommandRulesUnitTests {
         assertTrue(drift.reconciliationRequired());
         assertFalse(new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, guests,
                 cleaning, null, List.of()).reconciliationRequired());
+        var arg9 = UUID.randomUUID();
+        var arg10 = List.of("UNPAID_BALANCE");
         // A closed answer naming a closure blocker or a rejection contradicts itself.
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(),
-                QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, guests, cleaning, null, List.of("UNPAID_BALANCE")));
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(),
-                QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, guests, cleaning, "CLOSURE_BLOCKED", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg9,
+                QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, guests, cleaning, null, arg10));
+        var arg11 = UUID.randomUUID();
+        List<String> arg12 = List.of();
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg11,
+                QrCloseResultDto.State.CLOSED, TABLE, SESSION, NOW, guests, cleaning, "CLOSURE_BLOCKED", arg12));
         // The warning belongs to a closure only; a refusal never becomes a reconciliation case.
         assertFalse(new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.REJECTED, TABLE, SESSION, null, null,
                 null, "CLOSURE_BLOCKED", List.of(QrCloseResultDto.RECONCILIATION_REQUIRED)).reconciliationRequired());
@@ -190,14 +202,23 @@ class TableCommandRulesUnitTests {
 
     @Test
     void aClosedAnswerNeedsItsTimeAndItsGuestCounts() {
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.CLOSED,
-                TABLE, SESSION, null, new QrCloseResultDto.GuestSessions(1, 1), null, null, List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.CLOSED,
-                TABLE, SESSION, NOW, null, null, null, List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.REJECTED,
-                TABLE, SESSION, null, null, null, null, List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(UUID.randomUUID(), QrCloseResultDto.State.CLOSING,
-                TABLE, SESSION, null, null, null, "SESSION_NOT_OPEN", List.of()));
+        var arg13 = UUID.randomUUID();
+        var arg14 = new QrCloseResultDto.GuestSessions(1, 1);
+        List<String> arg15 = List.of();
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg13, QrCloseResultDto.State.CLOSED,
+                TABLE, SESSION, null, arg14, null, null, arg15));
+        var arg16 = UUID.randomUUID();
+        List<String> arg17 = List.of();
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg16, QrCloseResultDto.State.CLOSED,
+                TABLE, SESSION, NOW, null, null, null, arg17));
+        var arg18 = UUID.randomUUID();
+        List<String> arg19 = List.of();
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg18, QrCloseResultDto.State.REJECTED,
+                TABLE, SESSION, null, null, null, null, arg19));
+        var arg20 = UUID.randomUUID();
+        List<String> arg21 = List.of();
+        assertThrows(IllegalArgumentException.class, () -> new QrCloseResultDto(arg20, QrCloseResultDto.State.CLOSING,
+                TABLE, SESSION, null, null, null, "SESSION_NOT_OPEN", arg21));
     }
 
     @Test
@@ -243,7 +264,8 @@ class TableCommandRulesUnitTests {
                 assertThrows(InvalidRequestException.class, () -> CallMessage.normalize("​  ", "reason")).getMessage());
         assertEquals("reason must not contain control characters",
                 assertThrows(InvalidRequestException.class, () -> CallMessage.normalize("a\nb", "reason")).getMessage());
-        assertThrows(InvalidRequestException.class, () -> CallMessage.normalize("x".repeat(301), "reason"));
+        var arg22 = "x".repeat(301);
+        assertThrows(InvalidRequestException.class, () -> CallMessage.normalize(arg22, "reason"));
         assertEquals("x".repeat(300), CallMessage.normalize("x".repeat(300), "reason"));
     }
 

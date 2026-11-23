@@ -91,14 +91,17 @@ public class ServiceRequest {
     protected ServiceRequest() {
     }
 
-    public static ServiceRequest open(UUID id, UUID restaurantId, UUID tableId, UUID tableSessionId,
-                                      UUID guestSessionId, ServiceRequestType type, String message, Instant now) {
+    /** Where a call comes from: the restaurant, table, table session and guest session that QR verified. */
+    public record Origin(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId) {
+    }
+
+    public static ServiceRequest open(UUID id, Origin origin, ServiceRequestType type, String message, Instant now) {
         ServiceRequest call = new ServiceRequest();
         call.id = id;
-        call.restaurantId = restaurantId;
-        call.tableId = tableId;
-        call.tableSessionId = tableSessionId;
-        call.guestSessionId = guestSessionId;
+        call.restaurantId = origin.restaurantId();
+        call.tableId = origin.tableId();
+        call.tableSessionId = origin.tableSessionId();
+        call.guestSessionId = origin.guestSessionId();
         call.requestType = type;
         call.message = message;
         call.status = ServiceRequestStatus.OPEN;

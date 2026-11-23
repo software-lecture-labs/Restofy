@@ -35,9 +35,11 @@ import java.util.UUID;
  * <p>Every call uses the shared {@code /api/v1/internal} prefix. Only the close command and its status follow a
  * contract QR has implemented: ADR-QR-001 K11 (reviewed at QR commit 1f98fbb). QR keeps those endpoints closed until
  * the Waiter service identity and the staff delegation are verified; Waiter sends neither yet, so QR answers 401
- * today. The table reads, the guest verification and the cleaning command are Waiter's DRAFT paths under the same
- * prefix: QR has no internal counterpart for them yet, and moving them onto QR's staff endpoints would change their
- * identity and idempotency semantics, so they wait for a shared contract.
+ * today. The guest verification uses QR's shared QR-INT-02 endpoint ({@link #GUEST_VALIDATE}); QR accepts only
+ * Order's service identity there today, so it also answers 401 to Waiter until a Waiter identity is agreed. The table
+ * reads and the cleaning command are Waiter's DRAFT paths under the same prefix: QR has no internal counterpart for
+ * them yet, and moving them onto QR's staff endpoints would change their identity and idempotency semantics, so they
+ * wait for a shared contract.
  *
  * <p>QR's answers are read with unknown fields ignored, so an additive field of QR does not turn into an unknown
  * outcome; identifiers, enum values, states and the cross-checks below are still enforced. Incoming requests of
@@ -50,6 +52,12 @@ public class QrClient {
     /** Largest restaurant the table snapshot supports; bigger restaurants fail instead of being cut short. */
     public static final int MAX_TABLES = 500;
     static final int PAGE_SIZE = 200;
+    private static final String RESTAURANT_ID = "restaurantId";
+    /** QR-INT-02 guest validation, shared with Order (QR's OrderGuestSessionController). */
+    @SuppressWarnings("java:S1075") // The path belongs to QR's wire contract; only the base URL is configurable.
+    static final String GUEST_VALIDATE = "/api/v1/internal/qr/guest-sessions/validate";
+    /** The detail QR puts in every guest refusal, so that it can be told apart from a missing route. */
+    static final String UNAVAILABLE_GUEST = "Guest session is unavailable.";
 
     private final RestClient client;
 
@@ -70,19 +78,12 @@ public class QrClient {
             int requested = page;
             QrTablePageDto result = DownstreamCalls.execute(DEPENDENCY, () -> client.get()
                     .uri(uri -> uri.path("/api/v1/internal/tables")
-                            .queryParam("restaurantId", restaurantId)
+                            .queryParam(RESTAURANT_ID, restaurantId)
                             .queryParam("page", requested)
                             .queryParam("size", PAGE_SIZE)
                             .build())
                     .retrieve().body(QrTablePageDto.class));
-            if (result.page() != requested || result.size() != PAGE_SIZE) {
-                throw badResponse("page metadata does not match the request");
-            }
-            if (result.totalElements() > MAX_TABLES) {
-                throw new SnapshotLimitExceededException(
-                        "The restaurant has more than " + MAX_TABLES + " tables; the table snapshot is not supported");
-            }
-            if (result.items().size() > PAGE_SIZE) throw badResponse("page is larger than requested");
+            requireConsistentPage(result, requested);
             for (QrTableDto table : result.items()) {
                 requireTenant(restaurantId, table);
                 if (!seen.add(table.id())) throw badResponse("duplicate table in the listing");
@@ -97,10 +98,21 @@ public class QrClient {
         }
     }
 
+    private static void requireConsistentPage(QrTablePageDto result, int requested) {
+        if (result.page() != requested || result.size() != PAGE_SIZE) {
+            throw badResponse("page metadata does not match the request");
+        }
+        if (result.totalElements() > MAX_TABLES) {
+            throw new SnapshotLimitExceededException(
+                    "The restaurant has more than " + MAX_TABLES + " tables; the table snapshot is not supported");
+        }
+        if (result.items().size() > PAGE_SIZE) throw badResponse("page is larger than requested");
+    }
+
     public Optional<QrTableDto> findTable(UUID restaurantId, UUID tableId) {
         Optional<QrTableDto> table = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}")
-                        .queryParam("restaurantId", restaurantId).build(tableId))
+                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId))
                 .retrieve().body(QrTableDto.class));
         table.ifPresent(found -> {
             requireTenant(restaurantId, found);
@@ -110,16 +122,42 @@ public class QrClient {
     }
 
     /**
-     * Asks QR which restaurant, table, table session and guest session a guest credential belongs to. An empty
-     * result means QR does not know the credential (unknown, expired or revoked). The token is sent in the
-     * body only and is never logged; a 401/403 from QR is a rejection of Waiter itself, not of the guest.
+     * Asks QR which restaurant, table, table session and guest session an active guest credential belongs to, over
+     * the shared QR endpoint that Order uses as well. An empty result means QR's documented guest refusal: a 404
+     * problem saying the guest session is unavailable (unknown, ended, expired, or its table session is no longer
+     * open; QR does not say which). Any other 404, e.g. a missing route, is no usable answer rather than an unknown
+     * guest. The token is sent in the body only and is never logged; a 401/403 from QR is a rejection of Waiter
+     * itself, not of the guest.
      */
     public Optional<QrGuestContextDto> verifyGuest(String guestToken) {
-        return DownstreamCalls.executeOptional(DEPENDENCY, () -> client.post()
-                .uri("/api/v1/internal/guest-sessions/verify")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new QrGuestVerifyRequest(guestToken))
-                .retrieve().body(QrGuestContextDto.class));
+        try {
+            QrGuestContextDto context = client.post()
+                    .uri(GUEST_VALIDATE)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new QrGuestVerifyRequest(guestToken))
+                    .retrieve().body(QrGuestContextDto.class);
+            if (context == null) throw badResponse("empty answer to the guest validation");
+            return Optional.of(context);
+        } catch (RestClientResponseException refusal) {
+            if (isUnavailableGuest(refusal)) return Optional.empty();
+            throw DownstreamCalls.translate(DEPENDENCY, refusal);
+        } catch (RestClientException failure) {
+            throw DownstreamCalls.translate(DEPENDENCY, failure);
+        }
+    }
+
+    /** QR's guest refusal: a 404 problem with the fixed detail of its InvalidGuestSessionException. */
+    private static boolean isUnavailableGuest(RestClientResponseException refusal) {
+        if (refusal.getStatusCode().value() != HttpStatus.NOT_FOUND.value()) return false;
+        MediaType type = refusal.getResponseHeaders() == null ? null : refusal.getResponseHeaders().getContentType();
+        if (type == null || !MediaType.APPLICATION_PROBLEM_JSON.isCompatibleWith(type)) return false;
+        try {
+            JsonNode problem = REJECTION_JSON.readTree(refusal.getResponseBodyAsString());
+            return problem.path("status").asInt(0) == HttpStatus.NOT_FOUND.value()
+                    && UNAVAILABLE_GUEST.equals(problem.path("detail").asString(""));
+        } catch (RuntimeException _) {
+            return false;
+        }
     }
 
     // ----- table commands (close: QR K11; cleaning: DRAFT) -----
@@ -186,7 +224,7 @@ public class QrClient {
     public Optional<QrCloseResultDto> closeStatus(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID commandId) {
         Optional<QrCloseResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}/sessions/{tableSessionId}/close-commands/{commandId}")
-                        .queryParam("restaurantId", restaurantId).build(tableId, tableSessionId, commandId))
+                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId, tableSessionId, commandId))
                 .retrieve().body(QrCloseResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
@@ -228,7 +266,7 @@ public class QrClient {
     public Optional<QrCleanResultDto> cleanStatus(UUID restaurantId, UUID tableId, UUID commandId) {
         Optional<QrCleanResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}/clean-commands/{commandId}")
-                        .queryParam("restaurantId", restaurantId).build(tableId, commandId))
+                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId, commandId))
                 .retrieve().body(QrCleanResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");

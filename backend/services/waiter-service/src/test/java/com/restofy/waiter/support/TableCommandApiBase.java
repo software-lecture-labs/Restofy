@@ -20,7 +20,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -73,7 +72,7 @@ public abstract class TableCommandApiBase extends ApiTestBase {
 
     protected ResultActions close(RequestPostProcessor staff, UUID tableId, UUID session, String key, String json) throws Exception {
         return mockMvc.perform(post("/api/v1/waiters/tables/" + tableId + "/sessions/" + session + "/close")
-                .with(staff).with(csrf().asHeader()).header("Idempotency-Key", key)
+                .with(staff).with(staffCsrf()).header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
@@ -84,7 +83,7 @@ public abstract class TableCommandApiBase extends ApiTestBase {
 
     protected ResultActions clean(RequestPostProcessor staff, UUID tableId, String key, String json) throws Exception {
         return mockMvc.perform(post("/api/v1/waiters/tables/" + tableId + "/cleaned")
-                .with(staff).with(csrf().asHeader()).header("Idempotency-Key", key)
+                .with(staff).with(staffCsrf()).header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
