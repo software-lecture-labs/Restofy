@@ -1,4 +1,4 @@
-# QR-REQUEST-01 · Guest reddi için sabit hata kodu
+# QR-REQUEST-01 · Guest reddi için sabit hata kodu ve Waiter servis kimliği
 
 **23 Kasım 2026 · Umut (Waiter) → Alper (QR) · bilgi: Hamza (Order)**
 
@@ -52,6 +52,14 @@ Guest reddine, QR'ın kapanış hatalarında zaten kullandığı (`StaffClosureE
 - [ ] Tanınmayan, yabancı restoran, kapalı ve süresi dolmuş guest için yanıt gövdesi aynıdır.
 - [ ] QR testleri `code` alanını doğrular. Waiter ve Order sözleşme testleri geçiş sırasında hem kodlu hem eski yanıtı kabul eder.
 
-## Kapsam dışı
+## Waiter'ın QR'a servis kimliğiyle erişmesi ([#38](https://github.com/software-lecture-labs/Restofy/issues/38))
 
-- **Waiter'ın QR'a servis kimliği.** Bu uç bugün yalnız Order'ın servis JWT'sini kabul ediyor. Waiter gerçek QR'dan `401` alır. Bu, `docs/SECURITY.md` gereği onay gerektiren ayrı bir karar. Alper, Hamza ve Umut birlikte netleştirecek, ayrı talep olarak yazılacak.
+QR, ortak `POST /api/v1/internal/qr/guest-sessions/validate` ucunda bugün yalnız Order'ın servis JWT'sini kabul ediyor. Waiter servis kimliği göndermediği için gerçek QR `401` döndürüyor ve müşteri garson, yardım veya hesap çağrısı oluşturamıyor.
+
+QR'ın ortak doğrulama ucunda Waiter'ın kendi servis kimliğini doğrulaması ve Waiter'ın `QrClient` üzerinden bu kimliği göndermesi isteniyor. Alper, Hamza ve Umut kimlik doğrulama sözleşmesini birlikte netleştirecek. Uygulama öncesi [güvenlik kuralları](../../SECURITY.md) uyarınca onay alınacak.
+
+**Kabul ölçütleri**
+
+- [ ] Gerçek QR ile uçtan uca testte Waiter, kendi doğrulanmış servis kimliğiyle geçerli guest oturumunu doğrular ve müşteri çağrısını doğru masa oturumuna kaydeder.
+- [ ] Eksik, geçersiz veya bu uç için yetkisiz servis kimlikleri reddedilir. Waiter, QR'dan gelen `401/403` yanıtını `502 DEPENDENCY_REJECTED` olarak işler ve çağrı oluşturmaz.
+- [ ] Order'ın mevcut doğrulama ve guest durum sorguları çalışmaya devam eder. Waiter'ın erişimi ortak doğrulama ucuyla sınırlıdır.
