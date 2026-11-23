@@ -152,7 +152,7 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
         }
         String path = cleanPath(table);
         String orderCredential = service("POST", path, ORDER, "order-test", "restofy-order", "order-service", CLEAN_SCOPE, body, sha256(staff));
-        assertThat(send("POST", path, body, command, staff, orderCredential).statusCode()).isEqualTo(403);
+        assertThat(send("POST", path, body, command, staff, orderCredential).statusCode()).isEqualTo(401);
         // The clean scope reads and closes nothing else.
         String tables = "/api/v1/internal/tables";
         assertThat(send("GET", tables, "", null, staff, service("GET", tables, WAITER, "waiter-test", "restofy-waiter", "waiter-service", CLEAN_SCOPE, "", sha256(staff))).statusCode()).isEqualTo(403);

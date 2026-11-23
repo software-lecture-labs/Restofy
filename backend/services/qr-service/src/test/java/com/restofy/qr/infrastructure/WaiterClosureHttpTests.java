@@ -123,7 +123,7 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
         }
         String path = closePath(fixture);
         String orderCredential = service("POST", path, ORDER, "order-test", "restofy-order", "order-service", CLOSE_SCOPE, body, bound(staff));
-        assertThat(send("POST", path, body, command, staff, orderCredential).statusCode()).isEqualTo(403);
+        assertThat(send("POST", path, body, command, staff, orderCredential).statusCode()).isEqualTo(401);
         // A staff token alone, with no service credential, never closes a session.
         assertThat(send("POST", path, body, command, staff, null).statusCode()).isEqualTo(401);
         // The close scope does not read tables or clean them.

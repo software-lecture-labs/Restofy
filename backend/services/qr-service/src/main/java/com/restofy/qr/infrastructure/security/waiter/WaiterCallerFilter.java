@@ -1,4 +1,4 @@
-package com.restofy.qr.infrastructure.security.order;
+package com.restofy.qr.infrastructure.security.waiter;
 
 import com.restofy.qr.infrastructure.security.JwtDates;
 import com.restofy.qr.infrastructure.security.StaffRequestFilter;
@@ -22,53 +22,39 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Verifies the request-bound service credential of an internal caller (Order, Waiter). A key ID belongs to exactly
- * one caller, so a token signed with one caller's key can never carry another caller's issuer, subject or scope.
+ * Verifies the request-bound service credential of the Waiter service. It knows no other caller: Order has its own
+ * filter and chain. With no Waiter keys configured every request is rejected (401).
  */
-final class ServiceCallerFilter extends OncePerRequestFilter {
-    static final String VERIFIED = ServiceCallerFilter.class.getName() + ".verified";
-    private static final String SCHEME = "Service ";
-    private static final int MAX_CREDENTIAL_LENGTH = 4096;
+final class WaiterCallerFilter extends OncePerRequestFilter {
+    static final String VERIFIED = WaiterCallerFilter.class.getName() + ".verified";
     static final String STAFF_TOKEN_HEADER = "X-Staff-Token";
     private static final String STAFF_TOKEN_DIGEST_CLAIM = "staff_token_sha256";
+    private static final String SCHEME = "Service ";
+    private static final int MAX_CREDENTIAL_LENGTH = 4096;
     private final UUID restaurantId;
     private final Clock clock;
-    private final Map<String, ServiceCaller> callersByKeyId;
     private final JwtParser parser;
     private final StaffTokenVerifier staffVerifier;
 
-    ServiceCallerFilter(UUID restaurantId, Clock clock, List<ServiceCaller> callers, StaffTokenVerifier staffVerifier) {
-        this.staffVerifier = staffVerifier;
+    WaiterCallerFilter(UUID restaurantId, Clock clock, Map<String, RSAPublicKey> keys, StaffTokenVerifier staffVerifier) {
         this.restaurantId = restaurantId;
         this.clock = clock;
-        this.callersByKeyId = byKeyId(callers);
+        this.staffVerifier = staffVerifier;
         parser = Jwts.parser().keyLocator(header -> {
-            var caller = header.get("kid") instanceof String id ? callersByKeyId.get(id) : null;
-            if (caller == null) { throw new JwtException("Unknown service key ID"); }
-            return caller.keys().get((String) header.get("kid"));
+            var key = header.get("kid") instanceof String id ? keys.get(id) : null;
+            if (key == null) { throw new JwtException("Unknown Waiter key ID"); }
+            return key;
         }).sig().clear().add(Jwts.SIG.RS256).and().clock(() -> JwtDates.from(clock.instant()))
-                .requireAudience("restofy-qr").require("token_type", "service").build();
-    }
-
-    private static Map<String, ServiceCaller> byKeyId(List<ServiceCaller> callers) {
-        Map<String, ServiceCaller> result = new HashMap<>();
-        for (var caller : callers) {
-            for (String keyId : caller.keys().keySet()) {
-                if (result.put(keyId, caller) != null) {
-                    throw new IllegalStateException("A service key ID must belong to exactly one caller");
-                }
-            }
-        }
-        return Map.copyOf(result);
+                .requireIssuer(WaiterAuthorities.ISSUER).requireAudience("restofy-qr")
+                .requireSubject(WaiterAuthorities.SUBJECT).require("token_type", "service").build();
     }
 
     @Override
@@ -78,9 +64,9 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
             reject(response, HttpStatus.UNAUTHORIZED);
             return;
         }
-        final Authenticated authenticated;
+        final Claims claims;
         try {
-            authenticated = authenticate(request.getHeader(HttpHeaders.AUTHORIZATION));
+            claims = authenticate(request.getHeader(HttpHeaders.AUTHORIZATION));
         } catch (JwtException | IllegalArgumentException _) {
             reject(response, HttpStatus.UNAUTHORIZED);
             return;
@@ -88,21 +74,22 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         var boundedBody = readBody(request, response);
         if (boundedBody.isEmpty()) { return; }
         byte[] body = boundedBody.get();
-        if (!matches(request, authenticated, body)) {
+        var authority = WaiterAuthorities.forScope(claims.get("scope"));
+        if (authority.isEmpty() || !matches(request, claims, body)) {
             reject(response, HttpStatus.FORBIDDEN);
             return;
         }
         StaffRequestFilter.Principal staff = null;
-        if (ServiceCaller.requiresStaffDelegation(authenticated.authority())) {
-            staff = delegatedStaff(request, response, authenticated.claims());
+        if (WaiterAuthorities.requiresStaffDelegation(authority.get())) {
+            staff = delegatedStaff(request, response, claims);
             if (staff == null) { return; }
         }
-        serve(request, response, chain, body, authenticated.authority(), staff);
+        serve(request, response, chain, body, authority.get(), staff);
     }
 
     /**
-     * Close routes need the Waiter service credential AND a delegated staff token: the token is forwarded in its own
-     * header, bound to the signed service credential by digest, verified like a browser staff token and checked
+     * Close and clean routes need the Waiter service credential AND a delegated staff token: the token is forwarded in
+     * its own header, bound to the signed service credential by digest, verified like a browser staff token and checked
      * against the revocation guard. Returns null after answering the request when the delegation is not valid.
      */
     private StaffRequestFilter.Principal delegatedStaff(HttpServletRequest request, HttpServletResponse response,
@@ -116,7 +103,7 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         final StaffRequestFilter.Principal staff;
         try {
             staff = staffVerifier.verify(token);
-            if (!OrderSignedRequest.digest(token.getBytes(StandardCharsets.UTF_8)).equals(claims.get(STAFF_TOKEN_DIGEST_CLAIM))) {
+            if (!WaiterSignedRequest.digest(token.getBytes(StandardCharsets.UTF_8)).equals(claims.get(STAFF_TOKEN_DIGEST_CLAIM))) {
                 throw new IllegalArgumentException("Staff token is not bound to the service credential");
             }
         } catch (IllegalArgumentException _) {
@@ -140,16 +127,11 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         return staff;
     }
 
-    private Authenticated authenticate(String header) {
+    private Claims authenticate(String header) {
         if (header == null || !header.startsWith(SCHEME) || header.length() > MAX_CREDENTIAL_LENGTH + SCHEME.length()) {
-            throw new IllegalArgumentException("Invalid service authorization");
+            throw new IllegalArgumentException("Invalid Waiter authorization");
         }
-        var jws = parser.parseSignedClaims(header.substring(SCHEME.length()));
-        var claims = jws.getPayload();
-        var caller = callersByKeyId.get(jws.getHeader().getKeyId());
-        if (caller == null || !caller.issuer().equals(claims.getIssuer()) || !caller.subject().equals(claims.getSubject())) {
-            throw new JwtException("Credential identity does not belong to the signing key");
-        }
+        var claims = parser.parseSignedClaims(header.substring(SCHEME.length())).getPayload();
         var issued = claims.getIssuedAt();
         var notBefore = claims.getNotBefore();
         var expiration = claims.getExpiration();
@@ -157,9 +139,9 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         if (issued == null || !issued.equals(notBefore) || expiration == null || issued.toInstant().isAfter(now)
                 || !expiration.toInstant().isAfter(now) || !expiration.after(issued)
                 || expiration.toInstant().isAfter(issued.toInstant().plusSeconds(30)) || !standardUuid(claims.getId())) {
-            throw new IllegalArgumentException("Invalid service credential lifetime or identifier");
+            throw new IllegalArgumentException("Invalid Waiter credential lifetime or identifier");
         }
-        return new Authenticated(caller, claims, caller.authorityFor(claims.get("scope")).orElse(null));
+        return claims;
     }
 
     private static boolean standardUuid(String value) {
@@ -173,25 +155,24 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
     }
 
     private static Optional<byte[]> readBody(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        if (request.getContentLengthLong() > OrderSignedRequest.MAX_BODY_BYTES) {
+        if (request.getContentLengthLong() > WaiterSignedRequest.MAX_BODY_BYTES) {
             reject(response, HttpStatus.CONTENT_TOO_LARGE);
             return Optional.empty();
         }
-        byte[] body = request.getInputStream().readNBytes(OrderSignedRequest.MAX_BODY_BYTES + 1);
-        if (body.length > OrderSignedRequest.MAX_BODY_BYTES) {
+        byte[] body = request.getInputStream().readNBytes(WaiterSignedRequest.MAX_BODY_BYTES + 1);
+        if (body.length > WaiterSignedRequest.MAX_BODY_BYTES) {
             reject(response, HttpStatus.CONTENT_TOO_LARGE);
             return Optional.empty();
         }
         return Optional.of(body);
     }
 
-    private boolean matches(HttpServletRequest request, Authenticated authenticated, byte[] body) {
-        var claims = authenticated.claims();
+    private boolean matches(HttpServletRequest request, Claims claims, byte[] body) {
         String query = request.getQueryString();
         String target = request.getRequestURI() + (query == null ? "" : "?" + query);
-        return authenticated.authority() != null && restaurantId.toString().equals(claims.get("restaurant_id"))
+        return restaurantId.toString().equals(claims.get("restaurant_id"))
                 && request.getMethod().equals(claims.get("method")) && target.equals(claims.get("target"))
-                && OrderSignedRequest.digest(body).equals(claims.get("body_sha256"))
+                && WaiterSignedRequest.digest(body).equals(claims.get("body_sha256"))
                 && (!"GET".equals(request.getMethod()) || body.length == 0);
     }
 
@@ -205,7 +186,7 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         SecurityContextHolder.setContext(context);
         request.setAttribute(VERIFIED, Boolean.TRUE);
         try {
-            chain.doFilter(new OrderSignedRequest(request, body), response);
+            chain.doFilter(new WaiterSignedRequest(request, body), response);
         } finally {
             request.removeAttribute(VERIFIED);
             SecurityContextHolder.clearContext();
@@ -217,6 +198,4 @@ final class ServiceCallerFilter extends OncePerRequestFilter {
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write("{\"status\":" + status.value() + ",\"title\":\"" + status.getReasonPhrase() + "\"}");
     }
-
-    private record Authenticated(ServiceCaller caller, Claims claims, String authority) { }
 }

@@ -129,7 +129,7 @@ class WaiterSessionClosureHttpTests extends Q5TestSecuritySupport {
             // The close and clean scopes also demand a staff delegation, which the filter answers first (401).
             assertThat(get(PATH, scope, WAITER, "waiter-test", "restofy-waiter", "waiter-service").statusCode()).isIn(401, 403);
         }
-        assertThat(get(PATH, READ_SCOPE, ORDER, "order-test", "restofy-order", "order-service").statusCode()).isEqualTo(403);
+        assertThat(get(PATH, READ_SCOPE, ORDER, "order-test", "restofy-order", "order-service").statusCode()).isEqualTo(401);
         // The read scope opens nothing else.
         assertThat(get("/api/v1/internal/tables", READ_SCOPE, WAITER, "waiter-test", "restofy-waiter", "waiter-service").statusCode()).isEqualTo(403);
         assertThat(get(PATH + "?restaurantId=" + UUID.randomUUID(), READ_SCOPE, WAITER, "waiter-test", "restofy-waiter", "waiter-service").statusCode()).isEqualTo(400);

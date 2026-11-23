@@ -142,8 +142,9 @@ class InternalTableHttpTests extends Q5TestSecuritySupport {
         assertThat(waiter(GET, TABLES).statusCode()).isEqualTo(200);
         // Another scope of the same caller, and the other caller, never read tables.
         assertThat(send(GET, detail, sign(GET, detail, WAITER, "waiter-test", "restofy-waiter", "waiter-service", GUEST_VALIDATE, TENANT)).statusCode()).isEqualTo(403);
-        assertThat(send(GET, detail, sign(GET, detail, ORDER, "order-test", "restofy-order", "order-service", "qr:guest-session", TENANT)).statusCode()).isEqualTo(403);
-        assertThat(send(GET, detail, sign(GET, detail, ORDER, "order-test", "restofy-order", "order-service", TABLE_READ, TENANT)).statusCode()).isEqualTo(403);
+        // Order's key is unknown to the Waiter chain that owns this route, so authentication fails (401) before any scope check.
+        assertThat(send(GET, detail, sign(GET, detail, ORDER, "order-test", "restofy-order", "order-service", "qr:guest-session", TENANT)).statusCode()).isEqualTo(401);
+        assertThat(send(GET, detail, sign(GET, detail, ORDER, "order-test", "restofy-order", "order-service", TABLE_READ, TENANT)).statusCode()).isEqualTo(401);
         // A token for another restaurant, no credential, a browser cookie and a staff key are all refused.
         assertThat(send(GET, detail, sign(GET, detail, WAITER, "waiter-test", "restofy-waiter", "waiter-service", TABLE_READ, OTHER_TENANT)).statusCode()).isEqualTo(403);
         assertThat(send(GET, detail, null).statusCode()).isEqualTo(401);
