@@ -7,12 +7,17 @@ okunur sunar. Java 25, Spring Boot 4, PostgreSQL 17 (Flyway V61–V67), kendi ve
 
 | Alan | Durum |
 |---|---|
-| Kategori, ürün, içerik metni, görsel referansı, seçenekler, kalori/gramaj/hazırlık süresi, availability (ADMIN uçları) | Uygulandı ve testli. **Üretimde 401**: Auth entegrasyonu (D-09) gelene kadar ADMIN uçları fail-closed |
+| Kategori, ürün, içerik metni, görsel referansı, seçenekler, kalori/gramaj/hazırlık süresi, availability (ADMIN uçları) | Uygulandı ve testli. Kimlik: Auth `staff-v1` cookie'si **yerel** doğrulanır. **MENU-INT-01 tamamlanmadı (KISMİ)**: gereksinim bazlı durum [ADR-MENU-005](../../../docs/decisions/ADR-MENU-005-auth-personel-kimligi.md)'te. **Auth açık anahtarı (`MENU_AUTH_STAFF_PUBLIC_KEY`) yapılandırılana kadar 401**; anahtar eklemek onaylı ENV değişikliğidir |
 | Müşteri menüsü (kategori ağacı, ürün listesi, filtre, arama, ürün detayı) | Uygulandı ve testli. **Üretimde 404**: QR/Admin restoran doğrulaması yok, çözümleyici fail-closed |
 | Kitchen availability komutları (kalıcı idempotency, V67) | **Sözleşme ve işleyici hazır, HTTP ucu ve gerçek Kitchen bağlantısı yok** |
 | Rating özeti | **Yalnız port ve varsayılan**. Rating Service yok, üretimde puan her zaman `UNAVAILABLE` |
 
-"Uygulandı" burada Menu'nun kendi kodunu kapsar. QR, Admin, Auth, Kitchen veya Rating ile **gerçek bir bağlantı kurulmamıştır**.
+"Uygulandı" burada Menu'nun kendi kodunu kapsar. QR, Admin, Kitchen veya Rating ile **gerçek bir bağlantı kurulmamıştır**. Auth ile
+bağlantı **izole bir ortamda gerçek Auth koduyla doğrulanmıştır** (24 Kasım 2026, ayrıntı ve sınırları
+[ADR-MENU-005](../../../docs/decisions/ADR-MENU-005-auth-personel-kimligi.md)'te): `origin/dev`'deki Auth ve QR kodu geçici bir
+veritabanıyla çalıştırıldı, gerçek girişten alınan cookie ile Menu yönetim uçları denendi. **Ekibin paylaşılan Docker ortamında
+doğrulanmadı** (orada Menu'ya anahtar aktarılmamış; çalışan Auth imajı eski ve MFA zorunlu). Birim ve entegrasyon testleri ise JVM
+içinde üretilmiş bir anahtar çiftiyle Auth'un token biçimini taklit eder.
 
 ## Katmanlar
 
@@ -53,20 +58,43 @@ Güncellemeler `version` ile optimistic locking kullanır (eski sürüm 409). PA
 
 ## Güvenlik sınırı
 
-Menu'da dört **fail-closed port** vardır. Üretim varsayılanlarının hiçbiri bir şeyi doğrulamaz; gerçek uygulamalar ilgili servis
-hazır olunca ayrı görevlerde eklenir. `X-Restaurant-Id`, `X-Role`, `X-User-Id` gibi istemci başlıkları hiçbir yerde yetki kaynağı
-değildir.
+Menu'da dört **port** vardır. Üçünün üretim varsayılanı hiçbir şeyi doğrulamaz (fail-closed); yönetim aktörü ise Auth'un imzaladığı
+token'dan gelir (aşağıda). `X-Restaurant-Id`, `X-Role`, `X-User-Id` gibi istemci başlıkları, `Authorization` başlığı, sorgu ve gövde
+alanları hiçbir yerde yetki kaynağı değildir.
 
 | Port | Üretim varsayılanı | Gerçek kaynak |
 |---|---|---|
-| `CurrentActorProvider` (yönetim aktörü) | Aktör yok → 401 | Auth personel JWT'si (D-09) |
+| `CurrentActorProvider` (yönetim aktörü) | Auth'un imzaladığı doğrulanmış token yoksa 401; anahtar yapılandırılmamışsa **her zaman** 401 | Auth `staff-v1` `restofy_access` cookie'si, yerel RS256 doğrulama ([ADR-MENU-005](../../../docs/decisions/ADR-MENU-005-auth-personel-kimligi.md)) |
 | `PublicRestaurantScopeResolver` (müşteri restoranı) | Doğrulanan restoran yok → 404 | QR / Admin doğrulaması |
 | `TrustedKitchenCallerProvider` (Kitchen komutu) | Çağıran yok → komut işlenmez | Servisten servise kimlik (D-09) |
 | `RatingSummaryPort` (puan özeti) | `UNAVAILABLE`, ağ çağrısı yok | Rating Service |
 
-Test çözümleyicileri ve test çağıranları yalnız `src/test` içindedir ve paketlenmez. `SecurityFilterChain` iki parçadır: yalnız
-`GET /api/v1/menu/public/**` açıktır; diğer her yol Spring Boot'un önceki varsayılanıyla aynıdır (kimlik zorunlu, CSRF açık, yalnız
-`health` açık). Hata yanıtları sabit metin taşır; beklenmeyen hata 500 ve bir `incidentId` döner, sunucu logu yalnız istisna sınıfı,
+Test çözümleyicileri, test çağıranları, test token üreticisi ve test anahtarları yalnız `src/test` içindedir ve paketlenmez.
+`SecurityFilterChain` üç parçadır (hiçbirinde form/Basic giriş ve yerel kullanıcı yoktur):
+
+| Zincir | Kapsam | Davranış |
+|---|---|---|
+| Müşteri | `/api/v1/menu/public/**` | Yalnız `GET` açık, diğer metotlar reddedilir; hiçbir kimlik veya personel yetkisi tanımaz |
+| Personel | Diğer tüm `/api/v1/menu/**` | Yalnız geçerli `restofy_access` cookie'si kimlik doğrular; mutasyonlar CSRF + `Origin` kanıtı ister; rol ve restoran endpoint'te doğrulanmış aktörden yeniden denetlenir (yalnız ADMIN) |
+| Varsayılan | Diğer her yol | Yalnız `health` açık, gerisi 401 |
+
+**Personel kimliği (Auth `staff-v1`).** Token, Auth'un açık anahtarıyla yerel doğrulanır: yalnız RS256, issuer, tek `restofy-staff-api`
+audience, `token_type=access`, `auth_state=AUTHENTICATED`, `auth_policy=q5-idle-v1`, `iat/nbf/exp/jti/sid`, en çok 300 sn ömür,
+UUID biçimli `sub/sid/jti/restaurant_id` ve bilinen rol. Restoran ve kullanıcı yalnız imzalı claim'lerden gelir. Mutasyonda `Origin`
+(tam bir adet, izin listesinde) + JSON içerik türü + `restofy_csrf` cookie'sinin `X-CSRF-TOKEN` başlığıyla eşitliği aranır; CSRF
+kanıtının HMAC'i Auth'ta kaldığından Menu biçim ve süreyi denetler, imzayı değil. Ayrıntı, sınırlar ve engellenmiş maddeler:
+[ADR-MENU-005](../../../docs/decisions/ADR-MENU-005-auth-personel-kimligi.md).
+
+| Ayar (ENV) | Anlam |
+|---|---|
+| `MENU_AUTH_STAFF_PUBLIC_KEY` | Auth'un `AUTH_JWT_PRIVATE_KEY`'ine karşılık gelen Base64 X.509 RSA **açık** anahtar (≥ 2048 bit). Boş = personel kimliği kapalı, her yönetim isteği 401. **Yeni ENV: ekip/Auth onayı gerekir; `.env.example` ve Compose bu görevde değiştirilmemiştir** |
+| `JWT_ISSUER` | Auth'un issuer'ıyla aynı olmalı (varsayılan `restofy-auth`) |
+| `CORS_ALLOWED_ORIGINS` | Mutasyon `Origin` izin listesi; boş = hiçbir tarayıcı mutasyonu geçmez. Joker/yol/sorgu içeren değer uygulamayı başlatmaz |
+
+**Bilinen sınırlar:** (1) Doğrulama yereldir; logout, pasifleştirme veya rol değişikliği Menu'ye en geç token süresi (300 sn) dolunca
+yansır, anlık iptal yoktur (Auth introspection sunmaz, Q5 iptali yalnız QR'a gider). (2) Menu CORS açmaz; farklı origin'li
+tarayıcı arayüzü için ön-uçuş (preflight) ayrı onaylı bir iştir. (3) Kitchen/Order → Menu servis kimliği henüz yoktur (D-09).
+Hata yanıtları sabit metin taşır; beklenmeyen hata 500 ve bir `incidentId` döner, sunucu logu yalnız istisna sınıfı,
 rota şablonu ve uygulama kare bilgisi içerir (mesaj veya gerçek yol yok).
 
 ## Görünürlük ve sipariş uygunluğu
@@ -204,8 +232,11 @@ anahtarını (aynı `@Import` kümesi) paylaşmalıdır, aksi hâlde `too many c
 
 ## Bilinen sınırlar ve bekleyen bağımlılıklar
 
-- Gerçek QR/Admin doğrulaması ve Auth servis kimliği yok; Kitchen'da istemci portu/akışı var fakat gerçek Menu adaptörü
+- Gerçek QR/Admin doğrulaması ve servisten servise kimlik (D-09) yok; Kitchen'da istemci portu/akışı var fakat gerçek Menu adaptörü
   yok; Menu'nun gerçek Rating bağlantısı da yok (yukarıdaki tablo).
+- Personel kimliği yerel doğrulanır: hesap pasifleştirme/rol değişikliği/logout Menu'ye en çok 300 sn gecikmeyle yansır. Gerçek
+  Auth'la ölçüldü: logout'tan sonra Auth eski cookie'yi hemen reddetti, Menu süre dolana kadar kabul etti. Anlık iptal yoktur
+  ([ADR-MENU-005](../../../docs/decisions/ADR-MENU-005-auth-personel-kimligi.md)).
 - **Hız sınırı yok** (müşteri uçları açılmadan önce gerekir); restoran açık/kapalı kontrolü yok (Admin yok).
 - `expectedVersion` olmayan gecikmiş Kitchen komutu yeni durumu ezebilir; gerçek entegrasyonda sıralama/tazelik gerekir.
 - Rating puan ölçeği (1–5) geçici bir varsayımdır; tazelik bilgisi sözleşmede yoktur.
@@ -215,6 +246,7 @@ anahtarını (aynı `@Import` kümesi) paylaşmalıdır, aksi hâlde `too many c
 
 ## Kararlar
 
+[ADR-MENU-005](../../../docs/decisions/ADR-MENU-005-auth-personel-kimligi.md) Auth personel kimliği ·
 [ADR-MENU-001](../../../docs/decisions/ADR-MENU-001-musteri-menusu-guven-modeli.md) müşteri menüsü güven modeli ·
 [ADR-MENU-002](../../../docs/decisions/ADR-MENU-002-kitchen-availability-komutlari.md) Kitchen komutları ·
 [ADR-MENU-003](../../../docs/decisions/ADR-MENU-003-rating-ozeti-sozlesmesi.md) Rating özeti ·

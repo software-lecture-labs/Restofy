@@ -15,7 +15,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
  * Resolves {@link AdminActor} parameters from the trusted {@link CurrentActorProvider} only (never from a
  * header, query or body value) and enforces the ADMIN role. Spring resolves arguments in parameter order, so
  * with this parameter first, authentication (401) and authorization (403) run before request-body parsing
- * and Bean Validation (400). The production provider stays fail-closed: it never returns an actor.
+ * and Bean Validation (400). The production provider returns only an actor proved from Auth's signed token.
  */
 public class AdminActorArgumentResolver implements HandlerMethodArgumentResolver {
 
