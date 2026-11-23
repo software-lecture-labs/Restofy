@@ -109,7 +109,7 @@ cd qr-management-system
 Restofy'de iki ayrı ENV yapısı vardır. Birbirine karıştırılmamalıdır:
 
 - **Kök ENV** (proje kökü): `.env.example`, `.env.dev`, `.env.prod`, `.env` — Docker Compose ve backend servisleri okur. Portlar, PostgreSQL, servis URL'leri, CORS, JWT süreleri ve SonarQube ayarlarını içerir.
-- **Frontend ENV** (`frontend/`): `.env.example`, `.env.local` — Next.js okur. Yalnızca `NEXT_PUBLIC_API_BASE_URL` içerir.
+- **Frontend ENV** (`frontend/`): `.env.example`, `.env.local` — Next.js okur. `NEXT_PUBLIC_API_BASE_URL` (varsayılan boş) ve isteğe bağlı `API_GATEWAY_URL` içerir.
 
 #### Kök ENV dosyaları
 
@@ -280,11 +280,10 @@ npm run dev -- --port 5000
 
 Tarayıcıda **http://localhost:5000** adresini açın.
 
-`frontend/.env.local` yalnızca şu değişkeni gerektirir:
-
-```dotenv
-NEXT_PUBLIC_API_BASE_URL=http://localhost:5050
-```
+`frontend/.env.local` için `frontend/.env.example` dosyasını kopyalayın. `NEXT_PUBLIC_API_BASE_URL`
+**boş** kalmalıdır: tarayıcı yalnızca `http://localhost:5000` adresine istek atar, `/api` istekleri
+Next.js tarafından API Gateway'e (`http://localhost:5050`) iletilir. Değeri Gateway adresine çevirirseniz
+tarayıcı Gateway'e doğrudan gider ve CORS preflight isteği Gateway'de takılır.
 
 **Dikkat edilecekler:**
 
@@ -292,7 +291,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:5050
 - Next.js, kök dizindeki `.env.dev` dosyasını **okumaz**; frontend yalnızca `frontend/.env.local` kullanır.
 - `NEXT_PUBLIC_*` değerleri tarayıcıya açılır; buraya şifre veya secret yazmayın.
 - ENV değişirse geliştirme sunucusunu yeniden başlatın.
-- Frontend henüz geliştirme aşamasında olduğundan ana sayfa boş içerik gösterir.
+- Giriş yapılınca açılan ana sayfa (`/`) oturum özetini ve çıkış butonunu gösterir; rol bazlı paneller sonraki PR'larda gelecek.
 
 ## 📁 Proje klasör yapısı
 
