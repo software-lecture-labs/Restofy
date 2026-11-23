@@ -1,6 +1,8 @@
 package com.restofy.menu.api;
 
 import com.restofy.menu.application.security.CurrentActorProvider;
+import com.restofy.menu.support.StaffRequests;
+import com.restofy.menu.support.TestStaffTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -11,7 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static com.restofy.menu.support.StaffRequests.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -107,6 +109,20 @@ class FailClosedProductionWiringTests {
         mvc.perform(get("/api/v1/menu/products?size=0&sort=password").with(user("staff"))).andExpect(status().isUnauthorized());
         mvc.perform(patch("/api/v1/menu/products/" + id + "/availability").with(user("staff")).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"SOLD\"}")).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * No verification key is configured in this context (no Auth public key was provisioned), so even a token that
+     * is perfectly formed and signed is refused: nothing is guessed, bundled or trusted by default.
+     */
+    @Test
+    void aPerfectStaffTokenIsRefusedWhileNoVerificationKeyIsConfigured() throws Exception {
+        String token = TestStaffTokens.admin(UUID.randomUUID()).build();
+        mvc.perform(get("/api/v1/menu/categories").with(StaffRequests.accessCookie(token))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/menu/categories").with(StaffRequests.accessCookie(token)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\"}")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/products").with(StaffRequests.accessCookie(token))).andExpect(status().isUnauthorized());
+        assertTrue(provider.current().isEmpty());
     }
 
     @Test
