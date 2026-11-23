@@ -21,6 +21,7 @@ record ServiceCaller(String issuer, String subject, Map<String, String> authorit
     static final String ORDER_AUTHORITY = "ORDER_QR_GUEST_SESSION";
     static final String WAITER_AUTHORITY = "WAITER_QR_GUEST_VALIDATE";
     static final String WAITER_TABLE_READ_AUTHORITY = "WAITER_QR_TABLE_READ";
+    static final String WAITER_SESSION_CLOSE_AUTHORITY = "WAITER_QR_SESSION_CLOSE";
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     /** Order is the original caller. Its keys are mandatory while the inbound profile is active. */
@@ -35,7 +36,8 @@ record ServiceCaller(String issuer, String subject, Map<String, String> authorit
             return Optional.empty();
         }
         return Optional.of(new ServiceCaller("restofy-waiter", "waiter-service",
-                Map.of("qr:guest-validate", WAITER_AUTHORITY, "qr:table-read", WAITER_TABLE_READ_AUTHORITY),
+                Map.of("qr:guest-validate", WAITER_AUTHORITY, "qr:table-read", WAITER_TABLE_READ_AUTHORITY,
+                        "qr:session-close", WAITER_SESSION_CLOSE_AUTHORITY),
                 parse(json, configuration, "QR_WAITER_CALLER_PUBLIC_KEYS", "Waiter")));
     }
 

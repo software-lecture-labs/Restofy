@@ -29,6 +29,7 @@ class ServiceCallerTests {
         assertThat(waiter.subject()).isEqualTo("waiter-service");
         assertThat(waiter.authorityFor("qr:guest-validate")).contains(ServiceCaller.WAITER_AUTHORITY);
         assertThat(waiter.authorityFor("qr:table-read")).contains(ServiceCaller.WAITER_TABLE_READ_AUTHORITY);
+        assertThat(waiter.authorityFor("qr:session-close")).contains(ServiceCaller.WAITER_SESSION_CLOSE_AUTHORITY);
         assertThat(ServiceCaller.WAITER_AUTHORITY).isNotEqualTo(ServiceCaller.ORDER_AUTHORITY)
                 .isNotEqualTo(ServiceCaller.WAITER_TABLE_READ_AUTHORITY);
         assertThat(waiter.authorityFor("qr:guest-session")).isEmpty();
@@ -54,10 +55,10 @@ class ServiceCallerTests {
     void aKeyIdCannotBelongToTwoCallers() {
         var order = ServiceCaller.order(json, keys("shared"));
         var waiter = ServiceCaller.waiter(json, keys("shared")).orElseThrow();
-        assertThatThrownBy(() -> new ServiceCallerFilter(UUID.randomUUID(), Clock.systemUTC(), List.of(order, waiter)))
+        assertThatThrownBy(() -> new ServiceCallerFilter(UUID.randomUUID(), Clock.systemUTC(), List.of(order, waiter), null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exactly one caller");
         var distinct = ServiceCaller.waiter(json, keys("waiter-1")).orElseThrow();
-        assertThat(new ServiceCallerFilter(UUID.randomUUID(), Clock.systemUTC(), List.of(order, distinct))).isNotNull();
+        assertThat(new ServiceCallerFilter(UUID.randomUUID(), Clock.systemUTC(), List.of(order, distinct), null)).isNotNull();
     }
 
     private static String keys(String keyId) {

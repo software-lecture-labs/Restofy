@@ -2,6 +2,10 @@ package com.restofy.qr.infrastructure.security.order;
 
 import com.restofy.qr.api.controller.InternalTableController;
 import com.restofy.qr.api.controller.OrderGuestSessionController;
+import com.restofy.qr.api.controller.WaiterClosureController;
+import com.restofy.qr.infrastructure.security.Q5SecuritySettings;
+import com.restofy.qr.infrastructure.security.StaffTokenVerifier;
+import com.restofy.qr.infrastructure.security.revocation.StaffRevocationStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,13 +38,16 @@ public class OrderCallerSecurity {
     SecurityFilterChain orderGuestChain(HttpSecurity http, Clock clock, JsonMapper json,
                                         @Value("${AUTH_RESTAURANT_ID}") UUID restaurantId,
                                         @Value("${QR_ORDER_CALLER_PUBLIC_KEYS:}") String orderKeys,
-                                        @Value("${QR_WAITER_CALLER_PUBLIC_KEYS:}") String waiterKeys) {
+                                        @Value("${QR_WAITER_CALLER_PUBLIC_KEYS:}") String waiterKeys,
+                                        Q5SecuritySettings staffSettings, StaffRevocationStore revocations) {
         String prefix = OrderGuestSessionController.BASE;
         var callers = new ArrayList<ServiceCaller>();
         callers.add(ServiceCaller.order(json, orderKeys));
         ServiceCaller.waiter(json, waiterKeys).ifPresent(callers::add);
-        http.securityMatcher(prefix + "/**", InternalTableController.BASE, InternalTableController.BASE + "/*")
-                .addFilterBefore(new ServiceCallerFilter(restaurantId, clock, callers), CsrfFilter.class)
+        http.securityMatcher(prefix + "/**", InternalTableController.BASE, InternalTableController.BASE + "/*",
+                        WaiterClosureController.BASE + "/**")
+                .addFilterBefore(new ServiceCallerFilter(restaurantId, clock, callers,
+                        new StaffTokenVerifier(staffSettings, clock, revocations)), CsrfFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(csrf -> csrf.requireCsrfProtectionMatcher(request -> CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request)
                         && !Boolean.TRUE.equals(request.getAttribute(ServiceCallerFilter.VERIFIED))))
@@ -51,6 +58,10 @@ public class OrderCallerSecurity {
                         .hasAnyAuthority(ServiceCaller.ORDER_AUTHORITY, ServiceCaller.WAITER_AUTHORITY)
                         .requestMatchers(HttpMethod.GET, InternalTableController.BASE, InternalTableController.BASE + "/*")
                         .hasAuthority(ServiceCaller.WAITER_TABLE_READ_AUTHORITY)
+                        .requestMatchers(HttpMethod.POST, WaiterClosureController.BASE + WaiterClosureController.CLOSE)
+                        .hasAuthority(ServiceCaller.WAITER_SESSION_CLOSE_AUTHORITY)
+                        .requestMatchers(HttpMethod.GET, WaiterClosureController.BASE + WaiterClosureController.STATUS)
+                        .hasAuthority(ServiceCaller.WAITER_SESSION_CLOSE_AUTHORITY)
                         .requestMatchers(HttpMethod.POST, prefix + OrderGuestSessionController.CART_ACTIVITY)
                         .hasAuthority(ServiceCaller.ORDER_AUTHORITY)
                         .anyRequest().denyAll())
