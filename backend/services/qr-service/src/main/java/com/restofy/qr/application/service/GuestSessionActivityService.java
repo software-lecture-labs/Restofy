@@ -1,6 +1,5 @@
 package com.restofy.qr.application.service;
 
-import com.restofy.qr.api.dto.request.GuestActivityRequest;
 import com.restofy.qr.api.dto.response.GuestActivityResponse;
 import com.restofy.qr.domain.exception.InvalidGuestSessionException;
 import com.restofy.qr.infrastructure.persistence.repository.GuestSessionRepository;
@@ -27,11 +26,11 @@ public class GuestSessionActivityService {
     }
 
     @Transactional(propagation = Propagation.NEVER)
-    public GuestActivityResponse recordActivity(GuestActivityRequest request) {
-        var prepared = validation.prepare(request.guestToken());
-        validation.requireExpected(prepared, request.restaurantId(), request.tableSessionId(), request.guestSessionId());
+    public GuestActivityResponse recordActivity(String guestToken) {
+        // The credential alone identifies the guest; restaurant/session/guest ids come from the server-side record.
+        var prepared = validation.prepare(guestToken);
         return writes.execute(status -> {
-            var context = validation.validateLocked(request.guestToken(), prepared);
+            var context = validation.validateLocked(guestToken, prepared);
             var main = sessions.findByRestaurantIdAndId(context.restaurantId(), context.tableSessionId())
                     .orElseThrow(InvalidGuestSessionException::new);
             var guest = guests.findByRestaurantIdAndTableSessionIdAndId(context.restaurantId(), main.getId(), context.guestSessionId())

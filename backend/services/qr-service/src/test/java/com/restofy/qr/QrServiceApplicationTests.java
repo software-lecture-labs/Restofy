@@ -110,7 +110,7 @@ class QrServiceApplicationTests extends com.restofy.qr.support.Q5TestSecuritySup
         String path = "/api/v1/qr/guest-sessions/activity";
         mvc.perform(post(path).with(csrf()).header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN")
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
         mvc.perform(post(path).with(csrf()).with(user("test-staff").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isForbidden());
@@ -133,7 +133,7 @@ class QrServiceApplicationTests extends com.restofy.qr.support.Q5TestSecuritySup
                 .header("Authorization", "Bearer " + token).header("X-Guest-Session-Id", "forged")
                 .header("X-Restaurant-Id", "forged").header("X-Role", "ADMIN")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"" + token + "\"}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/qr/tables").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
     }
@@ -232,7 +232,7 @@ class QrServiceApplicationTests extends com.restofy.qr.support.Q5TestSecuritySup
         String body = "{\"qrToken\":\"" + "A".repeat(43) + "\"}";
         mvc.perform(post("/api/v1/qr/validate").with(csrf()).header("X-Restaurant-Id", "forged")
                 .header("X-Role", "ADMIN").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/qr/validate").with(csrf()).with(user("test-staff").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/qr/validate").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -244,7 +244,7 @@ class QrServiceApplicationTests extends com.restofy.qr.support.Q5TestSecuritySup
         String body = "{\"qrToken\":\"" + "A".repeat(43) + "\"}";
         mvc.perform(post("/api/v1/qr/table-sessions/open").with(csrf()).header("X-Restaurant-Id", "forged")
                 .header("X-Role", "ADMIN").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/qr/table-sessions/open").with(csrf()).with(user("test-staff").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/qr/table-sessions/open").contentType(MediaType.APPLICATION_JSON).content(body))

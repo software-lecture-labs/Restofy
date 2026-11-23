@@ -54,6 +54,7 @@ class TableSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Autowired Flyway flyway;
     @Autowired PlatformTransactionManager transactions;
     @Autowired RequestMappingHandlerAdapter adapter;
+    @Autowired com.restofy.qr.infrastructure.security.guest.GuestCookies cookies;
     // Only management fixture setup and time are mocked. Opening/validation/DB are real.
     @MockitoBean TableManagementAccess access;
     @MockitoBean Clock clock;
@@ -65,7 +66,7 @@ class TableSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
         when(clock.instant()).thenAnswer(invocation -> Instant.now());
-        api = MockMvcBuilders.standaloneSetup(new TableSessionController(guestOpening))
+        api = MockMvcBuilders.standaloneSetup(new TableSessionController(guestOpening, cookies))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }

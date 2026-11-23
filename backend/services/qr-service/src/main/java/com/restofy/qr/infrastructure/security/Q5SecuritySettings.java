@@ -25,6 +25,7 @@ public final class Q5SecuritySettings {
     private final String staffIssuer;
     private final long accessTtl;
     private final List<String> origins;
+    private final boolean development;
 
     public Q5SecuritySettings(Environment environment) {
         try {
@@ -44,7 +45,7 @@ public final class Q5SecuritySettings {
             accessTtl = Long.parseLong(environment.getRequiredProperty("qr.q5.access-ttl-seconds"));
             if (accessTtl != 300) throw new IllegalArgumentException();
             origins = Arrays.stream(environment.getRequiredProperty("qr.q5.allowed-origins").split(",",-1)).map(String::strip).toList();
-            boolean development = environment.getActiveProfiles().length>0
+            development = environment.getActiveProfiles().length>0
                     && Set.of("dev","local","test").containsAll(List.of(environment.getActiveProfiles()))
                     && Set.of("dev","local","test").contains(environment.getProperty("APP_ENV",""));
             for (String origin:origins) {
@@ -74,4 +75,5 @@ public final class Q5SecuritySettings {
     public String staffIssuer() { return staffIssuer; }
     public long accessTtl() { return accessTtl; }
     public List<String> origins() { return origins; }
+    public boolean development() { return development; }
 }
