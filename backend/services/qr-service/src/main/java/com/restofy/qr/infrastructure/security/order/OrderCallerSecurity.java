@@ -1,5 +1,6 @@
 package com.restofy.qr.infrastructure.security.order;
 
+import com.restofy.qr.api.controller.InternalSessionClosureController;
 import com.restofy.qr.api.controller.InternalTableCleanController;
 import com.restofy.qr.api.controller.InternalTableController;
 import com.restofy.qr.api.controller.OrderGuestSessionController;
@@ -47,7 +48,7 @@ public class OrderCallerSecurity {
         ServiceCaller.waiter(json, waiterKeys).ifPresent(callers::add);
         http.securityMatcher(prefix + "/**", InternalTableController.BASE, InternalTableController.BASE + "/*",
                         WaiterClosureController.BASE + "/**", InternalTableController.BASE + "/*/cleaned",
-                        InternalTableController.BASE + "/*/clean-commands/*")
+                        InternalTableController.BASE + "/*/clean-commands/*", InternalSessionClosureController.BASE)
                 .addFilterBefore(new ServiceCallerFilter(restaurantId, clock, callers,
                         new StaffTokenVerifier(staffSettings, clock, revocations)), CsrfFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -68,6 +69,8 @@ public class OrderCallerSecurity {
                         .hasAuthority(ServiceCaller.WAITER_TABLE_CLEAN_AUTHORITY)
                         .requestMatchers(HttpMethod.GET, InternalTableController.BASE + InternalTableCleanController.STATUS)
                         .hasAuthority(ServiceCaller.WAITER_TABLE_CLEAN_AUTHORITY)
+                        .requestMatchers(HttpMethod.GET, InternalSessionClosureController.BASE)
+                        .hasAuthority(ServiceCaller.WAITER_SESSION_CLOSURE_READ_AUTHORITY)
                         .requestMatchers(HttpMethod.POST, prefix + OrderGuestSessionController.CART_ACTIVITY)
                         .hasAuthority(ServiceCaller.ORDER_AUTHORITY)
                         .anyRequest().denyAll())

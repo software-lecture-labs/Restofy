@@ -1,6 +1,7 @@
 package com.restofy.qr.application.service;
 
 import com.restofy.qr.api.dto.request.TableCleanRequest;
+import com.restofy.qr.api.dto.response.InternalTableResponse;
 import com.restofy.qr.api.dto.response.TableCleanResponse;
 import com.restofy.qr.domain.entity.TableCleanCommand;
 import com.restofy.qr.domain.enums.TableOperationalStatus;
@@ -57,8 +58,13 @@ public class TableCleanService {
             if (!stored.getTableId().equals(request.tableId()) || !stored.getRequestDigest().equals(digest)) {
                 throw new TableCleanException(Code.COMMAND_CONFLICT);
             }
-            // A replayed rejection repeats the same definite rejection; only an applied command is a duplicate.
-            return response(restaurantId, stored, stored.getStatus() == TableCleanCommand.Status.APPLIED ? "DUPLICATE" : "REJECTED");
+            // A replayed rejection repeats the same definite rejection; only an applied command is a duplicate, and its
+            // POST answer is the available table as the cleaning left it, not the table as it is now (the status GET shows that).
+            if (stored.getStatus() != TableCleanCommand.Status.APPLIED) {
+                return response(restaurantId, stored, "REJECTED");
+            }
+            var duplicate = response(restaurantId, stored, "DUPLICATE");
+            return new TableCleanResponse(duplicate.commandId(), duplicate.status(), null, asCleaned(duplicate.table(), stored));
         }
         Code rejection = null;
         if (table.getVersion() != request.expectedVersion()) {
@@ -71,8 +77,9 @@ public class TableCleanService {
             table.finishCleaning();
             tables.saveAndFlush(table);
         }
+        Long appliedVersion = rejection == null ? table.getVersion() : null;
         var saved = commands.saveAndFlush(new TableCleanCommand(request.commandId(), restaurantId, table.getId(), digest,
-                request.requestedByUserId(), request.requestedAt(), rejection));
+                request.requestedByUserId(), request.requestedAt(), rejection, appliedVersion));
         return response(restaurantId, saved, saved.getStatus().name());
     }
 
@@ -92,6 +99,11 @@ public class TableCleanService {
         } catch (TableNotFoundException _) {
             throw new TableCleanException(Code.TABLE_NOT_FOUND);
         }
+    }
+
+    private static InternalTableResponse asCleaned(InternalTableResponse now, TableCleanCommand command) {
+        return new InternalTableResponse(now.id(), now.restaurantId(), now.tableNumber(), now.displayName(), now.capacity(),
+                TableOperationalStatus.AVAILABLE.name(), true, command.getAppliedTableVersion(), null);
     }
 
     private static String digest(TableCleanRequest request) {

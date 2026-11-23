@@ -20,10 +20,14 @@ public class TableCleanCommand {
     @Enumerated(EnumType.STRING) @Column(nullable = false, updatable = false, length = 10) private Status status;
     @Enumerated(EnumType.STRING) @Column(name = "rejection_code", updatable = false, length = 30) private Code rejectionCode;
 
+    /** Table version right after the cleaning was applied; null for a rejection. */
+    @Column(name = "applied_table_version", updatable = false) private Long appliedTableVersion;
+
     protected TableCleanCommand() { }
 
     public TableCleanCommand(UUID commandId, UUID restaurantId, UUID tableId, String requestDigest,
-                             UUID requestedByUserId, Instant requestedAt, Code rejectionCode) {
+                             UUID requestedByUserId, Instant requestedAt, Code rejectionCode, Long appliedTableVersion) {
+        this.appliedTableVersion = appliedTableVersion;
         this.commandId = commandId;
         this.restaurantId = restaurantId;
         this.tableId = tableId;
@@ -40,4 +44,5 @@ public class TableCleanCommand {
     public String getRequestDigest() { return requestDigest; }
     public Status getStatus() { return status; }
     public Code getRejectionCode() { return rejectionCode; }
+    public Long getAppliedTableVersion() { return appliedTableVersion; }
 }

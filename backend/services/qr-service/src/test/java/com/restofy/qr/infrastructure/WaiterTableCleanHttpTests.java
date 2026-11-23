@@ -25,9 +25,16 @@ import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -151,6 +158,80 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
         assertThat(send("GET", tables, "", null, staff, service("GET", tables, WAITER, "waiter-test", "restofy-waiter", "waiter-service", CLEAN_SCOPE, "", sha256(staff))).statusCode()).isEqualTo(403);
         assertThat(jdbc.queryForObject("SELECT operational_status FROM dining_tables WHERE id=?", String.class, table)).isEqualTo("CLEANING");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM table_clean_commands WHERE table_id=?", Integer.class, table)).isZero();
+    }
+
+    @Test
+    void aReplayedPostShowsTheCleanedTableWhileTheStatusShowsTheCurrentOne() throws Exception {
+        UUID table = table("CLEANING");
+        UUID user = UUID.randomUUID();
+        String staff = staffToken(user, "WAITER");
+        UUID command = UUID.randomUUID();
+        String body = body(command, table, 0, user, "2026-11-24T10:00:00Z");
+        assertThat(clean(table, command, body, staff, CLEAN_SCOPE).statusCode()).isEqualTo(200);
+
+        // A guest sits down again after the cleaning.
+        jdbc.update("UPDATE dining_tables SET operational_status='OCCUPIED', version=version+1 WHERE id=?", table);
+
+        var replay = json.readTree(clean(table, command, body, staff, CLEAN_SCOPE).body());
+        assertThat(replay.get("status").asString()).isEqualTo("DUPLICATE");
+        assertThat(replay.get("table").get("operationalStatus").asString()).isEqualTo("AVAILABLE");
+        assertThat(replay.get("table").get("version").asLong()).isEqualTo(1);
+        assertThat(replay.get("table").get("currentSession").isNull()).isTrue();
+
+        var status = json.readTree(status(table, command, staff, TENANT).body());
+        assertThat(status.get("status").asString()).isEqualTo("APPLIED");
+        assertThat(status.get("table").get("operationalStatus").asString()).isEqualTo("OCCUPIED");
+        assertThat(status.get("table").get("version").asLong()).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentRequestsCleanTheTableExactlyOnce() throws Exception {
+        UUID user = UUID.randomUUID();
+        String staff = staffToken(user, "WAITER");
+
+        // The same command sent twice at once: one APPLIED, one DUPLICATE, one durable record, one version bump.
+        UUID table = table("CLEANING");
+        UUID command = UUID.randomUUID();
+        String body = body(command, table, 0, user, "2026-11-24T10:00:00Z");
+        var same = race(() -> clean(table, command, body, staff, CLEAN_SCOPE), () -> clean(table, command, body, staff, CLEAN_SCOPE));
+        assertThat(same).extracting(HttpResponse::statusCode).containsOnly(200);
+        assertThat(same).extracting(response -> readStatus(response.body())).containsExactlyInAnyOrder("APPLIED", "DUPLICATE");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM table_clean_commands WHERE table_id=?", Integer.class, table)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT version FROM dining_tables WHERE id=?", Long.class, table)).isEqualTo(1L);
+
+        // Two different commands for one table version: one wins, the other is a definite version conflict.
+        UUID other = table("CLEANING");
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        var different = race(
+                () -> clean(other, first, body(first, other, 0, user, "2026-11-24T10:00:00Z"), staff, CLEAN_SCOPE),
+                () -> clean(other, second, body(second, other, 0, user, "2026-11-24T10:00:00Z"), staff, CLEAN_SCOPE));
+        assertThat(different).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(200, 409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM table_clean_commands WHERE table_id=? AND status='APPLIED'", Integer.class, other)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM table_clean_commands WHERE table_id=? AND status='REJECTED'", Integer.class, other)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT version FROM dining_tables WHERE id=?", Long.class, other)).isEqualTo(1L);
+    }
+
+    @SafeVarargs
+    private static List<HttpResponse<String>> race(Callable<HttpResponse<String>>... calls) throws Exception {
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(calls.length);
+        try {
+            var futures = new ArrayList<Future<HttpResponse<String>>>();
+            for (var call : calls) {
+                futures.add(pool.submit(() -> { start.await(); return call.call(); }));
+            }
+            start.countDown();
+            var results = new ArrayList<HttpResponse<String>>();
+            for (var future : futures) { results.add(future.get(30, TimeUnit.SECONDS)); }
+            return results;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private String readStatus(String body) {
+        return json.readTree(body).get("status").asString();
     }
 
     private void assertRejected(UUID table, long version, UUID user, String staff, String code) throws Exception {
