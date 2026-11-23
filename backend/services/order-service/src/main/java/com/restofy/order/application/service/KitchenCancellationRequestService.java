@@ -104,7 +104,7 @@ public class KitchenCancellationRequestService {
 
     @Transactional
     public KitchenCancellationRequestResponse request(ServiceActor service, KitchenCancellationRequest request) {
-        if (service.name() != ServiceName.KITCHEN) {
+        if (!service.isKitchenFor(request.restaurantId())) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "Only the Kitchen service may ask for this cancellation");
         }
         boolean cancelAll = Boolean.TRUE.equals(request.cancelAll());
@@ -212,9 +212,10 @@ public class KitchenCancellationRequestService {
 
     /** The idempotency record is gone (72 h) but the inbox still remembers the event: nothing is done a second time. */
     private KitchenCancellationRequestResponse forgottenDuplicate(Order order, InboxStore.Processed processed) {
-        if (!processed.orderId().equals(order.getId())) {
+        if (!processed.orderId().equals(order.getId())
+                || !(EVENT_TYPE_APPLIED.equals(processed.eventType()) || EVENT_TYPE_REJECTED.equals(processed.eventType()))) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
-                    "This event id was already used for a different order");
+                    "This event id was already used for a different Kitchen event");
         }
         String outcome = EVENT_TYPE_REJECTED.equals(processed.eventType())
                 ? CancellationStatus.REJECTED.name() : CancellationStatus.APPLIED.name();
