@@ -45,7 +45,7 @@ public class WaiterCallerSecurity {
     SecurityFilterChain waiterChain(HttpSecurity http, Clock clock, JsonMapper json,
                                     @Value("${AUTH_RESTAURANT_ID}") UUID restaurantId,
                                     @Value("${QR_WAITER_CALLER_PUBLIC_KEYS:}") String waiterKeys,
-                                    @Value("${QR_ORDER_CALLER_PUBLIC_KEYS:}") String orderKeys) throws Exception {
+                                    @Value("${QR_ORDER_CALLER_PUBLIC_KEYS:}") String orderKeys) {
         var keys = WaiterKeys.parse(json, waiterKeys);
         requireDistinctKeyIds(keys.keySet(), orderKeys, json);
         String guest = OrderGuestSessionController.BASE;
