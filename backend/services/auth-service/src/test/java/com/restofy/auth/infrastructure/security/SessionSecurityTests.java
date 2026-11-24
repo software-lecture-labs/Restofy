@@ -58,7 +58,8 @@ class SessionSecurityTests {
     @ParameterizedTest
     @ValueSource(strings = {"301", "900", "3600"})
     void q5RejectsAccessTtlBeyondItsFiveMinuteGuarantee(String seconds) {
-        assertThatThrownBy(() -> new AuthSettings(environment().withProperty("auth.session.access-ttl-seconds", seconds)))
+        var invalidEnvironment = environment().withProperty("auth.session.access-ttl-seconds", seconds);
+        assertThatThrownBy(() -> new AuthSettings(invalidEnvironment))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("JWT_ACCESS_TTL_SECONDS");
     }
 

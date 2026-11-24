@@ -31,7 +31,7 @@ public class QrRevocationReceipts {
             publicKey = (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(
                     Base64.getDecoder().decode(environment.getRequiredProperty("auth.q5.qr-public-key"))));
             if (publicKey.getModulus().bitLength() < 2048) throw new IllegalArgumentException();
-        } catch (Exception failure) {
+        } catch (Exception _) {
             throw new IllegalStateException("Missing or invalid AUTH_Q5_QR_PUBLIC_KEY (Base64 X.509 RSA, 2048+ bits)");
         }
     }
@@ -54,7 +54,7 @@ public class QrRevocationReceipts {
                 throw new IllegalArgumentException();
             }
             UUID.fromString(claims.getId());
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException _) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "QR acknowledgement is not verifiable");
         }
     }
@@ -86,6 +86,6 @@ public class QrRevocationReceipts {
                     || !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant())
                     || claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(30))) throw new IllegalArgumentException();
             UUID.fromString(claims.getId());
-        } catch (RuntimeException failure) { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "QR baseline acknowledgement is not verifiable"); }
+        } catch (RuntimeException _) { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "QR baseline acknowledgement is not verifiable"); }
     }
 }
