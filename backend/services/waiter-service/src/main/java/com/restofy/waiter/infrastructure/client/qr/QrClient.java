@@ -12,6 +12,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.StreamingHttpOutputMessage;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -148,7 +149,9 @@ public class QrClient {
                     .contentType(MediaType.APPLICATION_JSON)
                     .headers(headers -> signer.authorization(HttpMethod.POST, GUEST_VALIDATE, body)
                             .ifPresent(credential -> headers.set(HttpHeaders.AUTHORIZATION, credential)))
-                    .body(body)
+                    // Raw bytes through a Body: .body(byte[]) would be written by the JSON converter as a quoted
+                    // Base64 string, and the digest the credential is bound to would no longer match what QR reads.
+                    .body((StreamingHttpOutputMessage.Body) out -> out.write(body))
                     .retrieve().body(QrGuestContextDto.class);
             if (context == null) throw badResponse("empty answer to the guest validation");
             return Optional.of(context);

@@ -8,6 +8,8 @@ import com.restofy.waiter.infrastructure.client.qr.QrClient;
 import com.restofy.waiter.infrastructure.client.qr.WaiterQrRequestSigner;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,8 +28,15 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -153,6 +162,30 @@ class RestClientConfigurationTests {
             assertNull(request.header("Cookie"));
             assertTrue(request.path().startsWith("/api/v1/internal/"), request.path());
         }
+    }
+
+    @Test
+    void signedGuestValidationSendsTheRawJsonBytesTheCredentialIsBoundTo() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair pair = generator.generateKeyPair();
+        Map<String, Object> env = environment();
+        env.put("WAITER_QR_CALLER_KEY_ID", "waiter-key-1");
+        env.put("WAITER_QR_CALLER_PRIVATE_KEY", Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()));
+        env.put("WAITER_QR_CALLER_RESTAURANT_ID", UUID.randomUUID().toString());
+        new FakeBackends().installOn(peer);
+        runner(env).run(context ->
+                assertTrue(context.getBean(QrClient.class).verifyGuest("unknown-guest-token").isEmpty()));
+
+        DownstreamStub.Request sent = peer.requests("POST", FakeBackends.GUEST_VALIDATE).getFirst();
+        // A byte[] written through a JSON converter would arrive as a quoted Base64 string, not as an object.
+        assertEquals("{\"guestToken\":\"unknown-guest-token\"}", sent.body());
+        String credential = sent.header("Authorization");
+        assertTrue(credential.startsWith("Service "));
+        Claims claims = Jwts.parser().verifyWith((RSAPublicKey) pair.getPublic()).build()
+                .parseSignedClaims(credential.substring("Service ".length())).getPayload();
+        assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(sent.body().getBytes(StandardCharsets.UTF_8))), claims.get("body_sha256"));
     }
 
     @Test
