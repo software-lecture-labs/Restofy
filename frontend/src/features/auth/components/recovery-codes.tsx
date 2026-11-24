@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/shared/components/ui/button";
 
-type RecoveryCodesProps = {
+type RecoveryCodesProps = Readonly<{
   codes: readonly string[];
   onDone: () => void;
-};
+}>;
 
 /** Shown exactly once after MFA is activated: the Auth service cannot show these codes again. */
 export function RecoveryCodes({ codes, onDone }: RecoveryCodesProps) {

@@ -6,10 +6,10 @@ import { RoleIcon } from "./role-icon";
 export const ROLE_PANEL_ID = "login-panel";
 export const roleTabId = (role: StaffRole) => `login-role-${role}`;
 
-type RoleSwitcherProps = {
+type RoleSwitcherProps = Readonly<{
   value: StaffRole;
   onChange: (role: StaffRole) => void;
-};
+}>;
 
 /** Three tabs with a sliding highlight. Arrow keys, Home and End move between them. */
 export function RoleSwitcher({ value, onChange }: RoleSwitcherProps) {
@@ -23,7 +23,7 @@ export function RoleSwitcher({ value, onChange }: RoleSwitcherProps) {
     tabs.current[nextIndex]?.focus();
   }
 
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const last = staffRoles.length - 1;
     const target = {
       ArrowRight: index === last ? 0 : index + 1,
@@ -40,7 +40,6 @@ export function RoleSwitcher({ value, onChange }: RoleSwitcherProps) {
     <div
       role="tablist"
       aria-label={t("label")}
-      onKeyDown={onKeyDown}
       style={{ "--role-index": index } as CSSProperties}
       className="relative grid grid-cols-3 rounded-full border border-line bg-surface-muted p-1"
     >
@@ -63,6 +62,7 @@ export function RoleSwitcher({ value, onChange }: RoleSwitcherProps) {
             aria-controls={ROLE_PANEL_ID}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(role)}
+            onKeyDown={onKeyDown}
             className={`relative z-10 flex h-11 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-semibold transition-colors duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${selected ? "text-brand-fg" : "text-fg-muted hover:text-fg"}`}
           >
             <RoleIcon role={role} className="size-4 shrink-0" />

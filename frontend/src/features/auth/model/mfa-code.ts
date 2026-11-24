@@ -8,5 +8,6 @@ const RECOVERY = /^([a-z2-7]{20}|[a-z2-7]{4}(-[a-z2-7]{4}){4})$/i;
 export function validateMfaCode(kind: MfaCodeKind, value: string): MfaCodeError | undefined {
   const code = value.trim();
   if (code === "") return "codeRequired";
-  return (kind === "totp" ? TOTP : RECOVERY).test(code) ? undefined : "codeInvalid";
+  const pattern = kind === "totp" ? TOTP : RECOVERY;
+  return pattern.test(code) ? undefined : "codeInvalid";
 }

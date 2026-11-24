@@ -9,15 +9,15 @@ import {
   type LoginValues,
 } from "../model/login-schema";
 
-type LoginFormProps = {
+type LoginFormProps = Readonly<{
   /** Called with valid values; the Auth service call itself is made by the caller. */
   onSubmit: (values: LoginValues) => void | Promise<void>;
   pending: boolean;
   /** Already translated message from the server round trip, if any. */
   problem?: string;
-};
+}>;
 
-function EyeIcon({ open }: { open: boolean }) {
+function EyeIcon({ open }: Readonly<{ open: boolean }>) {
   return (
     <svg
       aria-hidden="true"

@@ -1,10 +1,10 @@
 import qrcode from "qrcode-generator";
 
-type OtpauthQrProps = {
+type OtpauthQrProps = Readonly<{
   /** The otpauth:// address of the enrolment. It is drawn in the browser and never sent anywhere. */
   value: string;
   label: string;
-};
+}>;
 
 /** Quiet zone the QR specification asks for around the code, in modules. */
 const QUIET_ZONE = 4;
