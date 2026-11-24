@@ -17,7 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/v1/auth/password-reset")
 public class PasswordResetController {
     public static final String COOKIE = "restofy_reset";
-    private static final String PATH = "/api/v1/auth/password-reset";
+    private static final String PATH = "/api/v1/auth/password-reset"; // NOSONAR java:S1075 route
     private static final String DEFAULT_LOCALE = "tr";
     private final PasswordResetService service;
     private final PasswordResetLimiter limiter;
