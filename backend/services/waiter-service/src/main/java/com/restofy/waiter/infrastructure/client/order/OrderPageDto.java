@@ -7,7 +7,7 @@ import static com.restofy.waiter.infrastructure.client.Fields.required;
 import static com.restofy.waiter.infrastructure.client.Fields.requiredList;
 
 /**
- * DRAFT Order contract v0: one page of a search whose filters and ordering Order applies to the whole set.
+ * One page of a search (Order's {@code limit} and {@code totalItems} are {@code size} and {@code totalElements} here) whose filters and ordering Order applies to the whole set.
  * The total is a wrapper so a missing total cannot silently mean "no orders".
  */
 public record OrderPageDto(List<OrderDto> items, int page, int size, Long totalElements) {

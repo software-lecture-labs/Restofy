@@ -4,6 +4,7 @@ import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.infrastructure.client.notification.NotificationClient;
 import com.restofy.waiter.infrastructure.client.order.OrderClient;
+import com.restofy.waiter.infrastructure.client.order.WaiterOrderRequestSigner;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
@@ -70,8 +71,9 @@ class RestClientConfigurationTests {
     private ApplicationContextRunner runner(Map<String, Object> env) {
         return new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, RestClientAutoConfiguration.class))
+                .withBean(java.time.Clock.class, java.time.Clock::systemUTC)
                 .withUserConfiguration(RestClientConfiguration.class, QrClient.class, OrderClient.class,
-                        NotificationClient.class)
+                        WaiterOrderRequestSigner.class, NotificationClient.class)
                 .withInitializer(context -> {
                     var sources = context.getEnvironment().getPropertySources();
                     sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
@@ -141,7 +143,9 @@ class RestClientConfigurationTests {
         runner(environment()).run(context -> {
             assertTrue(context.getBean(QrClient.class).listAllTables(restaurant).isEmpty());
             assertTrue(context.getBean(QrClient.class).findTable(restaurant, UUID.randomUUID()).isEmpty());
-            assertTrue(context.getBean(OrderClient.class).findOrder(restaurant, UUID.randomUUID()).isEmpty());
+            // No staff session in this call: Order refuses it, and nothing was invented on the way.
+            assertThrows(DependencyException.class,
+                    () -> context.getBean(OrderClient.class).findOrder(restaurant, UUID.randomUUID()));
             assertTrue(context.getBean(OrderClient.class).activeOrderCounts(restaurant, List.of()).isEmpty());
         });
         assertNotNull(backends);
@@ -149,7 +153,8 @@ class RestClientConfigurationTests {
         for (DownstreamStub.Request request : peer.requests()) {
             assertNull(request.header("Authorization"), "No token may be invented before the service identity contract exists");
             assertNull(request.header("Cookie"));
-            assertTrue(request.path().startsWith("/api/v1/internal/"), request.path());
+            assertTrue(request.path().startsWith("/api/v1/internal/") || request.path().startsWith("/api/v1/orders/"),
+                    request.path());
         }
     }
 

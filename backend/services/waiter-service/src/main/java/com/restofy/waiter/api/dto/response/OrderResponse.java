@@ -27,7 +27,7 @@ public record OrderResponse(UUID id, String orderNumber, TableRef table, Session
                             Instant acceptedAt, Instant servedAt,
                             String currency, BigDecimal originalGrossTotal, BigDecimal cancelledGrossTotal,
                             BigDecimal payableTotal, List<Item> items, List<Cancellation> cancellations,
-                            ServeCommandHint serveCommand, long version) {
+                            ServeCommandHint serveCommand, Long version) {
 
     public record TableRef(UUID id, String tableNumber, String displayName, TableOperationalStatus operationalStatus) {
     }

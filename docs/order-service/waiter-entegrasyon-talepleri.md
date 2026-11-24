@@ -21,12 +21,32 @@ Hamza, garson ekranında masanın siparişlerini görmek, hazır siparişi masay
 
 ## Ortak uç ilkesi (23 Kasım)
 
-Hocanın ve Alper'in PR #35 yorumundaki isteği doğrultusunda Waiter'a özel uç eklemek yerine Order'ın mevcut ortak uçlarını kullanmak öncelikli. Waiter'ın kodu henüz taslak `/internal/orders/*` yollarında duruyor, bu belge o yüzden iki ayrı şeyi ayırıyor:
+Hocanın ve Alper'in PR #35 yorumundaki isteği doğrultusunda Waiter'a özel uç eklemek yerine Order'ın mevcut ortak uçlarını kullanmak öncelikli. Order PR #45 bu uçların çoğunu ekledi ve Waiter 24 Kasım'da onlara taşındı (aşağıdaki "uygulama durumu"). Aşağıdaki tablo ve bölümler ilk talebin kaydıdır:
 
 - **Ortak uçla karşılanabilenler.** Tek oturumun sipariş listesi (`GET /orders?tableSessionId=…`), sipariş detayı ve sürümü (`GET /orders/{id}`), `READY → SERVED` adımı (`PATCH /orders/{id}/fulfillment-status`, `WAITER`/`ADMIN`). Bunlar personel kimliğiyle çalışıyor ve Waiter'ın bu kimliği Order'a iletmesi gerekiyor. Order'ın `dev` dalında personel kimliği `Authorization: Staff <opak kimlik>`, çerez uyarlaması `chore/order-auth-integration` dalında ve `dev`'e girmedi. Hangi biçimle gideceğimiz bu dalın birleşmesine bağlı.
 - **Ortak uçla karşılanamayanlar.** Masa listesi için çoklu oturum sayımı (`session-summaries`) ve çoklu oturum filtresi, komut kimliğiyle idempotent `serve`, `expectedVersion` denetimi ve cevabı kaybolan komutun sonucunu sorgulama. Bunları yeni uç olarak istemek yerine önce şu iki seçeneği birlikte tartışmak istiyorum: (a) Waiter oturum başına `GET /orders` çağırır ve sayıyı kendisi türetir (masa listesinde 500 oturuma kadar istek yükü doğurur, sınırlanmalı), (b) Order bunları ortak uç olarak ekler ve Admin/Kitchen de kullanır.
 
-Hangisinde karar verirsek verelim Waiter'ın kodu henüz değişmedi: PR açılana kadar istemci taslak yollara, yerel sahte Order'a karşı çalışıyor. **Gerçek Order'a karşı doğrulanmadı.**
+## Waiter tarafı uygulama durumu (24 Kasım 2026)
+
+Order PR #45 ve `entegrasyon-rehberi.md` okunarak Waiter istemcisi Order'ın gerçek sözleşmesine taşındı (`chore/waiter-order-integration`). Aşağıdaki tablo yalnız Waiter yerel testlerinde (Order'ın sahte hâli, servis JWT'sini doğrular) gösterilenleri içerir.
+
+| Konu | Waiter'da şimdi |
+| --- | --- |
+| Okuma uçları | `POST /api/v1/orders/session-summaries`, `POST /api/v1/orders/search`, `GET /api/v1/orders/{id}` ve `/cancellations`. Personel olarak çağrılır (`restofy_access` çerezi iletilir), gövdede `restaurantId` yok |
+| Sayfa | `limit` / `totalItems` Waiter'ın `size` / `totalElements` alanına eşlenir. `view` ile `fulfillmentStatuses` birlikte gönderilmez (`AWAITING_DELIVERY` → `READY`, `placedAt,asc`; `READY_HISTORY` → `READY/SERVED/COMPLETED`) |
+| Durum eşlemesi | Order'ın tek ekseni Waiter'ın iç modeline çevrilir: `RECEIVED` bekliyor, `PREPARING` hazırlanıyor, `READY/SERVED/COMPLETED` hazır, `SERVED/COMPLETED` teslim edilmiş. Tutarlar küçük birimden para birimi basamağıyla çevrilir |
+| `serve` | `POST /api/v1/internal/orders/{id}/serve` ve sonuç sorgusu. `Authorization: Service <JWT>` (RS256, `kid`, 30 sn, yol/gövde/personel özeti bağlı) ve `X-Restofy-Staff-Delegation`. Cookie/Origin gönderilmez. Makbuzdaki `commandId`, `orderId`, `tableSessionId` doğrulanır. 401/403/5xx hiçbir zaman "reddedildi" kaydı olmaz |
+| Yeni ENV | `WAITER_ORDER_CALLER_KEY_ID`, `WAITER_ORDER_CALLER_PRIVATE_KEY` (boşsa imza yok, yarım doldurulursa açılış durur). Order tarafında `ORDER_WAITER_SERVICE_PUBLIC_KEYS` ve `ORDER_WAITER_SERVICE_RESTAURANTS` karşılığı Hamza ile ayarlanacak |
+
+**Doğrulanmadı:** Gerçek Order ve gerçek Auth ile uçtan uca çalıştırma yapılmadı. Order'ın HTTPS şartı ve gerçek `order-auth` profilinde iki POST okumanın (CSRF/Origin) davranışı denenmedi.
+
+### Order'dan istekler
+
+- Detay (ve mümkünse liste satırı) cevabına `servedAt` eklenmesi. Waiter okumalarda `servedAt` göstermiyor (`null`), yalnız `serve` makbuzundan biliyor.
+- Liste satırlarında `version`, kalem ve iptal yok. Waiter komut öncesi detayı okuyor. Liste satırına `version` eklenirse bir istek azalır.
+- Sıralama yalnız `placedAt`. Hazır olma zamanına göre kuyruk istenirse `readyAt` sıralaması gerekir.
+- İki POST okumanın gerçek Auth oturumuyla (CSRF/Origin) nasıl çağrılacağının netleştirilmesi.
+- Waiter için `ORDER_WAITER_SERVICE_*` ayarının ve anahtar çiftinin birlikte kurulması.
 
 ## PR 1 · Salt okunur sipariş uçları (WAITER-01)
 

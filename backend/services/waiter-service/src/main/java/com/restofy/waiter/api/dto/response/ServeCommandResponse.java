@@ -22,6 +22,6 @@ public record ServeCommandResponse(UUID commandId, UUID orderId, UUID tableSessi
     /** Order's answer, reduced to what the panel needs after serving. Kitchen's READY is carried unchanged. */
     public record ServedOrder(UUID id, String orderNumber, UUID tableSessionId, OrderBusinessStatus businessStatus,
                               DeliveryStatus deliveryStatus, Instant servedAt, PreparationStatus preparationStatus,
-                              long version) {
+                              Long version) {
     }
 }

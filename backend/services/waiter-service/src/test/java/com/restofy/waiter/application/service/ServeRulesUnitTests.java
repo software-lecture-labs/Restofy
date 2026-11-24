@@ -102,21 +102,31 @@ class ServeRulesUnitTests {
     }
 
     @Test
-    void anAppliedAnswerMustBeAboutAServedOrder() {
+    void aReceiptNeedsItsEvidence() {
         UUID id = UUID.randomUUID();
-        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(null, ServeResponseDto.Outcome.APPLIED, null));
-        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(id, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(id, ServeResponseDto.Outcome.APPLIED, null));
+        Instant at = Instant.parse("2026-10-16T10:30:00Z");
+        var applied = ServeResponseDto.Outcome.APPLIED;
+        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(null, id, id, 5L, at, applied));
+        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(id, id, id, 5L, at, null));
+        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(id, id, id, null, at, applied));
+        assertThrows(IllegalArgumentException.class, () -> new ServeResponseDto(id, id, id, 5L, null, applied));
+        assertEquals(5L, new ServeResponseDto(id, id, id, 5L, at, applied).orderVersion());
     }
 
     @Test
     void aRecordedStatusNeedsItsEvidence() {
         UUID id = UUID.randomUUID();
-        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, ServeStatusDto.Status.APPLIED, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, ServeStatusDto.Status.REJECTED, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, ServeStatusDto.Status.REJECTED, " ", null));
-        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(null, ServeStatusDto.Status.REJECTED, "ORDER_CANCELLED",
-                null));
-        assertEquals("ORDER_CANCELLED", new ServeStatusDto(id, ServeStatusDto.Status.REJECTED, "ORDER_CANCELLED", null).rejectionCode());
+        Instant at = Instant.parse("2026-10-16T10:30:00Z");
+        var applied = ServeStatusDto.Status.APPLIED;
+        var rejected = ServeStatusDto.Status.REJECTED;
+        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, id, id, null, at, null, applied, null));
+        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, id, id, 5L, at, null, applied, null));
+        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, id, id, null, at, null, rejected, null));
+        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(id, id, id, null, at, null, rejected, " "));
+        assertThrows(IllegalArgumentException.class, () -> new ServeStatusDto(null, id, id, null, at, null, rejected,
+                "ORDER_CANCELLED"));
+        assertEquals("ORDER_CANCELLED",
+                new ServeStatusDto(id, id, id, null, at, null, rejected, "ORDER_CANCELLED").rejectionCode());
+        assertEquals(at, new ServeStatusDto(id, id, id, 5L, at, at, applied, null).servedAt());
     }
 }

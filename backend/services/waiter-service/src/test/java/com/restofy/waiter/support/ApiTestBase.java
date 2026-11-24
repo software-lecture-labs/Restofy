@@ -2,6 +2,7 @@ package com.restofy.waiter.support;
 
 import com.restofy.waiter.domain.enums.StaffRole;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
+import com.restofy.waiter.infrastructure.security.TestStaffCredentials;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +63,8 @@ public abstract class ApiTestBase {
         registry.add("restofy.services.notification-url", () -> STUB.baseUrl().toString());
         registry.add("restofy.rest-client.read-timeout-ms", () -> "700");
         registry.add("restofy.auth.allowed-origins", () -> ALLOWED_ORIGIN);
+        registry.add("WAITER_ORDER_CALLER_KEY_ID", () -> FakeBackends.ORDER_CALLER_KEY_ID);
+        registry.add("WAITER_ORDER_CALLER_PRIVATE_KEY", FakeBackends::orderCallerPrivateKey);
     }
 
     @Autowired
@@ -117,7 +120,14 @@ public abstract class ApiTestBase {
     protected static RequestPostProcessor as(Object principal, String... authorities) {
         List<SimpleGrantedAuthority> granted = Arrays.stream(authorities)
                 .map(authority -> new SimpleGrantedAuthority("ROLE_" + authority)).toList();
-        return authentication(new UsernamePasswordAuthenticationToken(principal, null, granted));
+        RequestPostProcessor authenticated = authentication(new UsernamePasswordAuthenticationToken(principal, null, granted));
+        return request -> {
+            if (principal instanceof AuthenticatedStaff staff) {
+                // What the staff cookie filter keeps in production, so Waiter can act for this staff member at Order.
+                TestStaffCredentials.attach(request, TestStaffCredentials.credentialOf(staff.restaurantId()));
+            }
+            return authenticated.postProcessRequest(request);
+        };
     }
 
     protected FakeBackends.Table addTable(UUID restaurantId, String number, String status, UUID sessionId) {

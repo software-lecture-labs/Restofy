@@ -79,6 +79,7 @@ final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
         context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(staff.get(), null,
                 List.of(new SimpleGrantedAuthority("ROLE_" + staff.get().role().name()))));
         SecurityContextHolder.setContext(context);
+        StaffCredentials.remember(request, credentials.getFirst());
         chain.doFilter(request, response);
     }
 

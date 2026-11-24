@@ -175,14 +175,18 @@ public class OrderServeService {
         }
         command.confirm(now());
         commands.saveAndFlush(command);
-        return new Result(command, answer.order(), null);
+        return new Result(command, servedView(command, answer.orderVersion(), answer.servedAt()), null);
     }
 
     private Result settle(OrderServeCommand command, ServeStatusDto recorded) {
+        if (recorded.tableSessionId() != null && !recorded.tableSessionId().equals(command.getTableSessionId())) {
+            throw new DependencyException(OrderClient.DEPENDENCY, DependencyFailure.BAD_RESPONSE,
+                    "order service returned an unusable response: status for another session");
+        }
         if (recorded.status() == ServeStatusDto.Status.APPLIED) {
             command.confirm(now());
             commands.saveAndFlush(command);
-            return new Result(command, recorded.order(), null);
+            return new Result(command, servedView(command, recorded.orderVersion(), recorded.servedAt()), null);
         }
         command.reject(OrderClient.knownRejection(recorded.rejectionCode()), now());
         commands.saveAndFlush(command);
@@ -194,6 +198,16 @@ public class OrderServeService {
         command.markUnknown(now());
         commands.saveAndFlush(command);
         throw new ServeResultUnknownException(command.getId(), failure);
+    }
+
+    /**
+     * Order's view of the order after the command, read best effort: the receipt only says that the order is
+     * served (with when and at which version), so the rest comes from a read, which may fail without changing
+     * the confirmed command. The receipt's own facts win over what the read says.
+     */
+    private OrderDto servedView(OrderServeCommand command, Long version, Instant servedAt) {
+        OrderDto current = currentOrderOrNull(command);
+        return current == null ? null : current.servedAs(version, servedAt);
     }
 
     private OrderDto currentOrderOrNull(OrderServeCommand command) {

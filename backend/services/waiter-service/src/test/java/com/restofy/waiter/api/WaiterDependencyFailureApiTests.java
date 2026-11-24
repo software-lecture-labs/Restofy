@@ -77,7 +77,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
 
     @Test
     void orderOutageOnTheTableListDoesNotTurnIntoZeroActiveOrders() throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/session-summaries", request -> Response.json(503, "{}"));
+        STUB.override("POST", "/api/v1/orders/session-summaries", request -> Response.json(503, "{}"));
         assertSafeBody(get("/api/v1/waiters/tables")
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_UNAVAILABLE"))
@@ -87,7 +87,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
 
     @Test
     void orderTimeoutIsAGatewayTimeoutOnOrderListsAndTableOrders() throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> Response.json(200, "{}").delayed(2500));
+        STUB.override("POST", "/api/v1/orders/search", request -> Response.json(200, "{}").delayed(2500));
         assertSafeBody(get("/api/v1/waiters/orders")
                 .andExpect(status().isGatewayTimeout())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_TIMEOUT"))
@@ -97,7 +97,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
 
     @Test
     void orderServerErrorOnDetailIsServiceUnavailableNotNotFound() throws Exception {
-        STUB.override("GET", "/api/v1/internal/orders/[0-9a-f-]{36}", request -> Response.json(502, "bad gateway"));
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}", request -> Response.json(502, "bad gateway"));
         assertSafeBody(get("/api/v1/waiters/orders/" + order.id())
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_UNAVAILABLE")));
@@ -106,7 +106,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
     @ParameterizedTest
     @ValueSource(ints = {401, 403})
     void downstreamRejectingWaiterItselfIsABadGatewayNotAUserError(int rejectedStatus) throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/session-summaries", request -> Response.json(rejectedStatus, "{}"));
+        STUB.override("POST", "/api/v1/orders/session-summaries", request -> Response.json(rejectedStatus, "{}"));
         assertSafeBody(get("/api/v1/waiters/tables")
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_REJECTED")));
@@ -123,7 +123,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
                     + "{\"tableSessionId\":\"00000000-0000-0000-0000-0000000000a1\",\"activeOrderCount\":1}]}",
             ""})
     void malformedOrderSummariesAreABadGatewayNotAnEmptyResult(String body) throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/session-summaries", request -> Response.json(200, body));
+        STUB.override("POST", "/api/v1/orders/session-summaries", request -> Response.json(200, body));
         assertSafeBody(get("/api/v1/waiters/tables")
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"))
@@ -132,7 +132,7 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
 
     @Test
     void wrongContentTypeFromOrderIsABadGateway() throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/session-summaries",
+        STUB.override("POST", "/api/v1/orders/session-summaries",
                 request -> new Response(200, "text/plain", "ok", 0));
         assertSafeBody(get("/api/v1/waiters/tables").andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE")));
@@ -140,22 +140,21 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
 
     @Test
     void orderContractViolationsAreABadGateway() throws Exception {
-        Map<String, Object> broken = FakeBackends.orderJson(order);
-        broken.remove("businessStatus");
-        STUB.override("GET", "/api/v1/internal/orders/[0-9a-f-]{36}", request -> Response.json(200, FakeBackends.write(broken)));
+        Map<String, Object> broken = FakeBackends.detailJson(order);
+        broken.remove("fulfillmentStatus");
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}", request -> Response.json(200, FakeBackends.write(broken)));
         assertSafeBody(get("/api/v1/waiters/orders/" + order.id()).andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE")));
 
-        Map<String, Object> unknownStatus = FakeBackends.orderJson(order);
-        unknownStatus.put("businessStatus", "SOMETHING_NEW");
-        STUB.override("GET", "/api/v1/internal/orders/[0-9a-f-]{36}", request -> Response.json(200, FakeBackends.write(unknownStatus)));
+        Map<String, Object> unknownStatus = FakeBackends.detailJson(order);
+        unknownStatus.put("fulfillmentStatus", "SOMETHING_NEW");
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}", request -> Response.json(200, FakeBackends.write(unknownStatus)));
         get("/api/v1/waiters/orders/" + order.id()).andExpect(status().isBadGateway());
 
-        Map<String, Object> servedButCancelled = FakeBackends.orderJson(order);
-        servedButCancelled.put("businessStatus", "CANCELLED");
-        servedButCancelled.put("deliveryStatus", "SERVED");
-        servedButCancelled.put("servedAt", "2026-10-16T10:00:00Z");
-        STUB.override("GET", "/api/v1/internal/orders/[0-9a-f-]{36}", request -> Response.json(200, FakeBackends.write(servedButCancelled)));
+        // The detail has no version: Order's optimistic locking would be impossible to honour.
+        Map<String, Object> noVersion = FakeBackends.detailJson(order);
+        noVersion.remove("version");
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}", request -> Response.json(200, FakeBackends.write(noVersion)));
         get("/api/v1/waiters/orders/" + order.id()).andExpect(status().isBadGateway());
     }
 
@@ -211,16 +210,16 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
 
     @Test
     void orderPageMetadataThatDoesNotMatchTheRequestIsABadGateway() throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(order)), "page", 4, "size", 20, "totalElements", 1))));
+        STUB.override("POST", "/api/v1/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.summaryJson(order)), "page", 4, "limit", 20, "totalItems", 1))));
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(order)), "page", 0, "size", 20, "totalElements", 0))));
+        STUB.override("POST", "/api/v1/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.summaryJson(order)), "page", 0, "limit", 20, "totalItems", 0))));
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());
         // The same order twice in one page.
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(order),
-                        FakeBackends.orderJson(order)), "page", 0, "size", 20, "totalElements", 2))));
+        STUB.override("POST", "/api/v1/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.summaryJson(order),
+                        FakeBackends.summaryJson(order)), "page", 0, "limit", 20, "totalItems", 2))));
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());
     }
 
@@ -230,11 +229,13 @@ class WaiterDependencyFailureApiTests extends ApiTestBase {
         FakeBackends.Order lost = new FakeBackends.Order(UUID.randomUUID(), RESTAURANT, ghost.id(), SESSION, "ORD-GHOST",
                 "ACCEPTED", "PENDING", "READY", Instant.parse("2026-10-16T09:00:00Z"),
                 Instant.parse("2026-10-16T09:10:00Z"), null);
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(lost)), "page", 0, "size", 20, "totalElements", 1))));
+        STUB.override("POST", "/api/v1/orders/search", request -> Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.summaryJson(lost)), "page", 0, "limit", 20, "totalItems", 1))));
         get("/api/v1/waiters/orders").andExpect(status().isBadGateway());
-        STUB.override("GET", "/api/v1/internal/orders/[0-9a-f-]{36}",
-                request -> Response.json(200, FakeBackends.write(FakeBackends.orderJson(lost))));
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}",
+                request -> Response.json(200, FakeBackends.write(FakeBackends.detailJson(lost))));
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}/cancellations", request -> Response.json(200,
+                FakeBackends.write(Map.of("orderId", lost.id(), "cancellations", List.of()))));
         get("/api/v1/waiters/orders/" + lost.id()).andExpect(status().isBadGateway());
     }
 }
