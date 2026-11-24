@@ -17,12 +17,12 @@ import org.springframework.web.bind.annotation.*;
 public class WaiterClosureController {
     /** Route templates, also used by the Waiter security chain. */
     public static final String BASE = "/api/v1/internal/tables/{tableId}/sessions/{sessionId}";
-    public static final String CLOSE = "/close";
-    public static final String STATUS = "/close-commands/{commandId}";
+    public static final String CLOSE_ROUTE = "/close";
+    public static final String STATUS_ROUTE = "/close-commands/{commandId}";
     private final StaffClosureService service;
     public WaiterClosureController(StaffClosureService service) { this.service = service; }
 
-    @PostMapping(CLOSE)
+    @PostMapping(CLOSE_ROUTE)
     @Operation(summary = "Request closure through verified Waiter service and delegated staff",
             description = "Waiter command/result fields are supported; /api/v1 internal prefix is canonical. Body IDs do not grant authority. "
                     + "Requires verified Waiter identity and active same-tenant WAITER/ADMIN delegation. Open only to the Waiter chain (qr:session-close + X-Staff-Token); closed to every other caller.")
@@ -31,7 +31,7 @@ public class WaiterClosureController {
         return StaffClosureHttp.accepted(service.close(StaffClosureHttp.command(sessionId, tableId, key, request), Origin.WAITER_SERVICE));
     }
 
-    @GetMapping(STATUS)
+    @GetMapping(STATUS_ROUTE)
     @Operation(summary = "Read the durable closure status for Waiter reconciliation")
     public ResponseEntity<StaffClosureResponse> status(@PathVariable UUID tableId, @PathVariable UUID sessionId,
             @PathVariable UUID commandId, @RequestParam UUID restaurantId) {

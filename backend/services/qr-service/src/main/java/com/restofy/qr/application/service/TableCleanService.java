@@ -77,9 +77,12 @@ public class TableCleanService {
             table.finishCleaning();
             tables.saveAndFlush(table);
         }
-        Long appliedVersion = rejection == null ? table.getVersion() : null;
-        var saved = commands.saveAndFlush(new TableCleanCommand(request.commandId(), restaurantId, table.getId(), digest,
-                request.requestedByUserId(), request.requestedAt(), rejection, appliedVersion));
+        var outcome = rejection == null
+                ? TableCleanCommand.applied(request.commandId(), restaurantId, table.getId(), digest,
+                        request.requestedByUserId(), request.requestedAt(), table.getVersion())
+                : TableCleanCommand.rejected(request.commandId(), restaurantId, table.getId(), digest,
+                        request.requestedByUserId(), request.requestedAt(), rejection);
+        var saved = commands.saveAndFlush(outcome);
         return response(restaurantId, saved, saved.getStatus().name());
     }
 

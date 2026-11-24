@@ -54,7 +54,7 @@ public class WaiterCallerSecurity {
                                     @Value("${AUTH_RESTAURANT_ID}") UUID restaurantId,
                                     @Value("${QR_WAITER_CALLER_PUBLIC_KEYS:}") String waiterKeys,
                                     @Value("${QR_ORDER_CALLER_PUBLIC_KEYS:}") String orderKeys,
-                                    Q5SecuritySettings staffSettings, StaffRevocationStore revocations) throws Exception {
+                                    Q5SecuritySettings staffSettings, StaffRevocationStore revocations) {
         var keys = WaiterKeys.parse(json, waiterKeys);
         requireDistinctKeyIds(keys.keySet(), orderKeys, json);
         String guest = OrderGuestSessionController.BASE;
@@ -78,13 +78,13 @@ public class WaiterCallerSecurity {
                         .hasAuthority(WaiterAuthorities.GUEST_VALIDATE)
                         .requestMatchers(HttpMethod.GET, InternalTableController.BASE, InternalTableController.BASE + "/*")
                         .hasAuthority(WaiterAuthorities.TABLE_READ)
-                        .requestMatchers(HttpMethod.POST, WaiterClosureController.BASE + WaiterClosureController.CLOSE)
+                        .requestMatchers(HttpMethod.POST, WaiterClosureController.BASE + WaiterClosureController.CLOSE_ROUTE)
                         .hasAuthority(WaiterAuthorities.SESSION_CLOSE)
-                        .requestMatchers(HttpMethod.GET, WaiterClosureController.BASE + WaiterClosureController.STATUS)
+                        .requestMatchers(HttpMethod.GET, WaiterClosureController.BASE + WaiterClosureController.STATUS_ROUTE)
                         .hasAuthority(WaiterAuthorities.SESSION_CLOSE)
-                        .requestMatchers(HttpMethod.POST, InternalTableController.BASE + InternalTableCleanController.CLEAN)
+                        .requestMatchers(HttpMethod.POST, InternalTableController.BASE + InternalTableCleanController.CLEAN_ROUTE)
                         .hasAuthority(WaiterAuthorities.TABLE_CLEAN)
-                        .requestMatchers(HttpMethod.GET, InternalTableController.BASE + InternalTableCleanController.STATUS)
+                        .requestMatchers(HttpMethod.GET, InternalTableController.BASE + InternalTableCleanController.STATUS_ROUTE)
                         .hasAuthority(WaiterAuthorities.TABLE_CLEAN)
                         .requestMatchers(HttpMethod.GET, InternalSessionClosureController.BASE)
                         .hasAuthority(WaiterAuthorities.SESSION_CLOSURE_READ)

@@ -1,6 +1,5 @@
 package com.restofy.qr.infrastructure.security.waiter;
 
-import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import tools.jackson.databind.json.JsonMapper;

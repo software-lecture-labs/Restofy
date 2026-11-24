@@ -75,7 +75,7 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
         assertThat(close.statusCode()).isEqualTo(503);
         assertThat(json.readTree(close.body()).get("detail").asString()).contains("closure evidence is unavailable");
         // The status route resolves the delegated actor too: an unknown command of its tenant is a plain 404.
-        var status = status(fixture, UUID.randomUUID(), staffToken(user, UUID.randomUUID(), "ADMIN", TENANT), null);
+        var status = status(fixture, UUID.randomUUID(), staffToken(user, UUID.randomUUID(), "ADMIN", TENANT));
         assertThat(status.statusCode()).isEqualTo(404);
     }
 
@@ -108,7 +108,7 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
         jdbc.update("INSERT INTO staff_revoked_sessions(restaurant_id,session_id,user_id,deny_until) VALUES (?,?,?,?)",
                 TENANT, sid, user, Timestamp.from(Instant.now().plusSeconds(600)));
         assertThat(close(fixture, command, body, staff, bound(staff), CLOSE_SCOPE).statusCode()).isEqualTo(401);
-        assertThat(status(fixture, command, staff, null).statusCode()).isEqualTo(401);
+        assertThat(status(fixture, command, staff).statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -165,7 +165,7 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
                 service("POST", path, WAITER, "waiter-test", "restofy-waiter", "waiter-service", scope, body, staffDigest));
     }
 
-    private HttpResponse<String> status(Fixture fixture, UUID command, String staffToken, String ignored) throws Exception {
+    private HttpResponse<String> status(Fixture fixture, UUID command, String staffToken) throws Exception {
         String path = "/api/v1/internal/tables/" + fixture.table() + "/sessions/" + fixture.session()
                 + "/close-commands/" + command + "?restaurantId=" + TENANT;
         return send("GET", path, "", null, staffToken,

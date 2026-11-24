@@ -55,8 +55,10 @@ class WaiterSessionClosureHttpTests extends Q5TestSecuritySupport {
         registry.add("QR_WAITER_CALLER_PUBLIC_KEYS", () -> "{\"waiter-test\":\"" + encoded(WAITER.getPublic().getEncoded()) + "\"}");
     }
 
-    @Test
-    void everyFinalTransitionLeavesOneDurableEventReadByCursor() throws Exception {
+    private record Seeded(long before, UUID table, UUID closed, UUID expiredTable, UUID expired, UUID stillOpen) { }
+
+    /** One session expired, one CLOSING and one still live; the closing one is not final yet. */
+    private Seeded seedFinalTransitions() throws Exception {
         long before = cursorNow();
         UUID table = table(TENANT);
         UUID closed = session(table, TENANT);
@@ -65,44 +67,58 @@ class WaiterSessionClosureHttpTests extends Q5TestSecuritySupport {
         UUID stillOpen = session(table(TENANT), TENANT);
         jdbc.update("UPDATE table_sessions SET status='EXPIRED', closed_at=now() WHERE id=?", expired);
         jdbc.update("UPDATE table_sessions SET status='CLOSING', closing_at=now() WHERE id=?", closed);
-        assertThat(read(before, 100).get("items").size()).isEqualTo(1);
-        jdbc.update("UPDATE table_sessions SET status='CLOSED', closed_at=now() WHERE id=?", closed);
+        return new Seeded(before, table, closed, expiredTable, expired, stillOpen);
+    }
 
-        var page = read(before, 100);
-        var items = page.get("items");
+    @Test
+    void everyFinalTransitionLeavesOneDurableEventReadByCursor() throws Exception {
+        var seeded = seedFinalTransitions();
+        assertThat(read(seeded.before(), 100).get("items").size()).isEqualTo(1);
+        jdbc.update("UPDATE table_sessions SET status='CLOSED', closed_at=now() WHERE id=?", seeded.closed());
+
+        var items = read(seeded.before(), 100).get("items");
         assertThat(items.size()).isEqualTo(2);
-        assertThat(items.get(0).get("tableSessionId").asString()).isEqualTo(expired.toString());
-        assertThat(items.get(0).get("tableId").asString()).isEqualTo(expiredTable.toString());
+        assertThat(items.get(0).get("tableSessionId").asString()).isEqualTo(seeded.expired().toString());
+        assertThat(items.get(0).get("tableId").asString()).isEqualTo(seeded.expiredTable().toString());
         assertThat(items.get(0).get("finalStatus").asString()).isEqualTo("EXPIRED");
-        assertThat(items.get(1).get("tableSessionId").asString()).isEqualTo(closed.toString());
+        assertThat(items.get(1).get("tableSessionId").asString()).isEqualTo(seeded.closed().toString());
         assertThat(items.get(1).get("finalStatus").asString()).isEqualTo("CLOSED");
-        assertThat(items.get(1).get("tableId").asString()).isEqualTo(table.toString());
+        assertThat(items.get(1).get("tableId").asString()).isEqualTo(seeded.table().toString());
         for (var item : items) {
             assertThat(item.get("restaurantId").asString()).isEqualTo(TENANT.toString());
             assertThat(UUID.fromString(item.get("eventId").asString())).isNotNull();
             assertThat(item.get("occurredAt").asString()).isNotBlank();
         }
         assertThat(items.get(0).has("guestSessionId")).isFalse();
+    }
+
+    @Test
+    void theCursorIsReplaySafePagedAndNeverDuplicatesAnEvent() throws Exception {
+        var seeded = seedFinalTransitions();
+        jdbc.update("UPDATE table_sessions SET status='CLOSED', closed_at=now() WHERE id=?", seeded.closed());
+        var page = read(seeded.before(), 100);
+        var items = page.get("items");
         long next = page.get("nextCursor").asLong();
-        assertThat(next).isGreaterThan(before);
+        assertThat(next).isGreaterThan(seeded.before());
 
         // Nothing new: the same cursor comes back. A re-read from the old cursor returns the same events (replay-safe).
         var empty = read(next, 100);
         assertThat(empty.get("items").size()).isZero();
         assertThat(empty.get("nextCursor").asLong()).isEqualTo(next);
-        assertThat(read(before, 100).get("items").get(0).get("eventId").asString()).isEqualTo(items.get(0).get("eventId").asString());
+        assertThat(read(seeded.before(), 100).get("items").get(0).get("eventId").asString())
+                .isEqualTo(items.get(0).get("eventId").asString());
 
         // The page size bounds a read and the cursor continues after it.
-        var first = read(before, 1);
+        var first = read(seeded.before(), 1);
         assertThat(first.get("items").size()).isEqualTo(1);
         var second = read(first.get("nextCursor").asLong(), 1);
-        assertThat(second.get("items").get(0).get("tableSessionId").asString()).isEqualTo(closed.toString());
+        assertThat(second.get("items").get(0).get("tableSessionId").asString()).isEqualTo(seeded.closed().toString());
 
         // A session that is still live, or that only changes other columns later, never adds a second event.
-        jdbc.update("UPDATE table_sessions SET version=version+1 WHERE id=?", closed);
-        assertThat(read(before, 100).get("items").size()).isEqualTo(2);
+        jdbc.update("UPDATE table_sessions SET version=version+1 WHERE id=?", seeded.closed());
+        assertThat(read(seeded.before(), 100).get("items").size()).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM table_session_closure_events WHERE table_session_id=?",
-                Integer.class, stillOpen)).isZero();
+                Integer.class, seeded.stillOpen())).isZero();
     }
 
     @Test

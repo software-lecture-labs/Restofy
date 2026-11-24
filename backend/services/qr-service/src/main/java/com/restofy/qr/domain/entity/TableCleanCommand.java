@@ -25,17 +25,32 @@ public class TableCleanCommand {
 
     protected TableCleanCommand() { }
 
-    public TableCleanCommand(UUID commandId, UUID restaurantId, UUID tableId, String requestDigest,
-                             UUID requestedByUserId, Instant requestedAt, Code rejectionCode, Long appliedTableVersion) {
-        this.appliedTableVersion = appliedTableVersion;
+    private TableCleanCommand(UUID commandId, UUID restaurantId, UUID tableId, String requestDigest,
+                              UUID requestedByUserId, Instant requestedAt) {
         this.commandId = commandId;
         this.restaurantId = restaurantId;
         this.tableId = tableId;
         this.requestDigest = requestDigest;
         this.requestedByUserId = requestedByUserId;
         this.requestedAt = requestedAt;
-        this.rejectionCode = rejectionCode;
-        this.status = rejectionCode == null ? Status.APPLIED : Status.REJECTED;
+    }
+
+    /** The cleaning was applied; {@code appliedTableVersion} is the table version right after it. */
+    public static TableCleanCommand applied(UUID commandId, UUID restaurantId, UUID tableId, String requestDigest,
+                                            UUID requestedByUserId, Instant requestedAt, long appliedTableVersion) {
+        var command = new TableCleanCommand(commandId, restaurantId, tableId, requestDigest, requestedByUserId, requestedAt);
+        command.appliedTableVersion = appliedTableVersion;
+        command.status = Status.APPLIED;
+        return command;
+    }
+
+    /** The cleaning was rejected for {@code rejectionCode}; no table change was made. */
+    public static TableCleanCommand rejected(UUID commandId, UUID restaurantId, UUID tableId, String requestDigest,
+                                             UUID requestedByUserId, Instant requestedAt, Code rejectionCode) {
+        var command = new TableCleanCommand(commandId, restaurantId, tableId, requestDigest, requestedByUserId, requestedAt);
+        command.rejectionCode = rejectionCode;
+        command.status = Status.REJECTED;
+        return command;
     }
 
     public UUID getCommandId() { return commandId; }

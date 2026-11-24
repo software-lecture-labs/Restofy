@@ -98,8 +98,8 @@ class InternalTableHttpTests extends Q5TestSecuritySupport {
                 assertThat(item.get("restaurantId").asString()).isEqualTo(TENANT.toString());
             }
         }
-        assertThat(seen).containsExactlyInAnyOrderElementsOf(expected.stream().map(UUID::toString).toList());
-        assertThat(seen).doesNotContain(foreign.toString());
+        assertThat(seen).containsExactlyInAnyOrderElementsOf(expected.stream().map(UUID::toString).toList())
+                .doesNotContain(foreign.toString());
 
         JsonNode live = find(firstPage, secondPage, occupied);
         assertThat(live.get("operationalStatus").asString()).isEqualTo("OCCUPIED");

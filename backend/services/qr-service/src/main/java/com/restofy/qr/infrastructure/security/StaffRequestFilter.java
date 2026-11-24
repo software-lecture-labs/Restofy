@@ -40,11 +40,10 @@ public final class StaffRequestFilter extends OncePerRequestFilter {
 
     private final Q5SecuritySettings settings;
     private final StaffTokenVerifier verifier;
-    private final Clock clock;
     private final StaffRevocationStore store;
 
     public StaffRequestFilter(Q5SecuritySettings settings, Clock clock, StaffRevocationStore store) {
-        this.settings=settings; this.clock=clock; this.store=store; this.verifier=new StaffTokenVerifier(settings, clock, store);
+        this.settings=settings; this.store=store; this.verifier=new StaffTokenVerifier(settings, clock, store);
     }
 
     static boolean staffPath(String method, String path) { return !policy(method,path).isEmpty(); }

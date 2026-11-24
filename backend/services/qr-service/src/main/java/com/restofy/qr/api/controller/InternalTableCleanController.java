@@ -27,8 +27,8 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "Waiter table cleaning contract", description = "Closed service identity AND staff delegation boundary; not a Gateway public API.")
 public class InternalTableCleanController {
     /** Route templates, also used by the Waiter security chain. */
-    public static final String CLEAN = "/{tableId}/cleaned";
-    public static final String STATUS = "/{tableId}/clean-commands/{commandId}";
+    public static final String CLEAN_ROUTE = "/{tableId}/cleaned";
+    public static final String STATUS_ROUTE = "/{tableId}/clean-commands/{commandId}";
 
     private final TableCleanService service;
     private final WaiterLifecycleAccess access;
@@ -38,7 +38,7 @@ public class InternalTableCleanController {
         this.access = access;
     }
 
-    @PostMapping(CLEAN)
+    @PostMapping(CLEAN_ROUTE)
     @Operation(summary = "Mark a cleaning table available (idempotent by command ID)")
     public ResponseEntity<TableCleanResponse> clean(@AuthenticationPrincipal UUID restaurantId, @PathVariable UUID tableId,
             @RequestHeader("Idempotency-Key") String key, @Valid @RequestBody TableCleanRequest request) {
@@ -57,7 +57,7 @@ public class InternalTableCleanController {
         return noStore(result);
     }
 
-    @GetMapping(STATUS)
+    @GetMapping(STATUS_ROUTE)
     @Operation(summary = "Read the durable cleaning status for Waiter reconciliation")
     public ResponseEntity<TableCleanResponse> status(@AuthenticationPrincipal UUID restaurantId, @PathVariable UUID tableId,
             @PathVariable UUID commandId, @RequestParam(name = "restaurantId") UUID requestedRestaurantId) {
