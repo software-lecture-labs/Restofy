@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
@@ -19,8 +20,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Signs Waiter's own service identity for QR's internal guest validation (PR #41: issuer {@code restofy-waiter},
- * subject {@code waiter-service}, scope {@code qr:guest-validate}). The credential is bound to one request (method,
+ * Signs Waiter's own service identity for QR's closed internal routes (PR #41 and #51: issuer
+ * {@code restofy-waiter}, subject {@code waiter-service}, one scope per route family). The credential is bound to one request (method,
  * target, body digest) and to the restaurant QR serves, and it lives for 30 seconds at most.
  *
  * <p>The key comes only from configuration ({@code WAITER_QR_CALLER_KEY_ID}, {@code WAITER_QR_CALLER_PRIVATE_KEY},
@@ -34,7 +35,11 @@ public class WaiterQrRequestSigner {
     static final String ISSUER = "restofy-waiter";
     static final String SUBJECT = "waiter-service";
     static final String AUDIENCE = "restofy-qr";
-    static final String SCOPE = "qr:guest-validate";
+    /** The scopes QR (PR #41, #51) lets Waiter present; a credential carries exactly one. */
+    static final String GUEST_VALIDATE = "qr:guest-validate";
+    static final String TABLE_READ = "qr:table-read";
+    static final String SESSION_CLOSE = "qr:session-close";
+    static final String TABLE_CLEAN = "qr:table-clean";
     static final long LIFETIME_SECONDS = 30;
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
@@ -52,20 +57,33 @@ public class WaiterQrRequestSigner {
                 : new Credentials(readKeyId(id), readKey(key), readRestaurant(tenant));
     }
 
-    /** The {@code Authorization} value for this request, or empty while Waiter has no service key configured. */
+    /** The guest-validation credential; see {@link #authorization(String, HttpMethod, String, byte[], String)}. */
     Optional<String> authorization(HttpMethod method, String target, byte[] body) {
+        return authorization(GUEST_VALIDATE, method, target, body, null);
+    }
+
+    /**
+     * The {@code Authorization} value for this request, or empty while Waiter has no service key configured. The
+     * close and clean scopes also need the staff member's access token (forwarded in {@code X-Staff-Token}); its
+     * SHA-256 digest is bound into the credential as {@code staff_token_sha256}. The token itself is never signed in
+     * clear and never logged.
+     */
+    Optional<String> authorization(String scope, HttpMethod method, String target, byte[] body, String staffToken) {
         if (credentials == null) {
             return Optional.empty();
         }
         long issuedAt = clock.instant().getEpochSecond();
-        return Optional.of("Service " + Jwts.builder().header().keyId(credentials.keyId()).and()
+        var builder = Jwts.builder().header().keyId(credentials.keyId()).and()
                 .issuer(ISSUER).subject(SUBJECT).audience().add(AUDIENCE).and()
                 .id(UUID.randomUUID().toString()).claim("iat", issuedAt)
                 .claim("nbf", issuedAt).claim("exp", issuedAt + LIFETIME_SECONDS)
-                .claim("token_type", "service").claim("scope", SCOPE)
+                .claim("token_type", "service").claim("scope", scope)
                 .claim("restaurant_id", credentials.restaurantId().toString())
-                .claim("method", method.name()).claim("target", target).claim("body_sha256", digest(body))
-                .signWith(credentials.privateKey(), Jwts.SIG.RS256).compact());
+                .claim("method", method.name()).claim("target", target).claim("body_sha256", digest(body));
+        if (staffToken != null) {
+            builder.claim("staff_token_sha256", digest(staffToken.getBytes(StandardCharsets.UTF_8)));
+        }
+        return Optional.of("Service " + builder.signWith(credentials.privateKey(), Jwts.SIG.RS256).compact());
     }
 
     private static String digest(byte[] body) {

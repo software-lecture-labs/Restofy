@@ -76,8 +76,10 @@ final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(staff.get(), null,
-                List.of(new SimpleGrantedAuthority("ROLE_" + staff.get().role().name()))));
+        var authentication = UsernamePasswordAuthenticationToken.authenticated(staff.get(), null,
+                List.of(new SimpleGrantedAuthority("ROLE_" + staff.get().role().name())));
+        authentication.setDetails(new StaffAccessToken(credentials.getFirst()));
+        context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         chain.doFilter(request, response);
     }

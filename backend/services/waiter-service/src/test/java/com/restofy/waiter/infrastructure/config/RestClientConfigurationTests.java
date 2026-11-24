@@ -4,7 +4,10 @@ import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.infrastructure.client.notification.NotificationClient;
 import com.restofy.waiter.infrastructure.client.order.OrderClient;
+import com.restofy.waiter.infrastructure.client.qr.QrCleanRequestDto;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
+import com.restofy.waiter.infrastructure.client.qr.QrCloseRequestDto;
+import com.restofy.waiter.infrastructure.security.StaffAccessToken;
 import com.restofy.waiter.infrastructure.client.qr.WaiterQrRequestSigner;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
@@ -186,6 +189,93 @@ class RestClientConfigurationTests {
                 .parseSignedClaims(credential.substring("Service ".length())).getPayload();
         assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(sent.body().getBytes(StandardCharsets.UTF_8))), claims.get("body_sha256"));
+    }
+
+    @Test
+    void everyQrRouteCarriesItsOwnScopeAndOnlyCommandsCarryTheStaffToken() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair pair = generator.generateKeyPair();
+        Map<String, Object> env = environment();
+        env.put("WAITER_QR_CALLER_KEY_ID", "waiter-key-1");
+        env.put("WAITER_QR_CALLER_PRIVATE_KEY", Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()));
+        env.put("WAITER_QR_CALLER_RESTAURANT_ID", UUID.randomUUID().toString());
+        new FakeBackends().installOn(peer);
+        UUID restaurant = UUID.randomUUID();
+        UUID table = UUID.randomUUID();
+        UUID session = UUID.randomUUID();
+        UUID command = UUID.randomUUID();
+        UUID staff = UUID.randomUUID();
+        String staffToken = "staff.access.token";
+
+        var context = org.springframework.security.core.context.SecurityContextHolder.createEmptyContext();
+        var authentication = org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+                .authenticated(staff, null, List.of());
+        authentication.setDetails(new StaffAccessToken(staffToken));
+        context.setAuthentication(authentication);
+        org.springframework.security.core.context.SecurityContextHolder.setContext(context);
+        try {
+            runner(env).run(qr -> {
+                QrClient client = qr.getBean(QrClient.class);
+                // The stub answers for its own data; only what Waiter sent is under test here.
+                ignoringAnswer(() -> client.listAllTables(restaurant));
+                ignoringAnswer(() -> client.findTable(restaurant, table));
+                ignoringAnswer(() -> client.closeSession(new QrCloseRequestDto(command, restaurant, table, session,
+                        3L, staff, null, java.time.Instant.parse("2026-11-25T10:00:00Z"))));
+                ignoringAnswer(() -> client.closeStatus(restaurant, table, session, command));
+                ignoringAnswer(() -> client.markCleaned(new QrCleanRequestDto(command, restaurant, table, 4L, staff,
+                        java.time.Instant.parse("2026-11-25T10:00:00Z"))));
+                ignoringAnswer(() -> client.cleanStatus(restaurant, table, command));
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+
+        String tables = "/api/v1/internal/tables";
+        String sessionPath = tables + "/" + table + "/sessions/" + session;
+        assertSigned(pair, staffToken, "GET", tables, "qr:table-read", false,
+                tables + "?restaurantId=" + restaurant + "&page=0&size=200");
+        assertSigned(pair, staffToken, "GET", tables + "/" + table, "qr:table-read", false,
+                tables + "/" + table + "?restaurantId=" + restaurant);
+        assertSigned(pair, staffToken, "POST", sessionPath + "/close", "qr:session-close", true,
+                sessionPath + "/close");
+        assertSigned(pair, staffToken, "GET", sessionPath + "/close-commands/" + command, "qr:session-close", true,
+                sessionPath + "/close-commands/" + command + "?restaurantId=" + restaurant);
+        assertSigned(pair, staffToken, "POST", tables + "/" + table + "/cleaned", "qr:table-clean", true,
+                tables + "/" + table + "/cleaned");
+        assertSigned(pair, staffToken, "GET", tables + "/" + table + "/clean-commands/" + command, "qr:table-clean", true,
+                tables + "/" + table + "/clean-commands/" + command + "?restaurantId=" + restaurant);
+    }
+
+    private static void ignoringAnswer(Runnable call) {
+        try {
+            call.run();
+        } catch (RuntimeException _) {
+            // Only the request is inspected; the stub's answer to this synthetic id does not matter.
+        }
+    }
+
+    private void assertSigned(KeyPair pair, String staffToken, String method, String path, String scope,
+                              boolean delegated, String target) throws Exception {
+        DownstreamStub.Request sent = peer.requests().stream()
+                .filter(r -> r.method().equals(method) && r.path().equals(path)).findFirst().orElseThrow();
+        Claims claims = Jwts.parser().verifyWith((RSAPublicKey) pair.getPublic()).build()
+                .parseSignedClaims(sent.header("Authorization").substring("Service ".length())).getPayload();
+        assertEquals(scope, claims.get("scope"), path);
+        assertEquals(method, claims.get("method"), path);
+        assertEquals(target, claims.get("target"), path);
+        assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(sent.body().getBytes(StandardCharsets.UTF_8))), claims.get("body_sha256"), path);
+        assertNull(sent.header("Cookie"));
+        assertNull(sent.header("Origin"));
+        if (delegated) {
+            assertEquals(staffToken, sent.header("X-Staff-Token"), path);
+            assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(staffToken.getBytes(StandardCharsets.UTF_8))), claims.get("staff_token_sha256"), path);
+        } else {
+            assertNull(sent.header("X-Staff-Token"), path);
+            assertNull(claims.get("staff_token_sha256"), path);
+        }
     }
 
     @Test
