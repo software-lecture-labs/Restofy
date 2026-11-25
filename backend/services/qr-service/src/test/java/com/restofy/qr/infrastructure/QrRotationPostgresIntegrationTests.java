@@ -334,7 +334,8 @@ class QrRotationPostgresIntegrationTests extends com.restofy.qr.support.Q5TestSe
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.detail").value("QR code not found."));
         restaurant.set(UUID.randomUUID());
         api.perform(post(path(first.tableId(), first.id())).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
-                .andExpect(status().isNotFound()).andExpect(jsonPath("$.detail").value("Table not found."));
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.detail").value("Table not found."))
+                .andExpect(jsonPath("$.code").doesNotExist());
         when(access.requireRestaurantId()).thenThrow(new AuthenticationCredentialsNotFoundException("test-only-secret"));
         api.perform(post(path(first.tableId(), first.id())).contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.detail").value("Verified management context is required."));

@@ -30,8 +30,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
     }
 
-    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class,
-            InvalidQrCodeException.class, InvalidGuestSessionException.class})
+    /**
+     * One generic guest refusal. The stable {@code code} lets callers (Waiter, Order) recognize it without parsing
+     * {@code detail}; it deliberately does not say why (unknown, expired, closed or another restaurant's guest).
+     */
+    @ExceptionHandler(InvalidGuestSessionException.class)
+    ProblemDetail guestSessionUnavailable(InvalidGuestSessionException exception) {
+        var detail = problem(HttpStatus.NOT_FOUND, exception.getMessage());
+        detail.setProperty("code", InvalidGuestSessionException.CODE);
+        return detail;
+    }
+
+    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class, InvalidQrCodeException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage());
     }

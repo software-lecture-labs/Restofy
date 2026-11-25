@@ -358,9 +358,9 @@ Bu bölüm QR-INT-02 için güncel HTTP sözleşmesidir. ADR-QR-001 K5/K6/K8 uyg
 
 ### Guest doğrulama ve checkout
 
-**POST `/api/v1/internal/qr/guest-sessions/validate`**, JSON `{ "guestToken": "<43 karakter URL-safe opak token>" }`. Başarılı `200` yanıtı `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId`, `state: "ACTIVE"`, `checkedAt` taşır. QR bağlamı token özetinden ve kayıtlarından çözer. Başka restoranın, bilinmeyen, kapalı veya kesin süresi dolmuş guest'in tokenı için aynı 404 döner. Yapısal doğrulama hatası 400. Süre sınırında güncel Order korumasına ihtiyaç var ve kaynak belirsizse 503.
+**POST `/api/v1/internal/qr/guest-sessions/validate`**, JSON `{ "guestToken": "<43 karakter URL-safe opak token>" }`. Başarılı `200` yanıtı `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId`, `state: "ACTIVE"`, `checkedAt` taşır. QR bağlamı token özetinden ve kayıtlarından çözer. Başka restoranın, bilinmeyen, kapalı veya kesin süresi dolmuş guest'in tokenı için aynı 404 döner. Bu 404 sabit `code: "GUEST_SESSION_UNAVAILABLE"` alanı taşır; `detail` metni değişmez ve neden ayırt edilmez. Yapısal doğrulama hatası 400. Süre sınırında güncel Order korumasına ihtiyaç var ve kaynak belirsizse 503.
 
-**GET `/api/v1/internal/qr/table-sessions/{sessionId}/guests/{guestId}/state`**. `200` yanıtı `{ "state": "ACTIVE|EXPIRED|CLOSED", "checkedAt": "<UTC instant>" }`. `CLOSING` ve kullanıma kapalı masa `CLOSED`, kesin süre dolumu `EXPIRED` olarak eşlenir. Bilinmeyen veya yabancı scope 404, süre sınırında eksik Order kanıtı 503. Her iki uç `Cache-Control: no-store` döner ve aktiviteyi yenilemez. Order yalnız `ACTIVE` sonucunda kendi checkout/kapanış gate'ine devam eder. QR yanıtı tekrar kullanılabilir kabul izni vermez.
+**GET `/api/v1/internal/qr/table-sessions/{sessionId}/guests/{guestId}/state`**. `200` yanıtı `{ "state": "ACTIVE|EXPIRED|CLOSED", "checkedAt": "<UTC instant>" }`. `CLOSING` ve kullanıma kapalı masa `CLOSED`, kesin süre dolumu `EXPIRED` olarak eşlenir. Bilinmeyen veya yabancı scope aynı `code: "GUEST_SESSION_UNAVAILABLE"` ile 404, süre sınırında eksik Order kanıtı 503. Her iki uç `Cache-Control: no-store` döner ve aktiviteyi yenilemez. Order yalnız `ACTIVE` sonucunda kendi checkout/kapanış gate'ine devam eder. QR yanıtı tekrar kullanılabilir kabul izni vermez.
 
 ### Sepet aktivitesi teslimi
 
