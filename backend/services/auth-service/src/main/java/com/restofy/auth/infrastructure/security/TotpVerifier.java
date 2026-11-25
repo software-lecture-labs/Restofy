@@ -19,6 +19,7 @@ public class TotpVerifier {
     /** Code used to run the comparison when the supplied value is malformed, so timing does not reveal that. */
     public static final String NO_CODE = "------";
     private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    // RFC 6238 defaults to HMAC-SHA1 and authenticator apps expect it, so it stays; this HMAC is not a password hash.
     private static final String HMAC_ALGORITHM = "HmacSHA1";
     private static final long TIME_STEP_SECONDS = 30;
     private static final int ACCEPTED_STEP_SKEW = 1;
@@ -62,7 +63,7 @@ public class TotpVerifier {
             throw new IllegalArgumentException("Invalid TOTP digits");
         }
         try {
-            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM); // NOSONAR java:S4790 RFC 6238 requires HMAC-SHA1
             mac.init(new SecretKeySpec(secret, HMAC_ALGORITHM));
             byte[] digest = mac.doFinal(ByteBuffer.allocate(Long.BYTES).putLong(counter).array());
             int offset = digest[digest.length - 1] & DYNAMIC_TRUNCATION_MASK;

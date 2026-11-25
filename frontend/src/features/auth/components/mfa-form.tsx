@@ -4,14 +4,14 @@ import { Button } from "@/shared/components/ui/button";
 import { TextField } from "@/shared/components/ui/text-field";
 import { validateMfaCode, type MfaCodeKind } from "../model/mfa-code";
 
-type MfaFormProps = {
+type MfaFormProps = Readonly<{
   onVerify: (code: string) => void | Promise<void>;
   onRecover: (code: string) => void | Promise<void>;
   onBack: () => void;
   pending: boolean;
   /** Already translated message from the server round trip, if any. */
   problem?: string;
-};
+}>;
 
 export function MfaForm({ onVerify, onRecover, onBack, pending, problem }: MfaFormProps) {
   const t = useTranslations("auth.mfa");

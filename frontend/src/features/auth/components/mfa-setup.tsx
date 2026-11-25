@@ -6,13 +6,13 @@ import { validateMfaCode } from "../model/mfa-code";
 import type { MfaEnrollment } from "../model/session";
 import { OtpauthQr } from "./otpauth-qr";
 
-type MfaSetupProps = {
+type MfaSetupProps = Readonly<{
   enrollment: MfaEnrollment;
   onConfirm: (code: string) => void | Promise<void>;
   onBack: () => void;
   pending: boolean;
   problem?: string;
-};
+}>;
 
 /** The secret is shown in groups of four so it is easy to type into an authenticator app by hand. */
 function groupSecret(secret: string): string {

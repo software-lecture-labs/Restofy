@@ -21,6 +21,8 @@ import com.restofy.auth.support.AuthTestDatabaseInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.awaitility.Awaitility;
+import org.awaitility.core.ConditionTimeoutException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,6 +32,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {"auth.bootstrap.dev-users.enabled=false", "auth.bootstrap.initial-admin.enabled=false"})
 @ContextConfiguration(initializers = AuthTestDatabaseInitializer.class)
@@ -82,11 +87,11 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         UUID id = UUID.randomUUID();
         revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
         revocations.recordAcknowledgement(id, acknowledgement(id));
-        var peer = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
+        var peer = mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
         new com.restofy.auth.application.service.revocation.RevocationCoordinator(revocations, peer).deliver(id);
         assertThat(revocations.load(id).status()).isEqualTo("COMPLETED");
         assertThat(users.findById(user).orElseThrow().isActive()).isFalse();
-        org.mockito.Mockito.verifyNoInteractions(peer);
+        verifyNoInteractions(peer);
     }
 
     @Test
@@ -95,11 +100,11 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         UUID id = UUID.randomUUID();
         revocations.prepare(id, restaurant, user, Action.DISABLE, null, null, generation);
         jdbc.update("UPDATE staff_revocation_targets SET deny_until=now()-interval '1 second' WHERE operation_id=?", id);
-        var peer = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
-        org.mockito.Mockito.when(peer.generation()).thenReturn(generation);
-        org.mockito.Mockito.when(peer.challenge(restaurant, generation)).thenThrow(new IllegalStateException("offline"));
-        var settings = org.mockito.Mockito.mock(com.restofy.auth.infrastructure.config.AuthSettings.class);
-        org.mockito.Mockito.when(settings.restaurantId()).thenReturn(restaurant);
+        var peer = mock(com.restofy.auth.infrastructure.client.QrRevocationClient.class);
+        when(peer.generation()).thenReturn(generation);
+        when(peer.challenge(restaurant, generation)).thenThrow(new IllegalStateException("offline"));
+        var settings = mock(com.restofy.auth.infrastructure.config.AuthSettings.class);
+        when(settings.restaurantId()).thenReturn(restaurant);
         var coordinator = new com.restofy.auth.application.service.revocation.RevocationCoordinator(revocations, peer);
         var worker = new com.restofy.auth.application.service.revocation.RevocationRetryWorker(
                 revocations, coordinator, bootstrap, peer, settings);
@@ -182,11 +187,13 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
                 Boolean.class, fresh.session().getId())).isTrue();
         assertThatThrownBy(() -> sessions.deactivate(user, id)).isInstanceOf(ResponseStatusException.class);
         assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
-        assertThatThrownBy(() -> sessions.revokeAllSessions(user, UUID.randomUUID()))
+        UUID unknownKeyBeforeReplay = UUID.randomUUID();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, unknownKeyBeforeReplay))
                 .isInstanceOf(ResponseStatusException.class);
         // A pending later command must not hide the completed result for an older request key.
         assertThatCode(() -> sessions.revokeAllSessions(user, id)).doesNotThrowAnyException();
-        assertThatThrownBy(() -> sessions.revokeAllSessions(user, UUID.randomUUID()))
+        UUID unknownKeyAfterReplay = UUID.randomUUID();
+        assertThatThrownBy(() -> sessions.revokeAllSessions(user, unknownKeyAfterReplay))
                 .isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
                 .isInstanceOf(ResponseStatusException.class);
@@ -234,7 +241,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         for (String column : java.util.List.of("generation", "restaurant_id")) {
             jdbc.update("UPDATE staff_revocation_source_state SET " + column + "=? WHERE singleton=true", other);
             assertThat(bootstrap.active()).isFalse();
-            assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,generation))
+            UUID operationId = UUID.randomUUID();
+            assertThatThrownBy(() -> revocations.prepare(operationId,restaurant,user,Action.ALL,null,null,generation))
                     .isInstanceOf(ResponseStatusException.class);
             assertThatThrownBy(() -> sessions.login("q5@example.com","Q5-test-password-01",null))
                     .isInstanceOf(ResponseStatusException.class);
@@ -247,11 +255,17 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
 
     @Test
     void mismatchedCommandIdentityCannotPoisonTheSharedSource() {
-        assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,UUID.randomUUID()))
+        UUID firstOperationId = UUID.randomUUID();
+        UUID wrongGeneration = UUID.randomUUID();
+        assertThatThrownBy(() -> revocations.prepare(firstOperationId,restaurant,user,Action.ALL,null,null,wrongGeneration))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> revocations.prepare(UUID.randomUUID(),UUID.randomUUID(),user,Action.ALL,null,null,generation))
+        UUID secondOperationId = UUID.randomUUID();
+        UUID wrongRestaurant = UUID.randomUUID();
+        assertThatThrownBy(() -> revocations.prepare(secondOperationId,wrongRestaurant,user,Action.ALL,null,null,generation))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> bootstrap.prepare(restaurant,UUID.randomUUID(),UUID.randomUUID()))
+        UUID baselineGeneration = UUID.randomUUID();
+        UUID baselineNonce = UUID.randomUUID();
+        assertThatThrownBy(() -> bootstrap.prepare(restaurant,baselineGeneration,baselineNonce))
                 .isInstanceOf(ResponseStatusException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_revocation_operations",Long.class)).isZero();
         assertThat(bootstrap.active()).isTrue();
@@ -262,8 +276,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         sessions.login("q5@example.com", "Q5-test-password-01", null);
         UUID id = UUID.randomUUID();
         revocations.prepare(id,restaurant,user,Action.ALL,null,null,generation);
-        assertThatThrownBy(() -> revocations.recordAcknowledgement(id,
-                acknowledgement(id, builder -> builder.expiration(Date.from(Instant.now().plusSeconds(60))))))
+        String longLivedAcknowledgement = acknowledgement(id, builder -> builder.expiration(Date.from(Instant.now().plusSeconds(60))));
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(id, longLivedAcknowledgement))
                 .isInstanceOf(ResponseStatusException.class);
         assertThat(revocations.load(id).status()).isEqualTo("PREPARED");
         assertThatThrownBy(() -> revocations.finalizeOperation(id)).isInstanceOf(ResponseStatusException.class);
@@ -364,7 +378,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         sessions.login("q5@example.com", "Q5-test-password-01", null);
         makeSourceInactive(mode);
 
-        sessions.revokeForPasswordReset(user, UUID.randomUUID());
+        sessions.revokeForPasswordReset(user);
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Long.class)).isZero();
@@ -377,7 +391,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         revocations.prepare(UUID.randomUUID(), restaurant, user, Action.DISABLE, null, null, generation);
         makeSourceInactive("CLOSED");
 
-        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user, UUID.randomUUID()))
+        assertThatThrownBy(() -> sessions.revokeForPasswordReset(user))
                 .isInstanceOf(com.restofy.auth.application.service.revocation.RevocationPendingException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Long.class)).isEqualTo(1);
     }
@@ -446,12 +460,13 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
                 .withProperty("auth.bootstrap.environment","prod");
         environment.setActiveProfiles("dev");
         var operation=revocations.prepare(UUID.randomUUID(),restaurant,user,Action.ALL,null,null,generation);
-        try {
-            assertThatThrownBy(() -> new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,java.time.Clock.systemUTC()))
+        var utc=java.time.Clock.systemUTC();
+        try (var _ = (AutoCloseable) () -> server.stop(0)) {
+            assertThatThrownBy(() -> new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,utc))
                     .isInstanceOf(IllegalStateException.class);
             assertThat(calls.get()).isZero();
             environment.withProperty("auth.bootstrap.environment","dev"); environment.setActiveProfiles("prod");
-            assertThatThrownBy(() -> new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,java.time.Clock.systemUTC()))
+            assertThatThrownBy(() -> new com.restofy.auth.infrastructure.client.QrRevocationClient(environment,utc))
                     .isInstanceOf(IllegalStateException.class);
             assertThat(calls.get()).isZero();
             environment.setActiveProfiles("dev");
@@ -460,13 +475,13 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
             }
             assertThat(calls.get()).isEqualTo(1);
             assertThat(revocations.load(operation.id()).status()).isEqualTo("PREPARED");
-        } finally { server.stop(0); }
+        }
     }
 
     @Test
     void localFirstDeliveryCompletesWhenEveryTargetTokenHasExpired() {
         var grant = sessions.login("q5@example.com","Q5-test-password-01",null);
-        sessions.revokeForPasswordReset(user,UUID.randomUUID());
+        sessions.revokeForPasswordReset(user);
         UUID id=jdbc.queryForObject("SELECT id FROM staff_revocation_operations WHERE user_id=?",UUID.class,user);
         assertThat(revocations.load(id).localAppliedAt()).isNotNull();
         assertThat(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?",
@@ -487,7 +502,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> bootstrap.finish(baseline,"forged")).isInstanceOf(ResponseStatusException.class);
         var altered=new com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Baseline(
                 baseline.operationId(),baseline.restaurantId(),baseline.generation(),baseline.nonce(),java.util.List.of());
-        assertThatThrownBy(() -> bootstrap.finish(altered,baselineAcknowledgement(altered))).isInstanceOf(ResponseStatusException.class);
+        String alteredAcknowledgement=baselineAcknowledgement(altered);
+        assertThatThrownBy(() -> bootstrap.finish(altered,alteredAcknowledgement)).isInstanceOf(ResponseStatusException.class);
         assertThat(bootstrap.active()).isFalse();
         bootstrap.finish(baseline,baselineAcknowledgement(baseline));
         assertThat(bootstrap.active()).isTrue();
@@ -524,8 +540,9 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
     @Test
     void localFirstOutboxRollsBackWithItsProtectedMutation() {
         var grant = sessions.login("q5@example.com", "Q5-test-password-01", null);
-        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
-            sessions.revokeForPasswordReset(user, UUID.randomUUID());
+        var rollbackTemplate = new TransactionTemplate(transactions);
+        assertThatThrownBy(() -> rollbackTemplate.executeWithoutResult(status -> {
+            sessions.revokeForPasswordReset(user);
             jdbc.update("UPDATE staff_users SET is_active=false WHERE id=?", user);
             throw new IllegalStateException("Protected mutation failed");
         })).isInstanceOf(IllegalStateException.class);
@@ -546,7 +563,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         try {
             assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
                 jdbc.update("UPDATE staff_users SET is_active=false WHERE id=?", user);
-                sessions.revokeForPasswordReset(user, UUID.randomUUID());
+                sessions.revokeForPasswordReset(user);
             })).isInstanceOf(org.springframework.dao.DataAccessException.class);
         } finally {
             jdbc.execute("DROP TRIGGER q5_test_reject_outbox ON staff_revocation_operations; DROP FUNCTION q5_test_reject_outbox()");
@@ -570,11 +587,11 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> revocations.recordAcknowledgement(operation, "forged"))
                 .isInstanceOf(ResponseStatusException.class);
         assertThat(revocations.load(operation).status()).isEqualTo("PREPARED");
-        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation,
-                acknowledgement(operation,builder -> builder.claim("manifest","0".repeat(64)))))
+        String wrongManifestAcknowledgement = acknowledgement(operation,builder -> builder.claim("manifest","0".repeat(64)));
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation, wrongManifestAcknowledgement))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation,
-                acknowledgement(operation,builder -> builder.claim("scope","staff:read"))))
+        String wrongScopeAcknowledgement = acknowledgement(operation,builder -> builder.claim("scope","staff:read"));
+        assertThatThrownBy(() -> revocations.recordAcknowledgement(operation, wrongScopeAcknowledgement))
                 .isInstanceOf(ResponseStatusException.class);
         assertThat(revocations.load(operation).status()).isEqualTo("PREPARED");
         revocations.recordAcknowledgement(operation, acknowledgement(operation));
@@ -601,7 +618,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         })).isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> sessions.login("q5@example.com", "Q5-test-password-01", null))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> sessions.refresh(grant.refresh())).isInstanceOf(ResponseStatusException.class);
+        String refreshToken = grant.refresh();
+        assertThatThrownBy(() -> sessions.refresh(refreshToken)).isInstanceOf(ResponseStatusException.class);
         revocations.recordAcknowledgement(id, acknowledgement(id));
         revocations.finalizeOperation(id);
         tx.executeWithoutResult(status -> revocations.assertIssuanceAllowed(user));
@@ -612,7 +630,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         jdbc.update("UPDATE staff_users SET role='ADMIN' WHERE id=?", user);
         var pending = sessions.login("q5@example.com", "Q5-test-password-01", null);
         revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
-        assertThatThrownBy(() -> sessions.completeMfa(jwt.verify(pending.access(), true)))
+        var pendingIdentity = jwt.verify(pending.access(), true);
+        assertThatThrownBy(() -> sessions.completeMfa(pendingIdentity))
                 .isInstanceOf(ResponseStatusException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens", Long.class)).isZero();
     }
@@ -644,8 +663,8 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> revocations.finalizeOperation(id)).isInstanceOf(ResponseStatusException.class);
         assertThat(revocations.load(id).status()).isEqualTo("ACKNOWLEDGED");
         assertThat(users.findById(user).orElseThrow().isActive()).isTrue();
-        assertThatThrownBy(() -> new TransactionTemplate(transactions)
-                .executeWithoutResult(status -> revocations.assertIssuanceAllowed(user)))
+        var issuanceTemplate = new TransactionTemplate(transactions);
+        assertThatThrownBy(() -> issuanceTemplate.executeWithoutResult(status -> revocations.assertIssuanceAllowed(user)))
                 .isInstanceOf(ResponseStatusException.class);
     }
 
@@ -725,13 +744,13 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
     }
 
-    private void awaitBlockedOn(int blockerPid) throws InterruptedException {
-        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
-        do {
-            if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE ? = ANY(pg_blocking_pids(a.pid)))",Boolean.class,blockerPid))) return;
-            Thread.sleep(20);
-        } while (System.nanoTime()<deadline);
-        throw new AssertionError("Expected real PostgreSQL lock contention was not observed");
+    private void awaitBlockedOn(int blockerPid) {
+        try {
+            Awaitility.await().atMost(5,TimeUnit.SECONDS).pollInterval(20,TimeUnit.MILLISECONDS)
+                    .until(() -> Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE ? = ANY(pg_blocking_pids(a.pid)))",Boolean.class,blockerPid)));
+        } catch (ConditionTimeoutException timeout) {
+            throw new AssertionError("Expected real PostgreSQL lock contention was not observed", timeout);
+        }
     }
 
     @Test
@@ -791,7 +810,7 @@ class RevocationTransactionsTests extends AuthSessionTestSupport {
         try {
             revocations.prepare(UUID.randomUUID(), restaurant, user, Action.ALL, null, null, generation);
             return 1;
-        } catch (ResponseStatusException expectedConflict) {
+        } catch (ResponseStatusException _) {
             return 0;
         }
     }

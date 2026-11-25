@@ -198,7 +198,8 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
             try { sessions.refresh(other.refresh()); return true; }
             catch (BadCredentialsException _) { return false; }
         });
-        assertThatThrownBy(() -> sessions.refresh(other.refresh())).isInstanceOf(BadCredentialsException.class);
+        String otherRefresh = other.refresh();
+        assertThatThrownBy(() -> sessions.refresh(otherRefresh)).isInstanceOf(BadCredentialsException.class);
         assertThat(sessions.authenticate(owner).getRevokedAt()).isNull();
     }
 

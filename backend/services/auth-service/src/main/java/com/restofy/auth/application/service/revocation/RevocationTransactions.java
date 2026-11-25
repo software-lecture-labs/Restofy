@@ -76,26 +76,7 @@ public class RevocationTransactions {
         var identity = jdbc.query("SELECT version FROM staff_users WHERE id=? FOR UPDATE",
                 (rs, index) -> rs.getLong(1), user);
         if (identity.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        if (selected != null && !Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id=? AND staff_user_id=?)",
-                Boolean.class, selected, user))) return null;
-        if (selected != null && Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?", Boolean.class, selected))) return null;
-
-        var strict = jdbc.query("""
-                SELECT id FROM staff_revocation_operations
-                WHERE user_id=? AND completion_policy='ACK_REQUIRED' AND status <> 'COMPLETED'
-                """, (rs, index) -> rs.getObject(1, UUID.class), user);
-        if (!strict.isEmpty()) {
-            boolean covered = selected != null && Boolean.TRUE.equals(jdbc.queryForObject("""
-                    SELECT EXISTS(SELECT 1 FROM staff_revocation_targets WHERE operation_id=? AND session_id=?)
-                    """, Boolean.class, strict.getFirst(), selected));
-            if (!singleSession) throw new RevocationPendingException();
-            if (covered) {
-                revokeSession(selected, Timestamp.from(clock.instant()));
-                return null;
-            }
-        }
+        if (nothingToRevoke(user, selected) || handledByStrictOperation(user, selected, singleSession)) return null;
 
         if (!sourceActive) {
             revokeLocallyWithoutOutbox(user, selected);
@@ -109,11 +90,44 @@ public class RevocationTransactions {
                     """, (rs, index) -> rs.getObject(1, UUID.class), user, selected);
             if (!duplicate.isEmpty()) {
                 revokeSession(selected, Timestamp.from(clock.instant()));
-                return load(duplicate.getFirst());
+                return loadOperation(duplicate.getFirst());
             }
         }
-        return prepareCore(UUID.randomUUID(), restaurant, user, action, selected, null, generation,
-                Policy.LOCAL_FIRST);
+        return prepareCore(new Preparation(UUID.randomUUID(), restaurant, user, action, selected, null, generation,
+                Policy.LOCAL_FIRST));
+    }
+
+    /** The selected session is not this user's, or is already revoked. */
+    private boolean nothingToRevoke(UUID user, UUID selected) {
+        if (selected == null) return false;
+        if (!Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id=? AND staff_user_id=?)",
+                Boolean.class, selected, user))) return true;
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT revoked_at IS NOT NULL FROM user_sessions WHERE id=?", Boolean.class, selected));
+    }
+
+    /**
+     * A strict (ACK_REQUIRED) operation is still open for this user. Only a single-session revocation may proceed,
+     * and when that operation already targets the session it is revoked here and nothing new is recorded.
+     *
+     * @return {@code true} when the session was revoked locally and the caller has nothing more to do
+     */
+    private boolean handledByStrictOperation(UUID user, UUID selected, boolean singleSession) {
+        var strict = jdbc.query("""
+                SELECT id FROM staff_revocation_operations
+                WHERE user_id=? AND completion_policy='ACK_REQUIRED' AND status <> 'COMPLETED'
+                """, (rs, index) -> rs.getObject(1, UUID.class), user);
+        if (strict.isEmpty()) return false;
+        boolean covered = selected != null && Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM staff_revocation_targets WHERE operation_id=? AND session_id=?)
+                """, Boolean.class, strict.getFirst(), selected));
+        if (!singleSession) throw new RevocationPendingException();
+        if (covered) {
+            revokeSession(selected, Timestamp.from(clock.instant()));
+            return true;
+        }
+        return false;
     }
 
     /** Non-throwing probe of the source barrier. Identity/configuration mismatches still fail loudly with 503. */
@@ -121,7 +135,7 @@ public class RevocationTransactions {
         try {
             bootstrap.requireActive();
             return true;
-        } catch (RevocationPendingException inactive) {
+        } catch (RevocationPendingException _) {
             return false;
         }
     }
@@ -144,8 +158,8 @@ public class RevocationTransactions {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Operation prepare(UUID operationId, UUID restaurantId, UUID userId, Action action,
             UUID selectedSessionId, StaffRole targetRole, UUID consumerGeneration) {
-        return prepareCore(operationId, restaurantId, userId, action, selectedSessionId, targetRole,
-                consumerGeneration, Policy.ACK_REQUIRED);
+        return prepareCore(new Preparation(operationId, restaurantId, userId, action, selectedSessionId, targetRole,
+                consumerGeneration, Policy.ACK_REQUIRED));
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -166,18 +180,26 @@ public class RevocationTransactions {
                       (SELECT 1 FROM staff_revocation_targets t WHERE t.operation_id=o.id AND t.session_id=s.id))
                 ORDER BY o.revision DESC LIMIT 1
                 """, (rs, row) -> rs.getObject(1, UUID.class), user, restaurant, generation, action.name(), selected);
-        return prepareLocked(previous.isEmpty() ? UUID.randomUUID() : previous.getFirst(),
-                restaurant, user, action, selected, generation);
+        return prepareCore(new Preparation(previous.isEmpty() ? UUID.randomUUID() : previous.getFirst(),
+                restaurant, user, action, selected, null, generation, Policy.ACK_REQUIRED));
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public Operation prepareLocked(UUID operationId, UUID restaurant, UUID user, Action action,
             UUID selected, UUID generation) {
-        return prepareCore(operationId, restaurant, user, action, selected, null, generation, Policy.ACK_REQUIRED);
+        return prepareCore(new Preparation(operationId, restaurant, user, action, selected, null, generation,
+                Policy.ACK_REQUIRED));
     }
 
-    private Operation prepareCore(UUID operationId, UUID restaurantId, UUID userId, Action action,
-            UUID selectedSessionId, StaffRole targetRole, UUID consumerGeneration, Policy policy) {
+    private Operation prepareCore(Preparation request) {
+        UUID operationId = request.operationId();
+        UUID restaurantId = request.restaurantId();
+        UUID userId = request.userId();
+        Action action = request.action();
+        UUID selectedSessionId = request.selectedSessionId();
+        StaffRole targetRole = request.targetRole();
+        UUID consumerGeneration = request.consumerGeneration();
+        Policy policy = request.policy();
         bootstrap.requireActive(restaurantId, consumerGeneration);
         if (operationId == null || restaurantId == null || userId == null || action == null
                 || consumerGeneration == null || ((action == Action.ROLE) != (targetRole != null))
@@ -198,7 +220,7 @@ public class RevocationTransactions {
             }
             return existing;
         }
-        if (policy == Policy.ACK_REQUIRED) assertIssuanceAllowed(userId);
+        if (policy == Policy.ACK_REQUIRED) rejectWhileTransitionPending(userId);
         if (selectedSessionId != null && !Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id = ? AND staff_user_id = ?)",
                 Boolean.class, selectedSessionId, userId))) {
@@ -245,6 +267,10 @@ public class RevocationTransactions {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void assertIssuanceAllowed(UUID userId) {
+        rejectWhileTransitionPending(userId);
+    }
+
+    private void rejectWhileTransitionPending(UUID userId) {
         bootstrap.requireActive();
         if (Boolean.TRUE.equals(jdbc.queryForObject("""
                 SELECT EXISTS(SELECT 1 FROM staff_revocation_operations WHERE user_id = ?
@@ -281,6 +307,10 @@ public class RevocationTransactions {
 
     @Transactional(readOnly = true)
     public Operation load(UUID id) {
+        return loadOperation(id);
+    }
+
+    private Operation loadOperation(UUID id) {
         return find(id).stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
@@ -297,7 +327,7 @@ public class RevocationTransactions {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordAcknowledgement(UUID id, String signedReceipt) {
         bootstrap.requireActive();
-        Operation operation = load(id);
+        Operation operation = loadOperation(id);
         bootstrap.requireActive(operation.restaurantId(), operation.consumerGeneration());
         receipts.verify(signedReceipt, operation);
         int changed = jdbc.update("""
@@ -305,7 +335,7 @@ public class RevocationTransactions {
                 WHERE id = ? AND consumer_generation = ? AND status = 'PREPARED'
                 """, id, operation.consumerGeneration());
         if (changed == 0) {
-            Operation existing = load(id);
+            Operation existing = loadOperation(id);
             if (!existing.consumerGeneration().equals(operation.consumerGeneration())) throw new ResponseStatusException(HttpStatus.CONFLICT);
         }
     }
@@ -318,7 +348,7 @@ public class RevocationTransactions {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean finalizeExpiredTargets(UUID id) {
         bootstrap.requireActive();
-        Operation operation = load(id);
+        Operation operation = loadOperation(id);
         Instant deadline = operation.targets().stream().map(Target::denyUntil).max(Instant::compareTo).orElse(null);
         if (deadline != null && clock.instant().isBefore(deadline)) return false;
         completeCore(id, operation.targets().isEmpty() ? Outcome.NO_TARGETS : Outcome.TARGETS_EXPIRED);
@@ -327,10 +357,10 @@ public class RevocationTransactions {
 
     private void completeCore(UUID id, Outcome outcome) {
         bootstrap.requireActive();
-        Operation first = load(id);
+        Operation first = loadOperation(id);
         var versions = jdbc.query("SELECT version FROM staff_users WHERE id = ? FOR UPDATE",
                 (rs, row) -> rs.getLong(1), first.userId());
-        Operation operation = load(id);
+        Operation operation = loadOperation(id);
         if (operation.status().equals("COMPLETED")) return;
         bootstrap.requireActive(operation.restaurantId(), operation.consumerGeneration());
         if (outcome == Outcome.ACKNOWLEDGED && !operation.status().equals("ACKNOWLEDGED")) {
@@ -395,6 +425,8 @@ public class RevocationTransactions {
     public enum Action { SESSION, ALL, OTHERS, DISABLE, ROLE }
     public enum Policy { LOCAL_FIRST, ACK_REQUIRED }
     public enum Outcome { ACKNOWLEDGED, TARGETS_EXPIRED, NO_TARGETS }
+    private record Preparation(UUID operationId, UUID restaurantId, UUID userId, Action action,
+            UUID selectedSessionId, StaffRole targetRole, UUID consumerGeneration, Policy policy) { }
     public record QueueStats(long pending, long oldestSeconds) { }
     public record Target(UUID sessionId, Instant denyUntil) { }
     public record Operation(UUID id, UUID restaurantId, UUID userId, long revision, Action action,

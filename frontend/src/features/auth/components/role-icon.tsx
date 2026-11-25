@@ -6,7 +6,7 @@ const PATHS: Record<StaffRole, string[]> = {
   KITCHEN: ["M7 13.3A4 4 0 0 1 8 5.5 4.5 4.5 0 0 1 16 5a4 4 0 0 1 1 8.3V19H7z", "M7 16h10"],
 };
 
-type RoleIconProps = { role: StaffRole; className?: string };
+type RoleIconProps = Readonly<{ role: StaffRole; className?: string }>;
 
 export function RoleIcon({ role, className }: RoleIconProps) {
   return (

@@ -5,7 +5,8 @@ export type LoginValues = { email: string; password: string };
 export type LoginErrorKey = "emailRequired" | "emailInvalid" | "passwordRequired";
 export type LoginErrors = Partial<Record<keyof LoginValues, LoginErrorKey>>;
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Domain labels exclude the dot, so the pattern cannot backtrack over where one label ends and the next starts. */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export function validateEmail(value: string): "emailRequired" | "emailInvalid" | undefined {
   const email = value.trim();

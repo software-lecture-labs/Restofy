@@ -3,7 +3,7 @@ import Image from "next/image";
 const LOGO_WIDTH = 1598;
 const LOGO_HEIGHT = 513;
 
-type RestofyLogoProps = { className?: string };
+type RestofyLogoProps = Readonly<{ className?: string }>;
 
 /** Both logo variants are rendered; the theme tokens show the one that suits the active theme. */
 export function RestofyLogo({ className = "" }: RestofyLogoProps) {
