@@ -90,6 +90,11 @@ public class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
+    // Cookie presence selects the guest flow. This filter still validates the cookie and rejects invalid credentials.
+    static boolean hasGuestCookieOnGuestRoute(HttpServletRequest request) {
+        return guestRoute(request) && cookies(request, SESSION_COOKIE).length > 0;
+    }
+
     static boolean guestRoute(HttpServletRequest request) {
         String path = request.getRequestURI();
         if (path.startsWith("/api/v1/carts/")) {

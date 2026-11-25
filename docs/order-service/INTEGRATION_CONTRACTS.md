@@ -17,22 +17,32 @@
 
 Başka servisin veritabanına erişim, ortak JPA entity veya fiziksel FK yoktur. `restaurant_id`, `table_*`, `guest_*` değerleri mantıksal referanstır. Tüm parasal tutarlar `bigint` minor birimdir, fiyatlar KDV dahil brüttür, KDV/net satır başına `ROUND_HALF_UP` ile ayrıştırılır (D-08'in yalnız saklama biçimi kısmı).
 
-## 2. Kimlik ve yetki — geçici sözleşme (D-09)
+## 2. Kimlik ve yetki (D-09)
 
-Order üç kimlik türünü, her biri kendi portu üzerinden doğrular. İstemci başlıkları (`X-Role`, `X-User-Id`, `X-Restaurant-Id`) hiçbir türde yetki kaynağı değildir; çerez okunmaz, CSRF kapalıdır çünkü tarayıcının otomatik eklediği bir kimlik bilgisi kullanılmaz.
+Order üç kimlik türünü, her biri kendi portu üzerinden doğrular. `X-Role`, `X-User-Id` ve `X-Restaurant-Id` yetki kaynağı değildir. `order-auth` profilinde personel çerezle doğrulanır ve çerezle yapılan yazma isteklerine Origin ve CSRF kontrolü uygulanır.
 
-| Tür | Başlık | Doğrulayan port | Not |
+| Tür | Kimlik bilgisi | Doğrulayan port | Not |
 |---|---|---|---|
 | Misafir | `restofy_guest` HttpOnly cookie | `QrSessionPort` | Restoran, masa, guest ve oturum durumu QR'dan gelir |
-| Personel | `Authorization: Staff <opak kimlik>` | `AuthContextPort` | Roller `ADMIN`, `WAITER`, `KITCHEN`; aktif restoran doğrulanmış kimlikten alınır |
+| Personel | `restofy_access` çerezi (`order-auth`); `order-auth` kapalıyken `Authorization: Staff <opak kimlik>` | `AuthContextPort` | `order-auth` profili. Roller `ADMIN`, `WAITER`, `KITCHEN`. Restoran ve kullanıcı doğrulanmış Auth JWT'sinden alınır |
 | Servis | `Authorization: Service <credential>` | `ServiceIdentityPort` | `KITCHEN`, `PAYMENT`, `QR`; yalnız `/api/v1/internal/**` |
 
+- `order-auth` kapalıyken personel için `Authorization: Staff <opak kimlik>` geliştirme/test sözleşmesidir. Gerçek Auth adaptörü ve mock personel adaptörü aynı profilde yüklenmez.
 - `order-qr` profili gelen QR lifecycle çağrılarının RS256 doğrulayıcısını, Order → QR HTTP adaptörünü ve QR sepet aktivitesi dispatcher'ını yükler. Bu profil `dev` veya `test` ile birlikte başlatılamaz. Gerçek Auth personel ve Menu katalog bağlantıları bu kapsamın dışındadır. `dev`, `test` veya `order-qr` dışındaki profillerde QR ve servis kimliği adaptörleri erişimi güvenli biçimde reddeder.
 - Order, QR'ın ürettiği `restofy_guest` cookie'sinden tek bir 43 karakterli opak token okur ve her guest isteğinde ACTIVE bağlamı QR'dan doğrulatır. Guest yazma işlemleri tam olarak bir izinli `Origin`, tek `restofy_guest_csrf` cookie'si ve aynı değerde tek `X-Guest-CSRF` header'ı gerektirir. Order, Origin'i `CORS_ALLOWED_ORIGINS` ile karşılaştırır. Personel ve iç servis kimliği ayrı kalır. Guest Bearer istekleri reddedilir.
 - Salt okunur GET ve HEAD için CSRF kanıtı aranmaz. Birden fazla veya birleştirilmiş `Authorization` değeri kimlik doğrulamasından önce `400 INVALID_REQUEST` alır. `401` challenge'ı ilgili akışa göre `GuestSession`, `Staff` veya `Service` adını taşır. `GuestSession` challenge'ı cookie sözleşmesini belirtir.
 - **`dev` profili kimlik doğrulama yapmaz.** Sabit yer tutucu misafir, personel (ADMIN dahil) ve servis kimlikleri, API Gateway üzerinden gelen isteklerde de kabul edilir. Bu yüzden `dev` profili yalnızca yerel makinede kullanılmalı, paylaşılan veya erişilebilir bir sunucuda çalıştırılmamalıdır. Servis `dev` profiliyle açıldığında günlüğe tek ve belirgin bir uyarı bloğu yazılır (kimlik bilgilerini yazmaz, `dev` dışında üretilmez).
-- **Açık karar:** Personel kimliğinin taşınma biçimi (`Staff` başlığı mı, Auth'un `HttpOnly` çerezi mi) Auth sahibiyle netleşecek. Çerez seçilirse Order'ın CSRF/Origin korumasını da üstlenmesi gerekir.
+- Hedef servis kimliği yöntemi (kısa ömürlü imzalı token) yalnız QR → Order çağrıları için uygulandı (`order-qr`). Kitchen ve Payment için SECURITY.md'de tarif edilen yöntem **UYGULANMADI**.
 - QR → Order credential üretimi ve dağıtım işi için [QR entegrasyon talebine](QR-REQUESTS-01.md) bakın.
+
+### 2.1 Auth personel oturumu
+
+- Order önce `restofy_access` JWT'sini Auth açık anahtarıyla yerelde doğrular. RS256, yapılandırılmış issuer, `restofy-staff-api` audience, geçerlilik süresi, UUID kimlikleri ve `q5-idle-v1` access politikası denetlenir. `iat` ile `nbf` aynı olmalı ve Order saatinden en fazla üç saniye ileride olabilir. Token ve oturum bitiş süreleri katı olarak uygulanır. Yalnız `AUTHENTICATED` access tokenı personel kimliği üretir.
+- Order ardından Auth'un mevcut `GET /api/v1/auth/session` uç noktasına yalnız access çerezini gönderir. Güncel oturum durumu, rol ve süreler her personel isteğinde doğrulanır. Oturum sorgusu personel aktivitesi kaydetmez ve sonuç önbelleğe alınmaz. Geçersiz veya iptal edilmiş oturum `401`, Auth erişim hatası veya doğrulanamayan yanıt `503` döndürür.
+- Personel yazma işlemlerinde `CORS_ALLOWED_ORIGINS` listesinden tek bir `Origin`, süresi geçmemiş tek bir `restofy_csrf` çerezi ve aynı değerde tek `X-CSRF-TOKEN` başlığı gerekir. Order çerezdeki bitiş zamanını kontrol eder ve çerez ile başlığı karşılaştırır. Auth'un refresh bilgisine bağlı CSRF imzası Auth'ta kalır. Tarayıcı başlık değerini Auth'un mevcut `GET /api/v1/auth/csrf` yanıtındaki `token` alanından alabilir.
+- CORS, yalnız personel erişimine izin verilen mevcut rota ve yöntemlerde izinli origin'lere credential'lı tarayıcı isteklerini açar. Preflight bir iş işlemi yapmaz ve Auth'a oturum sorgusu göndermez.
+- Auth doğrulaması yalnız personel erişimine izin verilen Order rotalarında çalışır. Ortak rotalarda `Authorization` başlığı yoksa ve `restofy_guest` çerezi varsa misafir akışı seçilir. Örneğin misafir iptal isteğinde misafir CSRF kanıtı, Origin ve QR oturumu doğrulanır. Geçersiz misafir çerezi isteği reddettirir. Yalnız personele açık rotalarda personel çerezi ve yazma işlemleri için personel CSRF kanıtı kullanılır. Order'ın mevcut rol, restoran ve sipariş sahipliği kontrolleri uygulanır.
+- Compose'da yalnız `order-service` için `SPRING_PROFILES_ACTIVE=order-auth` ve Auth'un TLS sertifikasına uyan HTTPS `AUTH_SERVICE_URL` kullanın. `ORDER_AUTH_STAFF_PUBLIC_KEY` değeri Auth personel JWT anahtarının Base64 X.509 açık anahtarıdır. `JWT_ISSUER` ve `JWT_ACCESS_TTL_SECONDS` Auth ile uyumlu olmalıdır. `order-auth`, Order'ın `dev`, `test` veya `local` profiliyle birlikte açılamaz.
 
 ## 3. Uç noktalar
 
@@ -58,11 +68,13 @@ Gateway yalnızca `/api/v1/orders` ve `/api/v1/carts` yollarını yönlendirir. 
 
 Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızdırılmaz); rol yetmiyorsa 403, kimlik yoksa 401.
 
-**Waiter sipariş araması (WAITER-01).** `POST /api/v1/orders/search` salt okunur ve mevcut `Authorization: Staff <opak kimlik>` sözleşmesini kullanır. Bu dalda personel kimliği `dev` ve `test` profillerindeki adaptörle çözümlenir. İsteğe bağlı alanlar `tableSessionIds` (verilirse 1–500 UUID), `tableId`, `view`, `fulfillmentStatuses`, `paymentStatus`, `page`, `limit` ve `sort`. Masa ve oturum filtreleri birlikte verilirse ikisi de uygulanır. Yabancı veya bilinmeyen oturumlar eşleşme üretmez. Gövdede `restaurantId` ve bozuk UUID `400`, sınır dışı değerler ve `view` ile `fulfillmentStatuses` birlikteliği `422` döner.
+**Waiter sipariş araması (WAITER-01).** `POST /api/v1/orders/search` salt okunur. İsteğe bağlı alanlar `tableSessionIds` (verilirse 1–500 UUID), `tableId`, `view`, `fulfillmentStatuses`, `paymentStatus`, `page`, `limit` ve `sort`. Masa ve oturum filtreleri birlikte verilirse ikisi de uygulanır. Yabancı veya bilinmeyen oturumlar eşleşme üretmez. Gövdede `restaurantId` ve bozuk UUID `400`, sınır dışı değerler ve `view` ile `fulfillmentStatuses` birlikteliği `422` döner.
+
+Waiter, arama ve `POST /api/v1/orders/session-summaries` çağrılarını HTTPS üzerinden, `order:read` kapsamlı RS256 servis JWT’si ve `X-Restofy-Staff-Delegation` ile yapar. İmza yönteme, ham hedefe, gönderilen gövdeye ve personel erişim JWT’sine bağlıdır. Order, personel oturumunu ve onun `WAITER` veya `ADMIN` rolünü doğrular ve restoranı bu oturumdan alır. `order:read` yalnızca bu iki POST için geçerlidir. Personel çereziyle gelen doğrudan çağrılar mevcut Origin ve CSRF denetiminden geçer.
 
 Hazır sipariş kuyruğu için `{"fulfillmentStatuses":["READY"],"limit":100}`, geçmiş ekranı için `{"fulfillmentStatuses":["READY","SERVED","COMPLETED"]}` kullanılabilir. İki filtre de verilmediğinde `active` görünümü geçerlidir. Filtreleme sayfalamadan önce uygulanır. Yanıt `GET /api/v1/orders` ile aynı alanları taşır: `items`, `page` (0 tabanlı), `limit` (1–100, varsayılan 20), `totalItems` (filtrelenmiş toplam), `totalPages` ve `view` (açık durum listesi seçildiğinde `null`). Sıralama `placedAt,desc` (varsayılan) veya `placedAt,asc` ile yapılır, eşit zamanlarda sipariş kimliği aynı yönde sıralanır.
 
-Komut öncesi güncel sipariş ve `version` için `GET /api/v1/orders/{id}`, iptal kayıtları için `GET /api/v1/orders/{id}/cancellations` kullanılır. Her ikisi de aynı kimlikten restoran kapsamını alır. Başka restoranın siparişi `404` döner.
+Liste, arama ve detay yanıtları siparişin `version` değerini taşır. Siparişin durum geçmişinde `SERVED` geçişi varsa `servedAt` ilk geçişin zamanını taşır ve `COMPLETED` durumunda da korunur. Servis kaydı bulunmadığında JSON alanı gönderilmez. Kalemler `GET /api/v1/orders/{id}`, iptal kayıtları `GET /api/v1/orders/{id}/cancellations` üzerinden okunur. Her ikisi de aynı kimlikten restoran kapsamını alır. Başka restoranın siparişi `404` döner.
 
 ### 3.2 Servisten servise (UYGULANDI, DOĞRULANMADI)
 
@@ -100,7 +112,8 @@ servis edilebilir. READY ve sonrasına ilişkin mevcut iptal kuralları geçerli
   `ORDER_CANCELLED` ve `ORDER_ALREADY_SERVED`. Aynı restoranda aynı komut kimliğinin farklı içerikle
   kullanılması `409 ORDER_COMMAND_CONFLICT` döndürür ve ilk sonucu değiştirmez.
 - GET, `commandId`, `orderId`, `tableSessionId`, `orderVersion`, `decidedAt` ve `status` alanlarını
-  döndürür. `APPLIED` için `servedAt`, `REJECTED` için `rejectionCode` bulunur. Kayıt yoksa veya başka
+  döndürür. `APPLIED` için `servedAt`, `REJECTED` için `rejectionCode` bulunur. `ORDER_SESSION_MISMATCH`
+  reddinde `tableSessionId` gönderilmez. Kayıt yoksa veya başka
   sipariş/restorana aitse `404` döner. `404` bir işlemin hiç uygulanmadığının kanıtı sayılmaz.
   Komut kaydının otomatik silinmesi bu sürümde yapılandırılmamıştır.
 
@@ -319,8 +332,9 @@ Order, V41–V50 zincirini ve onaylı V131 ek sürümünü kullanır. V50, payla
 ## 9. Açık işler
 
 - Ortak tarayıcı akışı, QR entegrasyon ve guest-cookie dallarının birleşmesine ve QR rate limit kapısına bağlı. Tarayıcı sayfası `/api/v1` dışında çalışıyorsa bu path'e bağlı CSRF cookie'si sayfanın JavaScript'inden okunamaz. QR, Gateway ve frontend için ortak çözüm ayrıca kararlaştırılacak.
-- Personel kimliği taşıma biçimi (Auth ile).
+- Kitchen ve Payment için gerçek servis adaptörleri ve uçtan uca doğrulama (**DOĞRULANMADI**).
 - Order → Payment doğrulama sorgusu ve QR sepet aktivitesi dışındaki outbox teslimatları.
+- Payment için internal uç noktalar ve servis kimliği Order'ın taslağıdır; Payment sahibinin onayı gerekir (SECURITY.md).
 - QR ekibinin yapacağı işler [QR-REQUESTS-01](QR-REQUESTS-01.md) belgesinde.
 - Sapma kayıtlarını (V49) kimin okuyacağı: şimdilik yalnızca kayıt ve log.
 - PR #28 QR ve Order süreçleri ayrı test veritabanlarıyla HTTPS üzerinden doğrulandı. Senaryolar aktif ve kullanılamayan guest doğrulamasını, gecikmiş prepare'ı, Payment olmadan SETTLED reddini, 501 misafirin 500 ve 1 aday olarak işlenmesini, kayıp `204` sonrası Order restart'ını ve QR makbuzunun tek kalmasını kapsadı. Checkout kilit yarışı Order'ın PostgreSQL testlerinde doğrulandı.

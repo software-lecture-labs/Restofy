@@ -42,7 +42,7 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return WaiterServeAuthenticationFilter.matches(request) || !request.getRequestURI().startsWith("/api/")
+        return WaiterAuthenticationFilter.handles(request) || !request.getRequestURI().startsWith("/api/")
                 || !isServiceScheme(request.getHeader(HttpHeaders.AUTHORIZATION));
     }
 

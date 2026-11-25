@@ -20,7 +20,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
-class WaiterServeSignatureVerifier {
+class WaiterSignatureVerifier {
 
     static final int MAX_TOKEN_LENGTH = 4096;
     private static final int VALIDITY_SECONDS = 30;
@@ -32,9 +32,9 @@ class WaiterServeSignatureVerifier {
     private final JwtParser parser;
     private final Set<UUID> restaurants;
 
-    WaiterServeSignatureVerifier(Clock clock, Environment environment, JsonMapper json,
-                                 @Value("${ORDER_WAITER_SERVICE_PUBLIC_KEYS:}") String publicKeys,
-                                 @Value("${ORDER_WAITER_SERVICE_RESTAURANTS:}") String restaurantIds) {
+    WaiterSignatureVerifier(Clock clock, Environment environment, JsonMapper json,
+                            @Value("${ORDER_WAITER_SERVICE_PUBLIC_KEYS:}") String publicKeys,
+                            @Value("${ORDER_WAITER_SERVICE_RESTAURANTS:}") String restaurantIds) {
         this.clock = clock;
         if (publicKeys.isBlank() && restaurantIds.isBlank()) {
             parser = null;
@@ -42,12 +42,12 @@ class WaiterServeSignatureVerifier {
             return;
         }
         if (!environment.matchesProfiles("order-auth", "test & !prod")) {
-            throw new IllegalStateException("Waiter serve authentication requires the order-auth profile");
+            throw new IllegalStateException("Waiter authentication requires the order-auth profile");
         }
         Map<String, RSAPublicKey> keys = SignedServiceKeys.read(json, publicKeys, "ORDER_WAITER_SERVICE_PUBLIC_KEYS");
         try {
             restaurants = Arrays.stream(restaurantIds.split(",", -1)).map(String::trim)
-                    .map(WaiterServeSignatureVerifier::canonicalUuid).collect(Collectors.toUnmodifiableSet());
+                    .map(WaiterSignatureVerifier::canonicalUuid).collect(Collectors.toUnmodifiableSet());
         } catch (IllegalArgumentException ex) {
             throw new IllegalStateException("ORDER_WAITER_SERVICE_RESTAURANTS must list authorised restaurant UUIDs");
         }
@@ -61,16 +61,16 @@ class WaiterServeSignatureVerifier {
                 .sig().clear().add(Jwts.SIG.RS256).and()
                 .clock(() -> java.util.Date.from(clock.instant()))
                 .requireIssuer("restofy-waiter").requireSubject("waiter-service").requireAudience("restofy-order")
-                .require("token_type", "service").require("scope", "order:serve").build();
+                .require("token_type", "service").build();
     }
 
-    Optional<Request> verify(String token) {
+    Optional<Request> verify(String token, String expectedScope) {
         if (parser == null || token.isBlank() || token.length() > MAX_TOKEN_LENGTH) {
             return Optional.empty();
         }
         try {
             Claims claims = parser.parseSignedClaims(token).getPayload();
-            if (!validLifetime(claims)) {
+            if (!expectedScope.equals(claims.get("scope", String.class)) || !validLifetime(claims)) {
                 return Optional.empty();
             }
             canonicalUuid(claims.getId());

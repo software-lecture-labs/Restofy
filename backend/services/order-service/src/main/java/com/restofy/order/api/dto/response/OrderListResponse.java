@@ -23,6 +23,7 @@ public record OrderListResponse(List<Summary> items, int page, int limit, long t
                           @JsonInclude(JsonInclude.Include.NON_NULL) String currency,
                           @JsonInclude(JsonInclude.Include.NON_NULL) Long grossMinor,
                           @JsonInclude(JsonInclude.Include.NON_NULL) Long currentDueMinor, long unitCount,
-                          Instant placedAt) {
+                          Instant placedAt, long version,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) Instant servedAt) {
     }
 }

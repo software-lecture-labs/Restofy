@@ -21,6 +21,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -56,6 +57,8 @@ class OrderServeCommandApiTests extends AbstractCancellationApiTest {
         int beforeEvents = changeEvents(order);
         var command = command(TABLE_SESSION_A1, beforeVersion);
 
+        getWith(staff(WAITER), "/api/v1/orders/" + order).andExpect(status().isOk())
+                .andExpect(jsonPath("$.servedAt").doesNotExist());
         var first = body(serve(order, command).andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("APPLIED")));
         assertEquals("SERVED", fulfillmentOf(order));
@@ -73,8 +76,17 @@ class OrderServeCommandApiTests extends AbstractCancellationApiTest {
         assertEquals(beforeEvents + 2, changeEvents(order));
         assertEquals("COMPLETED", fulfillmentOf(order));
 
+        String servedAt = first.path("servedAt").asString();
+        getWith(staff(WAITER), "/api/v1/orders/" + order).andExpect(status().isOk())
+                .andExpect(jsonPath("$.servedAt").value(servedAt));
+        getWith(staff(WAITER), "/api/v1/orders?view=completed").andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].orderId").value(order.toString()))
+                .andExpect(jsonPath("$.items[0].servedAt").value(servedAt))
+                .andExpect(jsonPath("$.items[0].version").value(beforeVersion + 2));
+
         query(order, command.commandId()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APPLIED"))
+                .andExpect(jsonPath("$.tableSessionId").value(TABLE_SESSION_A1.toString()))
                 .andExpect(jsonPath("$.orderVersion").value(beforeVersion + 1));
     }
 
@@ -88,6 +100,7 @@ class OrderServeCommandApiTests extends AbstractCancellationApiTest {
                 .andExpect(jsonPath("$.code").value("ORDER_SESSION_MISMATCH"));
         query(order, command.commandId()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
+                .andExpect(jsonPath("$.tableSessionId").doesNotExist())
                 .andExpect(jsonPath("$.rejectionCode").value("ORDER_SESSION_MISMATCH"));
         serve(order, command).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ORDER_SESSION_MISMATCH"));
@@ -210,6 +223,54 @@ class OrderServeCommandApiTests extends AbstractCancellationApiTest {
         assertEquals(version, versionOf(order));
     }
 
+    @Test
+    void theReadScopeAuthorizesBothSharedQueriesForTheDelegatedRestaurant() throws Exception {
+        UUID order = readyOrder();
+        placeSaladOrder(DevFixtures.TOKEN_B1);
+        String body = toJson(Map.of("tableSessionIds",
+                List.of(TABLE_SESSION_A1, DevFixtures.TABLE_SESSION_B1)));
+        String summaries = "/api/v1/orders/session-summaries";
+        String search = "/api/v1/orders/search";
+
+        mvc.perform(signed(post(summaries), "POST", summaries, body, WAITER, RESTAURANT_A, "order:read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].tableSessionId").value(TABLE_SESSION_A1.toString()))
+                .andExpect(jsonPath("$.items[0].activeOrderCount").value(1));
+        mvc.perform(signed(post(search), "POST", search, body, WAITER, RESTAURANT_A, "order:read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.items[0].orderId").value(order.toString()));
+        mvc.perform(signed(post(search), "POST", search, body, DevFixtures.STAFF_KITCHEN_A,
+                        RESTAURANT_A, "order:read"))
+                .andExpect(status().isForbidden());
+        mvc.perform(signed(post(search), "POST", search, body, DevFixtures.STAFF_WAITER_B,
+                        RESTAURANT_A, "order:read"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void signedReadsRejectMismatchedScopeTargetBodyAndBrowserHeaders() throws Exception {
+        String search = "/api/v1/orders/search";
+        String serve = BASE + readyOrder() + "/serve";
+        String body = "{}";
+
+        mvc.perform(signed(post(search), "POST", search, body, WAITER, RESTAURANT_A))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(signed(post(serve), "POST", serve, body, WAITER, RESTAURANT_A, "order:read"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(signed(post(search), "POST", "/api/v1/orders/session-summaries", body,
+                        WAITER, RESTAURANT_A, "order:read"))
+                .andExpect(status().isForbidden());
+        mvc.perform(signed(post(search), "POST", search, body, WAITER, RESTAURANT_A, "order:read")
+                        .content(body + " "))
+                .andExpect(status().isForbidden());
+        mvc.perform(signed(post(search), "POST", search, body, WAITER, RESTAURANT_A, "order:read")
+                        .header(HttpHeaders.ORIGIN, "https://staff.example.test"))
+                .andExpect(status().isForbidden());
+        mvc.perform(signed(post(search), "POST", search, body, WAITER, RESTAURANT_A, "order:read")
+                        .header(HttpHeaders.COOKIE, "restofy_access=browser"))
+                .andExpect(status().isForbidden());
+    }
+
     private UUID readyOrder() throws Exception {
         UUID order = placeSaladOrder(DevFixtures.TOKEN_A1);
         advanceTo(order, "READY");
@@ -235,12 +296,18 @@ class OrderServeCommandApiTests extends AbstractCancellationApiTest {
     private static MockHttpServletRequestBuilder signed(MockHttpServletRequestBuilder request, String method,
                                                         String target, String body, String staff, UUID restaurant)
             throws Exception {
+        return signed(request, method, target, body, staff, restaurant, "order:serve");
+    }
+
+    private static MockHttpServletRequestBuilder signed(MockHttpServletRequestBuilder request, String method,
+                                                        String target, String body, String staff, UUID restaurant,
+                                                        String scope) throws Exception {
         Instant now = Instant.now();
         String proof = Jwts.builder().header().keyId("test").and()
                 .issuer("restofy-waiter").subject("waiter-service").audience().add("restofy-order").and()
                 .id(UUID.randomUUID().toString()).issuedAt(Date.from(now)).notBefore(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(30))).claim("token_type", "service")
-                .claim("scope", "order:serve").claim("restaurant_id", restaurant.toString())
+                .claim("scope", scope).claim("restaurant_id", restaurant.toString())
                 .claim("method", method).claim("target", target).claim("body_sha256", digest(body))
                 .claim("staff_sha256", digest(staff)).signWith(SIGNER.getPrivate(), Jwts.SIG.RS256).compact();
         return request.secure(true).header(HttpHeaders.AUTHORIZATION, "Service " + proof)

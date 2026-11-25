@@ -5,6 +5,7 @@ import com.restofy.order.api.dto.request.ServeOrderCommandRequest;
 import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.application.service.OrderServeCommandService;
 import com.restofy.order.domain.exception.BusinessException;
+import com.restofy.order.domain.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -60,7 +61,10 @@ public class OrderServeCommandController {
                            @PathVariable UUID commandId, @RequestParam UUID restaurantId) {
         var decision = commands.status(staff, restaurantId, orderId, commandId);
         String rejection = decision.rejection() == null ? null : decision.rejection().name();
-        return new Recorded(commandId, orderId, decision.tableSessionId(), decision.orderVersion(),
+        // A session mismatch does not confirm that the order belongs to the command's requested session.
+        UUID confirmedSession = decision.rejection() == ErrorCode.ORDER_SESSION_MISMATCH
+                ? null : decision.tableSessionId();
+        return new Recorded(commandId, orderId, confirmedSession, decision.orderVersion(),
                 decision.decidedAt(), decision.servedAt(), rejection == null ? "APPLIED" : "REJECTED", rejection);
     }
 }

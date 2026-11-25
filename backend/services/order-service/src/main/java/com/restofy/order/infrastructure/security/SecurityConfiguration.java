@@ -12,34 +12,70 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.time.Clock;
+import java.util.List;
+import java.util.Set;
 
 import java.io.IOException;
 
 /**
  * Deny-by-default HTTP security. The guest filter verifies Origin and CSRF for its cookie-authenticated writes.
- * Staff and internal service credentials use explicit Authorization headers and their own filters.
+ * The order-auth profile authenticates staff by the Auth Service access cookie and protects those writes with CSRF;
+ * without it, staff use an explicit Authorization header. Internal service credentials use explicit Authorization
+ * headers and their own filter.
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
     private static final String ORDERS = "/api/v1/orders";
-    private static final String ORDER_CANCELLATIONS = "/api/v1/orders/*/cancellations";
+    private static final String ORDER = ORDERS + "/*";
+    private static final String HISTORY = ORDER + "/history";
+    private static final String FULFILLMENT = ORDER + "/fulfillment-status";
+    private static final String CANCELLATIONS = ORDER + "/cancellations";
+    private static final String CANCELLATION_REASON = CANCELLATIONS + "/*/reason";
+    private static final String ADMIN_REPORT = "/api/v1/admin/order-cancellations";
+
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
+    private static final RequestMatcher STAFF_ONLY = new OrRequestMatcher(PATHS.matcher(HttpMethod.PATCH, FULFILLMENT),
+            PATHS.matcher(HttpMethod.PATCH, CANCELLATION_REASON), PATHS.matcher(HttpMethod.GET, ADMIN_REPORT));
+    private static final RequestMatcher STAFF_OR_GUEST = new OrRequestMatcher(PATHS.matcher(HttpMethod.GET, ORDERS),
+            PATHS.matcher(HttpMethod.GET, ORDER), PATHS.matcher(HttpMethod.GET, HISTORY),
+            PATHS.matcher(HttpMethod.GET, CANCELLATIONS), PATHS.matcher(HttpMethod.POST, CANCELLATIONS),
+            PATHS.matcher(HttpMethod.HEAD, ORDERS), PATHS.matcher(HttpMethod.HEAD, ORDER),
+            PATHS.matcher(HttpMethod.HEAD, HISTORY), PATHS.matcher(HttpMethod.HEAD, CANCELLATIONS));
+    private static final RequestMatcher STAFF_ROUTES = new OrRequestMatcher(STAFF_ONLY, STAFF_OR_GUEST,
+            WaiterAuthenticationFilter::isReadRoute);
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
                                     ServiceIdentityPort serviceIdentity, ApiErrorWriter errors,
-                                    WaiterServeSignatureVerifier waiterSignatures,
-                                    @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment) {
+                                    WaiterSignatureVerifier waiterSignatures,
+                                    @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment,
+                                    Clock clock) {
+        boolean authEnabled = environment.matchesProfiles("order-auth");
+        if (authEnabled && environment.matchesProfiles("dev", "test", "local")) {
+            throw new IllegalStateException("order-auth cannot use development or test profiles");
+        }
         if (environment.matchesProfiles("order-qr") && guestOrigins.isBlank()) {
             throw new IllegalStateException("CORS_ALLOWED_ORIGINS is required for order-qr");
         }
-        return http
-                .csrf(AbstractHttpConfigurer::disable)
+        // Staff cookie authentication uses this same route matcher and handles only requests without Authorization.
+        // The other schemes require an explicit header that the browser does not attach automatically. The guest
+        // filter does its own Origin and CSRF check, so the framework CSRF applies to staff cookie requests only.
+        http.csrf(config -> config.requireCsrfProtectionMatcher(
+                        request -> authEnabled && STAFF_ROUTES.matches(request) && StaffCsrfProtection.appliesTo(request)))
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
@@ -51,38 +87,21 @@ public class SecurityConfiguration {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/carts/**").hasAuthority(GuestAuthentication.ROLE)
                         .requestMatchers(HttpMethod.POST, ORDERS).hasAuthority(GuestAuthentication.ROLE)
-                        // Active order counts of many table sessions for the floor's table list: authenticated staff
-                        // only; ADMIN and WAITER (not KITCHEN) are checked, with the tenant from the verified identity,
-                        // in OrderQueryService. Never open to a guest or a service.
-                        .requestMatchers(HttpMethod.POST, ORDERS + "/session-summaries")
-                        .hasAuthority(StaffAuthentication.ROLE)
-                        // Order search by many table sessions and statuses: the same rule as the counts above.
-                        .requestMatchers(HttpMethod.POST, ORDERS + "/search")
-                        .hasAuthority(StaffAuthentication.ROLE)
+                        // The query service checks the role and restaurant of the authenticated staff principal.
+                        .requestMatchers(WaiterAuthenticationFilter::isReadRoute)
+                        .hasAnyAuthority(StaffAuthentication.ROLE, WaiterAuthenticationFilter.READ_AUTHORITY)
                         // Reading one order: its own guest or staff; who exactly may see which order is decided
                         // (with tenant and ownership checks) in OrderQueryService, not only here.
-                        .requestMatchers(HttpMethod.GET, ORDERS, "/api/v1/orders/*", "/api/v1/orders/*/history")
+                        // GET and HEAD of orders, their history and cancellations, and cancelling an order (POST): its own
+                        // guest or staff; the role (WAITER, ADMIN), tenant and ownership checks are made in the
+                        // application services. Never open to a service credential.
+                        .requestMatchers(STAFF_OR_GUEST)
                         .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
-                        .requestMatchers(HttpMethod.HEAD, ORDERS, "/api/v1/orders/*",
-                                "/api/v1/orders/*/history", ORDER_CANCELLATIONS)
-                        .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
-                        // Changing a status: authenticated staff only; which role may set which status is decided
-                        // (with tenant checks) in OrderFulfillmentService. Never open to a guest or a service.
-                        .requestMatchers(HttpMethod.PATCH, "/api/v1/orders/*/fulfillment-status")
-                        .hasAuthority(StaffAuthentication.ROLE)
-                        // Cancelling an order: its own guest, or staff; the role (WAITER, ADMIN), tenant and ownership
-                        // checks are made in OrderCancellationService. Never open to a service credential.
-                        .requestMatchers(HttpMethod.POST, ORDER_CANCELLATIONS)
-                        .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
-                        // Reading the cancellations of an order: its own guest or staff (role checked in the service).
-                        .requestMatchers(HttpMethod.GET, ORDER_CANCELLATIONS)
-                        .hasAnyAuthority(GuestAuthentication.ROLE, StaffAuthentication.ROLE)
-                        // A waiter completes a missing reason: staff only (WAITER is checked in the service).
-                        .requestMatchers(HttpMethod.PATCH, "/api/v1/orders/*/cancellations/*/reason")
-                        .hasAuthority(StaffAuthentication.ROLE)
-                        // Cancellation report: authenticated staff only; ADMIN is required (and the tenant taken from the
-                        // verified identity) in CancellationReportService.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/order-cancellations")
+                        // Changing a status, a waiter completing a missing cancellation reason, and the cancellation
+                        // report: authenticated staff only. Which role may do what is decided (with tenant checks taken
+                        // from the verified identity) in OrderFulfillmentService, OrderCancellationService and
+                        // CancellationReportService. Never open to a guest or a service.
+                        .requestMatchers(STAFF_ONLY)
                         .hasAuthority(StaffAuthentication.ROLE)
                         // Internal events: only the named calling service, never a guest or staff credential.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/kitchen")
@@ -93,8 +112,8 @@ public class SecurityConfiguration {
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/payment")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.PAYMENT))
-                        .requestMatchers(WaiterServeAuthenticationFilter::matches)
-                        .hasAuthority(WaiterServeAuthenticationFilter.AUTHORITY)
+                        .requestMatchers(WaiterAuthenticationFilter::isServeRoute)
+                        .hasAuthority(WaiterAuthenticationFilter.SERVE_AUTHORITY)
                         // Table-session closure (ADR-QR-001): only the QR Service, which owns tables and their sessions.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/table-sessions/*/closure-preparations")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
@@ -109,21 +128,59 @@ public class SecurityConfiguration {
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors, guestOrigins),
                         AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new AuthorizationHeaderFilter(errors), GuestSessionAuthenticationFilter.class)
-                .addFilterBefore(new StaffAuthenticationFilter(authContext, errors),
-                        AnonymousAuthenticationFilter.class)
-                .addFilterBefore(new WaiterServeAuthenticationFilter(waiterSignatures, authContext, errors),
-                        StaffAuthenticationFilter.class)
+                .addFilterAfter(new WaiterAuthenticationFilter(waiterSignatures, authContext, errors),
+                        AuthorizationHeaderFilter.class)
                 .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors),
                         AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
-                        .authenticationEntryPoint((request, response, ex) -> requireAuthentication(request, response, errors))
+                        .authenticationEntryPoint((request, response, ex) ->
+                                requireAuthentication(request, response, errors, authEnabled))
                         .accessDeniedHandler((request, response, ex) ->
-                                errors.write(response, ErrorCode.ACCESS_DENIED, "Access to this resource is denied")))
-                .build();
+                                errors.write(response, ErrorCode.ACCESS_DENIED, "Access to this resource is denied")));
+        if (authEnabled) {
+            Set<String> staffOrigins = StaffCookieAuthenticationFilter.allowedOrigins(
+                    environment.getProperty("CORS_ALLOWED_ORIGINS", ""));
+            var csrf = new StaffCsrfProtection(staffOrigins, clock);
+            http.csrf(config -> config.csrfTokenRepository(csrf).csrfTokenRequestHandler(csrf));
+            http.cors(cors -> cors.configurationSource(staffCors(staffOrigins)));
+            http.addFilterBefore(new StaffCookieAuthenticationFilter(authContext, errors, STAFF_ROUTES),
+                    GuestSessionAuthenticationFilter.class);
+        } else {
+            http.addFilterBefore(new StaffAuthenticationFilter(authContext, errors), AnonymousAuthenticationFilter.class);
+        }
+        return http.build();
     }
 
+    private static UrlBasedCorsConfigurationSource staffCors(Set<String> origins) {
+        var source = new UrlBasedCorsConfigurationSource();
+        var read = new CorsConfiguration();
+        read.setAllowedOrigins(List.copyOf(origins));
+        read.setAllowCredentials(true);
+        read.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE,
+                StaffCsrfProtection.CSRF_HEADER, "Idempotency-Key"));
+        read.setAllowedMethods(List.of("GET"));
+        // Match the two exact POST paths before the wildcard order detail path.
+        var queries = new CorsConfiguration(read);
+        queries.setAllowedMethods(List.of("POST"));
+        source.registerCorsConfiguration(WaiterAuthenticationFilter.SEARCH_PATH, queries);
+        source.registerCorsConfiguration(WaiterAuthenticationFilter.SUMMARIES_PATH, queries);
+        for (String path : List.of(ORDERS, ORDER, HISTORY, ADMIN_REPORT)) {
+            source.registerCorsConfiguration(path, read);
+        }
+        var patch = new CorsConfiguration(read);
+        patch.setAllowedMethods(List.of("PATCH"));
+        source.registerCorsConfiguration(FULFILLMENT, patch);
+        source.registerCorsConfiguration(CANCELLATION_REASON, patch);
+        var cancellations = new CorsConfiguration(read);
+        cancellations.setAllowedMethods(List.of("GET", "POST"));
+        source.registerCorsConfiguration(CANCELLATIONS, cancellations);
+        return source;
+    }
+
+    /** With order-auth staff come with the Auth Service access cookie; otherwise with {@code Authorization: Staff}. */
     private static void requireAuthentication(HttpServletRequest request, HttpServletResponse response,
-                                              ApiErrorWriter errors) throws IOException {
+                                              ApiErrorWriter errors, boolean authEnabled) throws IOException {
+        String staffScheme = authEnabled ? ApiErrorWriter.STAFF_SESSION_SCHEME : ApiErrorWriter.STAFF_SCHEME;
         String path = request.getRequestURI();
         if (path.startsWith("/api/v1/internal/")) {
             errors.unauthenticated(response, "A valid service credential is required", ApiErrorWriter.SERVICE_SCHEME);
@@ -132,9 +189,10 @@ public class SecurityConfiguration {
             errors.unauthenticated(response, "A valid guest session is required", ApiErrorWriter.GUEST_SCHEME);
         } else if (GuestSessionAuthenticationFilter.guestRoute(request)) {
             errors.unauthenticated(response, "A valid guest session or staff credential is required",
-                    ApiErrorWriter.GUEST_SCHEME, ApiErrorWriter.STAFF_SCHEME);
+                    ApiErrorWriter.GUEST_SCHEME, staffScheme);
         } else {
-            errors.unauthenticated(response, "A valid staff credential is required", ApiErrorWriter.STAFF_SCHEME);
+            errors.unauthenticated(response, authEnabled ? "A valid staff session is required"
+                    : "A valid staff credential is required", staffScheme);
         }
     }
 }

@@ -7,6 +7,7 @@ import com.restofy.order.api.dto.response.SessionSummariesResponse;
 import com.restofy.order.application.mapper.OrderMapper;
 import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.domain.entity.Order;
+import com.restofy.order.domain.enums.FulfillmentStatus;
 import com.restofy.order.domain.enums.OrderView;
 import com.restofy.order.domain.enums.StaffRole;
 import com.restofy.order.domain.exception.BusinessException;
@@ -20,6 +21,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -65,7 +67,10 @@ public class OrderQueryService {
 
     public OrderDetailResponse detail(RequestActor actor, UUID orderId) {
         Order order = load(actor, orderId);
-        return isKitchen(actor) ? mapper.toKitchenDetail(order) : mapper.toDetail(order);
+        Instant servedAt = hasBeenServed(order)
+                ? history.servedTimes(order.getRestaurantId(), List.of(orderId)).get(orderId)
+                : null;
+        return isKitchen(actor) ? mapper.toKitchenDetail(order, servedAt) : mapper.toDetail(order, servedAt);
     }
 
     /**
@@ -161,19 +166,28 @@ public class OrderQueryService {
             orders.unitCounts(page.getContent().stream().map(Order::getId).toList())
                     .forEach(count -> units.put(count.getOrderId(), count.getUnits()));
         }
+        List<UUID> servedIds = page.getContent().stream()
+                .filter(OrderQueryService::hasBeenServed).map(Order::getId).toList();
+        Map<UUID, Instant> servedTimes = history.servedTimes(restaurantId, servedIds);
         List<OrderListResponse.Summary> items = page.getContent().stream()
-                .map(order -> toListSummary(order, units.getOrDefault(order.getId(), 0L), kitchen))
+                .map(order -> toListSummary(order, units.getOrDefault(order.getId(), 0L), kitchen,
+                        servedTimes.get(order.getId())))
                 .toList();
         return new OrderListResponse(items, page.getNumber(), page.getSize(), page.getTotalElements(),
                 page.getTotalPages(), query.viewLabel());
     }
 
-    private static OrderListResponse.Summary toListSummary(Order order, long units, boolean kitchen) {
+    private static OrderListResponse.Summary toListSummary(Order order, long units, boolean kitchen, Instant servedAt) {
         return new OrderListResponse.Summary(order.getId(), order.getOrderNo(), order.getTableId(),
                 order.getTableSessionId(), order.getFulfillmentStatus().name(),
                 kitchen ? null : order.getPaymentStatus().name(), kitchen ? null : order.getCurrency(),
                 kitchen ? null : order.getInitialGrossMinor(), kitchen ? null : order.getCurrentDueMinor(),
-                units, order.getPlacedAt());
+                units, order.getPlacedAt(), order.getVersion(), servedAt);
+    }
+
+    private static boolean hasBeenServed(Order order) {
+        return order.getFulfillmentStatus() == FulfillmentStatus.SERVED
+                || order.getFulfillmentStatus() == FulfillmentStatus.COMPLETED;
     }
 
     private static boolean isKitchen(RequestActor actor) {

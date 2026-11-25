@@ -20,11 +20,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
-final class WaiterServeAuthenticationFilter extends OncePerRequestFilter {
+final class WaiterAuthenticationFilter extends OncePerRequestFilter {
 
-    static final String AUTHORITY = "WAITER_SERVE_DELEGATED";
+    static final String READ_AUTHORITY = "WAITER_READ_DELEGATED";
+    static final String SERVE_AUTHORITY = "WAITER_SERVE_DELEGATED";
     static final String SERVE_PATH = "/api/v1/internal/orders/{orderId}/serve";
     static final String STATUS_PATH = "/api/v1/internal/orders/{orderId}/serve-commands/{commandId}";
+    static final String SEARCH_PATH = "/api/v1/orders/search";
+    static final String SUMMARIES_PATH = "/api/v1/orders/session-summaries";
     static final String STAFF_HEADER = "X-Restofy-Staff-Delegation";
 
     private static final String SERVICE_PREFIX = "Service ";
@@ -32,25 +35,38 @@ final class WaiterServeAuthenticationFilter extends OncePerRequestFilter {
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, SERVE_PATH);
     private static final PathPatternRequestMatcher STATUS =
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, STATUS_PATH);
+    private static final PathPatternRequestMatcher SEARCH =
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, SEARCH_PATH);
+    private static final PathPatternRequestMatcher SUMMARIES =
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, SUMMARIES_PATH);
 
-    private final WaiterServeSignatureVerifier signatures;
+    private final WaiterSignatureVerifier signatures;
     private final AuthContextPort auth;
     private final ApiErrorWriter errors;
 
-    WaiterServeAuthenticationFilter(WaiterServeSignatureVerifier signatures, AuthContextPort auth,
-                                    ApiErrorWriter errors) {
+    WaiterAuthenticationFilter(WaiterSignatureVerifier signatures, AuthContextPort auth, ApiErrorWriter errors) {
         this.signatures = signatures;
         this.auth = auth;
         this.errors = errors;
     }
 
-    static boolean matches(HttpServletRequest request) {
+    static boolean isServeRoute(HttpServletRequest request) {
         return SERVE.matches(request) || STATUS.matches(request);
+    }
+
+    static boolean isReadRoute(HttpServletRequest request) {
+        return SEARCH.matches(request) || SUMMARIES.matches(request);
+    }
+
+    static boolean handles(HttpServletRequest request) {
+        return isServeRoute(request) || (isReadRoute(request)
+                && request.getHeader(STAFF_HEADER) != null
+                && ServiceAuthenticationFilter.isServiceScheme(request.getHeader(HttpHeaders.AUTHORIZATION)));
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !matches(request);
+        return !handles(request);
     }
 
     @Override
@@ -59,11 +75,13 @@ final class WaiterServeAuthenticationFilter extends OncePerRequestFilter {
         String authorization = singleHeader(request, HttpHeaders.AUTHORIZATION);
         String delegated = singleHeader(request, STAFF_HEADER);
         if (!ServiceAuthenticationFilter.isServiceScheme(authorization) || delegated == null || delegated.isBlank()
-                || delegated.length() > WaiterServeSignatureVerifier.MAX_TOKEN_LENGTH) {
+                || delegated.length() > WaiterSignatureVerifier.MAX_TOKEN_LENGTH) {
             requireIdentity(response);
             return;
         }
-        var signed = signatures.verify(authorization.substring(SERVICE_PREFIX.length()).trim()).orElse(null);
+        boolean read = isReadRoute(request);
+        var signed = signatures.verify(authorization.substring(SERVICE_PREFIX.length()).trim(),
+                read ? "order:read" : "order:serve").orElse(null);
         if (signed == null) {
             requireIdentity(response);
             return;
@@ -110,7 +128,7 @@ final class WaiterServeAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
-                actor, null, AuthorityUtils.createAuthorityList(AUTHORITY)));
+                actor, null, AuthorityUtils.createAuthorityList(read ? READ_AUTHORITY : SERVE_AUTHORITY)));
         chain.doFilter(new SignedServiceRequest(request, body), response);
     }
 
