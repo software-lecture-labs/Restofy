@@ -1,6 +1,5 @@
 package com.restofy.auth.infrastructure.security;
 
-import java.time.Clock;
 
 import com.restofy.auth.domain.entity.StaffEmail;
 import org.springframework.stereotype.Component;
@@ -20,17 +19,18 @@ public class LoginRateLimiter {
     static final long WINDOW_SECONDS = 900;
     private static final String INVALID_ACCOUNT = "invalid";
 
-    private final BoundedWindows windows;
+    private final RateLimitStore store;
 
-    public LoginRateLimiter(Clock clock) {
-        this.windows = new BoundedWindows(clock);
+    public LoginRateLimiter(RateLimitStore store) {
+        this.store = store;
     }
 
     public void check(String email, String peer) {
         String account = accountKey(email);
-        rejectWhenLimited(windows.hit("peer:" + account + "|" + BoundedWindows.peerKey(peer),
-                ATTEMPTS_PER_ACCOUNT_AND_PEER, WINDOW_SECONDS));
-        rejectWhenLimited(windows.hit("account:" + account, ATTEMPTS_PER_ACCOUNT, WINDOW_SECONDS));
+        String address = RateLimitStore.peerKey(peer);
+        // The account+address budget goes first: a blocked address consumes nothing of the shared account ceiling.
+        rejectWhenLimited(store.hit("login:" + account + "|" + address, ATTEMPTS_PER_ACCOUNT_AND_PEER, WINDOW_SECONDS));
+        rejectWhenLimited(store.hit("login-account:" + account, ATTEMPTS_PER_ACCOUNT, WINDOW_SECONDS));
     }
 
     private static String accountKey(String email) {
