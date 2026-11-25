@@ -80,7 +80,7 @@ final class WaiterCallerFilter extends OncePerRequestFilter {
             return;
         }
         StaffRequestFilter.Principal staff = null;
-        if (WaiterAuthorities.requiresStaffDelegation(authority.get())) {
+        if (WaiterAuthorities.requiresStaffDelegation(authority.get(), request.getMethod())) {
             staff = delegatedStaff(request, response, claims);
             if (staff == null) { return; }
         }
@@ -88,7 +88,7 @@ final class WaiterCallerFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Close and clean routes need the Waiter service credential AND a delegated staff token: the token is forwarded in
+     * Close and clean commands (POST) need the Waiter service credential AND a delegated staff token: the token is forwarded in
      * its own header, bound to the signed service credential by digest, verified like a browser staff token and checked
      * against the revocation guard. Returns null after answering the request when the delegation is not valid.
      */

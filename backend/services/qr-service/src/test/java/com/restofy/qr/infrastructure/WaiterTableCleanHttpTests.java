@@ -91,7 +91,7 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
         assertThat(json.readTree(replay.body()).get("status").asString()).isEqualTo("DUPLICATE");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM table_clean_commands WHERE command_id=?", Integer.class, command)).isEqualTo(1);
 
-        var status = json.readTree(status(table, command, staff, TENANT).body());
+        var status = json.readTree(status(table, command, TENANT).body());
         assertThat(status.get("status").asString()).isEqualTo("APPLIED");
         assertThat(status.get("commandId").asString()).isEqualTo(command.toString());
 
@@ -100,9 +100,9 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
         assertThat(changed.statusCode()).isEqualTo(409);
         assertThat(json.readTree(changed.body()).get("code").asString()).isEqualTo("COMMAND_CONFLICT");
         // The status answers only for its own table and tenant.
-        assertThat(status(table, command, staff, UUID.randomUUID()).statusCode()).isEqualTo(400);
-        assertThat(status(table(null), command, staff, TENANT).statusCode()).isEqualTo(404);
-        assertThat(status(table, UUID.randomUUID(), staff, TENANT).statusCode()).isEqualTo(404);
+        assertThat(status(table, command, UUID.randomUUID()).statusCode()).isEqualTo(400);
+        assertThat(status(table(null), command, TENANT).statusCode()).isEqualTo(404);
+        assertThat(status(table, UUID.randomUUID(), TENANT).statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -178,7 +178,7 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
         assertThat(replay.get("table").get("version").asLong()).isEqualTo(1);
         assertThat(replay.get("table").get("currentSession").isNull()).isTrue();
 
-        var status = json.readTree(status(table, command, staff, TENANT).body());
+        var status = json.readTree(status(table, command, TENANT).body());
         assertThat(status.get("status").asString()).isEqualTo("APPLIED");
         assertThat(status.get("table").get("operationalStatus").asString()).isEqualTo("OCCUPIED");
         assertThat(status.get("table").get("version").asLong()).isEqualTo(2);
@@ -240,7 +240,7 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
         var rejected = clean(table, command, body, staff, CLEAN_SCOPE);
         assertThat(rejected.statusCode()).isEqualTo(409);
         assertThat(json.readTree(rejected.body()).get("code").asString()).isEqualTo(code);
-        JsonNode status = json.readTree(status(table, command, staff, TENANT).body());
+        JsonNode status = json.readTree(status(table, command, TENANT).body());
         assertThat(status.get("status").asString()).isEqualTo("REJECTED");
         assertThat(status.get("rejectionCode").asString()).isEqualTo(code);
         // A replay of a rejected command repeats the same definite rejection.
@@ -279,10 +279,28 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
                         staffToken == null ? null : sha256(staffToken)));
     }
 
-    private HttpResponse<String> status(UUID table, UUID command, String staffToken, UUID restaurant) throws Exception {
+    /** The status read carries the Waiter service credential only: no staff token, no digest. */
+    private HttpResponse<String> status(UUID table, UUID command, UUID restaurant) throws Exception {
+        return status(table, command, restaurant, CLEAN_SCOPE);
+    }
+
+    private HttpResponse<String> status(UUID table, UUID command, UUID restaurant, String scope) throws Exception {
         String path = "/api/v1/internal/tables/" + table + "/clean-commands/" + command + "?restaurantId=" + restaurant;
-        return send("GET", path, "", null, staffToken,
-                service("GET", path, WAITER, "waiter-test", "restofy-waiter", "waiter-service", CLEAN_SCOPE, "", sha256(staffToken)));
+        return send("GET", path, "", null, null,
+                service("GET", path, WAITER, "waiter-test", "restofy-waiter", "waiter-service", scope, "", null));
+    }
+
+    @Test
+    void theStatusReadNeedsOnlyTheWaiterServiceCredentialWithTheCleanScope() throws Exception {
+        UUID table = table(null);
+        UUID command = UUID.randomUUID();
+        assertThat(status(table, command, TENANT).statusCode()).isEqualTo(404);
+        assertThat(status(table, command, TENANT, "qr:table-read").statusCode()).isEqualTo(403);
+        assertThat(status(table, command, TENANT, "qr:session-close").statusCode()).isEqualTo(403);
+        String path = "/api/v1/internal/tables/" + table + "/clean-commands/" + command + "?restaurantId=" + TENANT;
+        String order = service("GET", path, ORDER, "order-test", "restofy-order", "order-service", CLEAN_SCOPE, "", null);
+        assertThat(send("GET", path, "", null, null, order).statusCode()).isEqualTo(401);
+        assertThat(send("GET", path, "", null, null, null).statusCode()).isEqualTo(401);
     }
 
     private HttpResponse<String> send(String method, String target, String body, UUID idempotencyKey, String staffToken,

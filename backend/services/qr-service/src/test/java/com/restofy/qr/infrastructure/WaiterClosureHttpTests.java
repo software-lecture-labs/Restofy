@@ -74,9 +74,8 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
         var close = close(fixture, command, closeBody(fixture, command, user), staff, bound(staff), CLOSE_SCOPE);
         assertThat(close.statusCode()).isEqualTo(503);
         assertThat(json.readTree(close.body()).get("detail").asString()).contains("closure evidence is unavailable");
-        // The status route resolves the delegated actor too: an unknown command of its tenant is a plain 404.
-        var status = status(fixture, UUID.randomUUID(), staffToken(user, UUID.randomUUID(), "ADMIN", TENANT));
-        assertThat(status.statusCode()).isEqualTo(404);
+        // The status route is read-only: the service credential alone opens it, an unknown command is a plain 404.
+        assertThat(status(fixture, UUID.randomUUID(), CLOSE_SCOPE).statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -108,7 +107,21 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
         jdbc.update("INSERT INTO staff_revoked_sessions(restaurant_id,session_id,user_id,deny_until) VALUES (?,?,?,?)",
                 TENANT, sid, user, Timestamp.from(Instant.now().plusSeconds(600)));
         assertThat(close(fixture, command, body, staff, bound(staff), CLOSE_SCOPE).statusCode()).isEqualTo(401);
-        assertThat(status(fixture, command, staff).statusCode()).isEqualTo(401);
+        // The status read needs no staff session, so a revoked one does not affect it.
+        assertThat(status(fixture, command, CLOSE_SCOPE).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void theStatusReadNeedsOnlyTheWaiterServiceCredentialWithTheCloseScope() throws Exception {
+        var fixture = fixture();
+        UUID command = UUID.randomUUID();
+        assertThat(status(fixture, command, CLOSE_SCOPE).statusCode()).isEqualTo(404);
+        assertThat(status(fixture, command, "qr:table-read").statusCode()).isEqualTo(403);
+        assertThat(status(fixture, command, "qr:guest-validate").statusCode()).isEqualTo(403);
+        String path = statusPath(fixture, command);
+        String order = service("GET", path, ORDER, "order-test", "restofy-order", "order-service", CLOSE_SCOPE, "", null);
+        assertThat(send("GET", path, "", null, null, order).statusCode()).isEqualTo(401);
+        assertThat(send("GET", path, "", null, null, null).statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -165,11 +178,16 @@ class WaiterClosureHttpTests extends Q5TestSecuritySupport {
                 service("POST", path, WAITER, "waiter-test", "restofy-waiter", "waiter-service", scope, body, staffDigest));
     }
 
-    private HttpResponse<String> status(Fixture fixture, UUID command, String staffToken) throws Exception {
-        String path = "/api/v1/internal/tables/" + fixture.table() + "/sessions/" + fixture.session()
+    private static String statusPath(Fixture fixture, UUID command) {
+        return "/api/v1/internal/tables/" + fixture.table() + "/sessions/" + fixture.session()
                 + "/close-commands/" + command + "?restaurantId=" + TENANT;
-        return send("GET", path, "", null, staffToken,
-                service("GET", path, WAITER, "waiter-test", "restofy-waiter", "waiter-service", CLOSE_SCOPE, "", bound(staffToken)));
+    }
+
+    /** The status read carries the Waiter service credential only: no staff token, no digest. */
+    private HttpResponse<String> status(Fixture fixture, UUID command, String scope) throws Exception {
+        String path = statusPath(fixture, command);
+        return send("GET", path, "", null, null,
+                service("GET", path, WAITER, "waiter-test", "restofy-waiter", "waiter-service", scope, "", null));
     }
 
     private HttpResponse<String> send(String method, String target, String body, UUID idempotencyKey, String staffToken,

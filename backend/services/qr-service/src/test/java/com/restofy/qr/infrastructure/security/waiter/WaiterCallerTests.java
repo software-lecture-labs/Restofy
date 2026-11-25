@@ -46,11 +46,14 @@ class WaiterCallerTests {
 
     @Test
     void onlyCloseAndCleanNeedStaffDelegation() {
-        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSE)).isTrue();
-        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_CLEAN)).isTrue();
-        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.GUEST_VALIDATE)).isFalse();
-        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_READ)).isFalse();
-        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSURE_READ)).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSE, "POST")).isTrue();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_CLEAN, "POST")).isTrue();
+        // The status reads of the same scopes are read-only and need the service credential alone.
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSE, "GET")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_CLEAN, "GET")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.GUEST_VALIDATE, "POST")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_READ, "GET")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSURE_READ, "GET")).isFalse();
     }
 
     @Test

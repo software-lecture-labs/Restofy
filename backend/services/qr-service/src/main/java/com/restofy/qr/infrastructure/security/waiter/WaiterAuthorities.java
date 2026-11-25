@@ -28,8 +28,12 @@ final class WaiterAuthorities {
         return scope instanceof String value ? Optional.ofNullable(BY_SCOPE.get(value)) : Optional.empty();
     }
 
-    /** Authorities whose routes also need a delegated, verified staff token (X-Staff-Token). */
-    static boolean requiresStaffDelegation(String authority) {
-        return SESSION_CLOSE.equals(authority) || TABLE_CLEAN.equals(authority);
+    /**
+     * Only the close and clean commands (POST) also need a delegated, verified staff token (X-Staff-Token). Their status
+     * reads (GET) are read-only, keyed by the command ID and tenant-checked, so the service credential alone opens them:
+     * Waiter's background reconciler has no staff request to forward.
+     */
+    static boolean requiresStaffDelegation(String authority, String method) {
+        return "POST".equals(method) && (SESSION_CLOSE.equals(authority) || TABLE_CLEAN.equals(authority));
     }
 }

@@ -32,7 +32,7 @@ public class WaiterClosureController {
     }
 
     @GetMapping(STATUS_ROUTE)
-    @Operation(summary = "Read the durable closure status for Waiter reconciliation")
+    @Operation(summary = "Read the durable closure status for Waiter reconciliation (Waiter service credential only, no staff token)")
     public ResponseEntity<StaffClosureResponse> status(@PathVariable UUID tableId, @PathVariable UUID sessionId,
             @PathVariable UUID commandId, @RequestParam UUID restaurantId) {
         return StaffClosureHttp.status(service.status(restaurantId, tableId, sessionId, commandId, Origin.WAITER_SERVICE));
