@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
  */
 public class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
 
-    static final String SESSION_COOKIE = "restofy_guest";
+    private static final String SESSION_COOKIE = "restofy_guest";
     private static final String CSRF_COOKIE = "restofy_guest_csrf";
     private static final String CSRF_HEADER = "X-Guest-CSRF";
     private static final Pattern CREDENTIAL = Pattern.compile("[A-Za-z0-9_-]{43}");
@@ -88,6 +88,11 @@ public class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(request, response);
+    }
+
+    // Cookie presence selects the guest flow. This filter still validates the cookie and rejects invalid credentials.
+    static boolean hasGuestCookieOnGuestRoute(HttpServletRequest request) {
+        return guestRoute(request) && cookies(request, SESSION_COOKIE).length > 0;
     }
 
     static boolean guestRoute(HttpServletRequest request) {

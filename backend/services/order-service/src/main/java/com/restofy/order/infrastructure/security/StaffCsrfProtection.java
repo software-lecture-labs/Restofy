@@ -33,6 +33,7 @@ final class StaffCsrfProtection extends CsrfTokenRequestAttributeHandler impleme
     static boolean appliesTo(HttpServletRequest request) {
         Cookie[] cookies = request.getCookies();
         return CsrfFilter.DEFAULT_CSRF_MATCHER.matches(request) && request.getHeader(HttpHeaders.AUTHORIZATION) == null
+                && !GuestSessionAuthenticationFilter.hasGuestCookieOnGuestRoute(request)
                 && cookies != null && Arrays.stream(cookies).anyMatch(cookie -> ACCESS_COOKIE.equals(cookie.getName()));
     }
 

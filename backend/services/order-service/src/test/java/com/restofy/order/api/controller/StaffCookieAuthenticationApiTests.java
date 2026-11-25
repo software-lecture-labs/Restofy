@@ -5,6 +5,7 @@ import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.QrSessionPort;
 import com.restofy.order.application.port.StaffActor;
 import com.restofy.order.domain.entity.Order;
+import com.restofy.order.domain.entity.OrderItem;
 import com.restofy.order.domain.enums.StaffRole;
 import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
@@ -30,11 +31,13 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -50,6 +53,8 @@ class StaffCookieAuthenticationApiTests {
     private static final String REPORT = "/api/v1/admin/order-cancellations";
     private static final String ACCESS = "test-staff-access";
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";
+    private static final String GUEST_TOKEN = "g".repeat(43);
+    private static final String GUEST_CSRF = "p".repeat(43);
     private static final String PROOF = proofValue(Instant.now().plusSeconds(900));
     private static final UUID TENANT = UUID.randomUUID();
     private static final UUID USER = UUID.randomUUID();
@@ -143,6 +148,20 @@ class StaffCookieAuthenticationApiTests {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
 
+    @Test
+    void aGuestCookieDoesNotChangeCsrfRequirementsOnAStaffOnlyWrite() throws Exception {
+        when(auth.resolveStaff(ACCESS)).thenReturn(Optional.of(staff(StaffRole.WAITER)));
+        var guest = new Cookie("restofy_guest", GUEST_TOKEN);
+        mvc.perform(fulfillment().cookie(guest).header(HttpHeaders.ORIGIN, ORIGIN))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(auth, qr);
+
+        mvc.perform(fulfillment().cookie(guest, proof()).header(HttpHeaders.ORIGIN, ORIGIN).header(CSRF_HEADER, PROOF))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+        verify(auth).resolveStaff(ACCESS);
+        verifyNoInteractions(qr);
+    }
+
     @ParameterizedTest
     @ValueSource(longs = {0, -1})
     void expiredBrowserProofIsRejectedEvenWhenHeaderMatchesCookie(long expiresInSeconds) throws Exception {
@@ -189,6 +208,44 @@ class StaffCookieAuthenticationApiTests {
         // the same two cookies on a staff-only route: the guest cookie is ignored and the staff session decides
         when(auth.resolveStaff(ACCESS)).thenReturn(Optional.of(staff(StaffRole.ADMIN)));
         mvc.perform(get(REPORT).cookie(access(), new Cookie("restofy_guest", guestToken))).andExpect(status().isOk());
+    }
+
+    @Test
+    void aGuestCanCancelTheirOrderWhenTheBrowserAlsoSendsAStaffCookie() throws Exception {
+        var guest = new GuestSessionContext(TENANT, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                GuestSessionContext.SessionState.ACTIVE);
+        when(qr.validateGuestSession(GUEST_TOKEN)).thenReturn(Optional.of(guest));
+        var source = new Order.Source(guest.restaurantId(), UUID.randomUUID(), guest.tableId(), guest.tableSessionId(),
+                guest.guestSessionId());
+        Instant now = Instant.now();
+        var order = new Order(UUID.randomUUID(), "ORD-000002", source, "TRY",
+                new PriceCalculator.OrderAmounts(100, 0, 100), null, now);
+        order.addItem(new OrderItem(order, 1, 1,
+                new OrderItem.Snapshot(UUID.randomUUID(), "Tea", "TRY", 0,
+                        new PriceCalculator.LinePrice(100, 100, 100L, 0L), null), null, now));
+        tx.executeWithoutResult(status -> em.persist(order));
+
+        mvc.perform(guestCancellation(order.getId()).header("X-Guest-CSRF", GUEST_CSRF))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("APPLIED"))
+                .andExpect(jsonPath("$.requestedBy.type").value("GUEST"));
+        verify(qr).validateGuestSession(GUEST_TOKEN);
+        verifyNoInteractions(auth);
+    }
+
+    @Test
+    void guestCancellationWithBothCookiesStillRequiresGuestCsrfProof() throws Exception {
+        mvc.perform(guestCancellation(UUID.randomUUID()).cookie(proof()).header(CSRF_HEADER, PROOF))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("Guest CSRF proof or Origin is invalid"));
+        verifyNoInteractions(auth, qr);
+    }
+
+    private static MockHttpServletRequestBuilder guestCancellation(UUID orderId) {
+        return post("/api/v1/orders/{orderId}/cancellations", orderId)
+                .cookie(access(), new Cookie("restofy_guest", GUEST_TOKEN), new Cookie("restofy_guest_csrf", GUEST_CSRF))
+                .header(HttpHeaders.ORIGIN, ORIGIN).header("Idempotency-Key", "guest-cancellation-1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"cancelAll\":true}");
     }
 
     private static MockHttpServletRequestBuilder fulfillment() {

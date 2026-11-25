@@ -65,8 +65,7 @@ final class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
         }
         // A guest session cookie on a guest route belongs to the guest filter, like an explicit guest credential: a stale
         // or foreign staff cookie in the same browser must neither authenticate nor reject the guest request.
-        if (GuestSessionAuthenticationFilter.guestRoute(request)
-                && !cookies(request, GuestSessionAuthenticationFilter.SESSION_COOKIE).isEmpty()) {
+        if (GuestSessionAuthenticationFilter.hasGuestCookieOnGuestRoute(request)) {
             chain.doFilter(request, response);
             return;
         }
