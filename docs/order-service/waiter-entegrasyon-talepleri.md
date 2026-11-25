@@ -1,23 +1,32 @@
 # Waiter Service → Order Service entegrasyon talepleri
 
-**20 Kasım 2026 · Umut → Hamza · PR önerisi**
+**20 Kasım 2026 · güncelleme 23 Kasım 2026 · Umut → Hamza · PR önerisi**
 
 Hamza, garson ekranında masanın siparişlerini görmek, hazır siparişi masaya "servis edildi" diye kapatmak ve masa listesinde canlı oturumların sipariş sayısını göstermek istiyorum. Waiter bugün bunları Order'ın var olmayan taslak uçlarına göre yazılmış bir istemciyle yapıyor. İki küçük PR öneriyorum: önce salt okunur sipariş uçları, sonra "servis edildi" komutu. İkisi de ortak bir servis kimliği kararına bağlı (aşağıda "Ortak şart").
 
-İnceleme dayanağı yereldeki `origin/dev` (`1cb4e12`) üzerindeki Order kaynakları. Waiter'ın taslak sözleşmesi Waiter'ın `integration-contracts.md` belgesinin §3 bölümünde (o klasör repoya girmiyor, dosya olarak paylaşıyorum). Order koduna dokunmadım, uçları çalıştırmadım. Aşağıdaki "Order'da var" sütunu kaynak okumasına dayanır.
+İnceleme dayanağı `origin/dev` (`ca9ab1a`) üzerindeki Order kaynakları (ilk sürüm `1cb4e12` üzerindeydi, 23 Kasım'da yeniden okundu). Waiter'ın taslak sözleşmesi Waiter'ın `integration-contracts.md` belgesinin §3 bölümünde (o klasör repoya girmiyor, dosya olarak paylaşıyorum). Order koduna dokunmadım, uçları çalıştırmadım. Aşağıdaki "Order'da var" sütunu kaynak okumasına dayanır.
 
 ## Waiter'ın beklediği ↔ Order'da bulunan
 
 | Waiter'ın beklediği | Order'da var | Fark |
 | --- | --- | --- |
 | `POST /api/v1/internal/orders/session-summaries` (toplu `activeOrderCount`) | Yok | Masa listesinde masa başına istek atmamak için toplu sayım gerekiyor |
-| `POST /api/v1/internal/orders/search` (`tableId`, `tableSessionIds`, `view`, sayfa) | Personel için `GET /api/v1/orders` (`tableSessionId` veya `tableId`, `view`, `paymentStatus`, `page`, `limit` 1–100, `sort`) | Personel çerezine bağlı, restoran kimlikten gelir. Tek oturum süzer, çoklu oturum yok. Servis kimliğiyle çağrılamaz |
+| `POST /api/v1/internal/orders/search` (`tableId`, `tableSessionIds`, `view`, sayfa) | Personel için `GET /api/v1/orders` (`tableSessionId` veya `tableId`, `view`, `paymentStatus`, `page`, `limit` 1–100, `sort`) | Personel kimliğine (`Authorization: Staff`) bağlı, restoran kimlikten gelir. Tek oturum süzer, çoklu oturum yok. Servis kimliğiyle çağrılamaz |
 | `GET /api/v1/internal/orders/{orderId}?restaurantId=` | Personel için `GET /api/v1/orders/{orderId}` | Aynı fark |
 | `POST /api/v1/internal/orders/{orderId}/serve` (komut kimliği, `expectedVersion`, aktör) | `PATCH /api/v1/orders/{orderId}/fulfillment-status` (WAITER/ADMIN, bir adım ileri) | Komut kimliği, sürüm denetimi ve komut sonucu sorgusu yok. Aktör çağıran personel; servis kimliği yok |
 | `GET …/serve-commands/{commandId}?restaurantId=` | Yok | Cevabı kaybolan komutun sonucunu öğrenmek için gerekiyor |
 | Waiter'ın servis kimliği | `ServiceIdentityPort` yalnız `KITCHEN`, `PAYMENT`, `QR` kabul ediyor | Waiter için çağıran rolü yok |
 
 Önemli bir model farkı var. Order'da tek bir hazırlık ekseni var (`RECEIVED → PREPARING → READY → SERVED → COMPLETED`) ve ödeme ayrı eksen. Waiter'ın taslağı ise `preparation` ve `deliveryStatus` diye iki ayrı alan varsayıyor. Order'ın modeli bana yeterli görünüyor: hazır ve henüz servis edilmemiş kuyruk `READY`, geçmiş `READY/SERVED/COMPLETED`. Waiter'ı Order'ın mevcut alanlarına uyarlamayı tercih ederim. Bunu birlikte netleştirelim, aksi hâlde Order'dan ikinci bir `preparation` projeksiyonu istemiş olurum.
+
+## Ortak uç ilkesi (23 Kasım)
+
+Hocanın ve Alper'in PR #35 yorumundaki isteği doğrultusunda Waiter'a özel uç eklemek yerine Order'ın mevcut ortak uçlarını kullanmak öncelikli. Waiter'ın kodu henüz taslak `/internal/orders/*` yollarında duruyor, bu belge o yüzden iki ayrı şeyi ayırıyor:
+
+- **Ortak uçla karşılanabilenler.** Tek oturumun sipariş listesi (`GET /orders?tableSessionId=…`), sipariş detayı ve sürümü (`GET /orders/{id}`), `READY → SERVED` adımı (`PATCH /orders/{id}/fulfillment-status`, `WAITER`/`ADMIN`). Bunlar personel kimliğiyle çalışıyor ve Waiter'ın bu kimliği Order'a iletmesi gerekiyor. Order'ın `dev` dalında personel kimliği `Authorization: Staff <opak kimlik>`, çerez uyarlaması `chore/order-auth-integration` dalında ve `dev`'e girmedi. Hangi biçimle gideceğimiz bu dalın birleşmesine bağlı.
+- **Ortak uçla karşılanamayanlar.** Masa listesi için çoklu oturum sayımı (`session-summaries`) ve çoklu oturum filtresi, komut kimliğiyle idempotent `serve`, `expectedVersion` denetimi ve cevabı kaybolan komutun sonucunu sorgulama. Bunları yeni uç olarak istemek yerine önce şu iki seçeneği birlikte tartışmak istiyorum: (a) Waiter oturum başına `GET /orders` çağırır ve sayıyı kendisi türetir (masa listesinde 500 oturuma kadar istek yükü doğurur, sınırlanmalı), (b) Order bunları ortak uç olarak ekler ve Admin/Kitchen de kullanır.
+
+Hangisinde karar verirsek verelim Waiter'ın kodu henüz değişmedi: PR açılana kadar istemci taslak yollara, yerel sahte Order'a karşı çalışıyor. **Gerçek Order'a karşı doğrulanmadı.**
 
 ## PR 1 · Salt okunur sipariş uçları (WAITER-01)
 

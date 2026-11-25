@@ -44,6 +44,7 @@ import java.util.regex.Pattern;
 final class GuestSessionAuthenticationFilter extends OncePerRequestFilter {
 
     static final String COOKIE = "restofy_guest";
+    @SuppressWarnings("java:S1075") // Waiter's own public route; the filter must match this exact path.
     static final String CALLS_PATH = "/api/v1/waiters/calls";
     /** The token QR issues is 32 random bytes, Base64url without padding; anything else is not sent to QR. */
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_-]{43}");
