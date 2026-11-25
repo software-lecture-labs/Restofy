@@ -79,7 +79,7 @@ class QrCodePostgresIntegrationTests extends com.restofy.qr.support.Q5TestSecuri
         flyway.validate();
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("126");
         assertThat(jdbc.queryForList("select version from flyway_schema_history where success order by installed_rank", String.class))
-                .containsExactly("21", "22", "26", "27", "28", "29", "30", "121", "122", "123", "125", "126");
+                .containsExactly("21", "22", "26", "27", "28", "29", "30", "121", "122", "123", "124", "125", "126");
         assertThat(jdbc.queryForList("select indexname from pg_indexes where tablename='qr_codes'", String.class))
                 .contains("qr_codes_pkey", "uq_qr_codes_token_digest", "uq_qr_codes_active_table");
     }

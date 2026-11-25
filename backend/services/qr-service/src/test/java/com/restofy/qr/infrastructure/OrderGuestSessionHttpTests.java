@@ -166,6 +166,11 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         assertThat(call(POST, ACTIVITY, body).statusCode()).isEqualTo(204);
         assertThat(guestVersion(guest.guestId())).isEqualTo(revision);
         assertThat(receipts(event.eventId())).isEqualTo(1);
+        // The receipt remembers when QR first accepted the event; a replay never moves that time.
+        var firstReceived = receivedAt(event.eventId());
+        assertThat(firstReceived).isNotNull();
+        assertThat(call(POST, ACTIVITY, body).statusCode()).isEqualTo(204);
+        assertThat(receivedAt(event.eventId())).isEqualTo(firstReceived);
         var changed = body.replace("ITEM_ADDED", "ITEM_REMOVED");
         assertThat(call(POST, ACTIVITY, changed).statusCode()).isEqualTo(409);
         assertThat(call(POST, ACTIVITY, json.writeValueAsString(activity(guest, occurredAt.minusSeconds(1)))).statusCode())
@@ -249,6 +254,10 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
 
     private int receipts(UUID id) {
         return jdbc.queryForObject("SELECT count(*) FROM order_cart_activity_receipts WHERE event_id=?", Integer.class, id);
+    }
+
+    private Timestamp receivedAt(UUID id) {
+        return jdbc.queryForObject("SELECT received_at FROM order_cart_activity_receipts WHERE event_id=?", Timestamp.class, id);
     }
 
     private void assertState(Guest guest, String expected) throws Exception {
