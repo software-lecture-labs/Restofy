@@ -1,6 +1,7 @@
 package com.restofy.kitchen.infrastructure.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
 import java.security.GeneralSecurityException;
@@ -27,7 +28,6 @@ public record KitchenAuthProperties(String serviceUrl, String staffPublicKey, St
 	/** Auth's staff access token lives 300 seconds; a longer configured lifetime is never accepted. */
 	public static final long MAX_ACCESS_TTL_SECONDS = 300;
 	private static final int MIN_RSA_BITS = 2048;
-	private static final String SESSION_PATH = "/api/v1/auth/session";
 
 	public KitchenAuthProperties {
 		serviceUrl = strip(serviceUrl);
@@ -86,7 +86,9 @@ public record KitchenAuthProperties(String serviceUrl, String staffPublicKey, St
 		try {
 			URI uri = URI.create(base);
 			if ("https".equalsIgnoreCase(uri.getScheme()) && isBareAuthority(uri, "/")) {
-				return URI.create("https://" + uri.getRawAuthority() + SESSION_PATH);
+				// Auth's existing session endpoint; only the origin is configurable.
+				return UriComponentsBuilder.fromUri(uri).replacePath(null)
+						.pathSegment("api", "v1", "auth", "session").build().toUri();
 			}
 		} catch (IllegalArgumentException _) {
 			// Configuration values never appear in startup errors.

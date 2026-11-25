@@ -8,7 +8,6 @@ import io.jsonwebtoken.Jwts;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Date;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -39,14 +38,13 @@ public class StaffTokenVerifier {
 	private final Clock clock;
 	private final long accessTtlSeconds;
 
-	@SuppressWarnings("java:S2143") // jjwt's Clock contract returns java.util.Date; the time itself comes from the injected java.time Clock.
 	public StaffTokenVerifier(KitchenAuthProperties properties, Clock clock) {
 		this.clock = clock;
 		this.accessTtlSeconds = properties.accessTtlSeconds();
 		this.parser = !properties.staffAuthenticationEnabled() ? null
 				: Jwts.parser().verifyWith(properties.rsaPublicKey())
 						.sig().clear().add(Jwts.SIG.RS256).and()
-						.clock(() -> Date.from(clock.instant()))
+						.clock(JwtClock.of(clock))
 						.clockSkewSeconds(START_CLOCK_SKEW_SECONDS)
 						.requireIssuer(properties.issuer())
 						.require("token_type", "access")

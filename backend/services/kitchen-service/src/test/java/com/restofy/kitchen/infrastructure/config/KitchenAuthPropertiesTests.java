@@ -97,7 +97,8 @@ class KitchenAuthPropertiesTests {
 	@ValueSource(strings = { "*", "https://*.example.test", "https://staff.example.test/", "https://staff.example.test/app",
 			"null", "staff.example.test", "https://user@staff.example.test", "https://staff.example.test:0" })
 	void onlyExplicitOriginsAreAllowedWhetherAuthenticationIsOnOrOff(String origin) {
-		assertThrows(IllegalStateException.class,
-				() -> enabled("", "", "restofy-auth", 300, List.of(origin), 3000, 5000), origin);
+		List<String> origins = List.of(origin);
+
+		assertThrows(IllegalStateException.class, () -> enabled("", "", "restofy-auth", 300, origins, 3000, 5000), origin);
 	}
 }
