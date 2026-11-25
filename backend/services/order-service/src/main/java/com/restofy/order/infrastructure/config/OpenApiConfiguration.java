@@ -14,8 +14,9 @@ import org.springframework.context.annotation.Configuration;
                 + "Service as appropriate. GuestSession uses the restofy_guest cookie. Guest mutations require "
                 + "Origin and X-Guest-CSRF. Read-only GET and HEAD do not require a CSRF proof."))
 @SecurityScheme(name = "staff", type = SecuritySchemeType.APIKEY,
-        in = SecuritySchemeIn.HEADER, paramName = "Authorization",
-        description = "Staff <credential>: an opaque staff credential verified by the Auth Service")
+        in = SecuritySchemeIn.COOKIE, paramName = "restofy_access",
+        description = "Auth staff access cookie in order-auth. Writes require an allowed Origin, restofy_csrf and "
+                + "the matching X-CSRF-TOKEN header. Dev/test mock requests use Authorization: Staff <credential>.")
 @SecurityScheme(name = "service", type = SecuritySchemeType.APIKEY,
         in = SecuritySchemeIn.HEADER, paramName = "Authorization",
         description = "Service <credential>: credential of the service authorised for the internal endpoint (Kitchen, Payment or QR)")
