@@ -1,5 +1,7 @@
 # Kitchen Service — KITCHEN-02 Sipariş Hazırlama Süreci (Faz 2)
 
+> **Güncelleme (KITCHEN-INT-01, 26 Kasım 2026):** Kimlik doğrulama artık uygulanmıştır. Bu belgedeki "kimlik doğrulayan bileşen yok", "CSRF Spring varsayılanında" ve D-09 personel oturumu ifadeleri tarihseldir; güncel davranış için [entegrasyon rehberi](../../../../docs/kitchen/entegrasyon-rehberi.md) geçerlidir. Servis kimliği hâlâ uygulanmamıştır.
+
 Durum: **Faz 2 çalışma notu.** Dış servislerle ilgili sözleşmeler *öneridir*; Order, Auth, Notification veya Gateway tarafında uygulanmış sayılmaz. KITCHEN-01 sözleşmesi: [kitchen-01-contract.md](kitchen-01-contract.md).
 
 ## 1. Başlangıç durumu — kodla doğrulanmış (2.1.1)

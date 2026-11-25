@@ -7,6 +7,7 @@ import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import com.restofy.kitchen.infrastructure.config.MenuIntegrationConfiguration;
+import com.restofy.kitchen.infrastructure.security.StaffAuthUnavailableException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -20,7 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 /**
  * Renders standard MVC failures (bad parameter, type mismatch, validation, unsupported method) as RFC 9457
  * ProblemDetail without stack traces or internals. Authentication/authorization failures (401/403) are produced
- * by the security filter chain before reaching this advice.
+ * by the security filter chain before reaching this advice; only "Auth could not be asked" (503) is rendered here.
  *
  * <p>Conflicts the client must resolve are 409 with a machine-readable {@code code}; a transient lock timeout is a
  * different thing (503 + Retry-After + {@code code=ORDER_BUSY}), so clients can retry the one and not the other.
@@ -38,9 +39,22 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String INVALID_STOCK_REFERENCE = "INVALID_STOCK_REFERENCE";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
 	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
+	public static final String AUTH_UNAVAILABLE = "AUTH_UNAVAILABLE";
 
 	/** Seconds a client should wait before retrying a busy order. */
 	static final String RETRY_AFTER_SECONDS = "2";
+
+	/** The security filter could not verify the staff session with Auth: the request was not processed at all. */
+	@ExceptionHandler(StaffAuthUnavailableException.class)
+	ResponseEntity<ProblemDetail> staffAuthUnavailable() {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+				"Staff authentication is currently unavailable; the request was not processed");
+		problem.setProperty(CODE, AUTH_UNAVAILABLE);
+		problem.setProperty(RETRYABLE, true);
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+				.header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS)
+				.body(problem);
+	}
 
 	@ExceptionHandler(KitchenOrderNotFoundException.class)
 	ProblemDetail orderNotFound(KitchenOrderNotFoundException e) {

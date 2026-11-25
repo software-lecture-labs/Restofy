@@ -6,8 +6,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import java.util.List;
 
 /**
- * Authenticated staff identity. Only a component that has verified a credential may create it. No such component
- * exists in production yet (Auth contract is open), so every kitchen request is rejected with 401 (fail closed).
+ * Authenticated staff identity. Only a component that has verified a credential may create it; in production that is
+ * {@link StaffSessionAuthenticator}. It deliberately keeps no copy of the token, so nothing downstream can forward
+ * or log the staff credential.
  */
 public class KitchenAuthentication extends AbstractAuthenticationToken {
 

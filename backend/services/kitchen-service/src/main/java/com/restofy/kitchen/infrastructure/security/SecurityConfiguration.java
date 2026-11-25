@@ -1,5 +1,12 @@
 package com.restofy.kitchen.infrastructure.security;
 
+import com.restofy.kitchen.infrastructure.client.HttpStaffSessionCheck;
+import com.restofy.kitchen.infrastructure.config.KitchenAuthProperties;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
@@ -13,26 +20,64 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.web.servlet.HandlerExceptionResolver;
+
+import java.time.Clock;
 
 /**
- * Deny by default. Kitchen endpoints need an authenticated KITCHEN or ADMIN principal; everything else is denied,
- * except the anonymous health endpoint that probes and pre-push rely on (no other actuator endpoint is open).
- * No authentication mechanism is wired because the Auth/service-identity contract is open (D-09): until it exists
- * all requests get 401. Form login, HTTP basic and the generated default user are intentionally absent.
+ * Deny by default. Kitchen endpoints need a KITCHEN or ADMIN staff identity; everything else is denied, except the
+ * anonymous health endpoint that probes and pre-push rely on (no other actuator endpoint is open).
+ *
+ * <p>Staff authenticate with Auth's HttpOnly {@code restofy_access} cookie ({@link StaffCookieAuthenticationFilter}):
+ * the JWT is proven locally and the session is confirmed with Auth on every request. Every mutation also needs the
+ * CSRF and Origin proof of {@link StaffCsrfProtection}. Without a configured Auth public key nothing authenticates
+ * and every staff request is 401. Form login, HTTP basic and the generated default user are intentionally absent.
+ *
+ * <p>No service-to-service identity is accepted: Kitchen exposes no internal endpoint, and a service credential
+ * grants no staff permission.
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(KitchenAuthProperties.class)
 public class SecurityConfiguration {
 	private static final String KITCHEN_PATH = "/api/v1/kitchen/**";
+	private static final Logger LOG = LoggerFactory.getLogger(SecurityConfiguration.class);
 
 	@Bean
-	SecurityFilterChain kitchenSecurityFilterChain(HttpSecurity http) {
+	StaffSessionCheck staffSessionCheck(KitchenAuthProperties auth) {
+		if (!auth.staffAuthenticationEnabled()) {
+			LOG.warn("Kitchen staff authentication is not configured: every staff request will be rejected with 401");
+			// Never reached while the token verifier is off; it still fails closed.
+			return accessToken -> {
+				throw new StaffAuthUnavailableException("not-configured");
+			};
+		}
+		return new HttpStaffSessionCheck(auth.sessionUri(), auth.connectTimeout(), auth.readTimeout());
+	}
+
+	@Bean
+	SecurityFilterChain kitchenSecurityFilterChain(HttpSecurity http, KitchenAuthProperties auth,
+			StaffSessionCheck sessions, Clock clock,
+			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) {
+		StaffCsrfProtection csrf = new StaffCsrfProtection(auth.allowedOrigins(), clock);
+		var authenticator = new StaffSessionAuthenticator(new StaffTokenVerifier(auth, clock), sessions, clock);
 		http
 				.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.requestCache(cache -> cache.disable())
 				.formLogin(AbstractHttpConfigurer::disable)
 				.httpBasic(AbstractHttpConfigurer::disable)
 				.logout(AbstractHttpConfigurer::disable)
-				.exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+				.csrf(c -> c.csrfTokenRepository(csrf).csrfTokenRequestHandler(csrf))
+				// After the CSRF filter: a mutation without proof is refused without asking Auth about its cookie.
+				.addFilterBefore(new StaffCookieAuthenticationFilter(authenticator,
+						PathPatternRequestMatcher.withDefaults().matcher(KITCHEN_PATH), errors),
+						AnonymousAuthenticationFilter.class)
+				.exceptionHandling(e -> e
+						.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+						// A plain status: sendError would dispatch to /error and could turn the 403 into another answer.
+						.accessDeniedHandler((request, response, denied) -> response.setStatus(HttpServletResponse.SC_FORBIDDEN)))
 				.authorizeHttpRequests(a -> a
 						// Only the health endpoint (and its liveness/readiness groups) is anonymous, as in the other
 						// services' default chain; details stay hidden (management.endpoint.health.show-details=never).
