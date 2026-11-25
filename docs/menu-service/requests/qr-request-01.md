@@ -8,14 +8,14 @@
 | **Talep eden** | Menu Service (Merve) |
 | **İlgili servis ve ekip** | QR Service (Alper). Madde 4 servis kimliği olduğu için Auth (Kerem); madde 6 restoran kaydı olduğu için Admin (Umut) |
 | **Bağlı PDA görevi** | MENU-INT-04 — Public Menu restoran doğrulama entegrasyonu |
-| **Durum** | **Karar bekliyor.** Menu'nun müşteri uçları var ama restoran doğrulayan gerçek bir çözümleyici yok; üretimde her müşteri isteği 404 döner |
+| **Durum** | **Karar bekliyor.** Menu'da QR doğrulamasına hazır altyapı var ([ADR-MENU-008](../../decisions/ADR-MENU-008-public-menu-guest-oturum-baglami.md)) ama QR'a gerçek bağlantı yok; üretimde her müşteri isteği hâlâ 404 döner. MENU-INT-04 **KISMİ** |
 
-Bu belge bir taleptir. Menu, QR, Admin veya Auth kodunda değişiklik içermez. Etiketler: **[DOĞRULANDI]** koddan veya belgeden okunan gerçek, **[ÖNERİ]** Menu'nun teklifi (onaylı değil), **[AÇIK]** karar bekleyen konu.
+Bu belge bir taleptir. QR, Admin ve Auth kodunda değişiklik içermez. Aynı PR'da Menu'da yalnız karardan bağımsız altyapı vardır (ADR-MENU-008); QR çağrısı, servis kimliği ve QR'sız menü eklenmemiştir. Etiketler: **[DOĞRULANDI]** koddan veya belgeden okunan gerçek, **[ÖNERİ]** Menu'nun teklifi (onaylı değil), **[AÇIK]** karar bekleyen konu.
 
 ## Dayanak
 
 - Kod tabanı: `origin/dev` (`ea70de0`).
-- Menu: `PublicMenuController`, `PublicMenuService`, `PublicRestaurantScopeResolver`, `DenyAllPublicRestaurantScopeResolver`, [ADR-MENU-001](../../decisions/ADR-MENU-001-musteri-menusu-guven-modeli.md).
+- Menu: `PublicMenuController`, `PublicMenuService`, `PublicRestaurantScopeResolver`, [ADR-MENU-001](../../decisions/ADR-MENU-001-musteri-menusu-guven-modeli.md).
 - QR: `QrValidationController`, `QrCodeValidationService`, `TableSecurityConfiguration`, `GuestRequestFilter`, `GuestCookies`, `QrEntryUrl`, `OrderGuestSessionController`, `OrderCallerFilter`, `OrderCallerSecurity`, `GuestSessionValidationService`; [QR entegrasyon rehberi](../../qr/entegrasyon-rehberi.md) §2 ve §13, [ADR-QR-002](../../decisions/ADR-QR-002-security.md) K3–K8 ve §3, [Waiter → QR talepleri](../../qr/waiter-entegrasyon-talepleri.md) (WAITER-02).
 - Admin: `admin-service` ve Gateway: `api-gateway` `application.properties` (rota 4 ve 5).
 - Güvenlik ve karar kayıtları: `docs/SECURITY.md`, `docs/requirements.md` F-QR-01/02, D-09, D-14.
@@ -32,9 +32,10 @@ Amaç, Menu'nun müşteri isteğinde restoranı yalnız QR'ın doğruladığı b
 ### 2.1 Menu tarafı [DOĞRULANDI]
 
 - Müşteri uçları yalnız `GET`: `/api/v1/menu/public/restaurants/{restaurantRef}/categories`, `/products`, `/products/{productId}`. Oturumsuz ve çerezsiz açıktır. Yanıtlar `Cache-Control: no-store`.
-- Restoran tek bir porttan çözülür: `PublicRestaurantScopeResolver.resolve(String restaurantRef) → Optional<UUID>`. Üretimdeki tek uygulama `DenyAllPublicRestaurantScopeResolver`: her zaman boş döner, yani her müşteri isteği 404. Test çözümleyicisi yalnız `src/test`'tedir.
+- Restoran tek bir porttan çözülür: `PublicRestaurantScopeResolver.resolve(String restaurantRef) → Optional<UUID>`. Bu talebin yazıldığı sırada tek üretim uygulaması her şeyi reddeden bir çözümleyiciydi; şimdi `GuestSessionRestaurantScopeResolver`: restoranı yalnız QR guest doğrulamasının onayladığı ve URL'nin aynen adlandırdığı durumda güvenilir sayar. Doğrulayıcı (`GuestSessionVerifier`) üretimde `NotConnectedGuestSessionVerifier`'dır ve her kimliği reddeder, yani her müşteri isteği hâlâ 404. Test doğrulayıcısı yalnız `src/test`'tedir.
 - Doğrulanmamış restoran, gizli/bilinmeyen/başka restoranın ürünü ve kategorisi **aynı 404 gövdesini** döndürür. Sorgular çözülen `restaurantId` ile kapsamlanır. Yanıt DTO'larında restoran kimliği yoktur.
-- **Sınır:** Port yalnız URL'deki `restaurantRef` metnini alır; istek bağlamını (guest cookie) göremez. Aşağıdaki önerinin uygulanabilmesi için Menu'nun bu portu değiştirmesi gerekir. Bu Menu'nun işidir ve karar sonrası yapılır.
+- **Menu'da hazır (karardan bağımsız):** guest çerezi (`restofy_guest`) tek ve biçimli ise `GuestSessionVerifier` portuna, transaction'dan önce web katmanında bir kez sorulur. Sonuç `Verified(restaurantId)`, `Rejected` veya `Unavailable`'dır; `Unavailable` 503, diğerleri 404 olur ve menü verisi dönmez. Port imzası değişmedi, guest bağlamı istek özniteliğiyle taşınır (ayrıntı ADR-MENU-008).
+- **Hazır olmayan:** QR'a gerçek HTTP istemcisi. Madde 4'teki sözleşme kabul edilene ve servis kimliği (D-09) belli olana kadar yazılmayacak.
 
 ### 2.2 QR tarafı [DOĞRULANDI]
 
@@ -174,4 +175,4 @@ Hiçbirinde menü verisi dönmez. Doğrulama reddi olan 404 senaryolarında ayn�
 - Bu talepte yazılanların hiçbiri uygulanmış değildir; Menu'nun müşteri uçları bugün üretimde 404 döner ve öyle kalır. Sahte doğrulama eklenmeyecektir.
 - QR'ın müşteri yolları kapalıdır; ortak ortamda uçtan uca deneme yapılamaz.
 - Çok restoranlı çalışma için restoran kaydı yoktur.
-- Menu tarafındaki port değişikliği ve gerçek çözümleyici, kararlardan sonra ayrı bir görevde yazılır; ADR-MENU-001 o zaman güncellenir.
+- Menu'nun doğrulayıcı portu ve fail-closed altyapısı hazırdır (ADR-MENU-008). QR'a gerçek istemci kararlardan sonra yazılır; ADR-MENU-001 o zaman güncellenir.
