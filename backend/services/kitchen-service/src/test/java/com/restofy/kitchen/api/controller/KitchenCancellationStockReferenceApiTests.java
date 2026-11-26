@@ -58,7 +58,7 @@ class KitchenCancellationStockReferenceApiTests {
 		UUID lineTwo = UUID.randomUUID();
 		UUID lineThree = UUID.randomUUID();
 		ingest.ingest(new OrderAcceptedMessage(UUID.randomUUID(), OrderAcceptedMessage.TYPE, 1, Instant.now(), "corr", restaurant, orderId, 1L, "A-1", UUID.randomUUID(),
-				"T1",
+				UUID.randomUUID(), "T1",
 				List.of(new OrderAcceptedMessage.Item(lineOne, burger, "Burger", 2, null, List.of()),
 						new OrderAcceptedMessage.Item(lineTwo, burger, "Burger", 1, "az pişmiş", List.of()),
 						new OrderAcceptedMessage.Item(lineThree, ayran, "Ayran", 3, null, List.of()))));

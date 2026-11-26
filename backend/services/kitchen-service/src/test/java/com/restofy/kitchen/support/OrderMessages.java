@@ -3,6 +3,7 @@ package com.restofy.kitchen.support;
 import com.restofy.kitchen.application.contract.OrderAcceptedMessage;
 import com.restofy.kitchen.domain.enums.OptionAction;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -26,7 +27,12 @@ public final class OrderMessages {
 	public static OrderAcceptedMessage message(UUID restaurantId, UUID orderId, UUID tableSessionId, String table,
 			String orderNumber, long version, UUID eventId, OrderAcceptedMessage.Item... items) {
 		return new OrderAcceptedMessage(eventId, OrderAcceptedMessage.TYPE, 1, Instant.now(), "corr-1", restaurantId, orderId, version,
-				orderNumber, tableSessionId, table, List.of(items));
+				orderNumber, tableId(table), tableSessionId, table, List.of(items));
+	}
+
+	/** One fixed id per table number, so the same table keeps the same id. */
+	private static UUID tableId(String table) {
+		return UUID.nameUUIDFromBytes(("table-" + table).getBytes(StandardCharsets.UTF_8));
 	}
 
 	public static OrderAcceptedMessage simple(UUID restaurantId, UUID orderId) {
@@ -36,6 +42,6 @@ public final class OrderMessages {
 
 	public static OrderAcceptedMessage withVersion(OrderAcceptedMessage m, long version, UUID eventId) {
 		return new OrderAcceptedMessage(eventId, m.eventType(), m.schemaVersion(), m.occurredAt(), m.correlationId(), m.restaurantId(),
-				m.orderId(), version, m.orderNumber(), m.tableSessionId(), m.tableNumber(), m.items());
+				m.orderId(), version, m.orderNumber(), m.tableId(), m.tableSessionId(), m.tableNumber(), m.items());
 	}
 }

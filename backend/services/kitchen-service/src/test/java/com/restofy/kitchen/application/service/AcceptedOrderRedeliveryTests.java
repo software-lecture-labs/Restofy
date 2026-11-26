@@ -69,7 +69,7 @@ class AcceptedOrderRedeliveryTests {
 	private static OrderAcceptedMessage copy(OrderAcceptedMessage m, long version, UUID tableSession, String table,
 			String number, List<OrderAcceptedMessage.Item> items) {
 		return new OrderAcceptedMessage(m.eventId(), m.eventType(), m.schemaVersion(), m.occurredAt(), m.correlationId(),
-				m.restaurantId(), m.orderId(), version, number, tableSession, table, items);
+				m.restaurantId(), m.orderId(), version, number, m.tableId(), tableSession, table, items);
 	}
 
 	private static OrderAcceptedMessage items(OrderAcceptedMessage m, UnaryOperator<OrderAcceptedMessage.Item> firstLine) {
@@ -77,7 +77,7 @@ class AcceptedOrderRedeliveryTests {
 				List.of(firstLine.apply(m.items().get(0)), m.items().get(1)));
 	}
 
-	private static OrderAcceptedMessage.Item line(OrderAcceptedMessage.Item i, UUID itemId, UUID productId, String name,
+	private static OrderAcceptedMessage.Item line(UUID itemId, UUID productId, String name,
 			int quantity, String note, List<OrderAcceptedMessage.Option> options) {
 		return new OrderAcceptedMessage.Item(itemId, productId, name, quantity, note, options);
 	}
@@ -96,21 +96,21 @@ class AcceptedOrderRedeliveryTests {
 						List.of(m.items().get(0)))),
 				change("lines swapped", m -> copy(m, 0, m.tableSessionId(), m.tableNumber(), m.orderNumber(),
 						List.of(m.items().get(1), m.items().get(0)))),
-				change("line id", m -> items(m, i -> line(i, UUID.randomUUID(), i.productId(), i.productName(), i.quantity(),
+				change("line id", m -> items(m, i -> line(UUID.randomUUID(), i.productId(), i.productName(), i.quantity(),
 						i.note(), i.options()))),
-				change("product", m -> items(m, i -> line(i, i.orderItemId(), UUID.randomUUID(), i.productName(),
+				change("product", m -> items(m, i -> line(i.orderItemId(), UUID.randomUUID(), i.productName(),
 						i.quantity(), i.note(), i.options()))),
-				change("product name", m -> items(m, i -> line(i, i.orderItemId(), i.productId(), "Tavuk", i.quantity(),
+				change("product name", m -> items(m, i -> line(i.orderItemId(), i.productId(), "Tavuk", i.quantity(),
 						i.note(), i.options()))),
-				change("quantity", m -> items(m, i -> line(i, i.orderItemId(), i.productId(), i.productName(), 3, i.note(),
+				change("quantity", m -> items(m, i -> line(i.orderItemId(), i.productId(), i.productName(), 3, i.note(),
 						i.options()))),
-				change("note", m -> items(m, i -> line(i, i.orderItemId(), i.productId(), i.productName(), i.quantity(),
+				change("note", m -> items(m, i -> line(i.orderItemId(), i.productId(), i.productName(), i.quantity(),
 						null, i.options()))),
-				change("option removed", m -> items(m, i -> line(i, i.orderItemId(), i.productId(), i.productName(),
+				change("option removed", m -> items(m, i -> line(i.orderItemId(), i.productId(), i.productName(),
 						i.quantity(), i.note(), List.of(i.options().get(0))))),
 				change("option quantity", m -> items(m, i -> {
 					var extra = i.options().get(1);
-					return line(i, i.orderItemId(), i.productId(), i.productName(), i.quantity(), i.note(),
+					return line(i.orderItemId(), i.productId(), i.productName(), i.quantity(), i.note(),
 							List.of(i.options().get(0), new OrderAcceptedMessage.Option(extra.action(), extra.optionId(),
 									extra.name(), 1, extra.note())));
 				})));
@@ -137,7 +137,7 @@ class AcceptedOrderRedeliveryTests {
 
 		var later = new OrderAcceptedMessage(first.eventId(), first.eventType(), first.schemaVersion(),
 				Instant.now().plusSeconds(60), "another-correlation", restaurant, orderId, 0L,
-				" " + first.orderNumber() + " ", first.tableSessionId(), first.tableNumber(), first.items());
+				" " + first.orderNumber() + " ", first.tableId(), first.tableSessionId(), first.tableNumber(), first.items());
 
 		assertEquals(IngestOutcome.DUPLICATE, ingest.ingest(later));
 	}

@@ -16,8 +16,12 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Versioned contract for "order accepted" (schemaVersion 1). Not agreed end to end yet and Kitchen has no transport
- * for it; it deliberately carries no price or tax data because Kitchen never calculates money.
+ * Versioned contract for "order accepted" (schemaVersion 1). Not agreed end to end yet; it deliberately carries no
+ * price or tax data because Kitchen never calculates money.
+ *
+ * <p>{@code tableId} is required and checked but not stored: Kitchen shows {@code tableNumber}, the number as it was
+ * when the order was placed, and has no column for the id. A redelivery that differs only in {@code tableId} is
+ * therefore not recognised as different content.
  *
  * <p>{@code eventType} is always {@value #TYPE}: the same Order channel is meant to carry other event types, which
  * this contract must never be read as. An item's options are the removed ingredients and the extras together; Order
@@ -33,6 +37,7 @@ public record OrderAcceptedMessage(
 		@NotNull UUID orderId,
 		@NotNull @PositiveOrZero Long aggregateVersion,
 		@NotBlank @Size(max = 40) String orderNumber,
+		@NotNull UUID tableId,
 		@NotNull UUID tableSessionId,
 		@NotBlank @Size(max = 40) String tableNumber,
 		@NotEmpty @Size(max = 200) List<@NotNull @Valid Item> items) {
