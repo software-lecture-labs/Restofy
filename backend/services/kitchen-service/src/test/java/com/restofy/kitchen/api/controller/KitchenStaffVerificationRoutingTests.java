@@ -2,22 +2,29 @@ package com.restofy.kitchen.api.controller;
 
 import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.infrastructure.security.StaffAuthUnavailableException;
+import com.restofy.kitchen.infrastructure.security.StaffReadEndpoints;
 import com.restofy.kitchen.support.StaffTokens;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpMethod;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static com.restofy.kitchen.support.KitchenTestAuth.csrf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,6 +55,8 @@ class KitchenStaffVerificationRoutingTests extends StaffCookieTestBase {
 	private RequestMappingHandlerMapping mappings;
 	@Autowired
 	private KitchenPreparationService preparation;
+	@Autowired
+	private ApplicationContext context;
 
 	private final UUID restaurant = UUID.randomUUID();
 	private final String cook = StaffTokens.access("KITCHEN", restaurant, UUID.randomUUID());
@@ -133,10 +142,14 @@ class KitchenStaffVerificationRoutingTests extends StaffCookieTestBase {
 	@Test
 	void everyKitchenMappingIsClassified() {
 		Set<String> actual = new TreeSet<>();
-		mappings.getHandlerMethods().keySet().forEach(mapping -> mapping.getPathPatternsCondition().getPatternValues()
-				.stream().filter(pattern -> pattern.startsWith("/api/v1/kitchen"))
-				.forEach(pattern -> mapping.getMethodsCondition().getMethods()
-						.forEach(method -> actual.add(method.name() + " " + pattern))));
+		mappings.getHandlerMethods().keySet().forEach(mapping -> {
+			// A mapping without a method answers every method, GET included; it must not slip through as "nothing".
+			Set<String> methods = mapping.getMethodsCondition().getMethods().isEmpty() ? Set.of("ANY-METHOD")
+					: mapping.getMethodsCondition().getMethods().stream().map(Enum::name).collect(Collectors.toSet());
+			mapping.getPathPatternsCondition().getPatternValues().stream()
+					.filter(pattern -> pattern.startsWith("/api/v1/kitchen"))
+					.forEach(pattern -> methods.forEach(method -> actual.add(method + " " + pattern)));
+		});
 		Set<String> classified = new TreeSet<>();
 		for (Read read : Read.values()) {
 			classified.add("GET " + BASE + read.pattern);
@@ -146,6 +159,30 @@ class KitchenStaffVerificationRoutingTests extends StaffCookieTestBase {
 		}
 
 		assertEquals(classified, actual);
+		assertEquals(Map.of(), context.getBeansOfType(RouterFunction.class),
+				"functional routes are not seen by this comparison; classify them here before adding one");
+	}
+
+	/** The list that skips the confirmation is exactly the reviewed reads: nothing wider, nothing extra. */
+	@Test
+	void onlyTheClassifiedReadsSkipTheConfirmation() {
+		List<String> reads = Arrays.stream(Read.values()).map(read -> BASE + read.pattern).sorted().toList();
+
+		assertEquals(reads, StaffReadEndpoints.PATTERNS.stream().sorted().toList());
+	}
+
+	/** Auth shortens a token near the end of a session; such a token is confirmed and applied like any other. */
+	@ParameterizedTest
+	@EnumSource(Change.class)
+	void aShortLivedTokenIsConfirmedForAStateChangeLikeAnyOther(Change change) throws Exception {
+		UUID orderId = orderFor(change);
+		var claims = StaffTokens.claims("KITCHEN", restaurant, UUID.randomUUID(), Instant.now());
+		claims.put("exp", Instant.now().getEpochSecond() + 30);
+		String shortLived = StaffTokens.sign(claims);
+
+		mvc.perform(withCookie(command(change, orderId), shortLived).with(csrf())).andExpect(status().is(change.expected));
+
+		verify(auth, times(1)).current(shortLived);
 	}
 
 	@ParameterizedTest

@@ -15,15 +15,16 @@ import java.util.stream.Stream;
  * at most 300 seconds after it was issued.
  *
  * <p>Everything not listed here is confirmed with Auth, including endpoints added later, until someone has reviewed
- * them for side effects. A test compares this list with every kitchen mapping of the application.
+ * them for side effects. A test requires every kitchen mapping of the application to be classified and requires this
+ * list to be exactly the reads of that classification.
  *
  * <p>The closed products read asks the Menu service through a port that passes the restaurant only. If a Menu adapter
  * ever sends a staff identity or delegation with it, this endpoint must be reviewed again before that: it would pass on
  * a session Auth has not confirmed.
  */
-final class StaffReadEndpoints {
+public final class StaffReadEndpoints {
 
-	static final List<String> PATTERNS = List.of(
+	public static final List<String> PATTERNS = List.of(
 			"/api/v1/kitchen/orders",
 			"/api/v1/kitchen/orders/{orderId}",
 			"/api/v1/kitchen/orders/{orderId}/cancellation-requests",

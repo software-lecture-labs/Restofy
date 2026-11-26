@@ -8,7 +8,7 @@ Kimlik doğrulama konusunda [kitchen-01](../../backend/services/kitchen-service/
 
 | Yüzey | Kim çağırır | Durum |
 |---|---|---|
-| Personel HTTP API'si `/api/v1/kitchen/**` | Personel tarayıcısı (Gateway üzerinden) | **UYGULANDI**; paylaşılan ortamda anahtar değeri ve HTTPS Auth adresi bekliyor, **DOĞRULANMADI** |
+| Personel HTTP API'si `/api/v1/kitchen/**` | Personel tarayıcısı (Gateway üzerinden) | **UYGULANDI**; ortak ortamda HTTPS Auth adresi yok ([#63](https://github.com/software-lecture-labs/Restofy/issues/63)), **DOĞRULANMADI** |
 | Servisten servise HTTP ucu | Order, Menu veya başka servis | **UYGULANMADI**. `/api/v1/internal/**` dahil başka her yol reddedilir |
 | Giden olaylar (Order, Notification) | Kitchen → diğerleri | Outbox'a yazılır, **teslim edilmez** |
 | Menu komutları | Kitchen → Menu | Port var, gerçek adaptör **UYGULANMADI** |
@@ -17,19 +17,44 @@ Kimlik doğrulama konusunda [kitchen-01](../../backend/services/kitchen-service/
 
 ## 2. Personel kimlik doğrulaması
 
-Auth Service'in mevcut sözleşmesi tüketilir. Her istekte sırayla:
+Kaynaklar: Auth sorumlusunun 26 Kasım 2026 yanıtları ([PR #61](https://github.com/software-lecture-labs/Restofy/pull/61) yorumları) ve personel oturumu sözleşmesi ([PR #67](https://github.com/software-lecture-labs/Restofy/pull/67), incelenen `3c91e6e`). **PR #67 henüz birleşmedi;** sözleşme `dev`'de değildir. Eski `feature/auth-service` dalındaki sözleşme geçerli değildir. `ADR-AUTH-Q5` ve `ADR-QR-003` yalnız QR kapsamındadır, Kitchen'ı bağlamaz.
 
-1. `restofy_access` HttpOnly cookie'si okunur. Başka kaynak okunmaz: `Authorization` (Bearer, Staff, Service), `X-Restaurant-Id`, `X-Role`, `X-User-Id`, query ve gövde alanları kimlik değildir.
-2. JWT yerelde doğrulanır: yalnız RS256, yapılandırılmış issuer, **tek** `restofy-staff-api` audience, `token_type=access`, `auth_state=AUTHENTICATED`, `auth_policy=q5-idle-v1`, `iat = nbf` (en çok 3 sn ileride), süresi dolmamış `exp`, ömür ≤ 300 sn, UUID `sub/sid/jti/restaurant_id` (sıfır olmayan restoran), `ADMIN|WAITER|KITCHEN` rolü, en çok 4096 karakter.
-3. Aynı cookie ile Auth'a `GET /api/v1/auth/session` sorulur (yalnız access cookie'si gönderilir, yönlendirme izlenmez, önbellek ve yeniden deneme yoktur). Dönen rol token rolüyle aynı olmalı, süreler geçerli olmalıdır.
+**Her personel isteğinde (yerel doğrulama):**
 
-3. adım **geçicidir**: Auth ile karşılıklı onaylanmış bir tüketici sözleşmesi değildir ve `dev`'deki `ADR-AUTH-Q5` aynı yaklaşımı QR için reddeden bir seçim kaydeder; belgenin kendi durum satırı, teknik inceleme ve test kanıtı tamamlanmadan kabul edilmiş sayılmayacağını yazar. Gerekçeler, doğrulanan davranışlar ve açık sorular [AUTH-03](integration/kitchen-auth-requests-01.md) içindedir.
+1. Yalnız `restofy_access` HttpOnly cookie'si okunur. `Authorization` (Bearer, Staff, Service), `X-Restaurant-Id`, `X-Role`, `X-User-Id`, query ve gövde alanları kimlik değildir.
+2. JWT yerelde doğrulanır: yalnız RS256, yapılandırılmış issuer, **tek** `restofy-staff-api` audience, `token_type=access`, `auth_state=AUTHENTICATED`, `auth_policy=q5-idle-v1`, `iat = nbf` (en çok 3 sn ileride), süresi dolmamış `exp` (tolerans yok), **`exp − iat` en çok 300 sn**, UUID `sub/sid/jti/restaurant_id` (sıfır olmayan restoran), `ADMIN|WAITER|KITCHEN` rolü, en çok 4096 karakter. Auth, oturum daha erken bitecekse daha kısa ömür verir; kısa ömür geçerlidir.
 
-Kullanıcı, restoran ve rol yalnız imzalı token'dan alınır. Kitchen token'ı saklamaz, loglamaz, başka servise iletmez ve cookie yazmaz.
+**Durum değiştiren isteklerde ek olarak (Auth teyidi):**
+
+3. Rol yetkisi geçtikten sonra aynı cookie ile Auth'a `GET /api/v1/auth/session` sorulur. Yalnız access cookie'si gönderilir; `Origin` gönderilmez; yönlendirme izlenmez; yanıt önbelleğe alınmaz, yeniden deneme yoktur. Bu çağrı Auth'ta personel etkinliği sayılmaz. `200` yanıtında `status=AUTHENTICATED`, token ile aynı rol ve geçmemiş süreler gerekir. `401` ret; diğer her sonuç "doğrulanamadı" sayılır ve istek işlenmez.
+
+`/session` yanıtında **kullanıcı ve restoran kimliği yoktur.** Kitchen bu ikisini karşılaştıramaz; gönderilen token'ın oturumuyla uyuşmazlığı Auth `401` ile reddeder (izole ortamda gerçek Auth ile denendi). Kullanıcı, restoran ve rol Kitchen'da yalnız imzalı token'dan alınır. Kitchen token'ı saklamaz, loglamaz, Auth `/session` dışında bir yere iletmez ve cookie yazmaz.
+
+Yerelde reddedilen istek (CSRF/Origin eksik, token geçersiz veya süresi dolmuş, rol yetersiz) **Auth'a hiç gönderilmez.**
+
+### Hangi istek Auth teyidi ister?
+
+| İstek (`/api/v1/kitchen`) | Veri değiştirir mi | `/session` |
+|---|---|---|
+| `GET /orders`, `GET /orders/{orderId}` | Hayır | Hayır |
+| `GET /orders/{orderId}/cancellation-requests` | Hayır | Hayır |
+| `GET /products/closed` (Menu'den okur; Menu bağlı değil) | Hayır | Hayır |
+| `GET /reports/daily`, `GET /waste` | Hayır | Hayır |
+| `PATCH /orders/{orderId}/start-preparation`, `.../mark-ready` | Evet: durum, geçmiş, outbox | **Evet** |
+| `POST /orders/{orderId}/cancellation-requests` | Evet: talep, outbox | **Evet** |
+| `PATCH /products/{productId}/availability` | Evet: komut kaydı, Menu komutu | **Evet** |
+| `POST /waste` | Evet: fire kaydı | **Evet** |
+
+`HEAD` okumayı izler. Teyitsiz uçlar **açık bir listedir** (`StaffReadEndpoints`), "bütün GET'ler" değildir: listede olmayan her istek, yeni eklenen bir GET dahil, teyit ister. Bir test uygulamanın bütün Kitchen eşlemelerinin sınıflandırılmasını (yöntem belirtmeyen eşleme dahil) ve teyitsiz listenin tam olarak sınıflandırılmış okumalar olmasını şart koşar. Aynı `Idempotency-Key` ile tekrar edilen komut da teyit ister.
+
+### Bu düzenin sonuçları
+
+- **Okumalarda iptal gecikir.** Logout, hesap pasifleştirme, rol değişikliği veya idle süresi dolsa da eski token, süresi dolana kadar (en çok 300 sn) mutfak verisini **okuyabilir**. Bu süre yönetici işlemi Auth'ta tamamlanmış görünse de geçerlidir. İptalden sonra başlayan bir yazma isteği reddedilir; teyidi iptalden **önce** alınmış, o sırada işlenen istek tamamlanır.
+- **Auth kesintisi yazmayı anında durdurur.** Auth erişilemezken, geçerli token'la okumalar sürer; durum değiştiren her istek hemen `503 AUTH_UNAVAILABLE` alır. Access token yenilenemediği için okumalar da en geç token süresi dolunca `401` alır.
 
 ### Yazma isteklerinde ek şartlar (CSRF)
 
-`GET`/`HEAD` dışındaki her istekte hepsi birden gerekir:
+`GET`, `HEAD`, `OPTIONS` ve `TRACE` dışındaki her istekte aşağıdakilerin hepsi birden gerekir:
 
 - Tam olarak bir `Origin` ve `CORS_ALLOWED_ORIGINS` listesinde birebir eşleşme;
 - tek `restofy_csrf` cookie'si (Auth biçimi, süresi dolmamış);
@@ -105,10 +130,10 @@ Yanıt `201`: `id, productId, productName, quantity, reasonCode, description, or
 
 | Durum | Yanıt |
 |---|---|
-| Cookie yok, tekrarlanmış, geçersiz veya süresi dolmuş; Auth oturumu reddetti; Kitchen'da açık anahtar tanımlı değil | `401`, gövdesiz |
+| Cookie yok, tekrarlanmış, geçersiz veya süresi dolmuş; Kitchen'da açık anahtar tanımlı değil; teyit isteyen istekte Auth oturumu reddetti | `401`, gövdesiz |
 | CSRF/Origin şartı eksik veya hatalı (Auth'a hiç sorulmaz; anonim istek de 403 alır) | `403`, gövdesiz |
 | Doğrulanmış kimliğin rolü yetmiyor | `403`, gövdesiz |
-| Auth'tan güvenilir cevap yok (zaman aşımı, bağlantı, TLS, 401 ve 200 dışı her durum, yönlendirme, okunamayan veya token ile çelişen yanıt) | `503`, `code=AUTH_UNAVAILABLE`, `retryable=true`, `Retry-After: 2`. İstek **işlenmedi** |
+| Teyit isteyen istekte Auth'tan güvenilir cevap yok (zaman aşımı, bağlantı, TLS, 401 ve 200 dışı her durum, yönlendirme, okunamayan veya token ile çelişen yanıt) | `503`, `code=AUTH_UNAVAILABLE`, `retryable=true`, `Retry-After: 2`. İstek **işlenmedi** |
 | Menu bağlı değil / sonucu bilinmiyor | `503`, `MENU_NOT_INTEGRATED` / `MENU_UNAVAILABLE`; asla başarı |
 | Beklenmeyen sunucu hatası (ör. veritabanı erişilemiyor) | `500`; iç ayrıntı dönmez. Oturumun bittiği anlamına **gelmez**. Yazma isteğinin sonucu varsayılmaz; aynı `Idempotency-Key` ile tekrar sorulur |
 
@@ -117,7 +142,7 @@ Yanıt `201`: `id, productId, productName, quantity, reasonCode, description, or
   "title": "Service Unavailable",
   "status": 503,
   "detail": "Staff authentication is currently unavailable; the request was not processed",
-  "instance": "/api/v1/kitchen/orders",
+  "instance": "/api/v1/kitchen/waste",
   "code": "AUTH_UNAVAILABLE",
   "retryable": true
 }
@@ -147,30 +172,38 @@ Bunlar **önerilen** sözleşmelerdir. Taşıma, hedef adres ve servis kimliği 
 ## 8. Açık talepler
 
 **KITCHEN-INT-01 (Auth taskı):**
-- Auth: [kitchen-auth-requests-01](integration/kitchen-auth-requests-01.md), Bölüm A. Açık anahtar değeri, HTTPS Auth adresi ve `/session` kararı bekliyor.
+- Auth: [kitchen-auth-requests-01](integration/kitchen-auth-requests-01.md). Açık anahtarın kaynağı ve `/session` kullanımı yanıtlandı ve Kitchen'da uygulandı. **Açık:** iç ağda HTTPS ([#63](https://github.com/software-lecture-labs/Restofy/issues/63)).
 - Güvenilir servis kimliği ve personel delegasyonu: **karşılanmadı**. Beklenen ortak sözleşme ve Kitchen'da kalan güvenlik işi [AUTH-05](integration/kitchen-auth-requests-01.md) içindedir.
 
 **Sonraki işler (bu taskın tamamlanma şartı değil):**
 - Order: iç alıcı, mesaj uyumu, gönderici adaptör ve Order kaynaklı iptal. Ayrı entegrasyon işidir.
 - Menu: HTTP sözleşmesi, ürün açma/kapama adaptörü ve model kararları. Ayrı entegrasyon işidir.
-- Frontend: mutfak ekranının oturum sürekliliği (Auth belgesi, AUTH-04).
+- Frontend: mutfak ekranının oturum sürekliliği ve `/activity` ([#64](https://github.com/software-lecture-labs/Restofy/issues/64), AUTH-04).
 
 ## 9. Yapılandırma
 
 | Kitchen özelliği | Bağlı ENV | Not |
 |---|---|---|
-| `restofy.auth.staff-public-key` | `KITCHEN_AUTH_STAFF_PUBLIC_KEY` | Auth'un **açık** anahtarı. Boşken personel doğrulaması kapalı (401) |
-| `restofy.auth.service-url` | `AUTH_SERVICE_URL` | Anahtar tanımlıyken yalnız HTTPS origin, aksi halde uygulama başlamaz. Ortak Compose'da bugün HTTP'dir ([AUTH-02](integration/kitchen-auth-requests-01.md)) |
+| `restofy.auth.staff-public-key` | `KITCHEN_AUTH_STAFF_PUBLIC_KEY` | Auth'un **açık** anahtarı (kaynağı aşağıda). Boşken personel doğrulaması kapalı (401) |
+| `restofy.auth.service-url` | `AUTH_SERVICE_URL` | Anahtar tanımlıyken yalnız HTTPS origin, aksi halde uygulama başlamaz (okumalar Auth'u çağırmasa da). Ortak Compose'da bugün HTTP'dir ([AUTH-02](integration/kitchen-auth-requests-01.md)) |
 | `restofy.auth.issuer` | `JWT_ISSUER` | |
-| `restofy.auth.access-ttl-seconds` | `JWT_ACCESS_TTL_SECONDS` | Anahtar tanımlıyken 1–300; Auth 300 kullanır |
+| `restofy.auth.access-ttl-seconds` | `JWT_ACCESS_TTL_SECONDS` | Kitchen'ın `exp − iat` için uyguladığı **üst sınır**. Anahtar tanımlıyken 1–300 olmalı. Auth'un ortak ayarıdır ve Auth yalnız 300 kabul eder; Auth'unkinden küçük bir değer geçerli token'ları reddeder |
 | `restofy.auth.allowed-origins` | `CORS_ALLOWED_ORIGINS` | Joker ve yol içeren değer uygulamayı başlatmaz |
 | `restofy.auth.connect-timeout-ms` / `read-timeout-ms` | `REST_CLIENT_CONNECT_TIMEOUT_MS` / `REST_CLIENT_READ_TIMEOUT_MS` | Varsayılan 3000 / 5000 |
 
+### Açık anahtarın kaynağı
+
+Auth personel token'larını tek bir RSA anahtarıyla imzalar; token'da `kid` yoktur. `KITCHEN_AUTH_STAFF_PUBLIC_KEY` değeri, `ops/auth/generate-keys.mjs` çıktısındaki `MAIL_AUTH_PUBLIC_KEY` alanıdır: **Auth'un o ortamda kullandığı `AUTH_JWT_PRIVATE_KEY` ile aynı çiftin** açık yarısı (Base64 X.509). Değeri o ortamın anahtarlarını yöneten kişiden alın.
+
+- Değeri elde etmek için betiği **yeniden çalıştırmayın.** Her çalıştırma yeni bir çift üretir; yeni çiftin açık anahtarıyla Kitchen bütün token'ları `401` ile reddeder.
+- Betiğin çıktı dosyası özel anahtar ve başka sırlar da içerir; Kitchen'a yalnız `MAIL_AUTH_PUBLIC_KEY` değeri verilir.
+- Anahtar değişirse `kid` olmadığı için tüketen bütün servisler birlikte güncellenmelidir. Auth planlı bir değişim öngörmüyor ve değişiklikte önceden haber vereceğini yazdı.
+
 ## 10. Bilinen sınırlar
 
-- Auth erişilemezken personel API'si kullanılamaz. Devre kesici yoktur; yavaş Auth her isteği zaman aşımı kadar bekletir.
-- Auth'un Q5 kaynağı `ACTIVE` değilken `/session` 503 döner; bu yüzden Kitchen dolaylı olarak QR bootstrap'ına da bağlıdır (koddan, denenmedi).
+- Auth erişilemezken durum değiştiren istekler çalışmaz; okumalar yalnız mevcut token süresince sürer (§2). Devre kesici yoktur; yavaş Auth teyit isteyen her isteği zaman aşımı kadar bekletir.
+- Auth'un Q5 kaynağı `ACTIVE` değilken `/session` 503 döner; bu yüzden Kitchen'ın yazma işlemleri dolaylı olarak QR bootstrap'ına da bağlıdır (koddan, denenmedi).
 - Kitchen restoranı yapılandırmadaki tek bir kimliğe ayrıca sabitlemez; imzalı `restaurant_id`'ye göre veri sınırlar.
 - Rate limit bu görevde eklenmedi veya değiştirilmedi.
-- Access cookie 300 sn yaşar. `dev` frontend'i yalnız personel sayfası açılırken, oturum sorgusu 401/403 dönerse bir kez refresh dener; açık ekranda süreli yenileme ve mutfak aktivite bildirimi yoktur.
-- İzole ortamda gerçek Auth ve Gateway ile denendi: giriş, MFA, logout, Gateway üzerinden okuma/yazma ve Auth kesintisi. Idle, rol ve pasifleştirme durumları geçici veritabanında SQL ile canlandırıldı. Ortak ortam, tarayıcı arayüzü, Auth'un yönetici iptal akışı ve üretim TLS'i **DOĞRULANMADI**.
+- Access cookie token ömrü kadar, **en çok** 300 sn yaşar. `dev` frontend'i yalnız personel sayfası açılırken, oturum sorgusu 401/403 dönerse bir kez refresh dener; açık ekranda süreli yenileme ve mutfak aktivite bildirimi yoktur.
+- İzole ortamda (`dev` `00c0ff4` Auth, QR ve API Gateway kodu; geçici PostgreSQL; yalnız o çalıştırmada üretilen anahtarlar; Auth'un önünde **yalnız test için** HTTPS proxy) 40 kontrol geçti: giriş, MFA, okuma/yazma ayrımı, Auth'un idle bitişine yakın verdiği 20 sn'lik token, logout, Auth kesintisi, güvenilmeyen sertifika, HTTP adresle açılmama ve Gateway üzerinden okuma/yazma. Idle, rol değişikliği ve pasifleştirme geçici veritabanında SQL ile canlandırıldı. Ortak ortam, tarayıcı arayüzü, Auth'un yönetici iptal akışı ve gerçek TLS dağıtımı **DOĞRULANMADI**; test proxy'si ortak ortamın hazır olduğu anlamına gelmez.
