@@ -59,6 +59,31 @@ class OrderCallerVerifierConfigurationTests {
 		assertNull(e.getCause());
 	}
 
+	/**
+	 * The agreed rotation order: the receiver first gets the new public key beside the old one, then the signer changes
+	 * its key id, and only then may the old key be removed. Each step is a restart with another configured map.
+	 */
+	@Test
+	void aKeyCanBeRotatedWithoutAMomentInWhichTheSignerIsRefused() {
+		String restaurant = OrderCaller.RESTAURANT.toString();
+		var next = OrderCaller.rsa(2048);
+		String nextEntry = OrderCaller.publicKeys("order-test-2", next);
+		String both = KEYS.substring(0, KEYS.length() - 1) + "," + nextEntry.substring(1);
+		byte[] body = OrderCaller.bytes("{}");
+		String signedWithNext = OrderCaller.sign(OrderCaller.claims(OrderCaller.RESTAURANT, body), "order-test-2", next);
+
+		OrderCallerVerifier before = verifier(KEYS, restaurant);
+		OrderCallerVerifier during = verifier(both, restaurant);
+		OrderCallerVerifier after = verifier(nextEntry, restaurant);
+
+		assertTrue(accepts(before));
+		assertFalse(before.verify(signedWithNext, "POST", OrderCaller.PATH).isPresent(), "switching the signer too early");
+		assertTrue(accepts(during));
+		assertTrue(during.verify(signedWithNext, "POST", OrderCaller.PATH).isPresent());
+		assertFalse(accepts(after), "the removed key opens nothing");
+		assertTrue(after.verify(signedWithNext, "POST", OrderCaller.PATH).isPresent());
+	}
+
 	@Test
 	void weakKeysBadKeyIdsAndDuplicateKeyIdsAreRefused() {
 		String entry = KEYS.substring(1, KEYS.length() - 1);
