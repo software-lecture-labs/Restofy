@@ -131,6 +131,24 @@
       "signingOut": "Çıkış yapılıyor…",
       "problems": {
         "unavailable": "Oturum bilgisi şu an alınamıyor. Biraz sonra tekrar dene."
+      },
+      "recovery": {
+        "heading": "Kurtarma kodları",
+        "hint": "Kodların azaldıysa ya da birinin eline geçtiyse yenilerini al. Eski kodların hepsi çalışmaz olur ve diğer cihazlardaki oturumların kapanır.",
+        "open": "Kurtarma kodlarını yenile",
+        "password": "Parolan",
+        "submit": "Yeni kodları al",
+        "cancel": "Vazgeç",
+        "doneHint": "Yeni kodların aşağıda. Eskiler artık çalışmıyor. Şimdi güvenli bir yere kaydet; bir daha gösterilmeyecek.",
+        "errors": {
+          "passwordRequired": "Parolanı yaz."
+        },
+        "problems": {
+          "invalidCredentials": "Parola ya da kod hatalı.",
+          "invalidInput": "Bilgilerini kontrol edip tekrar dene.",
+          "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
+          "unavailable": "Kodlar şu an yenilenemiyor. Biraz sonra tekrar dene."
+        }
       }
     }
   }
