@@ -15,7 +15,7 @@ node ops/qr/qr-key.mjs init dev
 node ops/qr/qr-key.mjs check dev
 ```
 
-Aynı komutlar macOS/Linux'ta da kullanılır. `init` eksik veya boş QR alanını doldurur; alan yoksa ekler. Var olan geçerli anahtarı korur. Anahtar ve diğer ENV değerleri terminale yazılmaz. `.env.example` boş kalır.
+Aynı komutlar macOS/Linux'ta da kullanılır. `init` eksik veya boş QR alanını doldurur; alan yoksa ekler. Var olan geçerli anahtarı korur. Profilde `QR_TRUSTED_PROXY_CIDRS` satırı yoksa compose'daki Gateway adresiyle (`10.213.0.10/32`) ekler; satır varsa, boş olsa bile, değiştirmez. Bu değer sır değildir ve terminalde gösterilir (ADR-QR-002 K7). Anahtar ve diğer ENV değerleri terminale yazılmaz. `.env.example` boş kalır.
 
 **Mevcut QR verisi için kaybolan anahtarı bu komutla yeniden üretmeyin.** Yardımcı veritabanını sorgulamaz; ilk kurulum ile anahtar kaybını ayırt edemez. Yeni anahtar eski şifreli QR içeriğini çözmez. Önceki anahtar yedekten veya yetkili secret kaynağından geri yüklenmelidir. Anahtar rotasyonu ve verinin yeniden şifrelenmesi bu aracın kapsamı değildir.
 
