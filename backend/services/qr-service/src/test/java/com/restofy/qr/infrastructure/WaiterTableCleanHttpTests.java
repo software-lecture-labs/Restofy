@@ -48,7 +48,7 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
     // Must equal qr.q5.restaurant-id of Q5TestSecuritySupport: the staff token and the service credential share one tenant.
     private static final UUID TENANT = UUID.fromString("6c54daf0-9340-4a1c-981d-f9acc0261779");
     private static final String CLEAN_SCOPE = "qr:table-clean";
-    private static final String STAFF_HEADER = "X-Staff-Token";
+    private static final String STAFF_HEADER = "X-Restofy-Staff-Delegation";
     private final HttpClient http = HttpClient.newHttpClient();
 
     @LocalServerPort int port;
@@ -330,7 +330,7 @@ class WaiterTableCleanHttpTests extends Q5TestSecuritySupport {
                 .issuedAt(JwtDates.from(now)).notBefore(JwtDates.from(now)).expiration(JwtDates.from(now.plusSeconds(30)))
                 .claim("token_type", "service").claim("scope", scope).claim("restaurant_id", TENANT.toString())
                 .claim("method", method).claim("target", target).claim("body_sha256", sha256(body));
-        if (staffDigest != null) { builder.claim("staff_token_sha256", staffDigest); }
+        if (staffDigest != null) { builder.claim("staff_sha256", staffDigest); }
         return "Service " + builder.signWith(key.getPrivate(), Jwts.SIG.RS256).compact();
     }
 

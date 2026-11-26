@@ -42,7 +42,7 @@ public class QrRevocationClient implements AutoCloseable {
                     Base64.getDecoder().decode(environment.getRequiredProperty("auth.q5.command-public-key"))));
             if (commandKey.getModulus().bitLength() < 2048 || !commandKey.getModulus().equals(publicKey.getModulus())
                     || !commandKey.getPublicExponent().equals(publicKey.getPublicExponent())) throw new IllegalArgumentException();
-        } catch (Exception invalid) {
+        } catch (Exception _) {
             // No cause/value: configuration parsing exceptions can contain sensitive input.
             throw new IllegalStateException("Invalid Q5 command key, QR generation or internal QR URL");
         }
@@ -71,7 +71,7 @@ public class QrRevocationClient implements AutoCloseable {
                             operation.consumerGeneration(), operation.targets())).retrieve().body(Ack.class);
             if (ack == null || ack.receipt() == null || ack.receipt().length() > 4096) throw new IllegalArgumentException();
             return ack.receipt();
-        } catch (Exception failure) {
+        } catch (Exception _) {
             // Do not attach transport exceptions which can contain credentials or response data.
             throw new IllegalStateException("QR durable acknowledgement unavailable");
         }
@@ -85,35 +85,47 @@ public class QrRevocationClient implements AutoCloseable {
 
     public Challenge challenge(UUID restaurant, UUID generation) {
         UUID id = UUID.randomUUID();
-        return bootstrapPost("/internal/q5/challenge", new ChallengeRequest(id, restaurant, generation), id,
-                restaurant, generation, "staff:bootstrap:challenge", "challenge", null, Challenge.class);
+        return bootstrapPost(new BootstrapRequest("/internal/q5/challenge",
+                new ChallengeRequest(id, restaurant, generation), id, restaurant, generation,
+                "staff:bootstrap:challenge", "challenge", null), Challenge.class);
     }
 
     public String baseline(com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.Baseline baseline) {
-        Ack ack = bootstrapPost("/internal/q5/bootstrap", baseline, baseline.operationId(), baseline.restaurantId(), baseline.generation(),
-                "staff:bootstrap:write", com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.digest(baseline), baseline.nonce(), Ack.class);
+        Ack ack = bootstrapPost(new BootstrapRequest("/internal/q5/bootstrap", baseline, baseline.operationId(),
+                baseline.restaurantId(), baseline.generation(), "staff:bootstrap:write",
+                com.restofy.auth.application.service.revocation.RevocationBootstrapTransactions.digest(baseline),
+                baseline.nonce()), Ack.class);
         if (ack == null || ack.receipt() == null || ack.receipt().length() > 4096) throw new IllegalStateException("Missing baseline receipt");
         return ack.receipt();
     }
 
-    private <T> T bootstrapPost(String path, Object body, UUID id, UUID restaurant, UUID generation, String scope, String manifest,
-            UUID nonce, Class<T> response) {
+    private <T> T bootstrapPost(BootstrapRequest request, Class<T> response) {
+        String path = request.path();
+        Object body = request.body();
+        UUID id = request.id();
+        UUID restaurant = request.restaurant();
+        UUID requestGeneration = request.generation();
+        String scope = request.scope();
+        String manifest = request.manifest();
+        UUID nonce = request.nonce();
         if (TransactionSynchronizationManager.isActualTransactionActive()) throw new IllegalStateException("HTTP inside transaction");
         try {
             var now = clock.instant();
             var builder = Jwts.builder().issuer("auth-service").subject(id.toString()).audience().add("restofy-qr-revocation").and()
                     .issuedAt(Date.from(now)).notBefore(Date.from(now)).expiration(Date.from(now.plusSeconds(30)))
                     .id(UUID.randomUUID().toString()).claim("token_type", "service").claim("scope", scope)
-                    .claim("restaurant_id", restaurant.toString()).claim("generation", generation.toString()).claim("manifest", manifest);
+                    .claim("restaurant_id", restaurant.toString()).claim("generation", requestGeneration.toString()).claim("manifest", manifest);
             if (nonce != null) builder.claim("nonce", nonce.toString());
             var factory = new JdkClientHttpRequestFactory(http);
             factory.setReadTimeout(Duration.ofSeconds(3));
             return RestClient.builder().requestFactory(factory).baseUrl(origin).build().post().uri(path)
                     .header("Authorization", "Bearer " + builder.signWith(commandKey, Jwts.SIG.RS256).compact()).body(body).retrieve().body(response);
-        } catch (Exception failure) { throw new IllegalStateException("QR bootstrap unavailable"); }
+        } catch (Exception _) { throw new IllegalStateException("QR bootstrap unavailable"); }
     }
 
     public record Challenge(UUID nonce, boolean ready) { }
+    private record BootstrapRequest(String path, Object body, UUID id, UUID restaurant, UUID generation, String scope,
+            String manifest, UUID nonce) { }
     private record ChallengeRequest(UUID operationId, UUID restaurantId, UUID generation) { }
 
     private static String origin(Environment environment) {

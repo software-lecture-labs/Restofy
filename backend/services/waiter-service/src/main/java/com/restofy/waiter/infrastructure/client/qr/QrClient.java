@@ -7,6 +7,7 @@ import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.domain.exception.SnapshotLimitExceededException;
 import com.restofy.waiter.infrastructure.client.DownstreamCalls;
 import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -149,7 +150,8 @@ public class QrClient {
     /** QR's guest refusal: a 404 problem with the fixed detail of its InvalidGuestSessionException. */
     private static boolean isUnavailableGuest(RestClientResponseException refusal) {
         if (refusal.getStatusCode().value() != HttpStatus.NOT_FOUND.value()) return false;
-        MediaType type = refusal.getResponseHeaders() == null ? null : refusal.getResponseHeaders().getContentType();
+        HttpHeaders headers = refusal.getResponseHeaders();
+        MediaType type = headers == null ? null : headers.getContentType();
         if (type == null || !MediaType.APPLICATION_PROBLEM_JSON.isCompatibleWith(type)) return false;
         try {
             JsonNode problem = REJECTION_JSON.readTree(refusal.getResponseBodyAsString());

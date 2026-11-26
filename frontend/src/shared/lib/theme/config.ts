@@ -4,5 +4,5 @@ export type Theme = (typeof themes)[number];
 export const themeCookieName = "theme";
 
 export function isTheme(value: unknown): value is Theme {
-  return themes.some((theme) => theme === value);
+  return (themes as readonly unknown[]).includes(value);
 }

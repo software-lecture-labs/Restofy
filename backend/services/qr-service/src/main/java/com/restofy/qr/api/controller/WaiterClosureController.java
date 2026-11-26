@@ -25,7 +25,7 @@ public class WaiterClosureController {
     @PostMapping(CLOSE_ROUTE)
     @Operation(summary = "Request closure through verified Waiter service and delegated staff",
             description = "Waiter command/result fields are supported; /api/v1 internal prefix is canonical. Body IDs do not grant authority. "
-                    + "Requires verified Waiter identity and active same-tenant WAITER/ADMIN delegation. Open only to the Waiter chain (qr:session-close + X-Staff-Token); closed to every other caller.")
+                    + "Requires verified Waiter identity and active same-tenant WAITER/ADMIN delegation. Open only to the Waiter chain (qr:session-close + X-Restofy-Staff-Delegation); closed to every other caller.")
     public ResponseEntity<StaffClosureResponse> close(@PathVariable UUID tableId, @PathVariable UUID sessionId,
             @RequestHeader("Idempotency-Key") String key, @Valid @RequestBody StaffCloseRequest request) {
         return StaffClosureHttp.accepted(service.close(StaffClosureHttp.command(sessionId, tableId, key, request), Origin.WAITER_SERVICE));

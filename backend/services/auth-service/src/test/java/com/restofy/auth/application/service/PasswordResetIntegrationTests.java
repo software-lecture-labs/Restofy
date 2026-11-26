@@ -226,7 +226,8 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM user_sessions WHERE revoked_at IS NULL", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL", Integer.class)).isZero();
-        assertThatThrownBy(() -> sessions.login(admin.getEmailNormalized(), OLD, null)).isInstanceOf(BadCredentialsException.class);
+        String adminEmail = admin.getEmailNormalized();
+        assertThatThrownBy(() -> sessions.login(adminEmail, OLD, null)).isInstanceOf(BadCredentialsException.class);
     }
 
     private List<String> race(Callable<String> action) throws Exception {

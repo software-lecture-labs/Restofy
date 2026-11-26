@@ -29,6 +29,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -91,6 +92,23 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         jdbc.update("UPDATE table_sessions SET status='CLOSING', closing_at=now() WHERE id=?", guest.sessionId());
         assertState(guest, "CLOSED");
         assertThat(call(POST, VALIDATE, body).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void everyGuestRefusalCarriesTheSameStableCodeAndKeepsItsDetail() throws Exception {
+        var closed = fixture(TENANT, 120);
+        jdbc.update("UPDATE table_sessions SET status='CLOSING', closing_at=now() WHERE id=?", closed.sessionId());
+        var refusals = List.of(
+                call(POST, VALIDATE, tokenBody("a".repeat(43))),
+                call(POST, VALIDATE, tokenBody(fixture(UUID.randomUUID(), 120).token())),
+                call(POST, VALIDATE, tokenBody(closed.token())),
+                call(GET, statePath(closed.sessionId(), UUID.randomUUID()), EMPTY));
+        for (var refusal : refusals) {
+            assertThat(refusal.statusCode()).isEqualTo(404);
+            var problem = json.readTree(refusal.body());
+            assertThat(problem.get("code").asString()).isEqualTo("GUEST_SESSION_UNAVAILABLE");
+            assertThat(problem.get("detail").asString()).isEqualTo("Guest session is unavailable.");
+        }
     }
 
     @Test

@@ -29,7 +29,7 @@ final class WaiterAuthorities {
     }
 
     /**
-     * Only the close and clean commands (POST) also need a delegated, verified staff token (X-Staff-Token). Their status
+     * Only the close and clean commands (POST) also need a delegated, verified staff token (X-Restofy-Staff-Delegation). Their status
      * reads (GET) are read-only, keyed by the command ID and tenant-checked, so the service credential alone opens them:
      * Waiter's background reconciler has no staff request to forward.
      */
