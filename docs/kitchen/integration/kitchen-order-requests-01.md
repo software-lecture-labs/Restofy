@@ -11,7 +11,7 @@ Bu belge bir taleptir; Order kodunda değişiklik içermez.
 
 | # | İhtiyaç | Durum | Kanıt |
 |---|---|---|---|
-| 1 | Personel uçlarında gerçek Auth kimliği (rehberde "principal'ı oluşturan Auth adaptörü yok") | **KARŞILANDI** (kodda; paylaşılan ortamda anahtar bekliyor, [AUTH-01/02](kitchen-auth-requests-01.md)) | `StaffSessionAuthenticator`, güvenlik testleri |
+| 1 | Personel uçlarında gerçek Auth kimliği (rehberde "principal'ı oluşturan Auth adaptörü yok") | **KARŞILANDI** (kodda; paylaşılan ortamda anahtar değeri ve HTTPS Auth adresi bekliyor, [AUTH-01/02](kitchen-auth-requests-01.md)) | `StaffSessionAuthenticator`, güvenlik testleri |
 | 2 | `POST /api/v1/internal/kitchen/order-events` alıcısı, commit sonrası 204 | **KARŞILANMADI** | Kitchen'da iç controller yok; `/api/v1/internal/**` reddedilir. Yerel işleyici `AcceptedOrderIngestService` var |
 | 3 | `OrderAccepted` mesajının uyumu | **UYUMSUZ** | Bkz. 2 |
 | 4 | Hazırlık olaylarını gönderen `OrderEventSink` adaptörü ve `deliverDue` çalıştırıcısı | **KARŞILANMADI** | Olaylar outbox'a yazılıyor; üretim sink'i ve zamanlayıcı yok |

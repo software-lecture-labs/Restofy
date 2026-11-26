@@ -29,4 +29,15 @@ public class KitchenAuthentication extends AbstractAuthenticationToken {
 	public KitchenPrincipal getPrincipal() {
 		return principal;
 	}
+
+	@Override
+	public boolean equals(Object other) {
+		return this == other
+				|| other instanceof KitchenAuthentication staff && principal.equals(staff.principal) && super.equals(staff);
+	}
+
+	@Override
+	public int hashCode() {
+		return 31 * super.hashCode() + principal.hashCode();
+	}
 }

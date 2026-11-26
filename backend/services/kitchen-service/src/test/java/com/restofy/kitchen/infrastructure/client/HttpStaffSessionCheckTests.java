@@ -50,6 +50,7 @@ class HttpStaffSessionCheckTests {
 	private volatile String contentType = "application/json";
 	private volatile String body = ANSWER;
 	private volatile boolean stall;
+	private volatile boolean stallMidBody;
 
 	@BeforeEach
 	void start() throws IOException {
@@ -72,6 +73,16 @@ class HttpStaffSessionCheckTests {
 			}
 			exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
 			try (OutputStream out = exchange.getResponseBody()) {
+				if (stallMidBody) {
+					out.write(bytes, 0, bytes.length / 2);
+					out.flush();
+					try {
+						release.await(10, TimeUnit.SECONDS);
+					} catch (InterruptedException _) {
+						Thread.currentThread().interrupt();
+					}
+					return;
+				}
 				out.write(bytes);
 			}
 		});
@@ -172,6 +183,19 @@ class HttpStaffSessionCheckTests {
 		var failure = assertThrows(StaffAuthUnavailableException.class, () -> check.current(TOKEN));
 
 		assertEquals("no-reliable-answer", failure.getReason());
+		assertTrue(Duration.ofNanos(System.nanoTime() - started).compareTo(Duration.ofSeconds(5)) < 0);
+		assertEquals(1, received.size(), "no retry");
+	}
+
+	/** The read timeout must also cover the body: an answer that starts and then hangs must not hold the request. */
+	@Test
+	void anAnswerThatStopsHalfwayTimesOutAsUnavailable() {
+		stallMidBody = true;
+		var check = check();
+		long started = System.nanoTime();
+
+		assertThrows(StaffAuthUnavailableException.class, () -> check.current(TOKEN));
+
 		assertTrue(Duration.ofNanos(System.nanoTime() - started).compareTo(Duration.ofSeconds(5)) < 0);
 		assertEquals(1, received.size(), "no retry");
 	}
