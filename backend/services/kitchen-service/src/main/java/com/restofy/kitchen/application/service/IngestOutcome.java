@@ -10,8 +10,8 @@ public enum IngestOutcome {
 	/** Newer version of an already stored order; not applied (follow-up changes are an open decision, D-02). */
 	NEWER_VERSION_NOT_APPLIED,
 	/**
-	 * The event id is already used for something else (different content, order or restaurant); nothing changed. A
-	 * transport must never acknowledge this as delivered.
+	 * The event id is already used for something else (different content, order or restaurant), or a line id belongs to
+	 * another order; nothing changed. A transport must never acknowledge this as delivered.
 	 */
 	CONTENT_CONFLICT
 }

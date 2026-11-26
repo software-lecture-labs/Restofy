@@ -18,6 +18,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,10 +29,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * Stores an order accepted by the Order service as a kitchen read-model. There is no HTTP transport for this yet
- * (open decision); the use-case is idempotent per (restaurant, order) and safe under concurrent redelivery.
+ * Stores an order accepted by the Order service as a kitchen read-model. {@link OrderEventReceiver} feeds it from the
+ * internal endpoint; the use-case is idempotent per (restaurant, order) and safe under concurrent redelivery.
  */
 @Service
 public class AcceptedOrderIngestService {
@@ -91,17 +93,23 @@ public class AcceptedOrderIngestService {
 			tx.executeWithoutResult(status -> create(message));
 			return IngestOutcome.CREATED;
 		} catch (DataIntegrityViolationException e) {
-			// A concurrent delivery of the same order won a unique constraint, or the event id already belongs to
-			// another order (the id is unique across restaurants). Anything else is a real failure.
+			// A concurrent delivery of the same order won a unique constraint, or an id of this message already belongs
+			// to another order: the event id (unique across restaurants) or a line id (unique within the restaurant).
+			// Anything else is a real failure.
 			return classifyIfStored(message).orElseGet(() -> {
-				if (!orders.existsBySourceEventId(message.eventId())) {
+				if (!orders.existsBySourceEventId(message.eventId()) && !usesAStoredLineId(message)) {
 					throw e;
 				}
-				log.warn("Accepted order refused: event id already used for another order, restaurantId={} orderId={} eventId={}",
+				log.warn("Accepted order refused: event id or line id already used for another order, restaurantId={} orderId={} eventId={}",
 						message.restaurantId(), message.orderId(), message.eventId());
 				return IngestOutcome.CONTENT_CONFLICT;
 			});
 		}
+	}
+
+	private boolean usesAStoredLineId(OrderAcceptedMessage message) {
+		return orders.existsLineId(message.restaurantId(),
+				message.items().stream().map(OrderAcceptedMessage.Item::orderItemId).toList());
 	}
 
 	/** In one transaction, so the stored lines can be compared with the redelivered ones. */
@@ -192,6 +200,9 @@ public class AcceptedOrderIngestService {
 				.map((ConstraintViolation<OrderAcceptedMessage> v) -> v.getPropertyPath() + " " + v.getMessage())
 				.sorted()
 				.collect(Collectors.toCollection(ArrayList::new));
+		if (violations.isEmpty() && !texts(message).allMatch(AcceptedOrderIngestService::isStorable)) {
+			violations.add("texts must not contain a NUL character or an unpaired surrogate");
+		}
 		if (violations.isEmpty()) {
 			Set<UUID> seen = new HashSet<>();
 			for (OrderAcceptedMessage.Item item : message.items()) {
@@ -210,5 +221,21 @@ public class AcceptedOrderIngestService {
 		if (!violations.isEmpty()) {
 			throw new InvalidOrderMessageException(violations);
 		}
+	}
+
+	/** Every free text of a message that is stored. */
+	private static Stream<String> texts(OrderAcceptedMessage message) {
+		return Stream.concat(Stream.of(message.orderNumber(), message.tableNumber()),
+				message.items().stream().flatMap(item -> Stream.concat(Stream.of(item.productName(), item.note()),
+						item.options().stream().flatMap(option -> Stream.of(option.name(), option.note())))))
+				.filter(Objects::nonNull);
+	}
+
+	/**
+	 * PostgreSQL refuses NUL, and an unpaired surrogate has no UTF-8 form: it would be stored as another character, so
+	 * the identical event would later look like different content.
+	 */
+	private static boolean isStorable(String text) {
+		return text.indexOf(0) < 0 && StandardCharsets.UTF_8.newEncoder().canEncode(text);
 	}
 }
