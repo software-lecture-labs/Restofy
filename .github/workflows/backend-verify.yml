@@ -2,8 +2,11 @@ name: Backend verify
 
 # No path filters: a filtered workflow never reports the required "verify" check,
 # so PRs without backend changes wait forever. The changes job decides what runs.
+# push only on the main branches: feature branches are checked by their PR, and a
+# push to a PR branch would otherwise run everything twice.
 on:
   push:
+    branches: [dev, main]
   pull_request:
     branches: [dev, main]
   workflow_dispatch:
