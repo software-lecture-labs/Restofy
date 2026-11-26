@@ -74,8 +74,8 @@ public class OutboxDeliveryService {
 	}
 
 	/**
-	 * One attempt for one delivery. Empty if the delivery is not due, already final, or claimed by another worker
-	 * (the sink is not called). Otherwise returns the delivery's status after the result was recorded.
+	 * One attempt for one delivery. Empty if the delivery is not due, already final, claimed by another worker, or an
+	 * Order READY still waiting for its PREPARING to be delivered (the sink is not called). Otherwise returns the delivery's status after the result was recorded.
 	 */
 	public Optional<DeliveryStatus> attempt(UUID deliveryId, EventSink sink) {
 		Optional<OutboundMessage> message = tx.execute(status -> claim(deliveryId, sink.destination()));
@@ -89,7 +89,8 @@ public class OutboxDeliveryService {
 	/** A delivery is only ever handed to the sink of its own destination; for any other sink it is as if it were not there. */
 	private Optional<OutboundMessage> claim(UUID deliveryId, String destination) {
 		Optional<OutboxDelivery> found = deliveries.findForUpdate(deliveryId);
-		if (found.isEmpty() || !destination.equals(found.get().getDestination()) || !found.get().claim(clock.instant(), LEASE)) {
+		if (found.isEmpty() || !destination.equals(found.get().getDestination())
+				|| deliveries.isWaitingForPreparing(deliveryId) || !found.get().claim(clock.instant(), LEASE)) {
 			return Optional.empty();
 		}
 		OutboxEvent event = events.findById(found.get().getEventId()).orElseThrow();
