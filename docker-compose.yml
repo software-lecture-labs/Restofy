@@ -29,9 +29,11 @@ x-runtime-env: &runtime-env
 
   REST_CLIENT_CONNECT_TIMEOUT_MS: ${REST_CLIENT_CONNECT_TIMEOUT_MS:-3000}
   REST_CLIENT_READ_TIMEOUT_MS: ${REST_CLIENT_READ_TIMEOUT_MS:-5000}
-  # Plain HTTP between services only for Compose service names when APP_ENV is dev or test and no prod profile is
-  # active; see docs/decisions/ADR-ORTAK-001-ic-agda-http.md. Production sets APP_ENV=prod and leaves this unset.
+  # Plain HTTP between services only for Compose service names when APP_ENV is dev, local or test and no prod
+  # profile is active; see docs/decisions/ADR-ORTAK-001-ic-agda-http.md. Production sets APP_ENV=prod and leaves
+  # INTERNAL_HTTP_ALLOWED unset.
   INTERNAL_HTTP_ALLOWED: ${INTERNAL_HTTP_ALLOWED:-false}
+  APP_ENV: ${APP_ENV:-dev}
 
   AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?}
   ORDER_SERVICE_URL: ${ORDER_SERVICE_URL:?}
