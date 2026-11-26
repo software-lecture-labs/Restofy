@@ -351,9 +351,11 @@ almaz. Kullanıcı satır kilidi account genelinde yarışları sıralar; başar
 tüketimi ve yükseltme aynı transaction'dadır. Teknik hatalar transaction'ı geri alır.
 Bu sınır, aynı kullanıcı/MFA satırını kilitlemiş dış transaction içinden çağrılmamalıdır.
 
-Peer-IP limiti süreç başına 60 saniyede 30 istektir; en fazla 10000 pencere tutulur.
-Yalnız servlet peer adresi kullanılır, `X-Forwarded-For` güvenilmez. Gateway arkasında
-bu adres gerçek kullanıcı IP'si olmayabilir; dağıtık IP limiti garantisi yoktur.
+Adres limiti (`MfaPeerLimiter`) istemci adresi başına 60 saniyede 30 istektir. Sayaç, bütün Auth
+örneklerinin paylaştığı PostgreSQL `rate_limits` tablosundadır; yeniden başlatmada kaybolmaz.
+İstemci adresi `ClientAddressResolver` ile bulunur: `X-Forwarded-For` yalnız bağlantı
+`AUTH_TRUSTED_PROXY_CIDRS` içindeki Gateway'den geliyorsa okunur. Ayar boşsa Gateway arkasındaki
+herkes Gateway'in adresiyle sayılır. Tablo dolunca kuralı ADR-AUTH-002 anlatır.
 Hesap kilidi mevcut doğrulanmış diğer cihazların yetkisini kendiliğinden kaldırmaz.
 
 ### Bilinen güvenlik ve işletim sınırları
