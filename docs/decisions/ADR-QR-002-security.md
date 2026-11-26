@@ -118,6 +118,7 @@ QR linkinin kopyalanabilmesi fiziksel masada bulunmayı kanıtlamaz. Cookie'ye g
 | Credential/cookie ömrü | Siparişli koruma, bağımsız guest idle süresi, browser kapanışı ve kayıp credential davranışıyla uyumlu politika seçilmeli. Geçersiz oturum yenilemeyle diriltilmemeli. |
 | İstemci geçişi | JSON yanıtı ve activity gövdesi değişince mevcut frontend ve servis istemcilerinin etkisi incelenmeli; sürümleme/geçiş ve dağıtım sırası tanımlanmalı. |
 | Cookie ve CSRF ayrıntıları | QR için seçildi (K3/K4/K6). Tüketici servislerde aynı cookie'nin nasıl kullanılacağı ve CSRF doğrulaması açık. |
+| Menu'nun guest çerezini tüketmesi | **Karar (Alper, 26 Kasım 2026, QR-REQUEST-01).** `restofy_guest` çerezi (`Path=/api/v1`) Menu'ya ulaşabilir. Menu çerezi yalnız QR'ın Menu'ya özel iç ucuna (`POST /api/v1/internal/qr/menu/guest-sessions/validate`) sunucudan sunucuya sormak için kullanır; loglamaz, saklamaz, önbelleğe almaz, başka servise iletmez. Menu salt okunur `GET` sunduğu için CSRF gerekmez. Çerez Menu'da kimlik veya yetki kaynağı değildir; yetkili cevap QR'ındır. Diğer tüketicilerin çerez/CSRF ayrıntıları açık kalır. |
 | Limit ve proxy ayrıntıları | Sayısal bütçe, sayaç tutarlılığı, kapasite/kesinti ve güvenilir istemci adresi ilgili geliştiricilerle belirlenmeli. |
 
 Bu açık sorular çözülmeden taşıma/güvenlik sözleşmesi tamamlanmış veya bütün müşteri API'leri açılabilir sayılmaz. Aktif guest kapasitesini aşan istekleri reddetmek, mevcut guest'leri rastgele silme yetkisi vermez.
@@ -156,6 +157,7 @@ QR testleriyle doğrulanan kısım (`GuestCookieSecurityTests`, `GuestRoutesClos
 | Rastgele guest tokenı, digest saklama ve yerel guest doğrulama temeli | MEVCUT — kaynak incelendi; bu çalışmada değiştirilmedi |
 | JSON'dan Set-Cookie'ye geçiş, activity uyarlaması, cookie yaşam döngüsü | UYGULANDI (QR, 19 Kasım 2026) — Order/Waiter/Payment/frontend tarafı UYGULANMADI |
 | Guest CSRF/Origin | UYGULANDI (QR) — tüketici servislerde UYGULANMADI |
+| Menu → QR guest doğrulaması (QR-REQUEST-01) | UYGULANDI (QR, 26 Kasım 2026) — ayrı iç uç, Menu servis kimliği (`QR_MENU_CALLER_PUBLIC_KEYS`), dar yanıt; Menu istemcisi UYGULANMADI, tarayıcı uçtan uca K7'ye bağlı |
 | QR'a özel hız sınırları (K7) | UYGULANMADI — ayrı PR (`chore/rate-limit`); o zamana kadar müşteri uçları `denyAll` |
 | Gerçek browser ve servisler arası guest taşıma | DOĞRULANMADI — taraflar arası sözleşme ve E2E bekliyor |
 | QR testleri | ÇALIŞTIRILDI — qr-service 636 test, 0 hata/başarısızlık (23 Kasım 2026) |

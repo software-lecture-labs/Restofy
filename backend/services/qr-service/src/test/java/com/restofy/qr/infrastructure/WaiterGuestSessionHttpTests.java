@@ -59,6 +59,7 @@ class WaiterGuestSessionHttpTests extends Q5TestSecuritySupport {
     private static final String BASE = "/api/v1/internal/qr";
     private static final String VALIDATE = BASE + "/guest-sessions/validate";
     private static final String ACTIVITY = BASE + "/events/cart-activity";
+    private static final String TABLES = "/api/v1/internal/tables";
     private static final String AUTHORIZATION = "Authorization";
     private static final String POST = "POST";
     private static final String GET = "GET";
@@ -134,6 +135,22 @@ class WaiterGuestSessionHttpTests extends Q5TestSecuritySupport {
                 WAITER_SUBJECT, WAITER_SCOPE);
         assertThat(send(POST, VALIDATE, body + " ", valid, false).statusCode()).isEqualTo(403);
         assertThat(send(POST, VALIDATE, body, valid, true).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void orderCredentialsNeverReachWaiterOnlyRoutesAndWaiterOnlyRoutesRejectEverythingElse() throws Exception {
+        // An Order key cannot read tables (Waiter-only route): the Waiter chain owns the route and does not know that key.
+        String orderToken = signAs(GET, TABLES, EMPTY, TENANT, ORDER, Instant.now(), ORDER_KEY_ID, ORDER_IDENTITY, ORDER_SUBJECT,
+                ORDER_SCOPE);
+        assertThat(send(GET, TABLES, EMPTY, orderToken, false).statusCode()).isEqualTo(401);
+        assertThat(send(GET, TABLES, EMPTY, null, false).statusCode()).isEqualTo(401);
+        // A Waiter token without the table-read scope is a scope violation, not an authentication failure.
+        String wrongScope = signAs(GET, TABLES, EMPTY, TENANT, WAITER, Instant.now(), WAITER_KEY_ID, WAITER_IDENTITY, WAITER_SUBJECT,
+                WAITER_SCOPE);
+        assertThat(send(GET, TABLES, EMPTY, wrongScope, false).statusCode()).isEqualTo(403);
+        String tableRead = signAs(GET, TABLES, EMPTY, TENANT, WAITER, Instant.now(), WAITER_KEY_ID, WAITER_IDENTITY, WAITER_SUBJECT,
+                "qr:table-read");
+        assertThat(send(GET, TABLES, EMPTY, tableRead, false).statusCode()).isEqualTo(200);
     }
 
     private void availableOrderScope() {
