@@ -8,6 +8,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -523,6 +524,27 @@ class KitchenCancellationRequestApiTests extends AbstractCancellationApiTest {
 
         kitchenAsks(body).andExpect(status().isOk()).andExpect(jsonPath("$.duplicate").value(true))
                 .andExpect(jsonPath("$.orderVersion").doesNotExist()).andExpect(jsonPath("$.decidedAt").doesNotExist());
+    }
+
+    @Test
+    void theFirstDecisionSurvivesTheOrdinaryCancellationCleanupWindow() throws Exception {
+        UUID orderId = placeMixedOrder(A1);
+        UUID eventId = UUID.randomUUID();
+        var body = askItems(eventId, orderId, lineOf(orderId, DevFixtures.SALAD), 1, outOfStock(), null);
+        JsonNode first = answerOf(body);
+
+        int removed = jdbc.update("""
+                DELETE FROM idempotency_records
+                WHERE operation = 'KITCHEN_CANCEL_REQUEST' AND idempotency_key = ? AND expires_at < ?
+                """, eventId.toString(), Timestamp.from(Instant.now().plus(4, ChronoUnit.DAYS)));
+        assertEquals(0, removed);
+        advanceTo(orderId, "PREPARING");
+
+        JsonNode repeated = answerOf(body);
+        assertTrue(repeated.path("duplicate").asBoolean());
+        for (String field : List.of("cancellationId", "scope", "orderVersion", "decidedAt")) {
+            assertEquals(first.path(field), repeated.path(field), field);
+        }
     }
 
     @Test

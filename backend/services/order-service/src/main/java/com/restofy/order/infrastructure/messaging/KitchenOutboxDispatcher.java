@@ -82,7 +82,8 @@ public class KitchenOutboxDispatcher {
 
     private void completeFailure(Attempt attempt, String code, Duration delay) {
         if (store.complete(attempt, code, delay) && delay == null) {
-            log.warn("Kitchen event delivery stopped: eventId={} code={}", attempt.eventId(), code);
+            log.warn("Kitchen event delivery stopped: restaurantId={} orderId={} eventId={} eventType={} code={}",
+                    attempt.restaurantId(), attempt.orderId(), attempt.eventId(), attempt.eventType(), code);
         }
     }
 

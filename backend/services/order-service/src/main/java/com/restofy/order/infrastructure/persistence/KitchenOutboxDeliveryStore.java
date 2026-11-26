@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -20,7 +21,7 @@ public class KitchenOutboxDeliveryStore {
 
     public record Attempt(UUID deliveryId, UUID eventId, UUID restaurantId, UUID orderId, long orderVersion,
                           String eventType, int schemaVersion, String correlationId, Instant occurredAt,
-                          int number, String payload) {
+                          int number, Instant leaseUntil, String payload) {
     }
 
     private final JdbcTemplate jdbc;
@@ -61,12 +62,14 @@ public class KitchenOutboxDeliveryStore {
                     next_attempt_at = statement_timestamp() + (? * interval '1 millisecond')
                 FROM candidate c WHERE d.id = c.id
                 RETURNING d.id, c.event_id, c.restaurant_id, c.aggregate_id, c.aggregate_version, c.event_type,
-                    c.schema_version, c.correlation_id, c.occurred_at, d.attempt_count, c.payload::text AS body
+                    c.schema_version, c.correlation_id, c.occurred_at, d.attempt_count, d.next_attempt_at,
+                    c.payload::text AS body
                 """.formatted(TYPES, TYPES), (rs, row) -> new Attempt(rs.getObject("id", UUID.class),
                         rs.getObject("event_id", UUID.class), rs.getObject("restaurant_id", UUID.class),
                         rs.getObject("aggregate_id", UUID.class), rs.getLong("aggregate_version"),
                         rs.getString("event_type"), rs.getInt("schema_version"), rs.getString("correlation_id"),
-                        rs.getTimestamp("occurred_at").toInstant(), rs.getInt("attempt_count"), rs.getString("body")),
+                        rs.getTimestamp("occurred_at").toInstant(), rs.getInt("attempt_count"),
+                        rs.getTimestamp("next_attempt_at").toInstant(), rs.getString("body")),
                 restaurantId, maxAttempts, lease.toMillis()).stream().findFirst();
     }
 
@@ -98,8 +101,8 @@ public class KitchenOutboxDeliveryStore {
                 FROM outbox_events e
                 WHERE d.id = ? AND d.event_id = ? AND d.attempt_count = ? AND d.status = 'PENDING'
                     AND d.destination = 'KITCHEN' AND e.id = d.event_id AND e.restaurant_id = ?
-                    AND d.next_attempt_at > statement_timestamp()
+                    AND d.next_attempt_at = ? AND d.next_attempt_at > statement_timestamp()
                 """, status, error, delivered, delay, attempt.deliveryId(), attempt.eventId(), attempt.number(),
-                attempt.restaurantId()) == 1;
+                attempt.restaurantId(), Timestamp.from(attempt.leaseUntil())) == 1;
     }
 }

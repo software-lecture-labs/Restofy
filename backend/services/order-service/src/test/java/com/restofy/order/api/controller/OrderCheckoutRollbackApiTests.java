@@ -26,7 +26,7 @@ class OrderCheckoutRollbackApiTests extends AbstractCartApiTest {
     /** Fails inside the checkout transaction, after the order rows were already written and flushed. */
     private void eventCreationFails() {
         doThrow(new IllegalStateException("simulated failure after the order was written"))
-                .when(orderMapper).toPlacedEvent(any(), any(), any(), any());
+                .when(orderMapper).toPlacedEvent(any(), any(), any(), any(), any());
     }
 
     @Test

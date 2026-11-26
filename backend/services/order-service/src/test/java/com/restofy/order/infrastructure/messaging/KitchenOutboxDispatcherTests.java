@@ -15,6 +15,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -46,10 +49,12 @@ class KitchenOutboxDispatcherTests {
         UUID order = UUID.randomUUID();
         UUID table = UUID.randomUUID();
         UUID line = UUID.randomUUID();
-        UUID accepted = recordPlaced(tenant, order, table, line);
+        UUID accepted = recordPlaced(tenant, order, table, line, "12");
         UUID cancelled = record(tenant, order, 1, "OrderCancelled", Map.of(
                 "cancellationId", UUID.randomUUID(), "decidedAt", Instant.now(),
                 "paymentStatus", "PAID", "refundRequiredMinor", 500,
+                "reasons", List.of(Map.of("code", "CHANGED_MIND", "text", "private note", "source", "GUEST"),
+                        Map.of("text", "text without a code")),
                 "items", List.of(Map.of("orderItemId", line, "quantity", 2, "remainingQuantity", 0))));
         UUID foreign = recordPlaced(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
@@ -75,7 +80,7 @@ class KitchenOutboxDispatcherTests {
         assertEquals(accepted.toString(), orderMessage.path("eventId").asString());
         assertEquals("OrderAccepted", orderMessage.path("eventType").asString());
         assertEquals(table.toString(), orderMessage.path("tableId").asString());
-        assertFalse(orderMessage.has("tableNumber"));
+        assertEquals("12", orderMessage.path("tableNumber").asString());
         assertFalse(orderMessage.has("guestSessionId"));
         assertFalse(orderMessage.has("amounts"));
         var item = orderMessage.path("items").get(0);
@@ -90,6 +95,9 @@ class KitchenOutboxDispatcherTests {
         assertEquals(0, decision.path("items").get(0).path("remainingQuantity").asInt());
         assertFalse(decision.has("paymentStatus"));
         assertFalse(decision.has("refundRequiredMinor"));
+        assertEquals(1, decision.path("reasons").size());
+        assertEquals("CHANGED_MIND", decision.path("reasons").get(0).path("code").asString());
+        assertEquals(1, decision.path("reasons").get(0).size());
         assertEquals("DELIVERED", state(accepted));
         assertEquals("DELIVERED", state(cancelled));
         assertEquals("PENDING", state(foreign));
@@ -116,18 +124,87 @@ class KitchenOutboxDispatcherTests {
         assertEquals("PENDING", state(followUp));
     }
 
+    @Test
+    void unsupportedPartialCancellationKeepsFullCancellationPendingWithoutBlockingOtherOrders() {
+        UUID tenant = UUID.randomUUID();
+        UUID order = UUID.randomUUID();
+        UUID line = UUID.randomUUID();
+        UUID accepted = recordPlaced(tenant, order, UUID.randomUUID(), line);
+        UUID partial = record(tenant, order, 1, "OrderItemsCancelled", Map.of(
+                "cancellationId", UUID.randomUUID(), "decidedAt", Instant.now(),
+                "items", List.of(Map.of("orderItemId", line, "quantity", 1, "remainingQuantity", 1))));
+        UUID full = record(tenant, order, 2, "OrderCancelled", Map.of(
+                "cancellationId", UUID.randomUUID(), "decidedAt", Instant.now(),
+                "items", List.of(Map.of("orderItemId", line, "quantity", 1, "remainingQuantity", 0))));
+        UUID independent = recordPlaced(tenant, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var peer = mock(KitchenEventsHttpClient.class);
+        when(peer.send(any(), any())).thenAnswer(call -> {
+            var body = json.readTree((byte[]) call.getArgument(1));
+            return "OrderItemsCancelled".equals(body.path("eventType").asString()) ? 422 : 204;
+        });
+
+        dispatcher(tenant, peer).dispatch();
+
+        assertEquals("DELIVERED", state(accepted));
+        assertEquals("FAILED", state(partial));
+        assertEquals("KITCHEN_HTTP_422", jdbc.queryForObject(
+                "SELECT last_error_code FROM outbox_deliveries WHERE event_id = ?", String.class, partial));
+        assertEquals("PENDING", state(full));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT attempt_count FROM outbox_deliveries WHERE event_id = ?", Integer.class, full));
+        assertEquals("DELIVERED", state(independent));
+    }
+
+    @Test
+    void anOperatorCanRequeueOnlyTheFailedKitchenDeliveryAndStaleAttemptsCannotCompleteIt() throws IOException {
+        UUID tenant = UUID.randomUUID();
+        UUID order = UUID.randomUUID();
+        UUID accepted = recordPlaced(tenant, order, UUID.randomUUID(), UUID.randomUUID(), "12");
+        UUID followUp = record(tenant, order, 1, "OrderCancelled", Map.of());
+        Duration lease = Duration.ofSeconds(10);
+        var stale = store.claim(tenant, 1, lease).orElseThrow();
+        makeDue(accepted);
+        store.expireExhausted(tenant, 1, 1);
+        assertEquals("FAILED", state(accepted));
+        assertTrue(store.claim(tenant, 5, lease).isEmpty());
+
+        String requeue = Files.readString(Path.of("ops", "requeue-kitchen-delivery.sql"))
+                .replace(":'restaurant_id'", "?").replace(":'event_id'", "?");
+        assertTrue(jdbc.queryForList(requeue, UUID.randomUUID(), accepted).isEmpty());
+        assertTrue(jdbc.queryForList(requeue, tenant, followUp).isEmpty());
+        var receipt = jdbc.queryForMap(requeue, tenant, accepted);
+        assertEquals(accepted, receipt.get("event_id"));
+        assertEquals(1, receipt.get("previous_attempt_count"));
+        assertEquals("KITCHEN_FINAL_ATTEMPT_UNCERTAIN", receipt.get("previous_error_code"));
+        assertTrue(jdbc.queryForList(requeue, tenant, accepted).isEmpty());
+
+        var retry = store.claim(tenant, 5, lease).orElseThrow();
+        assertEquals(accepted, retry.eventId());
+        assertEquals(stale.number(), retry.number());
+        assertArrayEquals(projection.project(stale), projection.project(retry));
+        assertFalse(store.complete(stale, null, null));
+        assertTrue(store.claim(tenant, 5, lease).isEmpty());
+        assertTrue(store.complete(retry, null, null));
+        assertTrue(jdbc.queryForList(requeue, tenant, accepted).isEmpty());
+        assertEquals(followUp, store.claim(tenant, 5, lease).orElseThrow().eventId());
+    }
+
     private KitchenOutboxDispatcher dispatcher(UUID tenant, KitchenEventsHttpClient peer) {
         return new KitchenOutboxDispatcher(store, peer, projection, new KitchenRestaurantScope(tenant.toString()),
                 new RestClientProperties(1000, 1000));
     }
 
     private UUID recordPlaced(UUID tenant, UUID order, UUID table, UUID line) {
+        return recordPlaced(tenant, order, table, line, null);
+    }
+
+    private UUID recordPlaced(UUID tenant, UUID order, UUID table, UUID line, String tableNumber) {
         var item = new OrderPlacedEvent.Item(line, UUID.randomUUID(), "Salad", 2, "NO SALT",
                 List.of(new OrderPlacedEvent.Ingredient(UUID.randomUUID(), "Onion")),
                 List.of(new OrderPlacedEvent.Extra(UUID.randomUUID(), "Cheese", 2)), 300, 2000, 600);
         var payload = new OrderPlacedEvent(UUID.randomUUID(), OrderPlacedEvent.TYPE, 1, Instant.now(), "correlation",
                 tenant, table, UUID.randomUUID(), UUID.randomUUID(), order, "A-1", "RECEIVED", "TRY",
-                new OrderPlacedEvent.Amounts(500, 100, 600), null, Instant.now(), List.of(item));
+                new OrderPlacedEvent.Amounts(500, 100, 600), null, Instant.now(), List.of(item), tableNumber);
         return record(tenant, order, 0, OrderPlacedEvent.TYPE, payload);
     }
 

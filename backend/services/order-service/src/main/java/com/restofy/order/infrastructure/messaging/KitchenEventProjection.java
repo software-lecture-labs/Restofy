@@ -1,5 +1,6 @@
 package com.restofy.order.infrastructure.messaging;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.restofy.order.domain.event.OrderCancellationRequestedEvent;
 import com.restofy.order.domain.event.OrderItemsCancelledEvent;
 import com.restofy.order.domain.event.OrderCancelledEvent;
@@ -41,7 +42,7 @@ class KitchenEventProjection {
                 .toList())).toList();
         return new Accepted(event.eventId(), "OrderAccepted", event.schemaVersion(), event.occurredAt(),
                 event.correlationId(), event.restaurantId(), event.orderId(), event.orderVersion(), source.orderNo(),
-                source.tableId(), source.tableSessionId(), items);
+                source.tableId(), source.tableSessionId(), source.tableNumber(), items);
     }
 
     private Cancellation cancellation(Attempt event) {
@@ -55,18 +56,23 @@ class KitchenEventProjection {
             case OrderItemsCancelledEvent.TYPE -> "PARTIAL";
             default -> source.required("scope").asString();
         };
+        List<ReasonCode> reasons = OrderCancelledEvent.TYPE.equals(event.eventType())
+                ? source.path("reasons").valueStream().map(reason -> reason.path("code").asString(null))
+                        .filter(code -> code != null && !code.isBlank()).map(ReasonCode::new).toList()
+                : null;
         return new Cancellation(event.eventId(), event.eventType(), event.schemaVersion(), event.occurredAt(),
                 event.correlationId(), event.restaurantId(), event.orderId(), event.orderVersion(),
                 UUID.fromString(source.required("cancellationId").asString()),
                 scope,
                 requested && source.required("kitchenConfirmationRequired").asBoolean(), lines,
                 requested ? null : Instant.parse(source.required("decidedAt").asString()),
-                source.path("rejectionCode").asString(null));
+                source.path("rejectionCode").asString(null), reasons);
     }
 
     private record Accepted(UUID eventId, String eventType, int schemaVersion, Instant occurredAt,
                             String correlationId, UUID restaurantId, UUID orderId, long aggregateVersion,
-                            String orderNumber, UUID tableId, UUID tableSessionId, List<Item> items) {
+                            String orderNumber, UUID tableId, UUID tableSessionId,
+                            @JsonInclude(JsonInclude.Include.NON_NULL) String tableNumber, List<Item> items) {
     }
 
     private record Item(UUID orderItemId, UUID productId, String productName, int quantity, String note,
@@ -79,7 +85,11 @@ class KitchenEventProjection {
     private record Cancellation(UUID eventId, String eventType, int schemaVersion, Instant occurredAt,
                                 String correlationId, UUID restaurantId, UUID orderId, long orderVersion,
                                 UUID cancellationId, String scope, boolean kitchenConfirmationRequired,
-                                List<CancelledLine> items, Instant decidedAt, String rejectionCode) {
+                                List<CancelledLine> items, Instant decidedAt, String rejectionCode,
+                                @JsonInclude(JsonInclude.Include.NON_NULL) List<ReasonCode> reasons) {
+    }
+
+    private record ReasonCode(String code) {
     }
 
     private record CancelledLine(UUID orderItemId, int quantity, int remainingQuantity) {
