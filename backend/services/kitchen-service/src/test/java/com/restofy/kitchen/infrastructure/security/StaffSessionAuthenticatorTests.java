@@ -18,10 +18,11 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Combining the local proof with Auth's current answer: neither alone authenticates anybody. */
+/** The local proof authenticates; Auth's current answer confirms that very proof or the request does not run. */
 class StaffSessionAuthenticatorTests {
 
 	private static final Instant NOW = Instant.parse("2026-11-26T10:00:00Z");
@@ -40,6 +41,11 @@ class StaffSessionAuthenticatorTests {
 		return new StaffSessionAuthenticator(tokens, check, CLOCK);
 	}
 
+	/** Proves the token locally and asks Auth about exactly that proof. */
+	private boolean confirmed(StaffSessionAuthenticator authenticator) {
+		return authenticator.confirm(authenticator.prove(token).orElseThrow());
+	}
+
 	private static SessionState state(String status, String role, Instant idle, Instant absolute, Boolean setup) {
 		return new SessionState(status, role, idle, absolute, setup);
 	}
@@ -49,33 +55,40 @@ class StaffSessionAuthenticatorTests {
 	}
 
 	@Test
-	void aVerifiedTokenAndAConfirmedSessionAuthenticateWithTheSignedIdentityOnly() {
+	void theLocalProofCarriesTheSignedIdentityOnlyAndAuthIsAskedAboutThatVeryToken() {
 		List<String> asked = new ArrayList<>();
-
-		var authentication = with(value -> {
+		var authenticator = with(value -> {
 			asked.add(value);
 			return Optional.of(valid());
-		}).authenticate(token).orElseThrow();
+		});
 
+		var proof = authenticator.prove(token).orElseThrow();
+		var authentication = proof.authentication();
+
+		assertEquals(List.of(), asked, "the local proof never calls Auth");
 		assertEquals(new KitchenPrincipal(user, restaurant), authentication.getPrincipal());
 		assertEquals(List.of("ROLE_KITCHEN"), authentication.getAuthorities().stream().map(Object::toString).toList());
-		assertEquals("", authentication.getCredentials(), "the token is not kept after authentication");
+		assertEquals("", authentication.getCredentials(), "the token is not kept in the authentication");
+		assertFalse(proof.toString().contains(token), "the proof never shows the token");
+		assertTrue(authenticator.confirm(proof));
 		assertEquals(List.of(token), asked, "Auth is asked about the very same token, once");
+		assertTrue(authenticator.confirm(proof));
+		assertEquals(List.of(token, token), asked, "an answer is not remembered");
 	}
 
 	@Test
-	void anInvalidTokenIsRefusedWithoutAskingAuth() {
+	void anInvalidTokenGivesNoProofAndAuthIsNotAsked() {
 		var authenticator = with(value -> {
 			throw new AssertionError("Auth must not receive an unverified credential");
 		});
 
-		assertTrue(authenticator.authenticate("not.a.token").isEmpty());
-		assertTrue(authenticator.authenticate(StaffTokens.altered(NOW, c -> c.put("token_type", "service"))).isEmpty());
+		assertTrue(authenticator.prove("not.a.token").isEmpty());
+		assertTrue(authenticator.prove(StaffTokens.altered(NOW, c -> c.put("token_type", "service"))).isEmpty());
 	}
 
 	@Test
-	void aSessionAuthRefusesDoesNotAuthenticateAlthoughTheTokenIsStillValid() {
-		assertTrue(with(value -> Optional.empty()).authenticate(token).isEmpty());
+	void aSessionAuthRefusesIsNotConfirmedAlthoughTheTokenIsStillValid() {
+		assertFalse(confirmed(with(value -> Optional.empty())));
 	}
 
 	static Stream<Arguments> untrustworthyAnswers() {
@@ -94,15 +107,17 @@ class StaffSessionAuthenticatorTests {
 	void anAnswerThatDoesNotFitTheTokenIsUnavailableNeverSuccess(String name, SessionState answer) {
 		var authenticator = with(value -> Optional.of(answer));
 
-		assertThrows(StaffAuthUnavailableException.class, () -> authenticator.authenticate(token), name);
+		var proof = authenticator.prove(token).orElseThrow();
+
+		assertThrows(StaffAuthUnavailableException.class, () -> authenticator.confirm(proof), name);
 	}
 
 	@Test
 	void aSessionThatIsAlreadyOverIsRefused() {
-		assertTrue(with(value -> Optional.of(state("AUTHENTICATED", "KITCHEN", NOW, LATER, false)))
-				.authenticate(token).isEmpty(), "idle expired");
-		assertTrue(with(value -> Optional.of(state("AUTHENTICATED", "KITCHEN", LATER, NOW, false)))
-				.authenticate(token).isEmpty(), "absolute lifetime over");
+		assertFalse(confirmed(with(value -> Optional.of(state("AUTHENTICATED", "KITCHEN", NOW, LATER, false)))),
+				"idle expired");
+		assertFalse(confirmed(with(value -> Optional.of(state("AUTHENTICATED", "KITCHEN", LATER, NOW, false)))),
+				"absolute lifetime over");
 	}
 
 	@Test
@@ -129,7 +144,7 @@ class StaffSessionAuthenticatorTests {
 			return Optional.of(state("AUTHENTICATED", "KITCHEN", NOW.plusSeconds(900), NOW.plusSeconds(900), null));
 		}, moving);
 
-		assertTrue(authenticator.authenticate(token).isEmpty());
+		assertFalse(confirmed(authenticator));
 	}
 
 	@Test
@@ -141,9 +156,12 @@ class StaffSessionAuthenticatorTests {
 			throw new IllegalStateException("unexpected");
 		});
 
+		var first = unavailable.prove(token).orElseThrow();
+		var second = crashing.prove(token).orElseThrow();
+
 		assertEquals("status-503",
-				assertThrows(StaffAuthUnavailableException.class, () -> unavailable.authenticate(token)).getReason());
+				assertThrows(StaffAuthUnavailableException.class, () -> unavailable.confirm(first)).getReason());
 		assertEquals("session-check-failed",
-				assertThrows(StaffAuthUnavailableException.class, () -> crashing.authenticate(token)).getReason());
+				assertThrows(StaffAuthUnavailableException.class, () -> crashing.confirm(second)).getReason());
 	}
 }

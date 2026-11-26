@@ -21,8 +21,10 @@ import java.util.regex.Pattern;
  * {@code exp} within Auth's access lifetime, and well-formed user, restaurant, session and token ids with a known
  * role. MFA-pending, refresh, guest and service tokens are not staff tokens.
  *
- * <p>This alone does NOT prove the session is still valid (logout, disabled account, changed role); that is the
- * job of {@link StaffSessionCheck}. Without a configured public key nothing verifies.
+ * <p>This alone does NOT prove the session is still valid (logout, disabled account, changed role). Reviewed reads
+ * accept that for the rest of the token's life; everything else also asks {@link StaffSessionCheck}. Auth issues a
+ * token for at most 300 seconds, less when the session ends sooner: any lifetime up to the bound is accepted, none
+ * above it. Without a configured public key nothing verifies.
  */
 public class StaffTokenVerifier {
 

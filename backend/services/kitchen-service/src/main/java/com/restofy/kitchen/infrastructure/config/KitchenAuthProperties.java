@@ -18,14 +18,18 @@ import java.util.List;
  * <p>{@code staffPublicKey} (Base64 X.509 RSA public key of Auth's staff JWTs) switches staff authentication on.
  * While it is blank nothing authenticates and every staff request is a 401: no key is guessed or built in. Once it
  * is set, every other value must be usable or the application does not start. {@code serviceUrl} must then be an
- * HTTPS origin, because the staff cookie is sent to Auth for the session check. Startup messages name the setting,
- * never its value.
+ * HTTPS origin, because the staff cookie is sent to Auth for the session check of state changes. Startup messages name
+ * the setting, never its value.
  */
 @ConfigurationProperties("restofy.auth")
 public record KitchenAuthProperties(String serviceUrl, String staffPublicKey, String issuer, long accessTtlSeconds,
 		List<String> allowedOrigins, long connectTimeoutMs, long readTimeoutMs) {
 
-	/** Auth's staff access token lives 300 seconds; a longer configured lifetime is never accepted. */
+	/**
+	 * Auth's staff access token lives at most 300 seconds (less when the session ends sooner), so no larger upper bound
+	 * is ever accepted. {@code accessTtlSeconds} is the upper bound Kitchen applies to {@code exp - iat}; it comes from
+	 * Auth's shared {@code JWT_ACCESS_TTL_SECONDS}, and a value below Auth's own would refuse valid tokens.
+	 */
 	public static final long MAX_ACCESS_TTL_SECONDS = 300;
 	private static final int MIN_RSA_BITS = 2048;
 

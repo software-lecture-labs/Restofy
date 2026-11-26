@@ -241,29 +241,34 @@ class KitchenStaffCookieSecurityTests extends StaffCookieTestBase {
 	}
 
 	@Test
-	void everyRequestAsksAuthSoALogoutStopsTheVeryNextRequest() throws Exception {
-		UUID mine = accept(restaurant);
-		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isOk());
-		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isOk());
+	void everyStateChangeAsksAuthAgainSoALogoutStopsTheVeryNextOne() throws Exception {
+		UUID first = accept(restaurant);
+		UUID second = accept(restaurant);
+		UUID third = accept(restaurant);
+		mvc.perform(withCookie(startPreparation(first), cook).with(csrf())).andExpect(status().isOk());
+		mvc.perform(withCookie(startPreparation(second), cook).with(csrf())).andExpect(status().isOk());
 		verify(auth, times(2)).current(cook);
 
 		when(auth.current(cook)).thenReturn(Optional.empty());
 
-		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isUnauthorized());
-		mvc.perform(withCookie(startPreparation(mine), cook).with(csrf())).andExpect(status().isUnauthorized());
-		assertEquals("WAITING", statusOf(restaurant, mine));
+		mvc.perform(withCookie(startPreparation(third), cook).with(csrf())).andExpect(status().isUnauthorized());
+		assertEquals("WAITING", statusOf(restaurant, third));
+		verify(auth, times(3)).current(cook);
+		// The documented trade-off: a read still works until the token itself expires.
+		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isOk());
+		verify(auth, times(3)).current(cook);
 	}
 
 	@Test
-	void whileAuthCannotAnswerNothingRunsAndTheServiceRecoversWithoutARememberedResult() throws Exception {
+	void whileAuthCannotAnswerNoStateChangeRunsAndTheServiceRecoversWithoutARememberedResult() throws Exception {
 		UUID mine = accept(restaurant);
-		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isOk());
 		when(auth.current(cook)).thenThrow(new StaffAuthUnavailableException("status-503"));
 
-		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isServiceUnavailable())
+		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isOk());
+		mvc.perform(withCookie(startPreparation(mine), cook).with(csrf())).andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("AUTH_UNAVAILABLE")).andExpect(jsonPath("$.retryable").value(true))
-				.andExpect(jsonPath("$.content").doesNotExist()).andExpect(header().string(HttpHeaders.RETRY_AFTER, "2"));
-		mvc.perform(withCookie(startPreparation(mine), cook).with(csrf())).andExpect(status().isServiceUnavailable());
+				.andExpect(jsonPath("$.status").value(503))
+				.andExpect(header().string(HttpHeaders.RETRY_AFTER, "2"));
 		mvc.perform(withCookie(patch("/api/v1/kitchen/products/" + UUID.randomUUID() + "/availability"), cook).with(csrf())
 				.header(KEY, UUID.randomUUID().toString()).contentType("application/json")
 				.content("{\"status\":\"OUT_OF_STOCK\"}")).andExpect(status().isServiceUnavailable())
@@ -280,20 +285,24 @@ class KitchenStaffCookieSecurityTests extends StaffCookieTestBase {
 
 	@Test
 	void anAuthOutageStays503WhateverResponseTypeTheClientAsksFor() throws Exception {
+		UUID mine = accept(restaurant);
 		when(auth.current(cook)).thenThrow(new StaffAuthUnavailableException("no-reliable-answer"));
 
 		for (String accept : List.of("image/png", "text/html", "application/xml", ";;")) {
-			mvc.perform(withCookie(get(ORDERS), cook).header(HttpHeaders.ACCEPT, accept))
+			mvc.perform(withCookie(startPreparation(mine), cook).with(csrf()).header(HttpHeaders.ACCEPT, accept))
 					.andExpect(status().isServiceUnavailable());
 		}
+		assertEquals("WAITING", statusOf(restaurant, mine));
 	}
 
 	@Test
 	void anAuthAnswerForAnotherRoleIsNotTrusted() throws Exception {
+		UUID mine = accept(restaurant);
 		when(auth.current(cook)).thenReturn(Optional.of(session("ADMIN")));
 
-		mvc.perform(withCookie(get(ORDERS), cook)).andExpect(status().isServiceUnavailable())
+		mvc.perform(withCookie(startPreparation(mine), cook).with(csrf())).andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("AUTH_UNAVAILABLE"));
+		assertEquals("WAITING", statusOf(restaurant, mine));
 	}
 
 	@Test

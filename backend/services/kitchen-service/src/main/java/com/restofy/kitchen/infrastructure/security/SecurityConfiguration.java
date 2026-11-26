@@ -21,6 +21,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
@@ -33,9 +34,11 @@ import java.time.Clock;
  * anonymous health endpoint that probes and pre-push rely on (no other actuator endpoint is open).
  *
  * <p>Staff authenticate with Auth's HttpOnly {@code restofy_access} cookie ({@link StaffCookieAuthenticationFilter}):
- * the JWT is proven locally and the session is confirmed with Auth on every request. Every mutation also needs the
- * CSRF and Origin proof of {@link StaffCsrfProtection}. Without a configured Auth public key nothing authenticates
- * and every staff request is 401. Form login, HTTP basic and the generated default user are intentionally absent.
+ * the JWT is proven locally on every request. The reviewed reads ({@link StaffReadEndpoints}) need nothing more;
+ * every other request is also confirmed with Auth after authorization ({@link StaffSessionConfirmationFilter}).
+ * Every mutation also needs the CSRF and Origin proof of {@link StaffCsrfProtection}. Without a configured Auth
+ * public key nothing authenticates and every staff request is 401. Form login, HTTP basic and the generated default
+ * user are intentionally absent.
  *
  * <p>No service-to-service identity is accepted: Kitchen exposes no internal endpoint, and a service credential
  * grants no staff permission.
@@ -64,6 +67,7 @@ public class SecurityConfiguration {
 			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) {
 		StaffCsrfProtection csrf = new StaffCsrfProtection(auth.allowedOrigins(), clock);
 		var authenticator = new StaffSessionAuthenticator(new StaffTokenVerifier(auth, clock), sessions, clock);
+		var staffRoutes = PathPatternRequestMatcher.withDefaults().matcher(KITCHEN_PATH);
 		http
 				.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.requestCache(cache -> cache.disable())
@@ -71,10 +75,12 @@ public class SecurityConfiguration {
 				.httpBasic(AbstractHttpConfigurer::disable)
 				.logout(AbstractHttpConfigurer::disable)
 				.csrf(c -> c.csrfTokenRepository(csrf).csrfTokenRequestHandler(csrf))
-				// After the CSRF filter: a mutation without proof is refused without asking Auth about its cookie.
-				.addFilterBefore(new StaffCookieAuthenticationFilter(authenticator,
-						PathPatternRequestMatcher.withDefaults().matcher(KITCHEN_PATH), errors),
+				// After the CSRF filter: a mutation without proof is refused before its cookie is even read.
+				.addFilterBefore(new StaffCookieAuthenticationFilter(authenticator, staffRoutes),
 						AnonymousAuthenticationFilter.class)
+				// After authorization: Auth is asked only about a request that would otherwise be carried out.
+				.addFilterAfter(new StaffSessionConfirmationFilter(authenticator, staffRoutes,
+						StaffReadEndpoints.matcher(), errors), AuthorizationFilter.class)
 				.exceptionHandling(e -> e
 						.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
 						// A plain status: sendError would dispatch to /error and could turn the 403 into another answer.

@@ -14,8 +14,8 @@ import java.util.stream.Stream;
 
 /**
  * TEST-ONLY identity fixture for the business tests. It skips the cookie and Auth steps (those are tested with signed
- * tokens by the security tests); production creates a {@link KitchenAuthentication} only after both. This must never
- * move to src/main.
+ * tokens by the security tests); production creates a {@link KitchenAuthentication} only from a verified access
+ * cookie. This must never move to src/main.
  */
 public final class KitchenTestAuth {
 

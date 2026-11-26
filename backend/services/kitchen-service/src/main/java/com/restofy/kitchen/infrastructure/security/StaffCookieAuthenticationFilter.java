@@ -5,13 +5,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -23,9 +20,9 @@ import java.util.Optional;
  * else: {@code Authorization} (staff, bearer or service) and identity headers such as {@code X-Restaurant-Id},
  * {@code X-Role} or {@code X-User-Id} are never read.
  *
- * <p>No access cookie leaves the request anonymous (401 from the authorization rules). A repeated, invalid, expired
- * or refused credential is 401 here. Auth being unable to answer is 503 and the request goes no further.
- * Credentials are never logged.
+ * <p>This is the local proof only and never calls Auth. No access cookie leaves the request anonymous (401 from the
+ * authorization rules). A repeated, invalid or expired credential is 401 here. The proof is left on the request for
+ * {@link StaffSessionConfirmationFilter}, which runs after authorization. Credentials are never logged.
  *
  * <p>Created by the security configuration and deliberately not a Spring bean, otherwise Boot would also register
  * it as a global servlet filter.
@@ -33,17 +30,15 @@ import java.util.Optional;
 public class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
 
 	public static final String ACCESS_COOKIE = "restofy_access";
-	private static final Logger LOG = LoggerFactory.getLogger(StaffCookieAuthenticationFilter.class);
+	/** Request attribute holding the {@link StaffSessionAuthenticator.StaffProof} of this request. */
+	static final String PROOF_ATTRIBUTE = StaffCookieAuthenticationFilter.class.getName() + ".proof";
 
 	private final StaffSessionAuthenticator authenticator;
 	private final RequestMatcher staffRoutes;
-	private final HandlerExceptionResolver errors;
 
-	StaffCookieAuthenticationFilter(StaffSessionAuthenticator authenticator, RequestMatcher staffRoutes,
-			HandlerExceptionResolver errors) {
+	StaffCookieAuthenticationFilter(StaffSessionAuthenticator authenticator, RequestMatcher staffRoutes) {
 		this.authenticator = authenticator;
 		this.staffRoutes = staffRoutes;
-		this.errors = errors;
 	}
 
 	@Override
@@ -59,33 +54,20 @@ public class StaffCookieAuthenticationFilter extends OncePerRequestFilter {
 			chain.doFilter(request, response);
 			return;
 		}
-		if (credentials.size() != 1) {
+		Optional<StaffSessionAuthenticator.StaffProof> proof = credentials.size() == 1
+				? authenticator.prove(credentials.getFirst()) : Optional.empty();
+		if (proof.isEmpty()) {
 			reject(response);
 			return;
 		}
-		Optional<KitchenAuthentication> staff;
-		try {
-			staff = authenticator.authenticate(credentials.getFirst());
-		} catch (StaffAuthUnavailableException unavailable) {
-			LOG.warn("Staff session could not be verified with Auth ({})", unavailable.getReason());
-			SecurityContextHolder.clearContext();
-			if (errors.resolveException(request, response, null, unavailable) == null) {
-				// Nothing rendered it: the untouched response would otherwise leave as an empty 200.
-				response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-			}
-			return;
-		}
-		if (staff.isEmpty()) {
-			reject(response);
-			return;
-		}
+		request.setAttribute(PROOF_ATTRIBUTE, proof.get());
 		SecurityContext context = SecurityContextHolder.createEmptyContext();
-		context.setAuthentication(staff.get());
+		context.setAuthentication(proof.get().authentication());
 		SecurityContextHolder.setContext(context);
 		chain.doFilter(request, response);
 	}
 
-	private static void reject(HttpServletResponse response) {
+	static void reject(HttpServletResponse response) {
 		SecurityContextHolder.clearContext();
 		response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 	}

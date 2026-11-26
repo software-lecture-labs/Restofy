@@ -8,6 +8,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -134,6 +135,35 @@ class StaffTokenVerifierTests {
 	void aFewSecondsOfClockDifferenceAtTheStartAreTolerated() {
 		assertTrue(verifier.verify(StaffTokens.altered(NOW.plusSeconds(3), claims -> { })).isPresent());
 		assertTrue(verifier.verify(StaffTokens.altered(NOW.plusSeconds(4), claims -> { })).isEmpty());
+	}
+
+	/** Auth shortens a token when the session ends sooner: "at most 300 seconds", not "exactly". */
+	@ParameterizedTest
+	@ValueSource(longs = { 1, 30, 299, 300 })
+	void everyLifetimeUpToTheBoundIsAccepted(long lifetime) {
+		var token = StaffTokens.altered(NOW, c -> c.put("exp", NOW.getEpochSecond() + lifetime));
+
+		assertEquals(NOW.plusSeconds(lifetime), verifier.verify(token).orElseThrow().expiresAt());
+	}
+
+	@ParameterizedTest
+	@ValueSource(longs = { 301, 900, 3600 })
+	void aLifetimeAboveTheBoundIsRejected(long lifetime) {
+		assertTrue(verifier.verify(StaffTokens.altered(NOW, c -> c.put("exp", NOW.getEpochSecond() + lifetime))).isEmpty());
+	}
+
+	/** Reads rely on this check alone, so the very token must stop working at its expiry, without any leeway. */
+	@Test
+	void aTokenStopsBeingAcceptedTheMomentItExpires() {
+		var token = StaffTokens.altered(NOW, c -> c.put("exp", NOW.getEpochSecond() + 60));
+
+		assertTrue(verifierAt(NOW.plusSeconds(59)).verify(token).isPresent());
+		assertTrue(verifierAt(NOW.plusSeconds(60)).verify(token).isEmpty());
+		assertTrue(verifierAt(NOW.plusSeconds(61)).verify(token).isEmpty());
+	}
+
+	private static StaffTokenVerifier verifierAt(Instant moment) {
+		return new StaffTokenVerifier(properties(StaffTokens.publicKey()), Clock.fixed(moment, ZoneOffset.UTC));
 	}
 
 	@Test
