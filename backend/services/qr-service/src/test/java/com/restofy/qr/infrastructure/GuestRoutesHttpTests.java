@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -35,9 +36,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * Full security chain after ADR-QR-002 K7: the guest routes are open, still guarded by the K3-K6 proofs, and every
- * request that passes those proofs is counted. The counter store is mocked here; its behaviour against PostgreSQL is
- * covered by PostgresRateLimitStoreTests. MockMvc's socket peer is 127.0.0.1, configured here as the trusted proxy.
+ * Full security chain after ADR-QR-002 K7: the guest routes are open, still guarded by the K3-K6 proofs. Requests that
+ * pass those proofs are counted per QR code, table or guest; the per-address budget counts only credentials that match
+ * nothing of ours. The counter store is mocked here; its behaviour against PostgreSQL is covered by
+ * PostgresRateLimitStoreTests. MockMvc's socket peer is 127.0.0.1, configured here as the trusted proxy.
  */
 @SpringBootTest(properties = {"qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "qr.proxy.trusted-cidrs=127.0.0.1/32"})
@@ -45,6 +47,8 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
     private static final String ORIGIN = "https://restofy.example";
     private static final String TOKEN = "A".repeat(43);
     private static final String CSRF = "B".repeat(43);
+    /** Well-formed, so it passes request validation and is looked up; no QR code of ours has it. */
+    private static final String UNKNOWN_QR = "{\"qrToken\":\"" + "Q".repeat(43) + "\"}";
     private static final UUID RESTAURANT = UUID.fromString("6c54daf0-9340-4a1c-981d-f9acc0261779");
     @Autowired WebApplicationContext context;
     @MockitoBean RateLimitStore store;
@@ -68,6 +72,9 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
                 .andExpect(status().isNotFound());
         verify(store).hit(startsWith("guest-activity:"), eq(30), eq(60L));
         verify(store).hit(startsWith("guest-csrf:"), eq(30), eq(60L));
+        // The credential matched no guest of ours, so both requests cost the address's failure budget.
+        verify(store, times(2)).spent("guest-fail:127.0.0.1", 30);
+        verify(store, times(2)).hit("guest-fail:127.0.0.1", 30, 60L);
     }
 
     @Test
@@ -77,12 +84,26 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
     }
 
     @Test
-    void anUnknownQrCostsOnlyTheAddressBudget() throws Exception {
+    void anUnknownQrCostsOnlyTheAddressFailureBudget() throws Exception {
         http.perform(post("/api/v1/qr/validate").header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"qrToken\":\"" + "Q".repeat(60) + "\"}"))
-                .andExpect(status().is4xxClientError());
-        verify(store).hit("scan-peer:127.0.0.1", 30, 60L);
+                        .content(UNKNOWN_QR))
+                .andExpect(status().isNotFound());
+        http.perform(post("/api/v1/qr/table-sessions/open").header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
+                        .content(UNKNOWN_QR))
+                .andExpect(status().isNotFound());
+        verify(store).hit("scan-fail:127.0.0.1", 30, 60L);
+        verify(store).hit("open-fail:127.0.0.1", 10, 600L);
         verify(store, never()).hit(startsWith("scan-qr:"), anyInt(), anyLong());
+        verify(store, never()).hit(startsWith("open-table:"), anyInt(), anyLong());
+    }
+
+    @Test
+    void aMalformedQrTokenIsRefusedBeforeAnyLookupAndIsNotAFailure() throws Exception {
+        http.perform(post("/api/v1/qr/validate").header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"qrToken\":\"x\"}"))
+                .andExpect(status().isBadRequest());
+        verify(store).spent("scan-fail:127.0.0.1", 30);
+        verify(store, never()).hit(anyString(), anyInt(), anyLong());
     }
 
     @Test
@@ -107,39 +128,58 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
     }
 
     @Test
-    void anExhaustedBudgetGets429WithRetryAfterAndNoCookie() throws Exception {
-        when(store.hit(anyString(), anyInt(), anyLong())).thenReturn(17L);
+    void aSpentFailureBudgetGets429WithRetryAfterBeforeAnyLookup() throws Exception {
+        when(store.spent(anyString(), anyInt())).thenReturn(17L);
         for (String path : new String[]{"/api/v1/qr/validate", "/api/v1/qr/table-sessions/open"}) {
-            http.perform(post(path).header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"x\"}"))
+            http.perform(post(path).header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON).content(UNKNOWN_QR))
                     .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "17"))
                     .andExpect(header().doesNotExist("Set-Cookie"));
         }
         http.perform(post("/api/v1/qr/guest-sessions/activity").header("Origin", ORIGIN).header("X-Guest-CSRF", CSRF)
                         .cookie(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF)))
                 .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "17"));
+        // Refused before the lookup, so nothing is counted, not even the guest's own bucket.
+        verify(store, never()).hit(anyString(), anyInt(), anyLong());
+    }
+
+    @Test
+    void aSpentGuestBudgetGets429() throws Exception {
+        when(store.hit(startsWith("guest-activity:"), anyInt(), anyLong())).thenReturn(9L);
+        http.perform(post("/api/v1/qr/guest-sessions/activity").header("Origin", ORIGIN).header("X-Guest-CSRF", CSRF)
+                        .cookie(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF)))
+                .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "9"));
     }
 
     @Test
     void anUnusableStoreFailsClosedWith503() throws Exception {
-        when(store.hit(anyString(), anyInt(), anyLong())).thenThrow(new RateLimitUnavailableException(new IllegalStateException()));
+        when(store.spent(anyString(), anyInt())).thenThrow(new RateLimitUnavailableException(new IllegalStateException()));
         http.perform(post("/api/v1/qr/validate").header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"qrToken\":\"x\"}"))
+                        .content(UNKNOWN_QR))
                 .andExpect(status().isServiceUnavailable()).andExpect(header().doesNotExist("Set-Cookie"));
         http.perform(get("/api/v1/qr/guest-sessions/csrf").cookie(new Cookie("restofy_guest", TOKEN)))
                 .andExpect(status().isServiceUnavailable());
     }
 
     @Test
+    void aFailureThatCannotBeCountedStillAnswers404() throws Exception {
+        when(store.hit(startsWith("scan-fail:"), anyInt(), anyLong()))
+                .thenThrow(new RateLimitUnavailableException(new IllegalStateException()));
+        http.perform(post("/api/v1/qr/validate").header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON)
+                        .content(UNKNOWN_QR))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void forwardedForIsReadOnlyFromTheTrustedProxy() throws Exception {
         http.perform(post("/api/v1/qr/validate").header("Origin", ORIGIN).header("X-Forwarded-For", "203.0.113.9")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"x\"}"));
-        verify(store).hit("scan-peer:203.0.113.9", 30, 60L);
+        verify(store).spent("scan-fail:203.0.113.9", 30);
 
         http.perform(post("/api/v1/qr/validate").header("Origin", ORIGIN).header("X-Forwarded-For", "203.0.113.10")
                 .with(request -> { request.setRemoteAddr("198.51.100.7"); return request; })
                 .contentType(MediaType.APPLICATION_JSON).content("{\"qrToken\":\"x\"}"));
-        verify(store).hit("scan-peer:198.51.100.7", 30, 60L);
-        verify(store, never()).hit(eq("scan-peer:203.0.113.10"), anyInt(), anyLong());
+        verify(store).spent("scan-fail:198.51.100.7", 30);
+        verify(store, never()).spent(eq("scan-fail:203.0.113.10"), anyInt());
     }
 
     @Test

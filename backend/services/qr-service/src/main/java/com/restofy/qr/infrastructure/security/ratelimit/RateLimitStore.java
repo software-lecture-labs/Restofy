@@ -8,8 +8,8 @@ import java.util.Arrays;
 /**
  * Fixed-window attempt counters shared by every QR instance (ADR-QR-002 K7, same model as Auth's ADR-AUTH-002).
  *
- * <p>Each limit picks a bucket name (for example {@code scan-peer:<address>}), a limit and a window. The store counts
- * one attempt per call and says whether it is admitted.
+ * <p>Each limit picks a bucket name (for example {@code scan-qr:<restaurant>|<qr code>}), a limit and a window. The store
+ * counts one attempt per {@link #hit} and says whether it is admitted; {@link #spent} only reads.
  *
  * <p>When the table has reached its size bound, closed windows are removed first. If that frees nothing, the bucket
  * whose window closes first is dropped to make room. A bucket that already reached its limit is never dropped, so
@@ -29,6 +29,15 @@ public interface RateLimitStore {
      * @throws RateLimitUnavailableException when the counters cannot be read or written (fail closed)
      */
     long hit(String bucket, int limit, long windowSeconds);
+
+    /**
+     * Reads {@code bucket} without counting: for budgets that only count failures, checked before the request runs.
+     *
+     * @return {@code 0} while fewer than {@code limit} attempts were counted in the open window, otherwise the seconds
+     *         until the window closes
+     * @throws RateLimitUnavailableException when the counters cannot be read (fail closed)
+     */
+    long spent(String bucket, int limit);
 
     /**
      * Normalises the remote address for a limit key: missing or oversized values share one bounded key, and an IPv6

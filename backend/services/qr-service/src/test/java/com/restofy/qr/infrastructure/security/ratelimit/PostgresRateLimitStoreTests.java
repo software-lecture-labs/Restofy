@@ -136,14 +136,14 @@ class PostgresRateLimitStoreTests {
     @Test
     void theTableHoldsKeyedHashesNeverTheAddressOrTheGuestCredential() {
         String credential = "G".repeat(43);
-        store(100).hit("scan-peer:203.0.113.9", 3, WINDOW);
+        store(100).hit("scan-fail:203.0.113.9", 3, WINDOW);
         store(100).hit("guest-activity:" + credential, 3, WINDOW);
         for (String key : jdbc.queryForList("SELECT bucket_key FROM rate_limits", String.class)) {
             assertThat(key).matches("[0-9a-f]{64}").doesNotContain("203").doesNotContain("GGGG");
         }
         // Another key gives other hashes: the bucket names cannot be recomputed without the QR secret.
         var otherKey = new PostgresRateLimitStore(pool, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", clock, 100);
-        assertThat(otherKey.digest("scan-peer:203.0.113.9")).isNotEqualTo(store(100).digest("scan-peer:203.0.113.9"));
+        assertThat(otherKey.digest("scan-fail:203.0.113.9")).isNotEqualTo(store(100).digest("scan-fail:203.0.113.9"));
     }
 
     @Test
@@ -223,20 +223,72 @@ class PostgresRateLimitStoreTests {
     }
 
     @Test
+    void spentReadsWithoutCountingAndReportsTheWindowOnceTheLimitIsReached() {
+        var store = store(100);
+        assertThat(store.spent("k", 2)).isZero();
+        assertThat(rows()).isZero();
+        store.hit("k", 2, WINDOW);
+        assertThat(store.spent("k", 2)).isZero();
+        store.hit("k", 2, WINDOW);
+        assertThat(store.spent("k", 2)).isEqualTo(WINDOW);
+        assertThat(store.spent("k", 2)).isEqualTo(WINDOW);
+        assertThat(jdbc.queryForObject("SELECT attempts FROM rate_limits", Integer.class)).isEqualTo(2);
+        clock.advance(WINDOW);
+        assertThat(store.spent("k", 2)).isZero();
+    }
+
+    @Test
+    void spentFailsClosedOnAnUnreachableDatabase() {
+        HikariDataSource closed = newPool();
+        closed.close();
+        var store = new PostgresRateLimitStore(closed, KEY, clock, 10);
+        assertThatThrownBy(() -> store.spent("k", 3)).isInstanceOf(RateLimitUnavailableException.class);
+    }
+
+    @Test
     void oneAddressInventingGuestCredentialsCreatesBoundedBucketsAndLocksNobodyElseOut() {
         var limits = new QrRateLimits(store(10_000), true);
         int admitted = 0;
         for (int credential = 0; credential < 1_000; credential++) {
             try {
-                limits.guestCall("198.51.100.66", "fake-" + credential, true);
+                // What RateLimitFilter does for an invented credential: check, count the call, then the failure.
+                limits.failuresAllowed(QrRateLimits.FailureBudget.GUEST, "198.51.100.66");
+                limits.guestCall("fake-" + credential, true);
                 admitted++;
+                limits.failed(QrRateLimits.FailureBudget.GUEST, "198.51.100.66");
             } catch (RateLimitExceededException _) {
-                // expected once the address budget is spent
+                // expected once the address's failure budget is spent
             }
         }
-        assertThat(admitted).isEqualTo(QrRateLimits.GUEST_CALLS_PER_PEER);
-        assertThat(rows()).isLessThanOrEqualTo(QrRateLimits.GUEST_CALLS_PER_PEER + 1);
-        limits.guestCall("203.0.113.9", "real-guest", true);
+        int budget = QrRateLimits.FailureBudget.GUEST.limit;
+        assertThat(admitted).isEqualTo(budget);
+        assertThat(rows()).isLessThanOrEqualTo(budget + 1);
+        limits.failuresAllowed(QrRateLimits.FailureBudget.GUEST, "203.0.113.9");
+        limits.guestCall("real-guest", true);
+    }
+
+    @Test
+    void manyRealGuestsBehindOneRestaurantAddressAreNeverRefused() {
+        var limits = new QrRateLimits(store(10_000), true);
+        UUID restaurant = UUID.randomUUID();
+        // 15 tables, 6 guests each, all on one Wi-Fi address: far more than any failure budget.
+        for (int table = 0; table < 15; table++) {
+            UUID tableId = UUID.randomUUID();
+            for (int guest = 0; guest < 6; guest++) {
+                limits.failuresAllowed(QrRateLimits.FailureBudget.SCAN, "203.0.113.9");
+                limits.scanOf(restaurant, tableId);
+                limits.failuresAllowed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9");
+                limits.guestCreatedAt(restaurant, tableId);
+            }
+        }
+        // One guesser on the same network spends the address's failure budget...
+        for (int guess = 0; guess < QrRateLimits.FailureBudget.OPEN.limit; guess++) {
+            limits.failed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9");
+        }
+        assertThatThrownBy(() -> limits.failuresAllowed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9"))
+                .isInstanceOf(RateLimitExceededException.class);
+        // ...which is the accepted cost: guests already seated keep their own per-guest budgets.
+        limits.guestCall("seated-guest", true);
     }
 
     @Test
@@ -251,8 +303,9 @@ class PostgresRateLimitStoreTests {
                 limited -> assertThat(limited.retryAfterSeconds()).isBetween(1L, QrRateLimits.MINUTE));
         limits.scanOf(restaurant, UUID.randomUUID());
         // Without a trusted proxy the per-address budgets are off: they would be one budget for everyone.
-        for (int scan = 0; scan < QrRateLimits.SCANS_PER_PEER * 2; scan++) {
-            limits.scanFrom("10.213.0.10");
+        for (int scan = 0; scan < QrRateLimits.FailureBudget.SCAN.limit * 2; scan++) {
+            limits.failed(QrRateLimits.FailureBudget.SCAN, "10.213.0.10");
+            limits.failuresAllowed(QrRateLimits.FailureBudget.SCAN, "10.213.0.10");
         }
     }
 

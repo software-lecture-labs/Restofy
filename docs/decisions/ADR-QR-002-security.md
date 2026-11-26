@@ -111,18 +111,19 @@ QR tarama/doğrulama, guest oluşturma, aktivite ve kendi personel işlemlerinin
 
 | Kapsam | Limit | Nerede sayılır |
 | --- | --- | --- |
-| `POST /validate`, adres başına | 30 / dk | Filtre, QR aramasından önce |
+| `POST /validate`, adres başına **yalnız bilinmeyen QR** | 30 / dk | Filtre: istekten önce okunur, 404 sonrası sayılır |
 | `POST /validate`, doğrulanmış QR kodu başına | 60 / dk | Controller, QR kullanılabilir bulunduktan sonra |
-| `POST /table-sessions/open`, adres başına | 10 / 10 dk | Filtre |
+| `POST /table-sessions/open`, adres başına **yalnız bilinmeyen QR** | 10 / 10 dk | Filtre: istekten önce okunur, 404 sonrası sayılır |
 | `POST /table-sessions/open`, doğrulanmış masa başına | 20 / 10 dk | Servis, masa kilidi altında, guest oluşturulmadan önce |
 | Ana oturum başına aktif guest | en çok 20 | Servis, masa kilidi altında; tarama kaydı geri alınır, `Retry-After: 60` |
-| Aktivite + `GET /guest-sessions/csrf`, adres başına (ortak) | 300 / dk | Filtre |
+| Aktivite + `GET /guest-sessions/csrf`, adres başına (ortak) **yalnız bilinmeyen guest credential'ı** | 30 / dk | Filtre: istekten önce okunur, 404 sonrası sayılır |
 | `POST /guest-sessions/activity`, guest credential'ı başına | 30 / dk | Filtre (credential biçimi K3 filtresinde doğrulanmış) |
 | `GET /guest-sessions/csrf`, guest credential'ı başına | 30 / dk | Filtre |
 | Personel okuma (`GET`), restoran + kullanıcı başına | 300 / dk | Filtre, JWT doğrulamasından sonra |
 | Personel yazma, restoran + kullanıcı başına | 60 / dk | Filtre, JWT doğrulamasından sonra |
 
-- **Sıra:** Personel ve guest filtreleri (biçim, Origin, CSRF, JWT) önce çalışır; bu kanıtları geçemeyen istek sayılmaz. Uydurma guest credential'ları önce adres bütçesini harcar, böylece tek istemcinin açabileceği kova sayısı sınırlıdır.
+- **Adres başına yalnız başarısızlık sayılır (PR #71 incelemesi, 27 Kasım 2026, Alper onayı).** Bir restoranın müşterilerinin çoğu aynı Wi-Fi adresinden gelir; ilk sürümdeki "her istek sayılır" adres bütçeleri 10 dakikada 11. müşteriyi `429` ile durduruyordu. Artık adres bütçesine yalnız hiçbir kaydımızla eşleşmeyen credential'lar yazılır: digest'i bulunmayan QR kodu, bulunamayan veya çözülemeyen guest credential'ı. Pasif/süresi dolmuş QR, kapalı masa, dolu oturum ve süresi dolmuş guest sayılmaz; bunlar gerçek müşterinin başına gelebilir. İstemci her durumda aynı genel `404`'ü alır (numaralandırma yok); farkı yalnız limit filtresi bilir. Biçimi bozuk token `400` alır ve sayılmaz. Bütçe dolunca o adres, veritabanı araması ve kripto yapılmadan `429` alır. Başarılı müşteriler yalnız QR/masa/oturum/guest kapsamlı limitlerle sınırlanır. Bilinen risk: aynı ağdaki bir tahminci o adresin başarısızlık bütçesini doldurursa yeni gelen müşteriler de pencere kapanana kadar (en çok 1 veya 10 dk) bekler; masada oturan müşterilerin kendi guest bütçeleri etkilenmez. Sayaç deposu bir başarısızlığı yazamazsa yanıt yine `404`'tür; bir sonraki istekteki ön kontrol `503` ile kapalı kalır.
+- **Sıra:** Personel ve guest filtreleri (biçim, Origin, CSRF, JWT) önce çalışır; bu kanıtları geçemeyen istek sayılmaz. Uydurma guest credential'ları adresin başarısızlık bütçesini harcar, böylece tek istemcinin açabileceği guest kovası sayısı sınırlıdır.
 - **Sözleşme:** Limit aşımı `429 Too Many Requests` + `Retry-After` (saniye), problem+json gövdesi; Set-Cookie yoktur. Sayaç deposu kullanılamazsa istek sınırsız geçmez: `503` (fail closed).
 - **Kapsam dışı:** Gateway genel limiti, iç servis uçları (servis kimlikli çağrılar) ve Order/Waiter/Payment tarafındaki guest limitleri bu değişikliğe dahil değildir.
 

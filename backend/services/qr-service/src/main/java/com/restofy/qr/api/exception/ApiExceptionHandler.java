@@ -1,6 +1,8 @@
 package com.restofy.qr.api.exception;
 
 import com.restofy.qr.domain.exception.*;
+import com.restofy.qr.infrastructure.security.ratelimit.RateLimitFilter;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -49,15 +51,30 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * {@code detail}; it deliberately does not say why (unknown, expired, closed or another restaurant's guest).
      */
     @ExceptionHandler(InvalidGuestSessionException.class)
-    ProblemDetail guestSessionUnavailable(InvalidGuestSessionException exception) {
+    ProblemDetail guestSessionUnavailable(InvalidGuestSessionException exception, HttpServletRequest request) {
+        markUnknown(request, exception.unknownCredential());
         var detail = problem(HttpStatus.NOT_FOUND, exception.getMessage());
         detail.setProperty("code", InvalidGuestSessionException.CODE);
         return detail;
     }
 
-    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class, InvalidQrCodeException.class})
+    /** Same 404 for unknown and unusable QR codes; only the rate limiter learns which one it was. */
+    @ExceptionHandler(InvalidQrCodeException.class)
+    ProblemDetail invalidQrCode(InvalidQrCodeException exception, HttpServletRequest request) {
+        markUnknown(request, exception.unknownCredential());
+        return problem(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
+
+    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
+
+    /** ADR-QR-002 K7: a credential matching nothing of ours costs the address's failure budget (RateLimitFilter). */
+    private static void markUnknown(HttpServletRequest request, boolean unknownCredential) {
+        if (unknownCredential) {
+            request.setAttribute(RateLimitFilter.UNKNOWN_CREDENTIAL, Boolean.TRUE);
+        }
     }
 
     @ExceptionHandler({TableConflictException.class, OptimisticLockingFailureException.class, DataIntegrityViolationException.class})

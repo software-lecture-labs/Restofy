@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/qr/table-sessions")
-@Tag(name = "Table sessions", description = "Public guest route behind the Gateway, rate limited per address and per table.")
+@Tag(name = "Table sessions", description = "Public guest route behind the Gateway, rate limited per table and active guests per session; unknown QR codes cost a per-address failure budget.")
 public class TableSessionController {
     private final GuestSessionOpeningService service;
     private final GuestCookies cookies;

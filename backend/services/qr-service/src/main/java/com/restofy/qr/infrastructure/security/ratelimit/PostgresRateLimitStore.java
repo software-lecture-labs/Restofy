@@ -69,7 +69,8 @@ public class PostgresRateLimitStore implements RateLimitStore {
             DELETE FROM rate_limits WHERE bucket_key = (
                 SELECT bucket_key FROM rate_limits WHERE attempts < max_attempts
                 ORDER BY expires_at, attempts LIMIT 1 FOR UPDATE SKIP LOCKED)""";
-    private static final String PURGE = "DELETE FROM rate_limits WHERE expires_at <= ?";
+    private static final String READ = "SELECT attempts, expires_at FROM rate_limits WHERE bucket_key = ? AND expires_at > ?";
+    private static final String PURGE ="DELETE FROM rate_limits WHERE expires_at <= ?";
 
     private final JdbcTemplate jdbc;
     private final HikariDataSource ownedPool;
@@ -164,6 +165,19 @@ public class PostgresRateLimitStore implements RateLimitStore {
                 counter = upsert(bucketKey, limit, now, windowSeconds);
             }
             return counter.attempts() <= limit ? 0 : Math.max(1, counter.expiry().getEpochSecond() - now.getEpochSecond());
+        } catch (DataAccessException failure) {
+            throw new RateLimitUnavailableException(failure);
+        }
+    }
+
+    @Override
+    public long spent(String bucket, int limit) {
+        try {
+            Instant now = clock.instant();
+            Counter counter = first(jdbc.query(READ, (rs, _) -> new Counter(rs.getInt(1), rs.getTimestamp(2).toInstant()),
+                    digest(bucket), Timestamp.from(now)));
+            return counter == null || counter.attempts() < limit
+                    ? 0 : Math.max(1, counter.expiry().getEpochSecond() - now.getEpochSecond());
         } catch (DataAccessException failure) {
             throw new RateLimitUnavailableException(failure);
         }
