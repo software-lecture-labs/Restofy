@@ -1,38 +1,40 @@
 # Kitchen → Auth talepleri 01 (KITCHEN-INT-01)
 
-- **Tarih:** 26 Kasım 2026 (Auth yanıtlarıyla güncellendi)
+- **Tarih:** 26 Kasım 2026; son güncelleme 27 Kasım 2026 (Auth'un ikinci yanıtı ve PR durumları)
 - **Talep eden:** Kitchen (Nisa)
 - **İlgili servis / sorumlu:** Auth (Kerem). Ortak `docker-compose.yml` / `.env.example` ve TLS için ayrıca ekip kararı gerekir.
 - **Yanıt kaynağı:** [PR #61](https://github.com/software-lecture-labs/Restofy/pull/61) yorumları (26 Kasım 2026).
 
 Bu belge Auth kodunda veya ortak dosyalarda değişiklik içermez.
 
-## Okunan kaynakların durumu (26 Kasım 2026)
+## Okunan kaynakların durumu (kontrol tarihi: 27 Kasım 2026)
 
 | Kaynak | Durum |
 |---|---|
-| [PR #67](https://github.com/software-lecture-labs/Restofy/pull/67) — personel oturumu sözleşmesi, `3c91e6e` | Açık, bir onay almış, **birleşmemiş**. PR sahibinin yorumuna göre yalnız belge değiştiği için zorunlu kontrol tetiklenmiyor |
-| [#63](https://github.com/software-lecture-labs/Restofy/issues/63) — iç ağda HTTPS | Açık. İnceleyen yorumu sınırlı bir HTTP istisnasını önerdi |
-| [PR #69](https://github.com/software-lecture-labs/Restofy/pull/69) — #63 için ADR-ORTAK-001, `3a94fef` | Açık, **birleşmemiş**; ADR durumu "Önerildi, ayrıntılar onay bekliyor". İnceleyen **değişiklik istedi:** `dev`/`test` profil koşulu Compose'daki entegrasyon profiliyle çakışabilir |
-| [#64](https://github.com/software-lecture-labs/Restofy/issues/64) — personel etkinliği | Açık. Öneri bir inceleyen yorumunda uygun bulundu; frontend uygulanmadı |
+| [PR #67](https://github.com/software-lecture-labs/Restofy/pull/67) — personel oturumu sözleşmesi | **`dev`'de birleşti.** İçeriği birleşmeden önce incelenen sürümle aynı |
+| [#63](https://github.com/software-lecture-labs/Restofy/issues/63) — iç ağda HTTPS | Açık |
+| [PR #69](https://github.com/software-lecture-labs/Restofy/pull/69) — #63 için ADR-ORTAK-001 | Açık, **birleşmemiş**; ADR durumu "Önerildi". Yeniden inceleme istendi; resmi inceleme durumu hâlâ **değişiklik isteği**, resmi onay yok. Yorumlardaki gelişme [AUTH-02](#auth-02--servisler-arası-https-auth-adresi--açik-63) içindedir |
+| [#64](https://github.com/software-lecture-labs/Restofy/issues/64) — personel etkinliği | Kapalı (tamamlandı) |
+| [PR #70](https://github.com/software-lecture-labs/Restofy/pull/70) — ortak etkinlik hook'u | `dev`'de birleşti |
+| [PR #75](https://github.com/software-lecture-labs/Restofy/pull/75) — zorunlu CI kontrolü düzeltmesi | `dev`'de birleşti (#70'ten önce) |
 
-PR #67'deki sözleşme `dev`'e girmiş sayılmaz. `feature/auth-service` dalındaki eski `staff-contract.md` geçerli değildir. `ADR-AUTH-Q5` ve `ADR-QR-003` yalnız QR kapsamındadır ve Kitchen'ı bağlamaz.
+Geçerli personel sözleşmesi `dev`'deki [`docs/auth-service/staff-contract.md`](https://github.com/software-lecture-labs/Restofy/blob/c5981b89619eb6b6967e0cb06578f938b17d8c1e/docs/auth-service/staff-contract.md) dosyasıdır; bu branch'e `dev` birleştirilmediği için dosya burada yoktur. `feature/auth-service` dalındaki eski `staff-contract.md` geçerli değildir. `ADR-AUTH-Q5` ve `ADR-QR-003` yalnız QR kapsamındadır ve Kitchen'ı bağlamaz.
 
 ## Durum özeti
 
 | Talep | Konu | Yanıt geldi | Kitchen'da uygulandı | Gerçek ortamda doğrulandı |
 |---|---|---|---|---|
 | AUTH-01 | Auth açık anahtarı | Evet | Evet (ayar hazır) | **Hayır** |
-| AUTH-02 | HTTPS Auth adresi | Karar yok: ortak altyapı (#63) | Mevcut koruma korunuyor | **Hayır** |
+| AUTH-02 | HTTPS Auth adresi | Birleşmiş karar yok (#63; öneri PR #69) | Mevcut koruma korunuyor | **Hayır** |
 | AUTH-03 | `/session` kullanımı | Evet | Evet | **Hayır** (izole denendi) |
 | AUTH-05 | Servis kimliği ve delegasyon | Evet: Auth merkezi kimlik vermiyor; D-09 açık | **Hayır** | **Hayır** |
-| AUTH-04 | Mutfak ekranı oturumu (sonraki iş) | Öneri #64'te | Kitchen işi değil; frontend uygulanmadı | **Hayır** |
+| AUTH-04 | Mutfak ekranı oturumu (sonraki iş) | Evet: ortak hook `dev`'de (#70) | Frontend işi; mutfak ekranı yok, hook ona uygulanmadı | **Hayır** |
 
 "Gerçek ortam", ekibin ortak dağıtımıdır. İzole kabul denemesi bunun yerine geçmez.
 
 ## İzole kabul denemesi
 
-`dev` `00c0ff4`'ün değiştirilmemiş Auth (CSRF cookie düzeltmesi PR #72 dahil), QR ve API Gateway kodu; geçici PostgreSQL; yalnız o çalıştırmada üretilen anahtarlar; ADMIN MFA zorunlu; Auth'un önünde **yalnız test için** HTTPS proxy. 40 kontrol geçti. Ortak container, ENV dosyası veya gerçek anahtar kullanılmadı. Proxy ortak ortam çözümü değildir.
+`dev` `00c0ff4`'ün değiştirilmemiş Auth (CSRF cookie düzeltmesi PR #72 dahil), QR ve API Gateway kodu; geçici PostgreSQL; yalnız o çalıştırmada üretilen anahtarlar; ADMIN MFA zorunlu; Auth'un önünde **yalnız test için** HTTPS proxy. 40 kontrol geçti (27 Kasım 2026'da güncel Kitchen koduyla yeniden çalıştırıldı; bu üç servisin çalışma kodu o tarihte `dev`'de aynıydı). Ortak container, ENV dosyası veya gerçek anahtar kullanılmadı. Proxy ortak ortam çözümü değildir.
 
 | Durum (gerçek Auth) | Durum değiştiren istek | Okuma |
 |---|---|---|
@@ -71,9 +73,21 @@ PR #67'deki sözleşme `dev`'e girmiş sayılmaz. `feature/auth-service` dalınd
 
 **Bugünkü engel:** Compose'da `AUTH_SERVICE_URL` ortak `runtime-env` ile düz HTTP gelir (`http://auth-service:8080`), iç ağda TLS tanımı yoktur ve aynı değeri API Gateway'in Auth rotası da kullanır.
 
-**Bekleyen öneri (uygulanmadı):** PR #69, yalnız `dev`/`test` profilinde, `INTERNAL_HTTP_ALLOWED=true` iken ve yalnız Compose servis adı veya loopback için HTTP'ye izin verilmesini önerir. Birleşirse tek başına Kitchen davranışını değiştirmez. Kitchen'da ayrı bir değişiklik gerekir: ayarı okumak, profil ve adres kurallarını uygulamak, `prod` ile açıldığında başlamamak, bir kez uyarı yazmak ve ADR'deki beş test. Bu, personel cookie'sinin iç ağda açık metin gitmesini kabul eden bir güvenlik değişikliğidir ve ayrıca onay ister.
+**Bekleyen öneri (birleşmedi, Kitchen'da uygulanmadı):** [PR #69](https://github.com/software-lecture-labs/Restofy/pull/69)'daki öneriye göre (kontrol tarihi: 27 Kasım 2026) servisler arası bir adres ancak şunların hepsiyle HTTP olabilir: `INTERNAL_HTTP_ALLOWED=true`; `APP_ENV` değeri `dev`, `local` veya `test` **ve** `prod`/`production` profili etkin değil; host noktasız bir Compose servis adı veya loopback; adres yalnız origin. Ayar açıkken `APP_ENV` veya profil `prod` ise ya da ayar `true`/`false` dışında bir değerse servis başlamaz. İstemci yönlendirme izlemez ve istisna kullanılırken bir kez uyarı yazılır. PR ayrıca ortak Compose bloğuna `INTERNAL_HTTP_ALLOWED` (varsayılan `false`) ve `APP_ENV` (varsayılan `dev`) ekler. `.env.example` içinde de `INTERNAL_HTTP_ALLOWED=false` yazar; Compose'da HTTP'yi denemek isteyen kendi `.env` dosyasında `true` yapar.
 
-**Çelişki:** PR #67 sözleşmesi personel cookie'sinin `/session`'a **yalnız HTTPS ile** iletileceğini yazar. PR #69 dev/test için HTTP istisnası tanımlar. İkisi de birleşirse sözleşme metninin istisnayı anması gerekir.
+**Koşulun durumu (henüz kesinleşmiş karar değildir):**
+
+1. İlk hâl `dev`/`test` **profili** istiyordu. İnceleyen, Compose'daki entegrasyon profilleriyle çakışabileceğini belirtip değişiklik istedi; profil koşulu öneriden çıkarıldı.
+2. Auth sorumlusu yerine `APP_ENV`'e bakmayı önerdi ve PR #61'deki yanıtında (26 Kasım, 22:05 UTC) inceleyenin cevabını beklediğini yazdı.
+3. İnceleyen PR #69'da (22:12 UTC) `APP_ENV` koşulunun uygun olduğunu yorumla yazdı, değerleri `dev`, `local`, `test` olarak istedi ve ADR'nin güncellenmesini söyledi. PR güncellendi.
+4. `.env.example` varsayılanı sorusunu PR sahibi, QR sorumlusunun da tercih ettiği daha sıkı seçenek olan `false` ile kapattı (26 Kasım, 22:50 UTC; inceleyen `true` isterse geri alacağını yazdı) ve yeniden inceleme istedi.
+5. 27 Kasım 2026 kontrolünde PR açık, ADR "Önerildi" ve yeniden inceleme bekliyor; resmi inceleme durumu hâlâ değişiklik isteği, resmi onay yok.
+
+Yorumdaki uygun görüş ile resmi inceleme durumu aynı şeyi söylemediği için bu belge `APP_ENV` koşulunu kabul edilmiş saymaz.
+
+Birleşirse tek başına Kitchen davranışını değiştirmez. ADR, Kitchen'ı istemcisini küçük bir PR ile uyarlayacak servisler arasında sayar (yanında #61'i anar): ayarı ve ortam, profil ve adres kurallarını uygulamak, başlamama koşulları, uyarı ve ADR'de listelenen testler. Bu, personel cookie'sinin iç ağda açık metin gitmesini kabul eden bir güvenlik değişikliğidir ve ayrıca onay ister.
+
+**Sözleşme:** `dev`'deki sözleşme personel cookie'sinin `/session`'a **yalnız HTTPS ile** iletileceğini yazar; bugün geçerli kural budur. Auth sorumlusu, istisna kabul edilirse bu cümleyi mümkünse aynı PR'da güncelleyeceğini yazdı; PR #69'un güncel hâli bu değişikliği içeriyor ve birleşene kadar `dev`'deki sözleşme değişmez.
 
 **Kabul:** `dev`'de birleşmiş ortak karar; ardından ortak ortamda login → `GET /api/v1/kitchen/orders` `200` ve bir yazma isteği başarılı.
 
@@ -87,9 +101,18 @@ PR #67'deki sözleşme `dev`'e girmiş sayılmaz. `feature/auth-service` dalınd
 
 **Kabul edilen sonuç:** Okumalarda iptal en çok 300 sn gecikir. Auth kesintisi durum değiştiren işlemleri anında durdurur.
 
-**Sözleşmenin sınırı:** `/session` yanıtında kullanıcı ve restoran kimliği yoktur (`status`, `role`, `idleExpiresAt`, `absoluteExpiresAt`; `dev` kodunda ayrıca `mfaSetupRequired`). Kitchen `status`, `role` ve süreleri karşılaştırır. Kullanıcı ve restoran uyuşmazlığını gönderilen token üzerinden Auth reddeder. Bu belge yanıta yeni alan eklenmesini talep etmez.
+**Sözleşmenin sınırı:** `/session` yanıtında kullanıcı ve restoran kimliği yoktur (`status`, `role`, `idleExpiresAt`, `absoluteExpiresAt` ve `mfaSetupRequired`). Kitchen `status`, `role` ve süreleri karşılaştırır. Kullanıcı ve restoran uyuşmazlığını gönderilen token üzerinden Auth reddeder. Bu belge yanıta yeni alan eklenmesini talep etmez.
+
+**Auth'un ikinci yanıtı (PR #61, 26 Kasım 22:05 UTC) — Kitchen davranışı değişmedi:**
+
+- Başka kullanıcı, restoran veya oturum taşıyan token'ın `401` alması beklenen davranıştır. Yanıta göre Auth, token çözülürken `restaurant_id`'yi zorunlu tutar; `/session`'da `sid` ile bulunan oturumun aynı kullanıcıya ait olduğunu, oturum durumunun ve rolün güncel olduğunu denetler.
+- KITCHEN için hareketsizlik süresi 60 dakikadır.
+- `mfaSetupRequired` yalnız MFA bekleyen oturumda dolar; servislerin gönderdiği access cookie ile `null` gelir. `dev`'deki sözleşme bu alanı henüz yazmıyor; ekleme PR #69'un içindedir ve birleşmedi.
+- Açık okuma listesi ve listede olmayan her isteğin (yeni eklenen uçlar dahil) varsayılan olarak `/session` teyidine gitmesi doğrudur.
 
 ## AUTH-05 — Güvenilir servis kimliği ve personel delegasyonu — AÇIK (D-09)
+
+**Durum:** Order ve Menu bağlantılarında güvenilir servis kimliği ve personel delegasyonu **ortak sözleşme bekliyor, uygulanmadı.** Bu, KITCHEN-INT-01'in açık gereksinimidir.
 
 **Yanıt:** Auth'ta merkezi servis kimliği yoktur ve şu an planlanmıyor. Ortak sözleşme (D-09) açık ekip kararıdır. Bugün bazı servis çiftleri her çağıranın kendi anahtarıyla imzaladığı istekleri kullanıyor. Bu bilgi Kitchen için yeni bir güven ilişkisi onayı **değildir**.
 
@@ -104,12 +127,14 @@ PR #67'deki sözleşme `dev`'e girmiş sayılmaz. `feature/auth-service` dalınd
 
 **Sözleşmeden bağımsız Kitchen koşulları:** header veya gövde alanı tek başına kanıt değildir; servis kimliği personel yetkisi vermez; personel cookie'si veya JWT'si Auth `/session` dışında bir yere iletilmez; doğrulanamayan çağrı başarı üretmez.
 
-## AUTH-04 — Mutfak ekranının oturum sürekliliği — sonraki iş (#64)
+## AUTH-04 — Mutfak ekranının oturum sürekliliği — ortak hook hazır, mutfak ekranı sonraki iş
 
 Frontend işidir; bu taskın tamamlanma şartı değildir.
 
-**Mevcut durum:** Access cookie en çok 300 sn yaşar. KITCHEN idle süresi 60 dk'dır ve yalnız `POST /api/v1/auth/activity` ile uzar; Kitchen okumaları ve `/session` uzatmaz. `dev` frontend'i açık ekranda süreli yenileme ve `activity` çağrısı yapmaz.
+**Süreler:** Access cookie en çok 300 sn yaşar. KITCHEN idle süresi 60 dk'dır ve yalnız `POST /api/v1/auth/activity` ile uzar; Kitchen okumaları ve `/session` uzatmaz.
 
-**#64'teki öneri:** tıklama veya dokunma, tuş ve kaydırma etkinlik sayılsın; dakikada en çok bir istek; mutfak için ayrı kural olmasın. Bir inceleyen yorumu bunu uygun buldu ve mutfak ekranının aynı ortak hook'u kullanmasını istedi. Issue açık, kod yazılmadı.
+**Hazırlanan (`dev`'de, PR #70; [#64](https://github.com/software-lecture-labs/Restofy/issues/64) kapalı):** ortak `useStaffActivity` hook'u ve onu kullanan `StaffActivity` bileşeni. Tıklama veya dokunma, tuş ve kaydırma etkinlik sayılır; dakikada en çok bir istek gider. Sekme yeniden görünür olunca oturum süre uzatılmadan okunur. Hook'un kendi isteği `401`/`403` alırsa bir kez `refresh` denenir; o da reddedilirse giriş sayfasına yönlendirilir. Auth'a ulaşılamazsa oturum kapatılmaz. Mutfak için ayrı kural yoktur. Yanıt tarihinde #70 CI düzeltmesini (#75) bekliyordu; ikisi de sonradan birleşti.
 
-**Etki:** Frontend yenileme yapmadan mutfak ekranı en geç 5 dakikada `401` alır; yalnız izlenen ekranın oturumu 60 dk sonra düşer.
+**Uygulanmayan:** Bileşen bugün yalnız personel ana sayfasındadır. `dev` frontend'inde **mutfak ekranı yoktur**, dolayısıyla hook mutfak ekranına uygulanmamıştır. Ekran yazılınca bileşeni bir kez eklemesi gerekir.
+
+**Etki (koddan; tarayıcıda denenmedi):** Hook süreli yenileme yapmaz; yalnız etkileşimde veya sekmeye dönüşte istek gönderir. Dokunulmadan izlenen bir mutfak ekranında hook tek başına access cookie'yi yenilemez; ekranın okumaları cookie dolunca (en geç 5 dk) `401` alabilir. Mutfak ekranının kendi veri isteklerinde yenilemeyi ayrıca ele alması gerekir. Hiç etkileşim olmazsa oturum 60 dk sonunda düşer.

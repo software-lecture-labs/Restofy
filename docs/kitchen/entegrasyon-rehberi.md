@@ -1,6 +1,6 @@
 # Kitchen entegrasyon rehberi
 
-Kitchen'ı çağıracak veya Kitchen'dan veri bekleyecek ekipler için. **Güncelleme:** 26 Kasım 2026 (KITCHEN-INT-01). Etiketler: **UYGULANDI**, **UYGULANMADI**, **DOĞRULANMADI**.
+Kitchen'ı çağıracak veya Kitchen'dan veri bekleyecek ekipler için. **Güncelleme:** 27 Kasım 2026 (KITCHEN-INT-01). Etiketler: **UYGULANDI**, **UYGULANMADI**, **DOĞRULANMADI**.
 
 Kimlik doğrulama konusunda [kitchen-01](../../backend/services/kitchen-service/docs/kitchen-01-contract.md) ve [kitchen-02](../../backend/services/kitchen-service/docs/kitchen-02-contract.md) sözleşme notlarındaki eski "kimlik doğrulayan bileşen yok" ifadelerinin yerine bu belge geçer. İş kuralları o notlardadır.
 
@@ -17,7 +17,7 @@ Kimlik doğrulama konusunda [kitchen-01](../../backend/services/kitchen-service/
 
 ## 2. Personel kimlik doğrulaması
 
-Kaynaklar: Auth sorumlusunun 26 Kasım 2026 yanıtları ([PR #61](https://github.com/software-lecture-labs/Restofy/pull/61) yorumları) ve personel oturumu sözleşmesi ([PR #67](https://github.com/software-lecture-labs/Restofy/pull/67), incelenen `3c91e6e`). **PR #67 henüz birleşmedi;** sözleşme `dev`'de değildir. Eski `feature/auth-service` dalındaki sözleşme geçerli değildir. `ADR-AUTH-Q5` ve `ADR-QR-003` yalnız QR kapsamındadır, Kitchen'ı bağlamaz.
+Kaynaklar: Auth sorumlusunun 26 Kasım 2026 yanıtları ([PR #61](https://github.com/software-lecture-labs/Restofy/pull/61) yorumları) ve `dev`'deki [personel oturumu sözleşmesi](https://github.com/software-lecture-labs/Restofy/blob/c5981b89619eb6b6967e0cb06578f938b17d8c1e/docs/auth-service/staff-contract.md) ([PR #67](https://github.com/software-lecture-labs/Restofy/pull/67) birleşti; bu branch'e `dev` birleştirilmediği için dosya burada yoktur). Eski `feature/auth-service` dalındaki sözleşme geçerli değildir. `ADR-AUTH-Q5` ve `ADR-QR-003` yalnız QR kapsamındadır, Kitchen'ı bağlamaz.
 
 **Her personel isteğinde (yerel doğrulama):**
 
@@ -45,7 +45,7 @@ Yerelde reddedilen istek (CSRF/Origin eksik, token geçersiz veya süresi dolmu�
 | `PATCH /products/{productId}/availability` | Evet: komut kaydı, Menu komutu | **Evet** |
 | `POST /waste` | Evet: fire kaydı | **Evet** |
 
-`HEAD` okumayı izler. Teyitsiz uçlar **açık bir listedir** (`StaffReadEndpoints`), "bütün GET'ler" değildir: listede olmayan her istek, yeni eklenen bir GET dahil, teyit ister. Bir test uygulamanın bütün Kitchen eşlemelerinin sınıflandırılmasını (yöntem belirtmeyen eşleme dahil) ve teyitsiz listenin tam olarak sınıflandırılmış okumalar olmasını şart koşar. Aynı `Idempotency-Key` ile tekrar edilen komut da teyit ister.
+`HEAD` okumayı izler. Teyitsiz uçlar **açık bir listedir** (`StaffReadEndpoints`), "bütün GET'ler" değildir: listede olmayan her istek, yeni eklenen bir GET dahil, teyit ister. Bir test uygulamanın bütün Kitchen eşlemelerinin sınıflandırılmasını (yöntem belirtmeyen eşleme dahil) ve teyitsiz listenin tam olarak sınıflandırılmış okumalar olmasını şart koşar. Listedeki yol değişkenleri **yalnız UUID** ile eşleşir; böylece sipariş kimliğinin yerine sabit bir sözcükle sonradan eklenen bir uç (ör. `/orders/export`) listedeki okuma sayılmaz ve teyit ister. UUID olmayan bir kimlikle gelen okuma da önce teyide gider, sonra `400` alır. Aynı `Idempotency-Key` ile tekrar edilen komut da teyit ister.
 
 ### Bu düzenin sonuçları
 
@@ -172,13 +172,13 @@ Bunlar **önerilen** sözleşmelerdir. Taşıma, hedef adres ve servis kimliği 
 ## 8. Açık talepler
 
 **KITCHEN-INT-01 (Auth taskı):**
-- Auth: [kitchen-auth-requests-01](integration/kitchen-auth-requests-01.md). Açık anahtarın kaynağı ve `/session` kullanımı yanıtlandı ve Kitchen'da uygulandı. **Açık:** iç ağda HTTPS ([#63](https://github.com/software-lecture-labs/Restofy/issues/63)).
-- Güvenilir servis kimliği ve personel delegasyonu: **karşılanmadı**. Beklenen ortak sözleşme ve Kitchen'da kalan güvenlik işi [AUTH-05](integration/kitchen-auth-requests-01.md) içindedir.
+- Auth: [kitchen-auth-requests-01](integration/kitchen-auth-requests-01.md). Açık anahtarın kaynağı ve `/session` kullanımı yanıtlandı ve Kitchen'da uygulandı. **Açık:** iç ağda HTTPS ([#63](https://github.com/software-lecture-labs/Restofy/issues/63)). HTTP istisnası önerisi ([PR #69](https://github.com/software-lecture-labs/Restofy/pull/69)) birleşmedi ve Kitchen'da uygulanmadı; HTTPS şartı geçerlidir ([AUTH-02](integration/kitchen-auth-requests-01.md)).
+- Order ve Menu bağlantılarında güvenilir servis kimliği ve personel delegasyonu: **ortak sözleşme bekliyor, uygulanmadı**. Sözleşmenin cevaplaması gerekenler ve Kitchen'da kalan güvenlik işi [AUTH-05](integration/kitchen-auth-requests-01.md) içindedir.
 
 **Sonraki işler (bu taskın tamamlanma şartı değil):**
 - Order: iç alıcı, mesaj uyumu, gönderici adaptör ve Order kaynaklı iptal. Ayrı entegrasyon işidir.
 - Menu: HTTP sözleşmesi, ürün açma/kapama adaptörü ve model kararları. Ayrı entegrasyon işidir.
-- Frontend: mutfak ekranının oturum sürekliliği ve `/activity` ([#64](https://github.com/software-lecture-labs/Restofy/issues/64), AUTH-04).
+- Frontend: mutfak ekranı. Ortak etkinlik hook'u `dev`'de hazır ([PR #70](https://github.com/software-lecture-labs/Restofy/pull/70)); ekran henüz yok. Yazılınca hook'u kullanacak ve kendi veri isteklerinde yenilemeyi ele alacak (AUTH-04).
 
 ## 9. Yapılandırma
 
@@ -205,5 +205,5 @@ Auth personel token'larını tek bir RSA anahtarıyla imzalar; token'da `kid` yo
 - Auth'un Q5 kaynağı `ACTIVE` değilken `/session` 503 döner; bu yüzden Kitchen'ın yazma işlemleri dolaylı olarak QR bootstrap'ına da bağlıdır (koddan, denenmedi).
 - Kitchen restoranı yapılandırmadaki tek bir kimliğe ayrıca sabitlemez; imzalı `restaurant_id`'ye göre veri sınırlar.
 - Rate limit bu görevde eklenmedi veya değiştirilmedi.
-- Access cookie token ömrü kadar, **en çok** 300 sn yaşar. `dev` frontend'i yalnız personel sayfası açılırken, oturum sorgusu 401/403 dönerse bir kez refresh dener; açık ekranda süreli yenileme ve mutfak aktivite bildirimi yoktur.
+- Access cookie token ömrü kadar, **en çok** 300 sn yaşar. `dev` frontend'inde süreli yenileme yoktur: personel ana sayfası açılırken oturum sorgusu reddedilirse bir kez `refresh` denenir; aynı sayfadaki ortak `StaffActivity` bileşeni (PR #70) yalnız etkileşimde veya sekmeye dönüşte istek gönderir ve kendi isteği reddedilirse `refresh` dener. Mutfak ekranı yoktur ve bileşen ona uygulanmamıştır ([AUTH-04](integration/kitchen-auth-requests-01.md)).
 - İzole ortamda (`dev` `00c0ff4` Auth, QR ve API Gateway kodu; geçici PostgreSQL; yalnız o çalıştırmada üretilen anahtarlar; Auth'un önünde **yalnız test için** HTTPS proxy) 40 kontrol geçti: giriş, MFA, okuma/yazma ayrımı, Auth'un idle bitişine yakın verdiği 20 sn'lik token, logout, Auth kesintisi, güvenilmeyen sertifika, HTTP adresle açılmama ve Gateway üzerinden okuma/yazma. Idle, rol değişikliği ve pasifleştirme geçici veritabanında SQL ile canlandırıldı. Ortak ortam, tarayıcı arayüzü, Auth'un yönetici iptal akışı ve gerçek TLS dağıtımı **DOĞRULANMADI**; test proxy'si ortak ortamın hazır olduğu anlamına gelmez.
