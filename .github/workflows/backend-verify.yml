@@ -60,6 +60,21 @@ jobs:
             echo "frontend=$(changed "^frontend/|$workflows")"
           } | tee -a "$GITHUB_OUTPUT"
 
+  # Runs on every PR with no dependency on changes: a secret can arrive in any path.
+  # Checks tracked filenames only (same rule as pre-push); contents are never read or printed.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the sensitive-file check
+        run: node --test pre-push/ci-secrets.test.mjs
+      - name: Fail on tracked sensitive files
+        run: node pre-push/ci-secrets.mjs
+
   qr-tools:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
@@ -144,18 +159,21 @@ jobs:
   # The only required status check. It always runs, so it never stays "waiting",
   # and it fails when any check above failed or was cancelled. Skipped means not needed.
   verify:
-    needs: [qr-tools, backend, frontend]
+    needs: [secrets, qr-tools, backend, frontend]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require every check to pass or be skipped
         env:
+          SECRETS: ${{ needs.secrets.result }}
           QR_TOOLS: ${{ needs.qr-tools.result }}
           BACKEND: ${{ needs.backend.result }}
           FRONTEND: ${{ needs.frontend.result }}
         run: |
-          echo "qr-tools=$QR_TOOLS backend=$BACKEND frontend=$FRONTEND"
+          echo "secrets=$SECRETS qr-tools=$QR_TOOLS backend=$BACKEND frontend=$FRONTEND"
+          # secrets always runs, so skipped is not acceptable for it.
+          [ "$SECRETS" = success ] || { echo "::error::The sensitive-file check did not pass ($SECRETS)."; exit 1; }
           for result in "$QR_TOOLS" "$BACKEND" "$FRONTEND"; do
             case "$result" in
               success|skipped) ;;
