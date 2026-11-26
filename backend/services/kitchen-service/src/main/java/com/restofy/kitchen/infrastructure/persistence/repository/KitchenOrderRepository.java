@@ -20,6 +20,12 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, UUID
 	/** Lookups are tenant scoped; there is deliberately no lookup by order id alone. */
 	Optional<KitchenOrder> findByRestaurantIdAndOrderId(UUID restaurantId, UUID orderId);
 
+	/**
+	 * Whether an accepted-order event id has been stored at all. The one deliberate lookup across restaurants: the id
+	 * is unique in the whole table, and only yes or no is returned, never another restaurant's data.
+	 */
+	boolean existsBySourceEventId(UUID sourceEventId);
+
 	/** Day report: one row per CURRENT status of the orders received in [from, to): {status, number of orders}. */
 	@Query("""
 			select o.status, count(o) from KitchenOrder o
