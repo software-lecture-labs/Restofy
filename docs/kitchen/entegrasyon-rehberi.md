@@ -148,11 +148,11 @@ Bunlar **önerilen** sözleşmelerdir. Taşıma, hedef adres ve servis kimliği 
 
 **KITCHEN-INT-01 (Auth taskı):**
 - Auth: [kitchen-auth-requests-01](integration/kitchen-auth-requests-01.md), Bölüm A. Açık anahtar değeri, HTTPS Auth adresi ve `/session` kararı bekliyor.
-- Güvenilir servis kimliği ve personel delegasyonu: **karşılanmadı**. Beklenen ortak sözleşme ve Kitchen'da kalan güvenlik işi [AUTH-05](integration/kitchen-auth-requests-01.md) içindedir; Order ve Menu belgelerinin Bölüm A'sı bunun servis bazlı sorularıdır.
+- Güvenilir servis kimliği ve personel delegasyonu: **karşılanmadı**. Beklenen ortak sözleşme ve Kitchen'da kalan güvenlik işi [AUTH-05](integration/kitchen-auth-requests-01.md) içindedir.
 
 **Sonraki işler (bu taskın tamamlanma şartı değil):**
-- Order: [kitchen-order-requests-01](integration/kitchen-order-requests-01.md), Bölüm B (iç alıcı, mesaj uyumu, gönderici adaptör, Order kaynaklı iptal).
-- Menu: [kitchen-menu-requests-01](integration/kitchen-menu-requests-01.md), Bölüm B (HTTP sözleşmesi, ürün açma/kapama adaptörü, model kararları).
+- Order: iç alıcı, mesaj uyumu, gönderici adaptör ve Order kaynaklı iptal. Ayrı entegrasyon işidir.
+- Menu: HTTP sözleşmesi, ürün açma/kapama adaptörü ve model kararları. Ayrı entegrasyon işidir.
 - Frontend: mutfak ekranının oturum sürekliliği (Auth belgesi, AUTH-04).
 
 ## 9. Yapılandırma
