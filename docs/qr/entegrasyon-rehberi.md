@@ -364,6 +364,20 @@ Bu bölüm QR-INT-02 için güncel HTTP sözleşmesidir. ADR-QR-001 K5/K6/K8 uyg
 
 **GET `/api/v1/internal/qr/table-sessions/{sessionId}/guests/{guestId}/state`**. `200` yanıtı `{ "state": "ACTIVE|EXPIRED|CLOSED", "checkedAt": "<UTC instant>" }`. `CLOSING` ve kullanıma kapalı masa `CLOSED`, kesin süre dolumu `EXPIRED` olarak eşlenir. Bilinmeyen veya yabancı scope aynı `code: "GUEST_SESSION_UNAVAILABLE"` ile 404, süre sınırında eksik Order kanıtı 503. Her iki uç `Cache-Control: no-store` döner ve aktiviteyi yenilemez. Order yalnız `ACTIVE` sonucunda kendi checkout/kapanış gate'ine devam eder. QR yanıtı tekrar kullanılabilir kabul izni vermez.
 
+### Menu guest doğrulaması (QR-REQUEST-01)
+
+Menu, müşteri menüsünde hangi restoranın gösterileceğini istemci girdisinden değil, `restofy_guest` çerezindeki guest token'ını QR'a sorarak öğrenir. Bu uç yalnız Menu içindir; Order/Waiter'ın ortak `guest-sessions/validate` ucu değişmedi. Yalnız `qr-order-inbound` profilinde açılır, Gateway'e eklenmedi.
+
+**POST `/api/v1/internal/qr/menu/guest-sessions/validate`**, JSON `{ "guestToken": "<43 karakter URL-safe opak token>" }`.
+
+- **Kimlik.** Menu kendi RSA anahtarıyla imzalar; Order/Waiter anahtarı kullanılmaz. `Authorization: Service <JWT>`, `alg=RS256`, `kid=<yapılandırılmış-id>`, `iss=restofy-menu`, `sub=menu-service`, `aud=["restofy-qr"]`, `token_type=service`, `scope=qr:menu-guest-validate`. `jti`, `iat=nbf`, en çok 30 sn süre, `method`/`target`/`body_sha256` bağı Order'daki kurallarla aynıdır. **`restaurant_id` claim'i gönderilmez**: Menu restoranı bilmeden sorar; claim varsa 403. Açık anahtar `QR_MENU_CALLER_PUBLIC_KEYS` ile (`kid` → Base64 SPKI DER RSA, en az 2048 bit) verilir. Boşsa Menu güvenilmez ve 401 alır. Gövde sınırı 1 KiB.
+- **Yanıt.** `200` yalnız `{ "restaurantId": "<UUID>", "state": "ACTIVE" }`, `Cache-Control: no-store`. Masa, oturum ve guest kimlikleri dönmez. `restaurantId`, guest kaydının restoranıdır; QR'ın `AUTH_RESTAURANT_ID` değeriyle eşleşmeyen guest reddedilir.
+- **Doğrulama kuralı.** Order'la aynı mantık kullanılır: önce yerel süreler bakılır; yerel süreler ACTIVE'i kanıtlayamazsa Order'a sorulur. Sipariş verebilen guest menüyü de görür. Doğrulama salt okunurdur, oturum aktivitesini **yenilemez**. Menüde gezinirken oturumu canlı tutmak frontend'in işidir: gerçek menü/sepet hareketinde `POST /api/v1/qr/guest-sessions/activity` çağrılır.
+- **Hatalar.** Bilinmeyen, kapalı, süresi dolmuş veya başka restoranın guest'i: `404` + `code: "GUEST_SESSION_UNAVAILABLE"` (ProblemDetail). Yapısal hata 400, aşırı gövde 413. Kimlik/imza hatası, `Cookie`/`Origin`/`Content-Encoding` başlığı 401; yanlış scope, `restaurant_id` claim'i, hedef veya gövde bağı 403. Süre sınırında Order kanıtı alınamazsa 503. 429, K7 hız sınırıyla gelecek. Menu tarafında 404 dışındaki her sonuç (401/403/429/5xx/zaman aşımı/bozuk yanıt) 503'tür; yeniden deneme ve önbellek yoktur.
+- **Ayrım.** Order ve Waiter kimlikleri bu uçta 401 alır; Menu kimliği Order/Waiter uçlarında 401 alır. Menu öneki altındaki başka yol 403'tür.
+- **Çerez.** Menu çerezi yalnız bu çağrı için kullanır; loglamaz, saklamaz, önbelleğe almaz (ADR-QR-002 §3). Rotate açık oturumları kapatmaz (mevcut davranış); eski QR'dan açılmış canlı oturum menüyü görmeye devam eder.
+- **Açılış.** Uç bu PR ile hazırdır. Tarayıcıdan uçtan uca akış, QR'ın misafir yollarının K7 hız sınırıyla açılmasına bağlıdır.
+
 ### Sepet aktivitesi teslimi
 
 **POST `/api/v1/internal/qr/events/cart-activity`**. Order outbox'ındaki `CartActivityRecorded` v1 gövdesini aynen kullan: `eventId`, `eventType`, `schemaVersion`, `occurredAt`, `correlationId` (en fazla 200 karakter, opsiyonel), `restaurantId`, `tableSessionId`, `guestSessionId`, `cartId`, `activity`. Faaliyet türleri `ITEM_ADDED`, `ITEM_QUANTITY_CHANGED`, `ITEM_REMOVED`, `CART_CLEARED`. Guest tokenı gönderilmez. Yalnız başarıyla commit edilmiş sepet değişiklikleri teslim edilir.
