@@ -41,8 +41,8 @@ class RequestOrderCancellationRequestTests {
 	}
 
 	@Test
-	void theTextIsOptionalLimitedAndSingleLine() {
-		assertTrue(valid(CancellationReason.OTHER, null), "OTHER needs no explanation (no product decision says otherwise)");
+	void theShapeOfTheTextIsLimitedAndSingleLine() {
+		assertTrue(valid(CancellationReason.OTHER, null), "that OTHER needs an explanation is a rule of the service, not of the shape");
 		assertTrue(valid(CancellationReason.OTHER, "x".repeat(500)));
 		assertFalse(valid(CancellationReason.OTHER, "x".repeat(501)));
 		assertFalse(valid(CancellationReason.OTHER, "satır1\nsatır2"));

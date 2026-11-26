@@ -46,7 +46,7 @@ class KitchenCancellationRollbackTests {
 				"SELECT status, version FROM kitchen_orders WHERE restaurant_id = ? AND order_id = ?", restaurant, orderId);
 
 		doThrow(new DataIntegrityViolationException("simulated outbox failure")).when(deliveries).saveAndFlush(any(OutboxDelivery.class));
-		var body = new RequestOrderCancellationRequest(CancellationReason.OTHER, null);
+		var body = new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama");
 		assertThrows(DataIntegrityViolationException.class, () -> cancellations.request(restaurant, actor, key, orderId, body));
 
 		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM cancellation_requests WHERE restaurant_id = ?", Integer.class, restaurant),

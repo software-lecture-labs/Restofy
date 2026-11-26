@@ -203,7 +203,7 @@ class NotificationDeliveryTests {
 		UUID orderId = UUID.randomUUID();
 		ingest.ingest(simple(restaurant, orderId));
 		UUID requestId = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 		assertEquals(DecisionOutcome.CANCELLED, decisions.apply(SOURCE_ORDER, approved(restaurant, orderId, requestId, 2).message()).outcome());
 
 		assertEquals("CANCELLED", jdbc.queryForObject("SELECT status FROM kitchen_orders WHERE restaurant_id = ?", String.class, restaurant));
@@ -216,7 +216,7 @@ class NotificationDeliveryTests {
 		UUID orderId = UUID.randomUUID();
 		ingest.ingest(simple(restaurant, orderId));
 		UUID requestId = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 
 		assertEquals(List.of("ORDER"),
 				jdbc.queryForList("SELECT destination FROM outbox_deliveries WHERE restaurant_id = ?", String.class, restaurant));

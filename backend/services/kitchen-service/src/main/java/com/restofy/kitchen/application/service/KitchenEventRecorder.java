@@ -83,7 +83,7 @@ public class KitchenEventRecorder {
 	@Transactional(propagation = Propagation.MANDATORY)
 	public OutboxEvent recordCancellationRequested(CancellationRequest request, KitchenOrder order) {
 		var payload = new KitchenCancellationRequestedMessage.Payload(request.getOrderId(), request.getReasonCode().name(),
-				request.getProductId(), request.getOrderItemId());
+				request.getProductId(), request.getOrderItemId(), request.getReasonText());
 		var aggregate = new OutboxEvent.Aggregate(OutboxEvent.AGGREGATE_CANCELLATION_REQUEST, request.getRestaurantId(),
 				request.getId(), order.getVersion());
 		var eventData = new OutboxEvent.EventData(KitchenCancellationRequestedMessage.TYPE,

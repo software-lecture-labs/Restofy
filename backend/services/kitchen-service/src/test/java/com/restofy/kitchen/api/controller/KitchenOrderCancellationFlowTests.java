@@ -71,7 +71,7 @@ class KitchenOrderCancellationFlowTests {
 
 	private String ask(UUID restaurant, UUID orderId, String reason) throws Exception {
 		return mvc.perform(post("/api/v1/kitchen/orders/" + orderId + "/cancellation-requests").header(KEY, UUID.randomUUID().toString())
-				.contentType("application/json").content("{\"reasonCode\":\"" + reason + "\"}").with(kitchen(restaurant)).with(csrf()))
+				.contentType("application/json").content("{\"reasonCode\":\"" + reason + "\",\"reasonText\":\"açıklama\"}").with(kitchen(restaurant)).with(csrf()))
 				.andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
 	}
 
@@ -122,7 +122,7 @@ class KitchenOrderCancellationFlowTests {
 				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isConflict());
 		// And no new request can be made for it.
 		mvc.perform(post("/api/v1/kitchen/orders/" + orderId + "/cancellation-requests").header(KEY, UUID.randomUUID().toString())
-				.contentType("application/json").content("{\"reasonCode\":\"OTHER\"}").with(kitchen(restaurant)).with(csrf()))
+				.contentType("application/json").content("{\"reasonCode\":\"OTHER\",\"reasonText\":\"açıklama\"}").with(kitchen(restaurant)).with(csrf()))
 						.andExpect(status().isConflict());
 	}
 

@@ -69,7 +69,7 @@ class OrderDecisionRestartPersistenceTests {
 		try (ConfigurableApplicationContext first = start()) {
 			first.getBean(AcceptedOrderIngestService.class).ingest(simple(restaurant, orderId));
 			requestId = first.getBean(CancellationRequestService.class).request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-					new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+					new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 		}
 
 		try (ConfigurableApplicationContext second = start()) {

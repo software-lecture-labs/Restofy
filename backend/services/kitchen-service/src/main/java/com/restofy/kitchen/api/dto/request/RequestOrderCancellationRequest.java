@@ -10,7 +10,9 @@ import java.util.UUID;
 /**
  * Body of a whole-order cancellation request. Only these fields are read: the restaurant, the user and the time are
  * never taken from the body. The reason code is MANDATORY (unlike the optional reason of a product availability
- * change); the text is an optional note, a blank one counts as none. The text is never sent to the Order service.
+ * change); a blank text counts as none. For OTHER an explanation of 1 to 300 characters is required (the service checks
+ * it) and it is part of the event for the Order service, where the order's guest can read it. For every other reason the
+ * text is an optional note of at most 500 characters that never leaves Kitchen.
  *
  * <p>{@code productId} and {@code orderItemId} are the stock reference of an {@code OUT_OF_STOCK} request: they must
  * point at a line of THIS order and are rejected with any other reason (checked against the order's own snapshot).

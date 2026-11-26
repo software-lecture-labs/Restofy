@@ -44,7 +44,7 @@ class CancellationRequestBackstopTests {
 	@MockitoSpyBean
 	private CancellationRequestRepository requests;
 
-	private static final RequestOrderCancellationRequest BODY = new RequestOrderCancellationRequest(CancellationReason.OTHER, null);
+	private static final RequestOrderCancellationRequest BODY = new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama");
 
 	private UUID order(UUID restaurant) {
 		UUID orderId = UUID.randomUUID();
