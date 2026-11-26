@@ -51,6 +51,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Autowired GuestSessionActivityService activity;
     @Autowired GuestTokenCodec tokens;
     @Autowired com.restofy.qr.infrastructure.security.guest.GuestCookies cookies;
+    @Autowired com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits limits;
     @Autowired QrCodeCreationService creation;
     @Autowired TableManagementService tables;
     @Autowired GuestSessionRepository guests;
@@ -163,7 +164,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
 
     @Test
     void csrfReadReturnsTheBrowserValueForAUsableGuestAndClearsCookiesOtherwise() throws Exception {
-        var guestApi = MockMvcBuilders.standaloneSetup(new GuestSessionActivityController(activity, validation, cookies))
+        var guestApi = MockMvcBuilders.standaloneSetup(new GuestSessionActivityController(activity, validation, cookies, limits))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
         var opened = opening.open(create("1").qrToken());

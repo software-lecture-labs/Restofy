@@ -37,8 +37,8 @@ import org.springframework.web.context.WebApplicationContext;
 
 /**
  * Full security chain after ADR-QR-002 K7: the guest routes are open, still guarded by the K3-K6 proofs. Requests that
- * pass those proofs are counted per QR code, table or guest; the per-address budget counts only credentials that match
- * nothing of ours. The counter store is mocked here; its behaviour against PostgreSQL is covered by
+ * pass those proofs are counted per QR code, table or verified guest; the per-address budget counts only credentials that
+ * match nothing of ours, and once spent it changes only their 404 into 429. The counter store is mocked here; its behaviour against PostgreSQL is covered by
  * PostgresRateLimitStoreTests. MockMvc's socket peer is 127.0.0.1, configured here as the trusted proxy.
  */
 @SpringBootTest(properties = {"qr.payload.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -70,9 +70,9 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
         http.perform(get("/api/v1/qr/guest-sessions/csrf").header("Origin", ORIGIN)
                 .cookie(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF)))
                 .andExpect(status().isNotFound());
-        verify(store).hit(startsWith("guest-activity:"), eq(30), eq(60L));
-        verify(store).hit(startsWith("guest-csrf:"), eq(30), eq(60L));
-        // The credential matched no guest of ours, so both requests cost the address's failure budget.
+        // The credential matched no guest of ours: no per-guest bucket is opened, only the address's failure budget pays.
+        verify(store, never()).hit(startsWith("guest-activity:"), anyInt(), anyLong());
+        verify(store, never()).hit(startsWith("guest-csrf:"), anyInt(), anyLong());
         verify(store, times(2)).spent("guest-fail:127.0.0.1", 30);
         verify(store, times(2)).hit("guest-fail:127.0.0.1", 30, 60L);
     }
@@ -128,7 +128,7 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
     }
 
     @Test
-    void aSpentFailureBudgetGets429WithRetryAfterBeforeAnyLookup() throws Exception {
+    void aSpentFailureBudgetAnswersUnknownCredentialsWith429AndRetryAfter() throws Exception {
         when(store.spent(anyString(), anyInt())).thenReturn(17L);
         for (String path : new String[]{"/api/v1/qr/validate", "/api/v1/qr/table-sessions/open"}) {
             http.perform(post(path).header("Origin", ORIGIN).contentType(MediaType.APPLICATION_JSON).content(UNKNOWN_QR))
@@ -138,16 +138,9 @@ class GuestRoutesHttpTests extends com.restofy.qr.support.Q5TestSecuritySupport 
         http.perform(post("/api/v1/qr/guest-sessions/activity").header("Origin", ORIGIN).header("X-Guest-CSRF", CSRF)
                         .cookie(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF)))
                 .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "17"));
-        // Refused before the lookup, so nothing is counted, not even the guest's own bucket.
+        // Looked up and found unknown; the full budget is not counted again and an unknown guest opens no bucket.
+        // Known QR codes and guests are still served with a spent budget: GuestRateLimitPostgresHttpTests.
         verify(store, never()).hit(anyString(), anyInt(), anyLong());
-    }
-
-    @Test
-    void aSpentGuestBudgetGets429() throws Exception {
-        when(store.hit(startsWith("guest-activity:"), anyInt(), anyLong())).thenReturn(9L);
-        http.perform(post("/api/v1/qr/guest-sessions/activity").header("Origin", ORIGIN).header("X-Guest-CSRF", CSRF)
-                        .cookie(new Cookie("restofy_guest", TOKEN), new Cookie("restofy_guest_csrf", CSRF)))
-                .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "9"));
     }
 
     @Test

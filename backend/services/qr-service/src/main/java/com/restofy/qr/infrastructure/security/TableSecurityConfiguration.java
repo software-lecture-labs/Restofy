@@ -1,6 +1,5 @@
 package com.restofy.qr.infrastructure.security;
 
-import com.restofy.qr.infrastructure.security.guest.GuestCookies;
 import com.restofy.qr.infrastructure.security.guest.GuestRequestFilter;
 import com.restofy.qr.infrastructure.security.ratelimit.ClientAddressResolver;
 import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits;
@@ -43,7 +42,7 @@ public class TableSecurityConfiguration {
     @org.springframework.core.annotation.Order(2)
     SecurityFilterChain qrSecurityFilterChain(HttpSecurity http, Q5SecuritySettings settings,
             java.time.Clock clock, com.restofy.qr.infrastructure.security.revocation.StaffRevocationStore store,
-            QrRateLimits limits, ClientAddressResolver clients, GuestCookies cookies) {
+            QrRateLimits limits, ClientAddressResolver clients) {
         // Default headers remain. Only the exact staff inventory uses JWT + local guard + the Auth cookie CSRF consumer contract.
         http.cors(cors -> cors.configurationSource(request -> {
             if (!org.springframework.web.cors.CorsUtils.isCorsRequest(request)) return null;
@@ -61,7 +60,7 @@ public class TableSecurityConfiguration {
         http.addFilterBefore(new StaffRequestFilter(settings, clock, store), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.addFilterBefore(new GuestRequestFilter(settings), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         // After both: only requests that passed the cheap proofs are counted (ADR-QR-002 K7).
-        http.addFilterBefore(new RateLimitFilter(limits, clients, cookies), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
+        http.addFilterBefore(new RateLimitFilter(limits, clients), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.authorizeHttpRequests(requests -> requests
                 .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
                 .requestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())).authenticated()

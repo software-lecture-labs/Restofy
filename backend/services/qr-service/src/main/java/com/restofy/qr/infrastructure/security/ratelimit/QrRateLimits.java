@@ -10,16 +10,17 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li><b>Failures per client address</b>: only requests whose QR code or guest credential matches nothing of ours
- *       (a guess or a forgery) are counted, and a spent budget refuses the address before any DB lookup or crypto.
- *       A whole restaurant often shares one Wi-Fi address, so successful guests never spend it; one person on that
- *       network cannot lock the others out either, because real guests' credentials never fail as unknown. Applied
- *       only when the address is known ({@link ClientAddressResolver#identifiesClients}); otherwise every client
- *       behind the Gateway would share one budget.</li>
+ *       (a guess or a forgery) are counted. A spent budget never blocks the address itself: requests are still looked
+ *       up, known QR codes and guests are answered as usual, and only unknown credentials get 429 instead of 404.
+ *       A whole restaurant often shares one Wi-Fi address, so one person on that network can neither lock the others
+ *       out nor learn anything (credentials are ~256 bits). The budget only bounds the counting writes; bulk load is
+ *       left to a Gateway-wide limit (not in place yet, see ADR-QR-002 K7). Applied only when the address is known
+ *       ({@link ClientAddressResolver#identifiesClients}); otherwise every client behind the Gateway would share one
+ *       budget.</li>
  *   <li><b>Per verified scope</b>: scans per QR code and guest creations per table, counted only after the QR code
  *       was found usable; active guests per table session are capped separately.</li>
- *   <li><b>Per guest credential</b>: activity and CSRF reads. The credential is format-checked but not yet looked up
- *       here; invented credentials stop at their address's failure budget, which bounds how many buckets one client
- *       creates.</li>
+ *   <li><b>Per verified guest</b>: activity and CSRF reads, counted only after the credential matched one of our
+ *       guests, so invented credentials never open a bucket.</li>
  *   <li><b>Per verified staff user and restaurant</b>: management reads and writes.</li>
  * </ul>
  *
@@ -69,11 +70,14 @@ public class QrRateLimits {
         this.perPeer = perPeer;
     }
 
-    /** Before the request runs: refuses an address that already spent its failure budget. Counts nothing. */
-    public void failuresAllowed(FailureBudget budget, String peer) {
-        if (perPeer) {
-            reject(store.spent(budget.prefix + RateLimitStore.peerKey(peer), budget.limit));
-        }
+    /**
+     * Before the request runs: reads the address's failure budget without counting or refusing anything.
+     *
+     * @return {@code 0} while failures are still allowed, otherwise the seconds until the window closes; the request
+     *         goes on either way and only an unknown credential is then answered with 429
+     */
+    public long failureRetryAfter(FailureBudget budget, String peer) {
+        return perPeer ? store.spent(budget.prefix + RateLimitStore.peerKey(peer), budget.limit) : 0;
     }
 
     /** After the request: one unknown QR code or guest credential from this address. */
@@ -93,11 +97,12 @@ public class QrRateLimits {
         reject(store.hit("open-table:" + restaurantId + "|" + tableId, OPENS_PER_TABLE, TEN_MINUTES));
     }
 
-    /** Activity and CSRF reads: one budget per guest credential and route. */
-    public void guestCall(String guestToken, boolean activity) {
+    /** Activity and CSRF reads: one budget per verified guest and route (never keyed by the credential itself). */
+    public void guestCall(UUID restaurantId, UUID guestId, boolean activity) {
+        String guest = restaurantId + "|" + guestId;
         reject(activity
-                ? store.hit("guest-activity:" + guestToken, ACTIVITY_PER_GUEST, MINUTE)
-                : store.hit("guest-csrf:" + guestToken, CSRF_READS_PER_GUEST, MINUTE));
+                ? store.hit("guest-activity:" + guest, ACTIVITY_PER_GUEST, MINUTE)
+                : store.hit("guest-csrf:" + guest, CSRF_READS_PER_GUEST, MINUTE));
     }
 
     /** Verified staff requests, per user within the restaurant of the token. */

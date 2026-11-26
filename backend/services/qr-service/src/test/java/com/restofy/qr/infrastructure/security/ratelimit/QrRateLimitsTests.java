@@ -11,7 +11,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import com.restofy.qr.domain.exception.RateLimitExceededException;
 import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits.FailureBudget;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -27,15 +26,15 @@ class QrRateLimitsTests {
     void eachVerifiedScopeUsesItsOwnBucketAndNumbers() {
         limits.scanOf(RESTAURANT, SUBJECT);
         limits.guestCreatedAt(RESTAURANT, SUBJECT);
-        limits.guestCall("token", true);
-        limits.guestCall("token", false);
+        limits.guestCall(RESTAURANT, SUBJECT, true);
+        limits.guestCall(RESTAURANT, SUBJECT, false);
         limits.staff(RESTAURANT, SUBJECT, false);
         limits.staff(RESTAURANT, SUBJECT, true);
 
         verify(store).hit("scan-qr:" + RESTAURANT + "|" + SUBJECT, 60, 60);
         verify(store).hit("open-table:" + RESTAURANT + "|" + SUBJECT, 20, 600);
-        verify(store).hit("guest-activity:token", 30, 60);
-        verify(store).hit("guest-csrf:token", 30, 60);
+        verify(store).hit("guest-activity:" + RESTAURANT + "|" + SUBJECT, 30, 60);
+        verify(store).hit("guest-csrf:" + RESTAURANT + "|" + SUBJECT, 30, 60);
         verify(store).hit("staff-read:" + RESTAURANT + "|" + SUBJECT, 300, 60);
         verify(store).hit("staff-write:" + RESTAURANT + "|" + SUBJECT, 60, 60);
         verifyNoMoreInteractions(store);
@@ -44,7 +43,7 @@ class QrRateLimitsTests {
     @Test
     void failureBudgetsAreReadBeforeAndCountedOnlyAfterAnUnknownCredential() {
         for (FailureBudget budget : FailureBudget.values()) {
-            limits.failuresAllowed(budget, "203.0.113.9");
+            assertThat(limits.failureRetryAfter(budget, "203.0.113.9")).isZero();
             limits.failed(budget, "203.0.113.9");
         }
         verify(store).spent("scan-fail:203.0.113.9", 30);
@@ -60,7 +59,7 @@ class QrRateLimitsTests {
     void aSharedRestaurantAddressIsNeverChargedForSuccessfulGuests() {
         // 50 guests on one Wi-Fi address, each with a valid QR code: only the pre-check runs, nothing is counted.
         for (int guest = 0; guest < 50; guest++) {
-            limits.failuresAllowed(FailureBudget.OPEN, "203.0.113.9");
+            assertThat(limits.failureRetryAfter(FailureBudget.OPEN, "203.0.113.9")).isZero();
         }
         verify(store, org.mockito.Mockito.times(50)).spent("open-fail:203.0.113.9", 10);
         verifyNoMoreInteractions(store);
@@ -76,20 +75,19 @@ class QrRateLimitsTests {
     void withoutAKnownClientAddressTheFailureBudgetsAreSkipped() {
         var anonymous = new QrRateLimits(store, false);
         for (FailureBudget budget : FailureBudget.values()) {
-            anonymous.failuresAllowed(budget, "10.213.0.10");
+            assertThat(anonymous.failureRetryAfter(budget, "10.213.0.10")).isZero();
             anonymous.failed(budget, "10.213.0.10");
         }
         verifyNoInteractions(store);
-        anonymous.guestCall("token", true);
-        verify(store).hit("guest-activity:token", 30, 60);
+        anonymous.guestCall(RESTAURANT, SUBJECT, true);
+        verify(store).hit("guest-activity:" + RESTAURANT + "|" + SUBJECT, 30, 60);
     }
 
     @Test
-    void aSpentFailureBudgetRefusesWithItsRetryAfter() {
+    void aSpentFailureBudgetReportsItsRetryAfterWithoutRefusing() {
+        // Refusing is left to the exception handler, and only for unknown credentials.
         when(store.spent("guest-fail:203.0.113.9", 30)).thenReturn(12L);
-        assertThatThrownBy(() -> limits.failuresAllowed(FailureBudget.GUEST, "203.0.113.9"))
-                .isInstanceOfSatisfying(RateLimitExceededException.class,
-                        limited -> assertThat(limited.retryAfterSeconds()).isEqualTo(12));
+        assertThat(limits.failureRetryAfter(FailureBudget.GUEST, "203.0.113.9")).isEqualTo(12);
     }
 
     @Test
@@ -97,7 +95,7 @@ class QrRateLimitsTests {
         when(store.hit(anyString(), anyInt(), anyLong())).thenThrow(new RateLimitUnavailableException(null));
         when(store.spent(anyString(), anyInt())).thenThrow(new RateLimitUnavailableException(null));
         assertThatThrownBy(() -> limits.staff(RESTAURANT, SUBJECT, true)).isInstanceOf(RateLimitUnavailableException.class);
-        assertThatThrownBy(() -> limits.failuresAllowed(FailureBudget.SCAN, "203.0.113.9"))
+        assertThatThrownBy(() -> limits.failureRetryAfter(FailureBudget.SCAN, "203.0.113.9"))
                 .isInstanceOf(RateLimitUnavailableException.class);
     }
 }

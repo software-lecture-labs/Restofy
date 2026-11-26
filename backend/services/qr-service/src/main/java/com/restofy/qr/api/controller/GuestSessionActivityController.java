@@ -6,6 +6,7 @@ import com.restofy.qr.application.service.GuestSessionActivityService;
 import com.restofy.qr.application.service.GuestSessionValidationService;
 import com.restofy.qr.domain.exception.InvalidGuestSessionException;
 import com.restofy.qr.infrastructure.security.guest.GuestCookies;
+import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,11 +21,22 @@ public class GuestSessionActivityController {
     private final GuestSessionValidationService validation;
     private final GuestCookies cookies;
 
+    private final QrRateLimits limits;
+
     public GuestSessionActivityController(GuestSessionActivityService service, GuestSessionValidationService validation,
-                                          GuestCookies cookies) {
+                                          GuestCookies cookies, QrRateLimits limits) {
         this.service = service;
         this.validation = validation;
         this.cookies = cookies;
+        this.limits = limits;
+    }
+
+    /** ADR-QR-002 K7: counted per guest only after the credential matched one, so a forgery never opens a bucket. */
+    private String verifiedCall(HttpServletRequest request, boolean activity) {
+        String token = cookies.guestToken(request);
+        var guest = validation.identify(token);
+        limits.guestCall(guest.restaurantId(), guest.guestId(), activity);
+        return token;
     }
 
     @PostMapping("/activity")
@@ -39,7 +51,7 @@ public class GuestSessionActivityController {
                     "presence or a human gesture.")
     public ResponseEntity<GuestActivityResponse> recordActivity(HttpServletRequest request, HttpServletResponse response) {
         try {
-            String token = cookies.guestToken(request);
+            String token = verifiedCall(request, true);
             var result = service.recordActivity(token);
             cookies.refresh(response, token, cookies.csrfProof(request));
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
@@ -59,7 +71,7 @@ public class GuestSessionActivityController {
                     "renew any idle window. An unusable guest gets the generic 404 and its cookies are cleared.")
     public ResponseEntity<GuestCsrfResponse> csrf(HttpServletRequest request, HttpServletResponse response) {
         try {
-            validation.validate(cookies.guestToken(request));
+            validation.validate(verifiedCall(request, false));
             return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                     .body(new GuestCsrfResponse(cookies.csrfFor(request, response)));
         } catch (InvalidGuestSessionException invalid) {

@@ -246,49 +246,44 @@ class PostgresRateLimitStoreTests {
     }
 
     @Test
-    void oneAddressInventingGuestCredentialsCreatesBoundedBucketsAndLocksNobodyElseOut() {
+    void oneAddressInventingCredentialsWritesBoundedRowsAndOpensNoGuestBucket() {
         var limits = new QrRateLimits(store(10_000), true);
-        int admitted = 0;
+        int counted = 0;
         for (int credential = 0; credential < 1_000; credential++) {
-            try {
-                // What RateLimitFilter does for an invented credential: check, count the call, then the failure.
-                limits.failuresAllowed(QrRateLimits.FailureBudget.GUEST, "198.51.100.66");
-                limits.guestCall("fake-" + credential, true);
-                admitted++;
+            // What RateLimitFilter does for an invented credential: read the budget, count while it is open.
+            // guestCall never runs: the credential matches no guest, so no per-guest bucket is opened.
+            if (limits.failureRetryAfter(QrRateLimits.FailureBudget.GUEST, "198.51.100.66") == 0) {
                 limits.failed(QrRateLimits.FailureBudget.GUEST, "198.51.100.66");
-            } catch (RateLimitExceededException _) {
-                // expected once the address's failure budget is spent
+                counted++;
             }
         }
         int budget = QrRateLimits.FailureBudget.GUEST.limit;
-        assertThat(admitted).isEqualTo(budget);
-        assertThat(rows()).isLessThanOrEqualTo(budget + 1);
-        limits.failuresAllowed(QrRateLimits.FailureBudget.GUEST, "203.0.113.9");
-        limits.guestCall("real-guest", true);
+        assertThat(counted).isEqualTo(budget);
+        assertThat(rows()).isEqualTo(1);
+        assertThat(limits.failureRetryAfter(QrRateLimits.FailureBudget.GUEST, "198.51.100.66")).isPositive();
+        assertThat(limits.failureRetryAfter(QrRateLimits.FailureBudget.GUEST, "203.0.113.9")).isZero();
     }
 
     @Test
     void manyRealGuestsBehindOneRestaurantAddressAreNeverRefused() {
         var limits = new QrRateLimits(store(10_000), true);
         UUID restaurant = UUID.randomUUID();
-        // 15 tables, 6 guests each, all on one Wi-Fi address: far more than any failure budget.
+        // One guesser on the same Wi-Fi address spends the address's failure budgets first...
+        for (int guess = 0; guess < QrRateLimits.FailureBudget.SCAN.limit; guess++) {
+            limits.failed(QrRateLimits.FailureBudget.SCAN, "203.0.113.9");
+            limits.failed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9");
+        }
+        assertThat(limits.failureRetryAfter(QrRateLimits.FailureBudget.OPEN, "203.0.113.9")).isPositive();
+        // ...and 15 tables of 6 real guests each still get in: a spent budget only changes the answer to unknown
+        // credentials, and real guests are limited by their own scopes.
         for (int table = 0; table < 15; table++) {
             UUID tableId = UUID.randomUUID();
             for (int guest = 0; guest < 6; guest++) {
-                limits.failuresAllowed(QrRateLimits.FailureBudget.SCAN, "203.0.113.9");
                 limits.scanOf(restaurant, tableId);
-                limits.failuresAllowed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9");
                 limits.guestCreatedAt(restaurant, tableId);
+                limits.guestCall(restaurant, UUID.randomUUID(), true);
             }
         }
-        // One guesser on the same network spends the address's failure budget...
-        for (int guess = 0; guess < QrRateLimits.FailureBudget.OPEN.limit; guess++) {
-            limits.failed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9");
-        }
-        assertThatThrownBy(() -> limits.failuresAllowed(QrRateLimits.FailureBudget.OPEN, "203.0.113.9"))
-                .isInstanceOf(RateLimitExceededException.class);
-        // ...which is the accepted cost: guests already seated keep their own per-guest budgets.
-        limits.guestCall("seated-guest", true);
     }
 
     @Test
@@ -305,7 +300,7 @@ class PostgresRateLimitStoreTests {
         // Without a trusted proxy the per-address budgets are off: they would be one budget for everyone.
         for (int scan = 0; scan < QrRateLimits.FailureBudget.SCAN.limit * 2; scan++) {
             limits.failed(QrRateLimits.FailureBudget.SCAN, "10.213.0.10");
-            limits.failuresAllowed(QrRateLimits.FailureBudget.SCAN, "10.213.0.10");
+            assertThat(limits.failureRetryAfter(QrRateLimits.FailureBudget.SCAN, "10.213.0.10")).isZero();
         }
     }
 

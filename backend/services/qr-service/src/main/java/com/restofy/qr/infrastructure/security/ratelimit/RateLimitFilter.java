@@ -2,7 +2,6 @@ package com.restofy.qr.infrastructure.security.ratelimit;
 
 import com.restofy.qr.domain.exception.RateLimitExceededException;
 import com.restofy.qr.infrastructure.security.StaffRequestFilter;
-import com.restofy.qr.infrastructure.security.guest.GuestCookies;
 import com.restofy.qr.infrastructure.security.guest.GuestRequestFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,23 +16,25 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Applies the request-level QR limits (ADR-QR-002 K7). It runs after the staff and guest filters, so only requests
  * that passed their cheap format, Origin and CSRF checks are counted, and before any controller touches the database.
- * Limits that need a verified QR code or table run later, in the services.
+ * Limits that need a verified QR code, table or guest run later, in the services and controllers.
  *
- * <p>On guest routes the address budget counts failures only: it is checked before the request and charged after it,
- * when the request was marked with {@link #UNKNOWN_CREDENTIAL} (a QR code or guest credential matching nothing).
+ * <p>On guest routes the address budget counts failures only, and it never refuses a request by itself. It is read
+ * before the request; when it is spent, {@link #FAILURE_RETRY_AFTER} tells the exception handler to answer an unknown
+ * credential with 429 instead of 404. Known QR codes and guests are answered as usual. After the request, an unknown
+ * credential ({@link #UNKNOWN_CREDENTIAL}) is counted while the budget is still open.
  */
 public final class RateLimitFilter extends OncePerRequestFilter {
     /** Request attribute set when the QR code or guest credential of the request matched nothing of ours. */
     public static final String UNKNOWN_CREDENTIAL = RateLimitFilter.class.getName() + ".unknownCredential";
+    /** Request attribute (a {@link Long} of seconds) set when the address's failure budget is spent. */
+    public static final String FAILURE_RETRY_AFTER = RateLimitFilter.class.getName() + ".failureRetryAfter";
     private static final String PREFIX = "/api/v1/qr";
     private final QrRateLimits limits;
     private final ClientAddressResolver clients;
-    private final GuestCookies cookies;
 
-    public RateLimitFilter(QrRateLimits limits, ClientAddressResolver clients, GuestCookies cookies) {
+    public RateLimitFilter(QrRateLimits limits, ClientAddressResolver clients) {
         this.limits = limits;
         this.clients = clients;
-        this.cookies = cookies;
     }
 
     @Override
@@ -43,6 +44,7 @@ public final class RateLimitFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         QrRateLimits.FailureBudget budget = null;
         String peer = null;
+        long retryAfter = 0;
         try {
             if (GuestRequestFilter.guestPath(method, path)) {
                 budget = switch (path) {
@@ -51,10 +53,9 @@ public final class RateLimitFilter extends OncePerRequestFilter {
                     default -> QrRateLimits.FailureBudget.GUEST;
                 };
                 peer = clients.resolve(request);
-                limits.failuresAllowed(budget, peer);
-                if (budget == QrRateLimits.FailureBudget.GUEST) {
-                    // The guest filter already required exactly one well-formed credential cookie on these routes.
-                    limits.guestCall(cookies.guestToken(request), "POST".equals(method));
+                retryAfter = limits.failureRetryAfter(budget, peer);
+                if (retryAfter > 0) {
+                    request.setAttribute(FAILURE_RETRY_AFTER, retryAfter);
                 }
             } else {
                 staff(method);
@@ -69,7 +70,8 @@ public final class RateLimitFilter extends OncePerRequestFilter {
         try {
             chain.doFilter(request, response);
         } finally {
-            if (budget != null && Boolean.TRUE.equals(request.getAttribute(UNKNOWN_CREDENTIAL))) {
+            // A spent budget is already full; counting more would only write rows.
+            if (budget != null && retryAfter == 0 && Boolean.TRUE.equals(request.getAttribute(UNKNOWN_CREDENTIAL))) {
                 chargeFailure(budget, peer);
             }
         }
