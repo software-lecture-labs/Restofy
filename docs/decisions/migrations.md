@@ -40,6 +40,12 @@ V21,V22,V26–V30,V121–V123,V125,V126.
 sırası commit sırasıyla aynı olur; V126 değiştirilmedi. Güncel QR zinciri
 V21,V22,V26–V30,V121–V123,V125–V127.
 
+26 Kasım 2026: #58 incelemesi üzerine Order sepet aktivite makbuzlarının `received_at`
+sütunu V124 yerine V128 olarak eklendi. QR'da Flyway `outOfOrder` kapalıdır; V125–V127'yi
+uygulamış bir veritabanı sonradan gelen V124'ü reddederdi. V124 hiçbir ortak ortama
+uygulanmadan bırakıldı ve yeniden kullanılmayacak. Güncel QR zinciri
+V21,V22,V26–V30,V121–V123,V125–V128.
+
 11 Kasım 2026: Order sorumlusu Hamza, Order <-> Kitchen entegrasyon kararını (iptal nedeni
 kataloğuna CUSTOMER_REQUEST ve order_cancellations.decided_order_version: kararın sipariş
 sürümü, bir kez yazılır) V50 olarak ekledi. dev'de paylaşılmış V47 DEĞİŞTİRİLMEDİ; checksum'ı
