@@ -1,6 +1,7 @@
 # ADR-ORTAK-001 — Servisler arası çağrılarda iç ağda HTTP istisnası
 
-- **Durum:** Önerildi (#63'te hocanın B kararı üzerine; ayrıntılar onay bekliyor)
+- **Durum:** Önerildi (#63'te hocanın B kararı üzerine; #69 incelemesiyle ortam koşulu profilden `APP_ENV`'e
+  çekildi, onay bekliyor)
 - **Tarih:** 2026-11-26
 - **Öneren:** Kerem Kalyoncu (Auth)
 - **İlgili:** #63, #61 (Kitchen), `OrderLifecycleClient` (QR → Order mevcut istisnası)
@@ -23,7 +24,7 @@ Bugünkü durum (`dev`):
 | Order → QR | `QR_SERVICE_URL` | Yok (`QrSessionHttpAdapter`) |
 | Waiter → Auth `/session` | `AUTH_SERVICE_URL` | Yok (`AuthProperties`) |
 | QR → Order | `ORDER_SERVICE_URL` | Yalnız `(dev \| test) & !prod` profilinde ve yalnız loopback (`OrderLifecycleClient`) |
-| Kitchen → Auth `/session` | `AUTH_SERVICE_URL` | Yok (#61, `KitchenAuthProperties`) |
+| Kitchen → Auth `/session` | `AUTH_SERVICE_URL` | Yok (#61'de `KitchenAuthProperties`; henüz `dev`'de değil) |
 | Auth → Mail | `auth.reset.mail-url` | Geliştirme profilinde her adrese (`MailClient`) |
 | Waiter → QR / Order (imzalı) | `QR_SERVICE_URL`, `ORDER_SERVICE_URL` | Her ortamda (`ServiceUrlProperties` yalnız `http(s)` biçimine bakıyor) |
 
@@ -34,6 +35,10 @@ Bugünkü durum (`dev`):
 `INTERNAL_HTTP_ALLOWED`, değeri `true` ya da `false`, varsayılanı `false`.
 
 - `docker-compose.yml`'deki ortak ortam bloğuna `INTERNAL_HTTP_ALLOWED: ${INTERNAL_HTTP_ALLOWED:-false}` eklenir.
+- `APP_ENV` ortak bloğa **eklenmez**. Bugün yalnız Auth ve Order'a geçiliyor; QR'ın Q5 ayarları da ona baktığı için
+  ortak blokta başka servislerin davranışını değiştirirdi. Kuralı uygulayan servis sahibi kendi PR'ında kendi
+  servisine `APP_ENV: ${APP_ENV:-dev}` ekler. Eklemezse koşul (2) sağlanmaz ve ayar açıkken servis başlamaz;
+  yani eksik bir ayar HTTP'ye izin vermez, servisi durdurur.
 - `.env.example` (dev şablonu) `INTERNAL_HTTP_ALLOWED=true` taşır. Böylece yerel Compose çalışır; ayar yazılmamış
   bir ortamda HTTPS şartı aynen kalır.
 - `true` ve `false` dışındaki bir değer servisin başlamasını durdurur.
@@ -43,8 +48,13 @@ Bugünkü durum (`dev`):
 Aşağıdakilerin **hepsi** sağlanırsa:
 
 1. `INTERNAL_HTTP_ALLOWED=true`.
-2. Etkin Spring profilleri `(dev | test) & !prod` ifadesine uyar. `order-auth`, `order-qr` gibi özellik profilleri
-   yanında olabilir; `prod` hiçbir zaman olmaz.
+2. `APP_ENV` tam olarak `dev` ya da `test` (küçük harf; boş, eksik ya da başka bir değer koşulu sağlamaz) **ve**
+   etkin Spring profilleri arasında `prod` ya da `production` yoktur. Diğer profillere bakılmaz.
+
+   Profil yerine `APP_ENV`'e bakılmasının nedeni: Order'ın `order-auth` ve QR'ın `qr-order` entegrasyon profilleri
+   `dev`/`test` profili olmadan açılır (`docs/order-service/INTEGRATION_CONTRACTS.md`, `docs/qr/qr-key-uretimi.md`).
+   Profil şartı tam bu entegrasyonlarda servisi durdururdu. Order (`OrderRuntimeProfiles`) ve QR
+   (`Q5SecuritySettings`) ortam ayrımını zaten `APP_ENV` ile yapıyor.
 3. Adresin host'u ya bir **Compose servis adıdır** (noktasız tek etiket, yalnız `a-z`, `0-9`, `-`, örneğin
    `auth-service`), ya da loopback (`localhost`, `127.0.0.1`, `[::1]`). IP adresi (loopback hariç) ve noktalı alan
    adı HTTP ile kabul edilmez.
@@ -54,8 +64,15 @@ Biri sağlanmazsa bugünkü davranış geçerlidir: HTTP adresle servis başlama
 
 ### Yanlış kullanımı engelleme
 
-- `INTERNAL_HTTP_ALLOWED=true` iken profil kuralı (2) sağlanmıyorsa servis **başlamaz**; ayar sessizce yok sayılmaz.
+- `INTERNAL_HTTP_ALLOWED=true` iken ortam kuralı (2) sağlanmıyorsa servis **başlamaz**; ayar sessizce yok sayılmaz.
   Prod'a yanlışlıkla taşınan bir `.env` böylece fark edilir.
+- **Prod ortamında** `APP_ENV` açıkça `prod` yazılır, `INTERNAL_HTTP_ALLOWED` hiç yazılmaz. Compose'da `APP_ENV`
+  yazılmazsa `dev` sayılır; `.env.example` olduğu gibi kopyalanırsa istisna da açılır. Bu, MFA kapatma ve geliştirme
+  kullanıcıları gibi `APP_ENV`'e bağlı diğer geliştirme özellikleriyle aynı risktir; prod kurulumunda bu iki değer
+  kontrol edilir.
+- İstisna yalnız şemayı gevşetir. HTTPS adreslerde sertifika ve host doğrulaması kapatılmaz.
+- Bu istisnayla HTTP kullanan istemci yönlendirme izlemez. İzleseydi `http://auth-service` bir 3xx ile isteği
+  dışarıdaki bir adrese çevirebilir, çerez ya da imzalı istek açık metin oraya giderdi; (3) boşa çıkardı.
 - Bir adres bu istisnayla HTTP kabul edildiğinde servis başlarken bir kez `WARN` yazar: ayarın adını ve "iç ağda
   açık metin" bilgisini. Adresin kendisi dışında hiçbir değer (anahtar, çerez) loglanmaz.
 
@@ -71,10 +88,13 @@ Biri sağlanmazsa bugünkü davranış geçerlidir: HTTP adresle servis başlama
 ### Her servisin küçük PR'ında beklenen testler
 
 1. Ayar kapalıyken `http://auth-service:8080` reddedilir (bugünkü davranış).
-2. Ayar açık ve profil `dev` iken `http://auth-service:8080` kabul edilir.
-3. Ayar açık ve profil `prod` (ya da `dev,prod`) iken servis başlamaz.
+2. Ayar açık, `APP_ENV=dev` iken `http://auth-service:8080` kabul edilir; `order-auth` gibi bir özellik profili tek
+   başına etkin olsa da.
+3. Ayar açıkken servis şu durumlarda başlamaz: `APP_ENV=prod`, `APP_ENV` boş ya da eksik, `APP_ENV=dev` ama `prod`
+   profili etkin.
 4. Ayar açıkken `http://10.0.0.5:8080` ve `http://auth.example.com` reddedilir.
 5. Ayar `yes` gibi geçersiz bir değerse servis başlamaz.
+6. HTTP adres 3xx döndürürse istemci yönlendirmeyi izlemez.
 
 ## Sonuçlar
 
