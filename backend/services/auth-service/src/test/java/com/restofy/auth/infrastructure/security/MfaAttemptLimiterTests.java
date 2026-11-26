@@ -1,5 +1,6 @@
 package com.restofy.auth.infrastructure.security;
 
+import com.restofy.auth.support.InMemoryRateLimitStore;
 import java.util.Optional;
 import java.util.UUID;
 import com.restofy.auth.application.service.StaffSessionService;
@@ -23,7 +24,7 @@ class MfaAttemptLimiterTests {
     private final StaffSessionService sessions = mock(StaffSessionService.class);
     private final StaffMfaRepository records = mock(StaffMfaRepository.class);
     private final MfaAuditLogger audit = mock(MfaAuditLogger.class);
-    private final MfaAttemptLimiter limiter = new MfaAttemptLimiter(sessions, records, new MfaPeerLimiter(clock), audit, clock);
+    private final MfaAttemptLimiter limiter = new MfaAttemptLimiter(sessions, records, new MfaPeerLimiter(new InMemoryRateLimitStore(clock)), audit, clock);
     private final Identity identity = new Identity(UUID.randomUUID(), UUID.randomUUID(), StaffRole.ADMIN, SessionAuthState.MFA_PENDING);
     private final StaffMfa mfaState = new StaffMfa(identity.userId(), clock.instant());
 
