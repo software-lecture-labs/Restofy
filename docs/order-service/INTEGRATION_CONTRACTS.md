@@ -58,6 +58,8 @@ Gateway yalnızca `/api/v1/orders` ve `/api/v1/carts` yollarını yönlendirir. 
 | `DELETE /api/v1/carts/current/items/{id}` ve `/items` | misafir | Satır sil / sepeti temizle |
 | `POST /api/v1/orders` | misafir | `Idempotency-Key` **zorunlu**; sepeti siparişe çevirir |
 | `GET /api/v1/orders`, `/{id}`, `/{id}/history` | misafir (kendi), personel | Filtre: `tableSessionId`, `tableId`, `view`, `paymentStatus`; KITCHEN indirgenmiş görünüm görür (tutar ve ödeme yok) |
+| `POST /api/v1/orders/session-summaries` | `WAITER`, `ADMIN` | Gövde: 1–500 elemanlı `tableSessionIds`. Masa listesi için oturum başına **aktif sipariş sayısı**, tek istekte. Yalnız ilgili restoran, kimlikten alınır; gövdede `restaurantId` bilinmeyen alan olarak `400`. KITCHEN `403` |
+| `POST /api/v1/orders/search` | `WAITER`, `ADMIN` | Birden çok masa oturumu ve hazırlık durumuyla filtreli, sıralı sipariş sayfası |
 | `PATCH /api/v1/orders/{id}/fulfillment-status` | personel | Bir adım ileri |
 | `POST /api/v1/orders/{id}/cancellations` | siparişin sahibi misafir, `WAITER`, `ADMIN` | `Idempotency-Key` zorunlu |
 | `GET /api/v1/orders/{id}/cancellations` | sahibi misafir, personel | |
@@ -65,6 +67,14 @@ Gateway yalnızca `/api/v1/orders` ve `/api/v1/carts` yollarını yönlendirir. 
 | `GET /api/v1/admin/order-cancellations` | `ADMIN` | Restoran kimlikten alınır, istek parametresinden değil |
 
 Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızdırılmaz); rol yetmiyorsa 403, kimlik yoksa 401.
+
+**Waiter sipariş araması (WAITER-01).** `POST /api/v1/orders/search` salt okunur. İsteğe bağlı alanlar `tableSessionIds` (verilirse 1–500 UUID), `tableId`, `view`, `fulfillmentStatuses`, `paymentStatus`, `page`, `limit` ve `sort`. Masa ve oturum filtreleri birlikte verilirse ikisi de uygulanır. Yabancı veya bilinmeyen oturumlar eşleşme üretmez. Gövdede `restaurantId` ve bozuk UUID `400`, sınır dışı değerler ve `view` ile `fulfillmentStatuses` birlikteliği `422` döner.
+
+Waiter, arama ve `POST /api/v1/orders/session-summaries` çağrılarını HTTPS üzerinden, `order:read` kapsamlı RS256 servis JWT’si ve `X-Restofy-Staff-Delegation` ile yapar. İmza yönteme, ham hedefe, gönderilen gövdeye ve personel erişim JWT’sine bağlıdır. Order, personel oturumunu ve onun `WAITER` veya `ADMIN` rolünü doğrular ve restoranı bu oturumdan alır. `order:read` yalnızca bu iki POST için geçerlidir. Personel çereziyle gelen doğrudan çağrılar mevcut Origin ve CSRF denetiminden geçer.
+
+Hazır sipariş kuyruğu için `{"fulfillmentStatuses":["READY"],"limit":100}`, geçmiş ekranı için `{"fulfillmentStatuses":["READY","SERVED","COMPLETED"]}` kullanılabilir. İki filtre de verilmediğinde `active` görünümü geçerlidir. Filtreleme sayfalamadan önce uygulanır. Yanıt `GET /api/v1/orders` ile aynı alanları taşır: `items`, `page` (0 tabanlı), `limit` (1–100, varsayılan 20), `totalItems` (filtrelenmiş toplam), `totalPages` ve `view` (açık durum listesi seçildiğinde `null`). Sıralama `placedAt,desc` (varsayılan) veya `placedAt,asc` ile yapılır, eşit zamanlarda sipariş kimliği aynı yönde sıralanır.
+
+Liste, arama ve detay yanıtları siparişin `version` değerini taşır. Siparişin durum geçmişinde `SERVED` geçişi varsa `servedAt` ilk geçişin zamanını taşır ve `COMPLETED` durumunda da korunur. Servis kaydı bulunmadığında JSON alanı gönderilmez. Kalemler `GET /api/v1/orders/{id}`, iptal kayıtları `GET /api/v1/orders/{id}/cancellations` üzerinden okunur. Her ikisi de aynı kimlikten restoran kapsamını alır. Başka restoranın siparişi `404` döner.
 
 ### 3.2 Servisten servise (UYGULANDI, DOĞRULANMADI)
 
@@ -74,6 +84,8 @@ Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızd
 | `POST /api/v1/internal/order-events/kitchen-cancellation-request` | KITCHEN | Kitchen'ın kendi iptal talebi (neden zorunlu) |
 | `POST /api/v1/internal/order-events/kitchen-cancellation` | KITCHEN | Bekleyen iptal talebine onay/ret |
 | `POST /api/v1/internal/order-events/payment` | PAYMENT | Tek ödeme durumu değiştirme yolu |
+| `POST /api/v1/internal/orders/{orderId}/serve` | İmzalı Waiter isteği + aktif WAITER/ADMIN | READY siparişi SERVED yapar ve komutun ilk sonucunu saklar |
+| `GET /api/v1/internal/orders/{orderId}/serve-commands/{commandId}?restaurantId=…` | İmzalı Waiter isteği + aktif WAITER/ADMIN | Aynı restoran ve sipariş için kaydedilmiş ilk sonucu okur |
 | `POST /api/v1/internal/table-sessions/{id}/closure-preparations` | QR | Kapanış veya boşta-süre bitişi için izin ve tutuk (`purpose` SETTLED veya IDLE, bkz. 5) |
 | `GET  /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}?restaurantId=…&commandDigest=…` | QR | İşlemin durumu ve izin yenileme/geri çekme (bilinmeyen işlem `NOT_STARTED`) |
 | `POST /api/v1/internal/table-sessions/{id}/closure-preparations/{operationId}/confirmation` | QR | `CLOSED` (isteğe bağlı makbuzla) / `NOT_CLOSED` (abort) |
@@ -83,6 +95,47 @@ Başka restoranın veya başka misafirin kaynağı **404** döner (varlık sızd
 
 Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem iki kez yapılmaz (`duplicate=true`), aynı kimlik farklı gövdeyle gelirse `409`. Başka restoranın siparişi `404`.
 
+### 3.3 Waiter teslim komutu (WAITER-03)
+
+POST gövdesi `commandId`, `restaurantId`, `tableSessionId`, `expectedVersion`, `requestedByUserId` ve
+`requestedAt` taşır. `Idempotency-Key` tek bir UUID olmalı ve `commandId` ile aynı olmalıdır. Restoran ve
+personel kimliği doğrulanmış delegasyonla eşleşir. Order aynı yerel işlemde siparişi kilitler, oturumu ve
+sürümü doğrular, READY → SERVED geçişini uygular, durum geçmişini ve mevcut outbox olayını yazar, komut
+kararını V132 tablosunda saklar. Hazır olmadan önce kısmen iptal edilen sipariş, READY ise kalan kalemleriyle
+servis edilebilir. READY ve sonrasına ilişkin mevcut iptal kuralları geçerlidir.
+
+- İlk başarılı POST `200 APPLIED`, aynı içerikle tekrar `200 DUPLICATE` döner. Makbuz `commandId`,
+  `orderId`, `tableSessionId`, `orderVersion`, `servedAt` ve `outcome` taşır. Sürüm ve servis zamanı ilk
+  karara aittir. Sonraki sipariş güncellemeleri bu makbuzu değiştirmez.
+- İş kuralı reddi ilk kararla birlikte kaydedilir. POST aynı istekte yine aynı `409` hata kodunu döndürür.
+  Uygulanan kodlar `ORDER_SESSION_MISMATCH`, `ORDER_VERSION_CONFLICT`, `ORDER_NOT_READY`,
+  `ORDER_CANCELLED` ve `ORDER_ALREADY_SERVED`. Aynı restoranda aynı komut kimliğinin farklı içerikle
+  kullanılması `409 ORDER_COMMAND_CONFLICT` döndürür ve ilk sonucu değiştirmez.
+- GET, `commandId`, `orderId`, `tableSessionId`, `orderVersion`, `decidedAt` ve `status` alanlarını
+  döndürür. `APPLIED` için `servedAt`, `REJECTED` için `rejectionCode` bulunur. `ORDER_SESSION_MISMATCH`
+  reddinde `tableSessionId` gönderilmez. Kayıt yoksa veya başka
+  sipariş/restorana aitse `404` döner. `404` bir işlemin hiç uygulanmadığının kanıtı sayılmaz.
+  Komut kaydının otomatik silinmesi bu sürümde yapılandırılmamıştır.
+
+İki yol da Gateway kapsamı dışındadır ve HTTPS, `Authorization: Service <imzalı JWT>` ve
+`X-Restofy-Staff-Delegation: <Auth erişim JWT’si>` ister. Order personel oturumunu her çağrıda
+`AuthContextPort` üzerinden doğrular. Geçersiz veya süresi dolmuş kimlik `401`, eşleşmeyen restoran veya
+yetki `403`, doğrulama bağımlılığına erişilememesi `503` döner. Tarayıcı `Cookie` veya `Origin` başlığı
+taşıyan çağrılar reddedilir.
+
+Waiter imzası RS256 kullanır ve JWT başlığında `kid` taşır. Claim’ler `iss=restofy-waiter`,
+`sub=waiter-service`, `aud=restofy-order`, `token_type=service`, `scope=order:serve`, UUID `jti` ve
+`iat = nbf < exp` (en fazla 30 saniye) içerir. İmzaya `restaurant_id`, `method`, ham yol ve varsa
+sorgu dizesini içeren `target`, HTTP gövdesinin `body_sha256` özeti ve delegasyon başlığının
+`staff_sha256` özeti bağlanır. Özetler küçük harfli hex SHA-256 biçimindedir. GET için gövde boştur.
+Her denemede yeni servis imzası kullanılabilir. Tekrar gönderimde komut gövdesi ve kimliği korunur.
+
+Order'a `ORDER_WAITER_SERVICE_PUBLIC_KEYS` (JSON `kid → Base64 X.509 RSA public key`) ve
+`ORDER_WAITER_SERVICE_RESTAURANTS` (virgülle ayrılmış restoran UUID’leri) verilir. İkisi de boşsa bu
+erişim kapalıdır. Gerçek açılış için PR #33'teki `order-auth` adaptörü ve Auth HTTPS bağlantısı gerekir.
+Waiter istemcisinin istekleri imzalaması, personel delegasyonunu iletmesi ve komut makbuzunu okuması gerekir.
+Güncel sipariş detayı, gerektiğinde mevcut sipariş detay ucundan okunur.
+
 ## 4. İş kuralları (UYGULANDI)
 
 **Hazırlık durumu.** `RECEIVED → PREPARING → READY → SERVED → COMPLETED`; adım atlanmaz, geri dönülmez. `PREPARING/READY` için yetkili Kitchen servisidir; personelin bunları `PATCH` ile vermesi yalnız `dev`/`test` profilinde açıktır. `SERVED/COMPLETED` için `WAITER` veya `ADMIN`. `COMPLETED` ödeme gerektirmez (operasyonel ve finansal tamamlanma ayrıdır). `CANCELLED` yalnız iptal kullanım senaryosuyla gelir.
@@ -90,6 +143,8 @@ Her olayda `eventId` tekilleştirme sağlar: aynı kimlik tekrar gelirse işlem 
 **Ödeme durumu** (hazırlıktan bağımsız ikinci eksen): `NOT_REQUESTED → PENDING → PAID | FAILED | CANCELLED`, `FAILED → PENDING`; `PAID` ve `CANCELLED` sonludur. Yalnız Payment'ın doğrulanmış olayı değiştirir; istemcideki başarı sayfası kanıt sayılmaz. `PENDING`/`PAID` olayı siparişin güncel borcunu ve para birimini taşımalıdır (`409 PAYMENT_MISMATCH`).
 
 **Tahsilat güvenliği.** Her tahsilat `payment_captures` tablosunda `captureId` ile veritabanı kısıtlarıyla tekil tutulur: silinmez, yeniden yazılmaz, bir sipariş en çok bir tahsilatla kapanır. İkinci farklı tahsilat, başka siparişte kullanılmış `captureId`, tutarı uyuşmayan veya iptal edilmiş siparişe gelen `PAID` uzlaştırma vakası olur. `PENDING`'inden önce gelen `PAID` doğrulanmadan uygulanmaz, kalıcı bekler.
+
+**Oturum başına aktif sipariş sayısı.** `POST /api/v1/orders/session-summaries` bir masa listesinin her masa için ayrı istek atmamasını sağlar (WAITER-01). "Aktif", liste uçlarındaki `active` görünümüyle aynı kümedir: `RECEIVED`, `PREPARING`, `READY`, `SERVED`; `COMPLETED` ve `CANCELLED` sayılmaz, ödeme durumu etkilemez. Yanıt `{items:[{tableSessionId, activeOrderCount}]}`; aktif siparişi olmayan oturum yanıtta **yoktur**, yokluk sıfır demektir. Yanıt, oturumların sorulduğu sırayı korur; tekrar eden kimlik bir kez sayılır. Başka restoranın veya bilinmeyen bir oturum, boş bir oturumla aynı görünür (yanıtta yok), yani başka kiracı hakkında bilgi vermez. Sayma yalnız okur; bir POST olmasının sebebi 500 kimliğin URL'ye sığmamasıdır.
 
 **Sipariş oluşturma.** Fiyat, KDV ve toplam sunucuda hesaplanır, istemcinin gönderdiği tutara güvenilmez. Müşterinin onayladığı toplam ve fiyat parmak izi uyuşmazsa sipariş verilmez (`409 PRICE_CHANGED`); değişmiş fiyat ancak parmak izi + `acknowledgePriceChanges` ile kabul edilir. Sipariş anında QR oturumu yeniden sorulur. Aynı `Idempotency-Key` aynı siparişi döner, farklı gövdeyle `409`. Bir sepet en çok bir kez siparişe çevrilir.
 

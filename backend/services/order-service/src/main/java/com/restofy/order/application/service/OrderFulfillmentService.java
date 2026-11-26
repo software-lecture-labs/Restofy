@@ -171,6 +171,11 @@ public class OrderFulfillmentService {
                 destinations(target, originatedByKitchen));
     }
 
+    /** Called under the command transaction after locking the order and verifying the delegation and the transition. */
+    void applyWaiterServe(Order order, StaffActor staff, UUID commandId) {
+        apply(order, FulfillmentStatus.SERVED, ChangeActor.staff(staff), "WAITER_SERVE_COMMAND", commandId, null, false);
+    }
+
     /** Who needs to hear about a status: everyone but the Kitchen when the Kitchen itself caused it. */
     private static List<EventDestination> destinations(FulfillmentStatus target, boolean originatedByKitchen) {
         List<EventDestination> destinations = new ArrayList<>(List.of(EventDestination.NOTIFICATION,

@@ -14,22 +14,16 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
-import java.security.spec.X509EncodedKeySpec;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** Dedicated QR-to-Order trust. Keys and tenant grants are supplied by the deployment. */
@@ -42,7 +36,6 @@ public class QrServiceIdentityVerifier implements ServiceIdentityPort {
     private static final String ISSUER = "restofy-qr";
     private static final String AUDIENCE = "restofy-order";
     private static final int TTL_SECONDS = 30;
-    private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     private final Clock clock;
     private final JwtParser parser;
@@ -55,7 +48,7 @@ public class QrServiceIdentityVerifier implements ServiceIdentityPort {
             throw new IllegalStateException("order-qr cannot be combined with dev or test");
         }
         this.clock = clock;
-        Map<String, RSAPublicKey> keys = readKeys(json, configuredKeys);
+        Map<String, RSAPublicKey> keys = SignedServiceKeys.read(json, configuredKeys, "ORDER_QR_SERVICE_PUBLIC_KEYS");
         try {
             allowedRestaurants = Arrays.stream(configuredRestaurants.split(",", -1))
                     .map(String::trim).map(QrServiceIdentityVerifier::uuid).collect(Collectors.toUnmodifiableSet());
@@ -134,25 +127,4 @@ public class QrServiceIdentityVerifier implements ServiceIdentityPort {
         return new BusinessException(ErrorCode.ACCESS_DENIED, "Service is not authorised for QR lifecycle access");
     }
 
-    private static Map<String, RSAPublicKey> readKeys(JsonMapper json, String configuredKeys) {
-        try {
-            Map<String, String> entries = json.readValue(configuredKeys, new TypeReference<>() {});
-            if (entries.isEmpty()) {
-                throw new IllegalArgumentException();
-            }
-            KeyFactory factory = KeyFactory.getInstance("RSA");
-            Map<String, RSAPublicKey> keys = new HashMap<>();
-            for (var entry : entries.entrySet()) {
-                RSAPublicKey key = (RSAPublicKey) factory.generatePublic(
-                        new X509EncodedKeySpec(Base64.getDecoder().decode(entry.getValue())));
-                if (key.getModulus().bitLength() < 2048 || !KEY_ID.matcher(entry.getKey()).matches()) {
-                    throw new IllegalArgumentException();
-                }
-                keys.put(entry.getKey(), key);
-            }
-            return Map.copyOf(keys);
-        } catch (Exception _) {
-            throw new IllegalStateException("ORDER_QR_SERVICE_PUBLIC_KEYS must contain RSA public keys of at least 2048 bits");
-        }
-    }
 }

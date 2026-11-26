@@ -30,6 +30,8 @@ Hangisinde karar verirsek verelim Waiter'ın kodu henüz değişmedi: PR açıla
 
 ## PR 1 · Salt okunur sipariş uçları (WAITER-01)
 
+**Order uygulaması:** Toplu sayım ve arama için `POST /api/v1/orders/session-summaries` ve `POST /api/v1/orders/search`, güncel sipariş ve sürüm için mevcut `GET /api/v1/orders/{id}` kullanılır. `WAITER` ve `ADMIN` çağrılarında restoran doğrulanmış personel kimliğinden alınır. İptal kayıtları mevcut ayrı uçtan okunur. Arama, kuyruk ve geçmiş için açık bir `fulfillmentStatuses` listesi kabul eder. Arama QR oturumunun açık veya kapalı olduğunu sorgulamaz. Waiter canlı oturum görünümü için ilgili oturum kimliklerini gönderir. Aşağıdaki yollar ilk öneriyi kaydeder. Waiter istemci uyarlaması ve servisler arası doğrulama bekliyor. [Order entegrasyon sözleşmesi](INTEGRATION_CONTRACTS.md)
+
 | İç uç | Waiter'daki kullanım |
 | --- | --- |
 | `POST /api/v1/internal/orders/session-summaries` | Masa listesinde canlı oturumların aktif sipariş sayısı, tek istekte |
