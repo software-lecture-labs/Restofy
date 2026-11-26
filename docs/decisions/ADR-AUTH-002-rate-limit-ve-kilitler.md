@@ -1,7 +1,7 @@
 # ADR-AUTH-002 — Hız sınırlama stratejisi
 
 - **Durum:** Kabul edildi; strateji birleştirme (#9) ve istemci adresi (#10) kararları uygulandı
-- **Tarih:** 2026-10-20 (güncelleme: 2026-11-24)
+- **Tarih:** 2026-10-20 (güncelleme: 2026-11-26, #60 incelemesi)
 - **Sahip:** Auth (Kerem Kalyoncu)
 - **İlgili kod:** `RateLimitStore`, `PostgresRateLimitStore`, `LoginRateLimiter`, `MfaPeerLimiter`,
   `PasswordResetLimiter`, `ClientAddressResolver`, Gateway `ClientAddressHeaderFilter`
@@ -15,13 +15,14 @@ global kilit ise farklı kullanıcıların isteklerini sıraya sokar.
 
 ## Karar (#9): tek strateji, PostgreSQL
 
-Bütün sınırlar tek `rate_limits` tablosunda, tek `RateLimitStore` arkasındadır. Eşikler değişmedi.
+Bütün sınırlar tek `rate_limits` tablosunda, tek `RateLimitStore` arkasındadır. Eski eşikler değişmedi; #60 incelemesiyle girişe adres başına
+toplam bütçe eklendi.
 
 | Sınırlayıcı | Kova | Tablo dolunca |
 |---|---|---|
-| `LoginRateLimiter` | hesap+adres (10/15 dk), hesap (50/15 dk) | En az denemeli kova silinir (`EVICT_LOWEST`) |
-| `MfaPeerLimiter` | adres (30/dk) | `EVICT_LOWEST` |
-| `PasswordResetLimiter` | adres, istek, bekleme, saatlik, günlük, yanlış faktör, kod tahmini | Yeni kova reddedilir, 429 (`REJECT`) |
+| `LoginRateLimiter` | adres (100/15 dk, yalnız istemci adresi biliniyorsa), hesap+adres (10/15 dk), hesap (50/15 dk) | Penceresi en erken kapanan kilitsiz kova silinir (`EVICT_OLDEST`) |
+| `MfaPeerLimiter` | adres (30/dk) | `EVICT_OLDEST` |
+| `PasswordResetLimiter` | adres, istek, bekleme, saatlik, günlük, yanlış faktör, kod tahmini | `EVICT_OLDEST` (önceden `REJECT`, aşağıya bkz.) |
 | MFA hesap kilidi (`StaffMfa`) | PostgreSQL satırı | Bu karardan bağımsız, hesap 5 dk kilitlenir |
 
 Depo şunları sağlar:
@@ -56,17 +57,37 @@ kullanıcıları 429'a düşürebilirdi. Bu yüzden **bütün** sınırlarda (gi
 dolunca yer açılır; önce süresi dolmuş kovalar silinir. Eski sürüm **en eski** kovayı siliyordu; bu, saldırganın tabloyu doldurarak bir hesabın
 kilitli sayacını silmesine izin verirdi. Yeni kural:
 
-1. En az denemeli kova silinir (eşitlikte en eski). Limite ulaşmış (**kilitli**) kova asla silinmez.
+1. Penceresi en erken kapanacak kova silinir (eşitlikte en az denemeli). Limite ulaşmış (**kilitli**) kova
+   asla silinmez. İlk sürüm en az denemeli kovayı siliyordu; #60 incelemesinde bunun bir açık olduğu
+   görüldü: tablo doluyken bir girişin iki yeni kovası (hesap+adres ve hesap, ikisi de 1 deneme) birbirini
+   siliyor, hiçbiri limite ulaşmıyordu. Tablo bir kez dolunca, sayacı olmayan her hesaba sınırsız deneme
+   yapılabiliyordu (yerelde doğrulandı: 15 yanlış denemenin hiçbiri 429 almadı). Yeni kovanın penceresi en
+   geç kapanır; daha eski kova varken silinmez.
 2. Tabloda yalnız kilitli kova kalırsa yeni kova reddedilir (fail-closed). Kilitli kovaları doldurmak
    çok pahalıdır.
 3. Hesap başına tavan (50) ayrı kovada tutulur; hesap+adres kovası silinse bile işlemeye devam eder.
 
-Bilerek **adres başına toplam bütçe yoktur**: adresler ayırt edilemediğinde (`AUTH_TRUSTED_PROXY_CIDRS`
-boş ya da eskimiş) herkesi tek kovaya toplar ve hiçbir e-posta bilmeden tüm girişleri kilitlemeyi ucuzlatırdı.
-Yapılandırma eksikse Auth açılışta uyarı verir.
+**Adres başına toplam bütçe (#60 incelemesi).** Hesaptan bağımsız olarak istemci adresi başına 15 dakikada
+100 giriş denemesi sayılır. En önce kontrol edilir; aşılınca hesap kovası açılmaz, hesap bütçesi de harcanmaz.
+Böylece tek adres bir pencerede en fazla 2 × 100 + 1 = 201 kova açabilir; varsayılan 10 000'lik tabloyu
+doldurmak için en az ~50 farklı adres gerekir.
 
-Bir hedef hesabın sayacını sıfırlatmak için tabloyu, hedeften yüksek sayaçlı ama henüz kilitlenmemiş
-kovalarla doldurmak gerekir; bu, onlarca bin istek ister ve karşılığında birkaç ek tahmin hakkı kazandırır.
+- **Neden 100:** Bir restoranın bütün personeli aynı internet çıkışını paylaşır ve başarılı girişler de
+  sayılır. Kalabalık bir vardiya değişimi (30 kişi, birkaç deneme) bile bu sınırın altında kalır. Daha
+  düşük bir değer saldırıya karşı çok az şey kazandırır, çünkü asıl korumayı yukarıdaki silme kuralı sağlar.
+- **Yalnız adres biliniyorsa:** Bütçe yalnız `AUTH_TRUSTED_PROXY_CIDRS` doluyken uygulanır
+  (`ClientAddressResolver.identifiesClients`). Ayar boşsa herkes Gateway'in adresinden gelir; bütçe herkese
+  ortak olur ve hiçbir e-posta bilmeden bütün girişleri kilitlemeyi ucuzlatırdı. İlk sürümde adres
+  bütçesinin bilerek konmamasının gerekçesi buydu, bu durum için geçerliliğini koruyor. Yapılandırma eksikse
+  Auth açılışta uyarı verir.
+
+**Kalan risk.** Bir hedef hesabın kilitsiz sayacını sıfırlatmak için tablodaki ondan eski bütün kilitsiz
+kovaları dışarı itecek kadar yeni kova açmak gerekir: varsayılanla ~10 000 kova, adres bütçesiyle en az ~50
+adres. Karşılığında hesap+adres başına birkaç ek tahmin kazanılır; ADMIN ayrıca MFA ister. Tabloyu yalnız
+kilitli kovalarla doldurup yeni gelenlere 60 sn'lik 429 verdirmek ise daha pahalıdır. Bir adres bir pencerede
+en fazla ~13 kilitli kova üretebilir, bu yüzden 15 dakika içinde ~800 farklı adres (IPv6'da /64) gerekir. Bu
+ölçekteki dağıtık bir saldırı uygulama katmanının değil altyapının (Gateway, WAF) işidir. Gerekirse
+`AUTH_RATE_LIMIT_MAX_BUCKETS` büyütülür.
 
 Parola sıfırlama önceden tablo dolunca yeni kovayı reddediyordu (`REJECT`): rastgele adreslerle tabloyu
 dolduran biri parola sıfırlamayı herkese kapatabilirdi. #9'daki karar gereği o da aynı kurala geçti; ayrı

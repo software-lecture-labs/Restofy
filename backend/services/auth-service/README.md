@@ -248,20 +248,19 @@ kullanıcı etkileşiminde göndermelidir; sunucu insan etkileşimini kriptograf
 `StaffSessionService.deactivate` kullanıcı ve bütün session'ları aynı transaction'da
 kapatır. Doğrudan pasifleştirme de sonraki Auth kontrolünde erişimi reddeder ve iptali tamamlar.
 
-Login limiti iki katmanlıdır (`LoginRateLimiter`, 15 dakikalık pencere; başarılı denemeler de
-sayılır): normalize hesap + uzak adres başına 10 deneme ve hesap başına toplam 50 deneme.
-Böylece e-postayı bilen biri kendi adresinin bütçesini tüketebilir ama gerçek sahibini başka
-bir adresten kilitleyemez; birçok adrese yayılmış tahmin ise hesap tavanında durur (tavana
-ulaşmak kabul edilen erişilebilirlik ödünleşimidir, bkz. ADR-AUTH-002).
-Bellekte en fazla 10000 pencere tutulur; kapasite dolunca **en eski pencereler silinir**,
-yeni kullanıcı reddedilmez (aksi halde sahte hesap seliyle masum kullanıcılar da 429 alırdı).
-MFA adres limiti (`MfaPeerLimiter`) aynı yapıyı kullanır. Parola sıfırlama limitleri
-(`PasswordResetLimiter`) ise veritabanı tabanlıdır ve bilerek **kapalı kalır (fail-closed)**:
-6 haneli kodun tahminini sınırladıkları için dolu tabloda yeni kova açılmaz.
-Bellek içi limitler yalnız tek süreç içindir; yeniden başlatmada sıfırlanır ve birden fazla
-Auth örneğinde paylaşılmaz. Gateway/dağıtık rate limit ve refresh rate limit bu kapsamda
-uygulanmadı. Uzak adres `request.getRemoteAddr()` değeridir; Gateway arkasında bu Gateway'in
-adresi olur. İstemci adresinin güvenilir proxy başlığıyla taşınması ayrı bir karardır (ADR-AUTH-002).
+Login limiti üç katmanlıdır (`LoginRateLimiter`, 15 dakikalık pencere; başarılı denemeler de
+sayılır):
+
+1. İstemci adresi başına, hesaptan bağımsız toplam 100 deneme. Yalnız `AUTH_TRUSTED_PROXY_CIDRS` ayarlıyken
+   uygulanır; ayar yoksa herkes Gateway'in adresinden görünür ve bu bütçe herkesi birlikte kilitlerdi.
+2. Normalize hesap + adres başına 10 deneme.
+3. Hesap başına toplam 50 deneme.
+
+E-postayı bilen biri kendi adresinin bütçesini tüketebilir, ama gerçek sahibini başka bir adresten
+kilitleyemez. Birçok adrese yayılmış tahmin hesap tavanında durur; tavana ulaşmak kabul edilen erişilebilirlik
+ödünleşimidir. Sayaçlar, bütün Auth örneklerinin paylaştığı PostgreSQL `rate_limits` tablosundadır. Tablo
+dolunca uygulanan kural ve istemci adresinin Gateway'den nasıl alındığı ADR-AUTH-002'de anlatılır.
+Refresh için rate limit bu kapsamda uygulanmadı.
 
 ## AUTH-02 zorunlu ayarlar ve işletim sınırı
 

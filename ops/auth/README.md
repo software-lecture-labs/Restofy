@@ -35,7 +35,8 @@ bootstrap parolaları ve SMTP ayarları üretilmez; mevcut kurulum kararlarına 
 ## Gateway adresi (AUTH_TRUSTED_PROXY_CIDRS)
 
 Auth, istemci adresini yalnız güvenilen Gateway'den gelen `X-Forwarded-For` ile okur. Liste boşsa
-başlık yok sayılır ve herkes Gateway adresi olarak görünür; rate limit bu yüzden tek kovaya düşer.
+başlık yok sayılır ve herkes Gateway adresi olarak görünür; rate limit bu yüzden tek kovaya düşer. Girişteki
+adres başına toplam bütçe (100/15 dk) bu durumda herkesi birlikte kilitleyeceği için uygulanmaz.
 
 Docker Compose'ta ek ayar gerekmez: `restofy_network` sabit `10.213.0.0/24` subnet'ini kullanır,
 Gateway'in adresi `10.213.0.10`'dur ve `AUTH_TRUSTED_PROXY_CIDRS` varsayılan olarak `10.213.0.10/32`'dir.

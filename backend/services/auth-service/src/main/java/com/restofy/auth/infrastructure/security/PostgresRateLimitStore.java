@@ -58,10 +58,16 @@ public class PostgresRateLimitStore implements RateLimitStore {
                 max_attempts = EXCLUDED.max_attempts,
                 expires_at = CASE WHEN rate_limits.expires_at <= ? THEN EXCLUDED.expires_at ELSE rate_limits.expires_at END
             RETURNING attempts, expires_at""";
-    private static final String EVICT_LOWEST = """
+    /*
+     * The bucket whose window closes first goes, not the one with the fewest attempts. A new bucket always starts at one
+     * attempt, so with "fewest attempts" the two buckets a login creates (account+address and account) dropped each
+     * other on a full table and neither ever reached its limit (#60 review). A new bucket's window closes last, so it
+     * is never the one dropped while older ones remain.
+     */
+    private static final String EVICT_OLDEST = """
             DELETE FROM rate_limits WHERE bucket_key = (
                 SELECT bucket_key FROM rate_limits WHERE evictable AND attempts < max_attempts
-                ORDER BY attempts, expires_at LIMIT 1 FOR UPDATE SKIP LOCKED)""";
+                ORDER BY expires_at, attempts LIMIT 1 FOR UPDATE SKIP LOCKED)""";
 
     private final JdbcTemplate jdbc;
     private final HikariDataSource ownedPool;
@@ -177,7 +183,7 @@ public class PostgresRateLimitStore implements RateLimitStore {
         if (count() < maxBuckets) {
             return true;
         }
-        return jdbc.update(EVICT_LOWEST) > 0;
+        return jdbc.update(EVICT_OLDEST) > 0;
     }
 
     private int count() {

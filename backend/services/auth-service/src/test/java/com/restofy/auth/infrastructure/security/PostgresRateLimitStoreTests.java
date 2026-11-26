@@ -22,6 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The counters against a real PostgreSQL: atomicity, sharing between instances and the table-full rules. */
@@ -147,22 +148,64 @@ class PostgresRateLimitStoreTests {
     }
 
     @Test
-    void aFullTableDropsTheFewestAttemptsFirstAndNeverTheBucketWithMore() {
+    void aFullTableDropsTheBucketWhoseWindowClosesFirstButNeverABlock() {
         var store = store(3);
         for (int attempt = 0; attempt < 3; attempt++) {
-            store.hit("a", 5, WINDOW);
+            store.hit("old-busy", 5, WINDOW);
         }
-        store.hit("b", 5, WINDOW);
+        store.hit("blocked", 1, WINDOW);
+        store.hit("blocked", 1, WINDOW);
         clock.advance(1);
-        store.hit("c", 5, WINDOW);
+        store.hit("young", 5, WINDOW);
         assertThat(rows()).isEqualTo(3);
 
-        assertThat(store.hit("d", 5, WINDOW)).isZero();
+        assertThat(store.hit("newcomer", 5, WINDOW)).isZero();
         assertThat(rows()).isEqualTo(3);
-        // "b" was the oldest of the lowest counts: it was dropped, so it starts again at one attempt.
-        assertThat(store.hit("b", 1, WINDOW)).isZero();
-        // "a" was never dropped: its three attempts are still counted.
-        assertThat(store.hit("a", 3, WINDOW)).isPositive();
+        // "old-busy" had the most attempts but the oldest window, so it went; the older block stayed.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rate_limits WHERE attempts = 3", Integer.class)).isZero();
+        assertThat(store.hit("blocked", 1, WINDOW)).isPositive();
+        assertThat(store.hit("young", 2, WINDOW)).isZero();
+        assertThat(store.hit("young", 2, WINDOW)).isPositive();
+    }
+
+    @Test
+    void theTwoNewBucketsOfALoginDoNotDropEachOtherOnAFullTable() {
+        // #60 review: with "fewest attempts first" a new account's account+address and account buckets, both at one
+        // attempt, dropped each other on a full table, so neither ever reached its limit.
+        var store = store(4);
+        for (int row = 0; row < 4; row++) {
+            for (int attempt = 0; attempt < 3; attempt++) {
+                store.hit("earlier-" + row, 50, WINDOW);
+            }
+        }
+        clock.advance(1);
+        for (int attempt = 0; attempt < 10; attempt++) {
+            assertThat(store.hit("login:owner|203.0.113.9", 10, WINDOW)).isZero();
+            assertThat(store.hit("login-account:owner", 50, WINDOW)).isZero();
+        }
+        assertThat(store.hit("login:owner|203.0.113.9", 10, WINDOW)).isPositive();
+        assertThat(rows()).isEqualTo(4);
+    }
+
+    @Test
+    void oneAddressInventingAccountsCannotFillTheTableNorLockOutOthers() {
+        // #60 review: one address tries many invented e-mail addresses, 11 attempts each.
+        var store = store(1_000);
+        var limiter = new LoginRateLimiter(store, true);
+        int admitted = 0;
+        for (int account = 0; account < 200; account++) {
+            for (int attempt = 0; attempt < 11; attempt++) {
+                try {
+                    limiter.check("fake" + account + "@example.com", "198.51.100.66");
+                    admitted++;
+                } catch (LoginRateLimiter.LoginLimitException _) {
+                    // expected once a budget is spent
+                }
+            }
+        }
+        assertThat(admitted).isLessThanOrEqualTo(LoginRateLimiter.ATTEMPTS_PER_PEER);
+        assertThat(rows()).isLessThanOrEqualTo(2 * LoginRateLimiter.ATTEMPTS_PER_PEER + 1);
+        assertThatCode(() -> limiter.check("owner@example.com", "203.0.113.9")).doesNotThrowAnyException();
     }
 
     @Test

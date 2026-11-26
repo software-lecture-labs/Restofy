@@ -235,7 +235,7 @@ class SessionSecurityTests {
 
     @Test
     void loginLimiterNormalizesAccountsAndExpiresWindows() {
-        LoginRateLimiter limiter = new LoginRateLimiter(new InMemoryRateLimitStore(clock));
+        LoginRateLimiter limiter = new LoginRateLimiter(new InMemoryRateLimitStore(clock), true);
         for (int attempt = 0; attempt < LoginRateLimiter.ATTEMPTS_PER_ACCOUNT_AND_PEER; attempt++) {
             limiter.check(" STAFF@EXAMPLE.COM ", PEER);
         }

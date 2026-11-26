@@ -11,7 +11,7 @@ import java.util.Arrays;
  * counts one attempt per call and says whether it is admitted.
  *
  * <p>When the table has reached its size bound, closed windows are removed first. If that frees nothing, the bucket
- * with the fewest attempts (oldest first) is dropped to make room. A bucket that already reached its limit is never
+ * whose window closes first is dropped to make room. A bucket that already reached its limit is never
  * dropped, so flooding the table cannot erase a block; only when every bucket left is blocked is the newcomer refused
  * until a window closes.
  */

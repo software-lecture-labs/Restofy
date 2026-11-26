@@ -15,7 +15,7 @@ class LoginRateLimiterTests {
     private static final String OWNER_PEER = "203.0.113.9";
 
     private final MutableAuthClock clock = new MutableAuthClock();
-    private final LoginRateLimiter limiter = new LoginRateLimiter(new InMemoryRateLimitStore(clock));
+    private final LoginRateLimiter limiter = new LoginRateLimiter(new InMemoryRateLimitStore(clock), true);
 
     @Test
     void anAttackerExhaustingTheirOwnBudgetCannotLockTheOwnerOutFromAnotherAddress() {
@@ -47,6 +47,29 @@ class LoginRateLimiterTests {
             assertThatThrownBy(() -> limiter.check(OWNER, ATTACKER_PEER)).isInstanceOf(LoginLimitException.class);
         }
         assertThatCode(() -> limiter.check(OWNER, OWNER_PEER)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void oneAddressHasOneBudgetAcrossEveryAccount() {
+        for (int account = 0; account < LoginRateLimiter.ATTEMPTS_PER_PEER; account++) {
+            limiter.check("fake" + account + "@example.com", ATTACKER_PEER);
+        }
+        assertThatThrownBy(() -> limiter.check("one-more@example.com", ATTACKER_PEER))
+                .isInstanceOfSatisfying(LoginLimitException.class,
+                        exception -> assertThat(exception.retryAfter()).isEqualTo(LoginRateLimiter.WINDOW_SECONDS));
+        assertThatCode(() -> limiter.check(OWNER, OWNER_PEER)).doesNotThrowAnyException();
+        clock.advance(LoginRateLimiter.WINDOW_SECONDS);
+        assertThatCode(() -> limiter.check("one-more@example.com", ATTACKER_PEER)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void withoutKnownClientAddressesNoBudgetIsSharedByEveryone() {
+        // Behind the Gateway with no trusted proxy configured every client has the Gateway's address.
+        LoginRateLimiter unconfigured = new LoginRateLimiter(new InMemoryRateLimitStore(clock), false);
+        for (int account = 0; account < 2 * LoginRateLimiter.ATTEMPTS_PER_PEER; account++) {
+            unconfigured.check("user" + account + "@example.com", ATTACKER_PEER);
+        }
+        assertThatCode(() -> unconfigured.check(OWNER, ATTACKER_PEER)).doesNotThrowAnyException();
     }
 
     @Test

@@ -49,6 +49,14 @@ public class ClientAddressResolver {
         }
     }
 
+    /**
+     * Whether {@link #resolve} can tell clients apart. With no trusted proxy configured every request behind the API
+     * Gateway resolves to the Gateway itself, so a budget kept per address would be one budget shared by everyone.
+     */
+    public boolean identifiesClients() {
+        return !trusted.isEmpty();
+    }
+
     /** The client address as one canonical literal, or {@code unknown} when even the socket peer is unreadable. */
     public String resolve(HttpServletRequest request) {
         InetAddress socket = literal(request.getRemoteAddr());
