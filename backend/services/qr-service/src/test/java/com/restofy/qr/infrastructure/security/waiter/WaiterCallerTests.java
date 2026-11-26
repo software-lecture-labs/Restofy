@@ -32,13 +32,28 @@ class WaiterCallerTests {
     }
 
     @Test
-    void onlyTheGuestValidateScopeGrantsAnAuthorityAndNothingFromOrder() {
+    void everyWaiterScopeGrantsItsOwnAuthorityAndNothingFromOrder() {
         assertThat(WaiterAuthorities.forScope("qr:guest-validate")).contains(WaiterAuthorities.GUEST_VALIDATE);
+        assertThat(WaiterAuthorities.forScope("qr:table-read")).contains(WaiterAuthorities.TABLE_READ);
+        assertThat(WaiterAuthorities.forScope("qr:session-close")).contains(WaiterAuthorities.SESSION_CLOSE);
+        assertThat(WaiterAuthorities.forScope("qr:table-clean")).contains(WaiterAuthorities.TABLE_CLEAN);
+        assertThat(WaiterAuthorities.forScope("qr:session-closure-read")).contains(WaiterAuthorities.SESSION_CLOSURE_READ);
         assertThat(WaiterAuthorities.forScope("qr:guest-session")).isEmpty();
-        assertThat(WaiterAuthorities.forScope("qr:table-read")).isEmpty();
-        assertThat(WaiterAuthorities.forScope("qr:guest-validate qr:guest-session")).isEmpty();
+        assertThat(WaiterAuthorities.forScope("qr:guest-validate qr:table-read")).isEmpty();
         assertThat(WaiterAuthorities.forScope(null)).isEmpty();
         assertThat(WaiterAuthorities.forScope(7)).isEmpty();
+    }
+
+    @Test
+    void onlyCloseAndCleanNeedStaffDelegation() {
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSE, "POST")).isTrue();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_CLEAN, "POST")).isTrue();
+        // The status reads of the same scopes are read-only and need the service credential alone.
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSE, "GET")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_CLEAN, "GET")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.GUEST_VALIDATE, "POST")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.TABLE_READ, "GET")).isFalse();
+        assertThat(WaiterAuthorities.requiresStaffDelegation(WaiterAuthorities.SESSION_CLOSURE_READ, "GET")).isFalse();
     }
 
     @Test
