@@ -21,11 +21,19 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.MessageDigest;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +54,7 @@ class WaiterSessionClosureHttpTests extends Q5TestSecuritySupport {
     @LocalServerPort int port;
     @Autowired JdbcTemplate jdbc;
     @Autowired JsonMapper json;
+    @Autowired DataSource dataSource;
 
     @DynamicPropertySource
     static void trust(DynamicPropertyRegistry registry) {
@@ -138,6 +147,41 @@ class WaiterSessionClosureHttpTests extends Q5TestSecuritySupport {
                 .isInstanceOf(DataAccessException.class);
     }
 
+    /**
+     * A later closure of the same restaurant must not commit before an earlier, still open one: otherwise the reader
+     * moves its cursor past the earlier event_seq and that event is lost when it commits.
+     */
+    @Test
+    void aLaterClosureWaitsForTheEarlierOneSoTheCursorCannotSkipAnEvent() throws Exception {
+        long before = cursorNow();
+        UUID first = session(table(TENANT), TENANT);
+        UUID second = session(table(TENANT), TENANT);
+        UUID otherTenant = UUID.randomUUID();
+        UUID other = session(table(otherTenant), otherTenant);
+
+        // The connection closes first (rolling back and releasing the lock) so a failed assertion cannot hang the executor.
+        try (ExecutorService executor = Executors.newSingleThreadExecutor(); Connection earlier = dataSource.getConnection()) {
+            earlier.setAutoCommit(false);
+            close(earlier, first);
+
+            // Another restaurant is not serialized behind it.
+            executor.submit(() -> closeAndCommit(other)).get(10, TimeUnit.SECONDS);
+
+            // The same restaurant waits for the open transaction instead of committing a higher event_seq first.
+            Future<?> later = executor.submit(() -> closeAndCommit(second));
+            assertThatThrownBy(() -> later.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+            assertThat(read(before, 100).get("items").size()).isZero();
+
+            earlier.commit();
+            later.get(10, TimeUnit.SECONDS);
+        }
+
+        var items = read(before, 100).get("items");
+        assertThat(items.size()).isEqualTo(2);
+        assertThat(items.get(0).get("tableSessionId").asString()).isEqualTo(first.toString());
+        assertThat(items.get(1).get("tableSessionId").asString()).isEqualTo(second.toString());
+    }
+
     @Test
     void onlyTheWaiterReadScopeMayReadAndInputsAreBounded() throws Exception {
         assertThat(get(PATH, READ_SCOPE, WAITER, "waiter-test", "restofy-waiter", "waiter-service").statusCode()).isEqualTo(200);
@@ -153,6 +197,22 @@ class WaiterSessionClosureHttpTests extends Q5TestSecuritySupport {
         assertThat(get(PATH + "?limit=201", READ_SCOPE, WAITER, "waiter-test", "restofy-waiter", "waiter-service").statusCode()).isEqualTo(400);
         assertThat(get(PATH + "?cursor=-1", READ_SCOPE, WAITER, "waiter-test", "restofy-waiter", "waiter-service").statusCode()).isEqualTo(400);
         assertThat(rawGet(PATH, null).statusCode()).isEqualTo(401);
+    }
+
+    private static void close(Connection connection, UUID session) throws SQLException {
+        try (var statement = connection.prepareStatement("UPDATE table_sessions SET status='CLOSED', closed_at=now() WHERE id=?")) {
+            statement.setObject(1, session);
+            assertThat(statement.executeUpdate()).isEqualTo(1);
+        }
+    }
+
+    private Void closeAndCommit(UUID session) throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            close(connection, session);
+            connection.commit();
+        }
+        return null;
     }
 
     private long cursorNow() {

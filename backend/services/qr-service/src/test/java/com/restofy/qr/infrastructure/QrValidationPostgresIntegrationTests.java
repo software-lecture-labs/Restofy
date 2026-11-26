@@ -196,7 +196,7 @@ class QrValidationPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Test
     void forwardMigrationRetainsUnboundedCodesAndChecksOptionalExpiry() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("126");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("127");
         var code = create("1");
         assertThat(codes.findById(code.id()).orElseThrow().getExpiresAt()).isNull();
         UUID id = code.id();

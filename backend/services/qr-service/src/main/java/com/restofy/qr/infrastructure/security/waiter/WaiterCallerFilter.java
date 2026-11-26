@@ -35,8 +35,8 @@ import java.util.UUID;
  */
 final class WaiterCallerFilter extends OncePerRequestFilter {
     static final String VERIFIED = WaiterCallerFilter.class.getName() + ".verified";
-    static final String STAFF_TOKEN_HEADER = "X-Staff-Token";
-    private static final String STAFF_TOKEN_DIGEST_CLAIM = "staff_token_sha256";
+    static final String STAFF_TOKEN_HEADER = "X-Restofy-Staff-Delegation";
+    private static final String STAFF_TOKEN_DIGEST_CLAIM = "staff_sha256";
     private static final String SCHEME = "Service ";
     private static final int MAX_CREDENTIAL_LENGTH = 4096;
     private final UUID restaurantId;
