@@ -38,10 +38,14 @@ Bugünkü durum (`dev`):
   `APP_ENV: ${APP_ENV:-dev}` eklenir. `APP_ENV` bugüne kadar yalnız Auth ve Order'a geçiliyordu; kuralı uygulayan
   her servisin onu görmesi gerekir. Varsayılan, imaj etiketlerinde ve Auth/Order'da zaten kullanılan `dev`.
 - Bununla QR de `APP_ENV`'i görmeye başlar. QR'ın Q5 ayarları (`Q5SecuritySettings`) geliştirme ortamında
-  `http://localhost` origin'ine izin verir; `APP_ENV` gelmediği için Compose'da `.env.example`'daki
-  `http://localhost:5000` origin'i reddediliyordu. Q5 kodu değişmez; QR Compose'da tasarlandığı gibi çalışır.
-- `.env.example` (dev şablonu) `INTERNAL_HTTP_ALLOWED=true` taşır. Böylece yerel Compose çalışır; ayar yazılmamış
-  bir ortamda HTTPS şartı aynen kalır.
+  (etkin profillerin hepsi ve `APP_ENV` `dev`, `local` ya da `test`) `http://localhost` origin'ine izin verir;
+  `APP_ENV` gelmediği için Compose'da `.env.example`'daki `http://localhost:5000` origin'i reddediliyordu. Artık
+  varsayılan `dev` profiliyle QR bu origin'le başlar. `QR_SPRING_PROFILES_ACTIVE=qr-order` tek başına geliştirme
+  ortamı sayılmaz ve HTTPS origin ister; bu bilinçli bir davranıştır (`docs/qr/qr-key-uretimi.md`), yerelde
+  `dev,qr-order` kullanılabilir. Q5 kodu değişmez.
+- `.env.example` (dev şablonu) `INTERNAL_HTTP_ALLOWED=false` taşır. Şablon olduğu gibi başka bir ortama
+  kopyalansa bile istisna açılmaz. Compose'da servisler arası HTTP'yi denemek isteyen kendi `.env`'ine
+  `INTERNAL_HTTP_ALLOWED=true` yazar.
 - `true` ve `false` dışındaki bir değer servisin başlamasını durdurur.
 
 ### Bir servis-servis adresi ne zaman HTTP olabilir
@@ -70,9 +74,9 @@ Biri sağlanmazsa bugünkü davranış geçerlidir: HTTP adresle servis başlama
   etkinse servis **başlamaz**; ayar sessizce yok sayılmaz. Prod'a yanlışlıkla taşınan bir `.env` böylece fark edilir.
 - `APP_ENV` boşsa ya da listede olmayan bir değerse istisna uygulanmaz; HTTP adres bugünkü gibi reddedilir.
 - **Prod ortamında** `APP_ENV` açıkça `prod` yazılır, `INTERNAL_HTTP_ALLOWED` hiç yazılmaz. Compose'da `APP_ENV`
-  yazılmazsa `dev` sayılır; `.env.example` olduğu gibi kopyalanırsa istisna da açılır. Bu, MFA kapatma ve geliştirme
-  kullanıcıları gibi `APP_ENV`'e bağlı diğer geliştirme özellikleriyle aynı risktir; prod kurulumunda bu iki değer
-  kontrol edilir.
+  yazılmazsa `dev` sayılır; bu, MFA kapatma ve geliştirme kullanıcıları gibi `APP_ENV`'e bağlı diğer geliştirme
+  özellikleriyle aynı risktir. İstisna yine de ayrıca `INTERNAL_HTTP_ALLOWED=true` ister; şablonda `false` olduğu
+  için şablonun kopyalanması tek başına onu açmaz. Prod kurulumunda bu iki değer kontrol edilir.
 - İstisna yalnız şemayı gevşetir. HTTPS adreslerde sertifika ve host doğrulaması kapatılmaz.
 - Bu istisnayla HTTP kullanan istemci yönlendirme izlemez. İzleseydi `http://auth-service` bir 3xx ile isteği
   dışarıdaki bir adrese çevirebilir, çerez ya da imzalı istek açık metin oraya giderdi; (3) boşa çıkardı.
