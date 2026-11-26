@@ -60,7 +60,7 @@ Aynı ortak `AUTH_SERVICE_URL`, API Gateway'in Auth rotasının da hedefidir ve 
 **Durum: AÇIK.** Kitchen'ın her istekte `/session` çağırması **geçici bir Kitchen seçimidir**; Auth ile karşılıklı onaylanmış sözleşme değildir. Order ve Waiter'ın aynı yöntemi kullanması onay sayılmaz.
 
 **Yöntemin aleyhindeki kayıtlar:**
-- `dev`'deki [ADR-AUTH-Q5](../../decisions/ADR-AUTH-Q5-coordinated-revocation.md) "her QR isteğinde Auth'a sorgu" seçeneğini (A) kullanılabilirlik ve ağ gecikmesi gerekçesiyle **reddeder**; [ADR-QR-003](../../decisions/ADR-QR-003-qr-auth-entegrasyonu.md) normal personel isteği için yeni introspection ucu önermez. İki karar da **QR kapsamındadır**; Kitchen için yazılı bir karar yoktur.
+- `dev`'deki [ADR-AUTH-Q5](../../decisions/ADR-AUTH-Q5-coordinated-revocation.md) "her QR isteğinde Auth'a sorgu" seçeneğini (A) kullanılabilirlik ve ağ gecikmesi gerekçesiyle **reddeden bir seçim kaydeder**; [ADR-QR-003](../../decisions/ADR-QR-003-qr-auth-entegrasyonu.md) normal personel isteği için yeni introspection ucu önermez. İki kayıt da **QR kapsamındadır**; Kitchen için yazılı bir karar yoktur. İki belgenin durum satırları kesin onay göstermez: ADR-AUTH-Q5 "teknik inceleme ve test kanıtı tamamlanmadan kabul edilmiş sayılmaz" der; ADR-QR-003, bu yanıt için QR teknik değerlendirmesi ve PR/reviewer onayının beklendiğini yazar. İkisi de `dev`'dedir; güncel durumları Auth ile teyit edilmelidir.
 - `origin/feature/auth-service` üzerindeki `docs/auth-service/staff-contract.md` (`dev`'de yok) tüketici için yerel doğrulama tarif eder ve anlık merkezi kontrol vaadi vermez. Aynı belge access TTL için "300–3600, varsayılan 900" der; `dev` kodu tam 300'ü zorunlu tutar.
 - `/session` tarayıcı istemcisinin durum ucudur: yanıtta kullanıcı, oturum veya restoran kimliği yoktur.
 
@@ -91,6 +91,7 @@ Aynı ortak `AUTH_SERVICE_URL`, API Gateway'in Auth rotasının da hedefidir ve 
 2. Desteklenmeyecekse hangisi: Kitchen'ın Q5 benzeri bir iptal tüketicisi olması (Auth değişikliği ve yeni güven ilişkisi gerekir) mi, yoksa yerel doğrulama ve en çok 300 sn iptal gecikmesinin ekipçe kabulü mü?
 3. Bu uca ileride hız sınırı gelirse servis çağrıları nasıl hesaplanacak?
 4. Güncel personel sözleşmesi (TTL 300 ile) `dev`'e alınacak mı?
+5. ADR-AUTH-Q5 ve ADR-QR-003'ün güncel onay durumu nedir?
 
 **Kabul:** Kararın `dev`'deki bir belgede kayıtlı olması. Karar gelene kadar Kitchen kontrolü **kaldırmaz**.
 
@@ -105,7 +106,7 @@ Aynı ortak `AUTH_SERVICE_URL`, API Gateway'in Auth rotasının da hedefidir ve 
 - Gerçek bir Order veya Menu çağrısı yoktur: Menu komutu başarı göstermez, giden olaylar teslim edilmez.
 
 **Mevcut kayıtlar (Kitchen'ı kapsayan ortak karar yok):**
-- `dev`'de servisler arası kimlik yalnız belirli çiftler için tanımlıdır: Auth→Mail, Auth↔QR (Q5) ve Order↔QR (Compose anahtar adları). [ADR-QR-003](../../decisions/ADR-QR-003-qr-auth-entegrasyonu.md) Q2, dar Q5 sözleşmesinin Order/Payment/Waiter delegasyonunu çözmediğini yazar.
+- `dev`'de servis kimliği yalnız belirli servis çiftleri için tanımlıdır (görülenler: Auth→Mail, Auth↔QR (Q5), Order↔QR ve QR tarafında doğrulanan Waiter→QR); Kitchen'ı kapsayanı yoktur. [ADR-QR-003](../../decisions/ADR-QR-003-qr-auth-entegrasyonu.md) Q2, dar Q5 sözleşmesinin Order/Payment/Waiter delegasyonunu çözmediğini yazar.
 - `origin/feature/auth-service` üzerindeki `docs/auth-service/staff-contract.md` (`dev`'de yok) **genel bir servis JWT önerisi** içerir: her çağıran kendi anahtarıyla RS256, `Authorization: Service`, `iss`/`sub` çağıran, `aud` hedef, en çok 60 sn, tekrar koruması ve uç izin matrisi. Belge, modelin bütün servislerde uygulandığını iddia etmez.
 - Order PR #47 (`dev`'de yok) çift bazlı imzalı istek önerir: `kid`, `iss`, `sub`, `aud`, `scope`, `restaurant_id`, `method`, `target`, `body_sha256`, `jti`, en çok 30 sn.
 - İki öneri en azından azami ömürde ayrışır (60 / 30 sn). PR #47 yöntem, hedef ve gövde özetini de imzaya bağlar. Menu aynı konuyu sorar (PR #50, madde 8).
@@ -139,7 +140,7 @@ Bu güvenlik işinin ön koşulu ortak sözleşmedir. Menu HTTP uçları, ürün
 
 ## AUTH-04 — Mutfak ekranının oturum sürekliliği
 
-**Mevcut durum / kanıt:** Access cookie 300 sn yaşar; [ADR-AUTH-Q5](../../decisions/ADR-AUTH-Q5-coordinated-revocation.md) frontend silent refresh'i **NOT IMPLEMENTED** olarak kaydeder. KITCHEN idle süresi 60 dk'dır ve yalnız `POST /api/v1/auth/activity` ile yenilenir; Kitchen okumaları ve `/session` sorgusu yenilemez.
+**Mevcut durum / kanıt:** Access cookie 300 sn yaşar; [ADR-AUTH-Q5](../../decisions/ADR-AUTH-Q5-coordinated-revocation.md) frontend silent refresh'i **NOT IMPLEMENTED** olarak kaydeder. KITCHEN idle süresi 60 dk'dır ve yalnız `POST /api/v1/auth/activity` ile yenilenir; Kitchen okumaları ve `/session` sorgusu yenilemez. `dev`'deki personel sayfası, oturum sorgusu 401 veya 403 dönerse yalnız açılışta bir kez refresh dener (`staff-home.tsx`; istek aynı sekme içinde tek uçuşludur). ADR'deki ifade bu açılış davranışını ayırmaz. `dev` frontend kaynağında açık ekranda süreli yenileme ve `activity` çağrısı yoktur.
 
 **Etki:** Frontend bu iki işi yapmadan mutfak ekranı 5 dakikada bir 401 alır; yalnız izlenen (tıklanmayan) ekran 60 dk sonra oturumdan düşer.
 

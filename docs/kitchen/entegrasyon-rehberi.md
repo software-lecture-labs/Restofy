@@ -23,7 +23,7 @@ Auth Service'in mevcut sözleşmesi tüketilir. Her istekte sırayla:
 2. JWT yerelde doğrulanır: yalnız RS256, yapılandırılmış issuer, **tek** `restofy-staff-api` audience, `token_type=access`, `auth_state=AUTHENTICATED`, `auth_policy=q5-idle-v1`, `iat = nbf` (en çok 3 sn ileride), süresi dolmamış `exp`, ömür ≤ 300 sn, UUID `sub/sid/jti/restaurant_id` (sıfır olmayan restoran), `ADMIN|WAITER|KITCHEN` rolü, en çok 4096 karakter.
 3. Aynı cookie ile Auth'a `GET /api/v1/auth/session` sorulur (yalnız access cookie'si gönderilir, yönlendirme izlenmez, önbellek ve yeniden deneme yoktur). Dönen rol token rolüyle aynı olmalı, süreler geçerli olmalıdır.
 
-3. adım **geçicidir**: Auth ile karşılıklı onaylanmış bir tüketici sözleşmesi değildir ve `dev`'deki `ADR-AUTH-Q5` aynı yaklaşımı QR için reddetmiştir. Gerekçeler, doğrulanan davranışlar ve açık sorular [AUTH-03](integration/kitchen-auth-requests-01.md) içindedir.
+3. adım **geçicidir**: Auth ile karşılıklı onaylanmış bir tüketici sözleşmesi değildir ve `dev`'deki `ADR-AUTH-Q5` aynı yaklaşımı QR için reddeden bir seçim kaydeder; belgenin kendi durum satırı, teknik inceleme ve test kanıtı tamamlanmadan kabul edilmiş sayılmayacağını yazar. Gerekçeler, doğrulanan davranışlar ve açık sorular [AUTH-03](integration/kitchen-auth-requests-01.md) içindedir.
 
 Kullanıcı, restoran ve rol yalnız imzalı token'dan alınır. Kitchen token'ı saklamaz, loglamaz, başka servise iletmez ve cookie yazmaz.
 
@@ -172,5 +172,5 @@ Bunlar **önerilen** sözleşmelerdir. Taşıma, hedef adres ve servis kimliği 
 - Auth'un Q5 kaynağı `ACTIVE` değilken `/session` 503 döner; bu yüzden Kitchen dolaylı olarak QR bootstrap'ına da bağlıdır (koddan, denenmedi).
 - Kitchen restoranı yapılandırmadaki tek bir kimliğe ayrıca sabitlemez; imzalı `restaurant_id`'ye göre veri sınırlar.
 - Rate limit bu görevde eklenmedi veya değiştirilmedi.
-- Access cookie 300 sn yaşar; frontend yenilemesi ve mutfak aktivite bildirimi uygulanmadı.
+- Access cookie 300 sn yaşar. `dev` frontend'i yalnız personel sayfası açılırken, oturum sorgusu 401/403 dönerse bir kez refresh dener; açık ekranda süreli yenileme ve mutfak aktivite bildirimi yoktur.
 - İzole ortamda gerçek Auth ve Gateway ile denendi: giriş, MFA, logout, Gateway üzerinden okuma/yazma ve Auth kesintisi. Idle, rol ve pasifleştirme durumları geçici veritabanında SQL ile canlandırıldı. Ortak ortam, tarayıcı arayüzü, Auth'un yönetici iptal akışı ve üretim TLS'i **DOĞRULANMADI**.
