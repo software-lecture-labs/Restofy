@@ -79,6 +79,18 @@ describe("auth api", () => {
     await expect(authApi.getSession()).resolves.toBe(session);
   });
 
+  it.each([
+    ["an app code", { totpCode: "123456" }],
+    ["a recovery code", { recoveryCode: "abcd-efgh-ijkl-mnop-qrst" }],
+  ])("renews the recovery codes with the password and %s, and returns only the new codes", async (_, factor) => {
+    apiRequest.mockResolvedValueOnce({ recoveryCodes: ["aaaa-bbbb-cccc-dddd-eeee"] });
+    await expect(authApi.regenerateRecoveryCodes("pw", factor)).resolves.toEqual(["aaaa-bbbb-cccc-dddd-eeee"]);
+    expect(apiRequest).toHaveBeenCalledWith("/api/v1/auth/mfa/recovery-codes/regenerate", {
+      method: "POST",
+      body: { password: "pw", ...factor },
+    });
+  });
+
   it("lets a client failure through unchanged", async () => {
     const failure = new Error("boom");
     apiRequest.mockRejectedValueOnce(failure);
