@@ -25,6 +25,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return detail;
     }
 
+    /** ADR-QR-002 K7: a limit or the table session capacity was reached. */
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> tooManyRequests(RateLimitExceededException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage()));
+    }
+
+    /** ADR-QR-002 K7: the counters could not be used, so the request is refused instead of served without a limit. */
+    @ExceptionHandler(com.restofy.qr.infrastructure.security.ratelimit.RateLimitUnavailableException.class)
+    ProblemDetail limitsUnavailable(RuntimeException exception) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "The request could not be accepted now. Retry later.");
+    }
+
     @ExceptionHandler({QrImageUnavailableException.class, SessionClosureUnavailableException.class})
     ProblemDetail unavailable(RuntimeException exception) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());

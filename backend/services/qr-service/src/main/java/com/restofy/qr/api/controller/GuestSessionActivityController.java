@@ -29,7 +29,7 @@ public class GuestSessionActivityController {
 
     @PostMapping("/activity")
     @Operation(summary = "Record explicit foreground activity for a still-usable guest",
-            description = "HTTP stays closed until the rate-limit change. The guest is identified only by the HttpOnly " +
+            description = "Rate limited (429 + Retry-After; 503 if the limits are unavailable). The guest is identified only by the HttpOnly " +
                     "guest cookie, verified against the server on every use, plus the guest CSRF header and Origin; " +
                     "there is no request body. Renews only this guest and its main; reads/polling do not renew. " +
                     "Admission and verified business/financial outcomes can protect the owner and main; response flags " +
@@ -52,7 +52,7 @@ public class GuestSessionActivityController {
 
     @GetMapping("/csrf")
     @Operation(summary = "Return the guest CSRF value again, for example after a page reload",
-            description = "HTTP stays closed until the rate-limit change. Requires the HttpOnly guest cookie; Origin is " +
+            description = "Rate limited (429 + Retry-After; 503 if the limits are unavailable). Requires the HttpOnly guest cookie; Origin is " +
                     "optional (browsers omit it on same-origin GET) but must be allowed when present. The guest is " +
                     "verified against the server. The frontend cannot read the CSRF cookie " +
                     "because its Path=/api/v1 does not cover the page paths, so the value is returned here and sent back as X-Guest-CSRF. Does not " +

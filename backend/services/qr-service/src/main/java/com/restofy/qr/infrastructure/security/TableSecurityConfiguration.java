@@ -1,6 +1,10 @@
 package com.restofy.qr.infrastructure.security;
 
+import com.restofy.qr.infrastructure.security.guest.GuestCookies;
 import com.restofy.qr.infrastructure.security.guest.GuestRequestFilter;
+import com.restofy.qr.infrastructure.security.ratelimit.ClientAddressResolver;
+import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits;
+import com.restofy.qr.infrastructure.security.ratelimit.RateLimitFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
@@ -38,7 +42,8 @@ public class TableSecurityConfiguration {
     @Bean
     @org.springframework.core.annotation.Order(2)
     SecurityFilterChain qrSecurityFilterChain(HttpSecurity http, Q5SecuritySettings settings,
-            java.time.Clock clock, com.restofy.qr.infrastructure.security.revocation.StaffRevocationStore store) {
+            java.time.Clock clock, com.restofy.qr.infrastructure.security.revocation.StaffRevocationStore store,
+            QrRateLimits limits, ClientAddressResolver clients, GuestCookies cookies) {
         // Default headers remain. Only the exact staff inventory uses JWT + local guard + the Auth cookie CSRF consumer contract.
         http.cors(cors -> cors.configurationSource(request -> {
             if (!org.springframework.web.cors.CorsUtils.isCorsRequest(request)) return null;
@@ -55,11 +60,14 @@ public class TableSecurityConfiguration {
                 || GuestRequestFilter.guestPath(request.getMethod(), request.getRequestURI())));
         http.addFilterBefore(new StaffRequestFilter(settings, clock, store), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.addFilterBefore(new GuestRequestFilter(settings), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
+        // After both: only requests that passed the cheap proofs are counted (ADR-QR-002 K7).
+        http.addFilterBefore(new RateLimitFilter(limits, clients, cookies), org.springframework.security.web.access.intercept.AuthorizationFilter.class);
         http.authorizeHttpRequests(requests -> requests
                 .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
                 .requestMatchers(request -> StaffRequestFilter.staffPath(request.getMethod(), request.getRequestURI())).authenticated()
-                // Guest routes stay closed here; the rate-limit change opens them (separate public-endpoint approval).
-                .requestMatchers(request -> GuestRequestFilter.guestPath(request.getMethod(), request.getRequestURI())).denyAll()
+                // Public guest routes (K7 approval): GuestRequestFilter proofs and RateLimitFilter budgets already ran;
+                // the guest credential itself is verified against the server by the service on every use.
+                .requestMatchers(request -> GuestRequestFilter.guestPath(request.getMethod(), request.getRequestURI())).permitAll()
                 .anyRequest().denyAll());
         http.exceptionHandling(errors -> errors
                 .authenticationEntryPoint((request, response, exception) -> writeProblem(response, 401))
