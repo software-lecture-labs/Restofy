@@ -198,6 +198,41 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void signedInRequestsLeaveTheCsrfCookieSoTheNextMutationNeedsNoRetry() throws Exception {
+        csrf();
+        login("staff@example.com");
+        String issued = jar.get(AuthCookies.CSRF).getValue();
+
+        MvcResult session = mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isOk()).andReturn();
+        assertThat(session.getResponse().getCookie(AuthCookies.CSRF)).isNull();
+        update(session);
+        MvcResult activity = mvc.perform(mutation("/activity")).andExpect(status().isNoContent()).andReturn();
+        assertThat(activity.getResponse().getCookie(AuthCookies.CSRF)).isNull();
+        update(activity);
+
+        assertThat(jar.get(AuthCookies.CSRF).getValue()).isEqualTo(issued);
+    }
+
+    @Test
+    void loginIssuesANewCsrfTokenAndThePreLoginOneStopsWorking() throws Exception {
+        csrf();
+        String preLogin = jar.get(AuthCookies.CSRF).getValue();
+
+        MvcResult login = mvc.perform(mutation("/login").content(body("staff@example.com", PASSWORD)))
+                .andExpect(status().isOk()).andReturn();
+        // The response first clears every auth cookie, then writes the new ones; apply them in order like a browser.
+        update(login);
+        Cookie issued = jar.get(AuthCookies.CSRF);
+        assertThat(issued).isNotNull();
+        assertThat(issued.getValue()).isNotBlank().isNotEqualTo(preLogin);
+        assertThat(issued.getMaxAge()).isPositive();
+
+        mvc.perform(post("/api/v1/auth/activity").header("Origin", ORIGIN).cookie(cookies())
+                .header("X-CSRF-TOKEN", preLogin)).andExpect(status().isForbidden());
+        mvc.perform(mutation("/activity")).andExpect(status().isNoContent());
+    }
+
+    @Test
     void kitchenCanLogin() throws Exception {
         users.saveAndFlush(new StaffUser("kitchen@example.com", passwords.hash(PASSWORD), StaffRole.KITCHEN));
         csrf();
