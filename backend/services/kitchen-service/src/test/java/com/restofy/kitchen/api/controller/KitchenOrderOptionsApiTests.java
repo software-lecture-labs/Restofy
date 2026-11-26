@@ -131,12 +131,12 @@ class KitchenOrderOptionsApiTests {
 		assertEquals(IngestOutcome.CREATED, ingest.ingest(message(restaurant, UUID.randomUUID(), UUID.randomUUID(), "t".repeat(40),
 				"s".repeat(40), 1, UUID.randomUUID(), maxItem)));
 
-		List<OrderAcceptedMessage.Option> fifty = new ArrayList<>();
-		for (int i = 0; i < 50; i++) {
-			fifty.add(option(i % 2 == 0 ? OptionAction.ADD : OptionAction.REMOVE, "m" + i, 1, null));
+		List<OrderAcceptedMessage.Option> hundred = new ArrayList<>();
+		for (int i = 0; i < 100; i++) {
+			hundred.add(option(i % 2 == 0 ? OptionAction.ADD : OptionAction.REMOVE, "m" + i, 1, null));
 		}
-		assertEquals(IngestOutcome.CREATED, ingest.ingest(message(restaurant, UUID.randomUUID(), UUID.randomUUID(), "1", "A-50",
-				1, UUID.randomUUID(), new OrderAcceptedMessage.Item(UUID.randomUUID(), UUID.randomUUID(), "Çok", 1, null, fifty))));
+		assertEquals(IngestOutcome.CREATED, ingest.ingest(message(restaurant, UUID.randomUUID(), UUID.randomUUID(), "1", "A-100",
+				1, UUID.randomUUID(), new OrderAcceptedMessage.Item(UUID.randomUUID(), UUID.randomUUID(), "Çok", 1, null, hundred))));
 		assertEquals(2, countOrders(restaurant));
 
 		List<OrderAcceptedMessage.Item> tooBig = new ArrayList<>();
@@ -150,15 +150,34 @@ class KitchenOrderOptionsApiTests {
 				List.of(option(OptionAction.ADD, "ok", 100, null))));
 		tooBig.add(new OrderAcceptedMessage.Item(UUID.randomUUID(), UUID.randomUUID(), "p", 1, null,
 				List.of(option(OptionAction.REMOVE, "ok", 0, null))));
-		List<OrderAcceptedMessage.Option> fiftyOne = new ArrayList<>(fifty);
-		fiftyOne.add(option(OptionAction.ADD, "extra", 1, null));
-		tooBig.add(new OrderAcceptedMessage.Item(UUID.randomUUID(), UUID.randomUUID(), "p", 1, null, fiftyOne));
+		List<OrderAcceptedMessage.Option> overTheLimit = new ArrayList<>(hundred);
+		overTheLimit.add(option(OptionAction.ADD, "extra", 1, null));
+		tooBig.add(new OrderAcceptedMessage.Item(UUID.randomUUID(), UUID.randomUUID(), "p", 1, null, overTheLimit));
 
 		for (var bad : tooBig) {
 			assertThrows(InvalidOrderMessageException.class, () -> ingest.ingest(message(restaurant, UUID.randomUUID(),
 					UUID.randomUUID(), "1", "A-X", 1, UUID.randomUUID(), bad)));
 		}
 		assertEquals(2, countOrders(restaurant));
+	}
+
+	/** Order allows 50 removals and 50 extras on one line: all of them are kept and shown, none is cut off. */
+	@Test
+	void aLineWithOrdersMaximumOfOptionsIsShownCompletely() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID orderId = UUID.randomUUID();
+		List<OrderAcceptedMessage.Option> options = new ArrayList<>();
+		for (int i = 0; i < 100; i++) {
+			options.add(option(i < 50 ? OptionAction.REMOVE : OptionAction.ADD, "secenek-" + i, 1, null));
+		}
+		ingest.ingest(message(restaurant, orderId, UUID.randomUUID(), "1", "A-1", 1, UUID.randomUUID(),
+				new OrderAcceptedMessage.Item(UUID.randomUUID(), UUID.randomUUID(), "Burger", 1, null, options)));
+
+		mvc.perform(get(URL + orderId).with(kitchen(restaurant)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].options.length()").value(100))
+				.andExpect(jsonPath("$.items[0].options[0].name").value("secenek-0"))
+				.andExpect(jsonPath("$.items[0].options[99].name").value("secenek-99"));
 	}
 
 	@Test

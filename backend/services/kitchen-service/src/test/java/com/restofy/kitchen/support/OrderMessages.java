@@ -25,7 +25,7 @@ public final class OrderMessages {
 
 	public static OrderAcceptedMessage message(UUID restaurantId, UUID orderId, UUID tableSessionId, String table,
 			String orderNumber, long version, UUID eventId, OrderAcceptedMessage.Item... items) {
-		return new OrderAcceptedMessage(eventId, 1, Instant.now(), "corr-1", restaurantId, orderId, version,
+		return new OrderAcceptedMessage(eventId, OrderAcceptedMessage.TYPE, 1, Instant.now(), "corr-1", restaurantId, orderId, version,
 				orderNumber, tableSessionId, table, List.of(items));
 	}
 
@@ -35,7 +35,7 @@ public final class OrderMessages {
 	}
 
 	public static OrderAcceptedMessage withVersion(OrderAcceptedMessage m, long version, UUID eventId) {
-		return new OrderAcceptedMessage(eventId, m.schemaVersion(), m.occurredAt(), m.correlationId(), m.restaurantId(),
+		return new OrderAcceptedMessage(eventId, m.eventType(), m.schemaVersion(), m.occurredAt(), m.correlationId(), m.restaurantId(),
 				m.orderId(), version, m.orderNumber(), m.tableSessionId(), m.tableNumber(), m.items());
 	}
 }

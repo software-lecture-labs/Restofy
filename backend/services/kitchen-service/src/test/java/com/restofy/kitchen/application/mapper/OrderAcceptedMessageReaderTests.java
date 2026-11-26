@@ -22,6 +22,7 @@ class OrderAcceptedMessageReaderTests {
 		return """
 				{
 				  "eventId": "11111111-1111-1111-1111-111111111111",
+				  "eventType": "OrderAccepted",
 				  "schemaVersion": 1,
 				  "occurredAt": "2026-10-17T15:04:05Z",
 				  "correlationId": "corr-1",
@@ -81,6 +82,24 @@ class OrderAcceptedMessageReaderTests {
 		assertThrows(InvalidOrderMessageException.class, () -> reader.read("null"));
 		assertThrows(InvalidOrderMessageException.class, () -> reader.read(null));
 		assertThrows(InvalidOrderMessageException.class, () -> reader.read("   "));
+	}
+
+	/** The reader only maps JSON; the ingest service validates the values, so both halves are checked here. */
+	@Test
+	void theEventTypeIsReadAndOnlyOrderAcceptedPassesValidation() {
+		try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+			var validator = factory.getValidator();
+			OrderAcceptedMessage accepted = reader.read(valid());
+			assertEquals("OrderAccepted", accepted.eventType());
+			assertTrue(validator.validate(accepted).isEmpty());
+
+			for (String other : new String[] { "\"OrderCancelled\"", "\"orderaccepted\"", "\"\"", "null" }) {
+				OrderAcceptedMessage wrong = reader.read(valid().replace("\"OrderAccepted\"", other));
+				assertFalse(validator.validate(wrong).isEmpty(), other);
+			}
+			OrderAcceptedMessage missing = reader.read(valid().replace("\"eventType\": \"OrderAccepted\",", ""));
+			assertFalse(validator.validate(missing).isEmpty());
+		}
 	}
 
 	@Test

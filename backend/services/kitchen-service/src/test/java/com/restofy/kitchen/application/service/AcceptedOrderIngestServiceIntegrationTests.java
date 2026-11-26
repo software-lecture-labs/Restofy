@@ -224,7 +224,7 @@ class AcceptedOrderIngestServiceIntegrationTests {
 				item("Burger", 1, null, option(OptionAction.ADD, " ", 1, null)));
 		OrderAcceptedMessage longNote = message(restaurant, orderId, UUID.randomUUID(), "T1", "A-1", 1, UUID.randomUUID(),
 				item("Burger", 1, "x".repeat(1001)));
-		OrderAcceptedMessage wrongSchema = new OrderAcceptedMessage(UUID.randomUUID(), 2, ok.occurredAt(), null, restaurant,
+		OrderAcceptedMessage wrongSchema = new OrderAcceptedMessage(UUID.randomUUID(), OrderAcceptedMessage.TYPE, 2, ok.occurredAt(), null, restaurant,
 				orderId, 1L, "A-1", UUID.randomUUID(), "T1", ok.items());
 		OrderAcceptedMessage.Item dup = item("Burger", 1, null);
 		OrderAcceptedMessage duplicateItems = message(restaurant, orderId, UUID.randomUUID(), "T1", "A-1", 1,
