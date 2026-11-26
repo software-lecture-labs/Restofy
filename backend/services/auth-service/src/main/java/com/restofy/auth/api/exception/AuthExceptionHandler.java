@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
 import com.restofy.auth.infrastructure.security.MfaUnavailableException;
+import com.restofy.auth.infrastructure.security.RateLimitUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +57,9 @@ public class AuthExceptionHandler {
 
     @ExceptionHandler(MfaUnavailableException.class)
     ResponseEntity<ProblemDetail> unavailable() { return response(HttpStatus.SERVICE_UNAVAILABLE); }
+
+    @ExceptionHandler(RateLimitUnavailableException.class)
+    ResponseEntity<ProblemDetail> limitsUnavailable() { return response(HttpStatus.SERVICE_UNAVAILABLE); }
 
     @ExceptionHandler(ResponseStatusException.class)
     ResponseEntity<ProblemDetail> status(ResponseStatusException exception) {

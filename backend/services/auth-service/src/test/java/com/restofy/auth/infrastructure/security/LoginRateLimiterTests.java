@@ -1,6 +1,7 @@
 package com.restofy.auth.infrastructure.security;
 
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
+import com.restofy.auth.support.InMemoryRateLimitStore;
 import com.restofy.auth.support.MutableAuthClock;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +15,7 @@ class LoginRateLimiterTests {
     private static final String OWNER_PEER = "203.0.113.9";
 
     private final MutableAuthClock clock = new MutableAuthClock();
-    private final LoginRateLimiter limiter = new LoginRateLimiter(clock);
+    private final LoginRateLimiter limiter = new LoginRateLimiter(new InMemoryRateLimitStore(clock), true);
 
     @Test
     void anAttackerExhaustingTheirOwnBudgetCannotLockTheOwnerOutFromAnotherAddress() {
@@ -49,28 +50,55 @@ class LoginRateLimiterTests {
     }
 
     @Test
-    void floodingWithThousandsOfThrowAwayAccountsNeverRejectsAnHonestUser() {
-        for (int account = 0; account < BoundedWindows.MAX_TRACKED_KEYS * 2; account++) {
-            limiter.check("flood" + account + "@example.com", ATTACKER_PEER);
+    void oneAddressHasOneBudgetAcrossEveryAccount() {
+        for (int account = 0; account < LoginRateLimiter.ATTEMPTS_PER_PEER; account++) {
+            limiter.check("fake" + account + "@example.com", ATTACKER_PEER);
         }
-        assertThatCode(() -> limiter.check("honest@example.com", OWNER_PEER)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> limiter.check("one-more@example.com", ATTACKER_PEER))
+                .isInstanceOfSatisfying(LoginLimitException.class,
+                        exception -> assertThat(exception.retryAfter()).isEqualTo(LoginRateLimiter.WINDOW_SECONDS));
+        assertThatCode(() -> limiter.check(OWNER, OWNER_PEER)).doesNotThrowAnyException();
+        clock.advance(LoginRateLimiter.WINDOW_SECONDS);
+        assertThatCode(() -> limiter.check("one-more@example.com", ATTACKER_PEER)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void withoutKnownClientAddressesNoBudgetIsSharedByEveryone() {
+        // Behind the Gateway with no trusted proxy configured every client has the Gateway's address.
+        LoginRateLimiter unconfigured = new LoginRateLimiter(new InMemoryRateLimitStore(clock), false);
+        for (int account = 0; account < 2 * LoginRateLimiter.ATTEMPTS_PER_PEER; account++) {
+            unconfigured.check("user" + account + "@example.com", ATTACKER_PEER);
+        }
+        assertThatCode(() -> unconfigured.check(OWNER, ATTACKER_PEER)).doesNotThrowAnyException();
     }
 
     @Test
     void missingOrOversizedPeersShareOneBoundedKey() {
         limiter.check(OWNER, null);
-        limiter.check(OWNER, "x".repeat(BoundedWindows.MAX_PEER_LENGTH + 1));
-        assertThat(BoundedWindows.peerKey(null)).isEqualTo(BoundedWindows.peerKey("x".repeat(BoundedWindows.MAX_PEER_LENGTH + 1)));
+        limiter.check(OWNER, "x".repeat(RateLimitStore.MAX_PEER_LENGTH + 1));
+        assertThat(RateLimitStore.peerKey(null))
+                .isEqualTo(RateLimitStore.peerKey("x".repeat(RateLimitStore.MAX_PEER_LENGTH + 1)));
+        assertThat(RateLimitStore.peerKey("203.0.113.9")).isEqualTo("203.0.113.9");
     }
 
     @Test
-    void trackedKeysNeverExceedTheConfiguredBoundAndTheOldestAreDroppedFirst() {
-        BoundedWindows windows = new BoundedWindows(clock, 3);
-        for (int key = 0; key < 10; key++) {
-            assertThat(windows.hit("key-" + key, 1, LoginRateLimiter.WINDOW_SECONDS)).isZero();
-            assertThat(windows.trackedKeys()).isLessThanOrEqualTo(3);
+    void anIpv6PeerIsLimitedAsItsWholeSlash64() {
+        String first = RateLimitStore.peerKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd");
+        assertThat(first).isEqualTo("2001:db8:1:2:0:0:0:0/64")
+                .isEqualTo(RateLimitStore.peerKey("2001:db8:1:2::1"));
+        assertThat(RateLimitStore.peerKey("2001:db8:1:3::1")).isNotEqualTo(first);
+        // IPv4 (also when written IPv4-mapped) and values that are not addresses are left alone.
+        assertThat(RateLimitStore.peerKey("::ffff:203.0.113.9")).isEqualTo("::ffff:203.0.113.9");
+        assertThat(RateLimitStore.peerKey("unknown")).isEqualTo("unknown");
+    }
+
+    @Test
+    void addressesInOneIpv6Slash64ShareOneLoginBudget() {
+        for (int attempt = 0; attempt < LoginRateLimiter.ATTEMPTS_PER_ACCOUNT_AND_PEER; attempt++) {
+            limiter.check("owner@example.com", "2001:db8:1:2::" + Integer.toHexString(attempt + 1));
         }
-        assertThat(windows.hit("key-9", 1, LoginRateLimiter.WINDOW_SECONDS)).isPositive();
-        assertThat(windows.hit("key-0", 1, LoginRateLimiter.WINDOW_SECONDS)).isZero();
+        assertThatThrownBy(() -> limiter.check("owner@example.com", "2001:db8:1:2::ffff"))
+                .isInstanceOf(LoginLimitException.class);
+        assertThatCode(() -> limiter.check("owner@example.com", "2001:db8:1:3::1")).doesNotThrowAnyException();
     }
 }

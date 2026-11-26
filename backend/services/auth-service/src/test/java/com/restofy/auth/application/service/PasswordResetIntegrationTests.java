@@ -58,7 +58,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
     }
     @AfterEach void clean() {
         jdbc.update("DELETE FROM staff_revocation_targets"); jdbc.update("DELETE FROM staff_revocation_operations");
-        jdbc.update("DELETE FROM password_reset_requests"); jdbc.update("DELETE FROM password_reset_limits");
+        jdbc.update("DELETE FROM password_reset_requests"); jdbc.update("DELETE FROM rate_limits");
         jdbc.update("DELETE FROM mfa_recovery_codes"); jdbc.update("DELETE FROM staff_mfa");
         jdbc.update("DELETE FROM refresh_tokens"); jdbc.update("DELETE FROM user_sessions"); jdbc.update("DELETE FROM staff_users");
     }
@@ -260,16 +260,16 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         } finally {logger.detachAppender(appender);appender.stop();}
     }
 
-    @Test void limiterCleansExpiredRowsAndEnforcesGlobalCapacityAndCooldown() {
+    @Test void limiterCleansExpiredRowsAndRejectsNewBucketsWhenTheTableIsFullAndEnforcesCooldown() {
         limits.request("unknown@example.com","peer");
         assertThatThrownBy(() -> limits.request("unknown@example.com","peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
-        jdbc.update("DELETE FROM password_reset_limits");
-        jdbc.update("INSERT INTO password_reset_limits SELECT md5(i::text)||md5(i::text),1,? FROM generate_series(1,10000) i",
+        jdbc.update("DELETE FROM rate_limits");
+        jdbc.update("INSERT INTO rate_limits SELECT md5(i::text)||md5(i::text),1,1,false,? FROM generate_series(1,10000) i",
                 java.sql.Timestamp.from(clock.instant().plusSeconds(60)));
         assertThatThrownBy(() -> limits.verification("new-peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_limits",Integer.class)).isEqualTo(10000);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rate_limits",Integer.class)).isEqualTo(10000);
         clock.advance(60); limits.verification("new-peer");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_limits",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rate_limits",Integer.class)).isEqualTo(1);
     }
 
     @Test void hourlyAndDailyMailBudgetsSurviveCooldownExpiry() {
@@ -303,8 +303,8 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         assertThatThrownBy(() -> limits.verification("verify-peer")).isInstanceOf(LoginRateLimiter.LoginLimitException.class);
     }
 
-    @Test void concurrentAdmissionNeverExceedsGlobalBucketCapacity() throws Exception {
-        jdbc.update("INSERT INTO password_reset_limits SELECT md5(i::text)||md5(i::text),1,? FROM generate_series(1,9999) i",
+    @Test void aTableFullOfBlockedBucketsStillAdmitsNewResetCallersWithoutForgettingAnyBlock() throws Exception {
+        jdbc.update("INSERT INTO rate_limits SELECT md5(i::text)||md5(i::text),1,1,false,? FROM generate_series(1,9999) i",
                 java.sql.Timestamp.from(clock.instant().plusSeconds(60)));
         var pool = Executors.newFixedThreadPool(2);
         var ready = new CountDownLatch(2);
@@ -319,11 +319,16 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
                 }));
             }
             ready.await(); go.countDown();
-            List<Boolean> outcomes = new ArrayList<>();
-            for (var result : results) { outcomes.add(result.get(30, TimeUnit.SECONDS)); }
-            assertThat(outcomes).containsExactlyInAnyOrder(true, false);
+            for (var result : results) { result.get(30, TimeUnit.SECONDS); }
         } finally { pool.shutdownNow(); }
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_limits", Integer.class)).isEqualTo(10000);
+        // The bound is soft (no global lock): two simultaneous newcomers may both get the last slot.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rate_limits", Integer.class)).isBetween(10000, 10001);
+        // #9: a flood must not close password reset for everyone. A later caller makes room by dropping a bucket that is
+        // below its limit (one of the two above), never one of the 9999 blocked buckets.
+        assertThatCode(() -> limits.verification("admission-c")).doesNotThrowAnyException();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rate_limits", Integer.class)).isBetween(10000, 10001);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rate_limits WHERE attempts >= max_attempts", Integer.class))
+                .isEqualTo(9999);
     }
 
     @Test void upgradingV3ToV4PreservesExistingPasswordsAndDoesNotInventChangeTime() {
@@ -338,7 +343,7 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         latest.migrate();
         assertThat(jdbc.queryForObject("SELECT password_hash FROM "+schema+".staff_users WHERE id=?",String.class,id)).isEqualTo(hash);
         assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",java.sql.Timestamp.class,id)).isNull();
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("7");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("8");
     }
 
     @Test
