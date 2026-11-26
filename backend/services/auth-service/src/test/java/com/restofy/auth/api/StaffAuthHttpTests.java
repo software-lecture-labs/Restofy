@@ -198,6 +198,22 @@ class StaffAuthHttpTests extends AuthSessionTestSupport {
     }
 
     @Test
+    void signedInRequestsLeaveTheCsrfCookieSoTheNextMutationNeedsNoRetry() throws Exception {
+        csrf();
+        login("staff@example.com");
+        String issued = jar.get(AuthCookies.CSRF).getValue();
+
+        MvcResult session = mvc.perform(get("/api/v1/auth/session").cookie(cookies())).andExpect(status().isOk()).andReturn();
+        assertThat(session.getResponse().getCookie(AuthCookies.CSRF)).isNull();
+        update(session);
+        MvcResult activity = mvc.perform(mutation("/activity")).andExpect(status().isNoContent()).andReturn();
+        assertThat(activity.getResponse().getCookie(AuthCookies.CSRF)).isNull();
+        update(activity);
+
+        assertThat(jar.get(AuthCookies.CSRF).getValue()).isEqualTo(issued);
+    }
+
+    @Test
     void kitchenCanLogin() throws Exception {
         users.saveAndFlush(new StaffUser("kitchen@example.com", passwords.hash(PASSWORD), StaffRole.KITCHEN));
         csrf();

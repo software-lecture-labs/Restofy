@@ -17,6 +17,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -48,8 +49,12 @@ public class AuthSecurityConfiguration {
         source.registerCorsConfiguration("/api/v1/auth/**", cors);
         return http
                 .cors(configuration -> configuration.configurationSource(source))
+                // Spring would clear the CSRF cookie on every request the access cookie authenticates, since no
+                // security context is stored. The token is bound to the refresh or MFA cookie, and login, refresh
+                // and MFA completion issue a new one themselves.
                 .csrf(configuration -> configuration.csrfTokenRepository(csrf)
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .addFilterBefore(new AuthRequestFilter(settings, jwt, sessions), CsrfFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/liveness",
