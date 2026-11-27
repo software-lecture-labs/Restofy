@@ -56,6 +56,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private static final String AUTHORIZATION_SCHEME = "Service ";
 
 	private static final String APPLIED = "APPLIED";
+	private static final String OTHER = "OTHER";
 	private static final String IGNORED_STALE = "IGNORED_STALE";
 	private static final Set<String> STATUS_OUTCOMES = Set.of(APPLIED, IGNORED_STALE, "IGNORED_ORDER_CLOSED");
 	private static final Set<String> CANCELLATION_OUTCOMES = Set.of(APPLIED, "REJECTED");
@@ -142,21 +143,21 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private Result requestCancellation(KitchenCancellationRequestedMessage requested) {
 		String reason = requested.payload().reasonCode();
 		String text = requested.payload().reasonText();
-		if ("OTHER".equals(reason) && (text == null || text.isBlank())) {
+		if (OTHER.equals(reason) && (text == null || text.isBlank())) {
 			// The Order service demands an explanation for OTHER. An event stored before the explanation was required has
 			// none: nothing is sent rather than a request that is known to be invalid or an invented text.
 			return refused(requested, "REASON_TEXT_MISSING");
 		}
 		String orderReason = switch (reason) {
 			case "OUT_OF_STOCK" -> "ITEM_UNAVAILABLE";
-			case "CUSTOMER_REQUEST", "KITCHEN_ERROR", "OTHER" -> reason;
+			case "CUSTOMER_REQUEST", "KITCHEN_ERROR", OTHER -> reason;
 			default -> null;
 		};
 		if (orderReason == null) {
 			return refused(requested, "UNMAPPED_REASON");
 		}
 		var body = new CancellationAsk(requested.eventId(), requested.restaurantId(), requested.orderId(), true,
-				List.of(orderReason), "OTHER".equals(reason) ? text : null);
+				List.of(orderReason), OTHER.equals(reason) ? text : null);
 		return send(new Call(requested, requested.orderId(), CANCELLATION_REQUEST_ENDPOINT, body, CANCELLATION_OUTCOMES));
 	}
 
@@ -253,7 +254,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 			// repeat); nothing is made up, so it needs reconciliation. Sending again cannot change either.
 			return refused(requested, "DECISION_" + reading.verdict());
 		}
-		OrderDecisionService.DecisionResult result = decisions.record(reading.decision());
+		OrderDecisionService.DecisionResult result = decisions.apply(reading.decision());
 		if (result == null || result.outcome() == null || !result.outcome().isRecorded()) {
 			return refused(requested, "DECISION_" + (result == null || result.outcome() == null ? "NOT_RECORDED" : result.outcome()));
 		}

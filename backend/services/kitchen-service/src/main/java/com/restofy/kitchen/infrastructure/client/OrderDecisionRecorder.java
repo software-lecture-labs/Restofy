@@ -11,5 +11,5 @@ import com.restofy.kitchen.application.service.OrderDecisionService;
 @FunctionalInterface
 public interface OrderDecisionRecorder {
 
-	OrderDecisionService.DecisionResult record(OrderCancellationDecisionMessage decision);
+	OrderDecisionService.DecisionResult apply(OrderCancellationDecisionMessage decision);
 }
