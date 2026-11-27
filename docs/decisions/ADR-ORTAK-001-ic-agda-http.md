@@ -117,7 +117,7 @@ Biri sağlanmazsa bugünkü davranış geçerlidir: HTTP adresle servis başlama
 
 1. Bu ADR, `docker-compose.yml` ve `.env.example` değişikliği (varsayılan `false`, servis davranışı değişmez).
 2. Her servis sahibi kendi istemcisini küçük bir PR ile uyarlar: Order (Hamza), Waiter (Umut), QR (Alper),
-   Kitchen (Nisa, #61), Auth → Mail (Kerem).
+   Kitchen (Nisa; istemci #61'de, uyarlama bu ADR birleşince ayrı PR), Auth → Mail (Kerem).
 3. Auth → Mail PR'ı yukarıdaki testlerin hepsiyle örnek uygulama olarak hazırlanır; birleşince bağlantısı buraya
    eklenir. Diğer servisler kuralı sıfırdan yazmak yerine onu uyarlayabilir. Her servis PR'ının incelemesinde
    bu testlerin varlığı kontrol edilir.
