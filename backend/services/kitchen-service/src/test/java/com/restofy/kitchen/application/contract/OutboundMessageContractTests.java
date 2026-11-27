@@ -97,7 +97,7 @@ class OutboundMessageContractTests {
 	}
 
 	@Test
-	void everyKindOfEventIsOneOfTheThreeDeclaredAndTheEnvelopeIsCommon() {
+	void everyKindOfEventIsOneOfTheFourDeclaredAndTheEnvelopeIsCommon() {
 		OutboundMessage ready = ready();
 		OutboundMessage started = started();
 
@@ -108,6 +108,6 @@ class OutboundMessageContractTests {
 		assertEquals(KitchenPreparationStartedMessage.TYPE, started.eventType());
 		assertEquals(3, started.aggregateVersion());
 		assertTrue(OutboundMessage.class.isSealed());
-		assertEquals(3, OutboundMessage.class.getPermittedSubclasses().length);
+		assertEquals(4, OutboundMessage.class.getPermittedSubclasses().length);
 	}
 }

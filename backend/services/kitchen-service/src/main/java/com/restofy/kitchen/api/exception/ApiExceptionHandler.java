@@ -1,7 +1,9 @@
 package com.restofy.kitchen.api.exception;
 
 import com.restofy.kitchen.application.service.ProductAvailabilityException;
+import com.restofy.kitchen.domain.exception.CancellationAlreadyAnsweredException;
 import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedException;
+import com.restofy.kitchen.domain.exception.OrderCancellationNotFoundException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
@@ -35,6 +37,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String CONCURRENT_MODIFICATION = "CONCURRENT_MODIFICATION";
 	public static final String ORDER_BUSY = "ORDER_BUSY";
 	public static final String CANCELLATION_ALREADY_REQUESTED = "CANCELLATION_ALREADY_REQUESTED";
+	public static final String CANCELLATION_ALREADY_ANSWERED = "CANCELLATION_ALREADY_ANSWERED";
 	public static final String INVALID_STOCK_REFERENCE = "INVALID_STOCK_REFERENCE";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
 	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
@@ -80,6 +83,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	ProblemDetail cancellationAlreadyRequested(CancellationAlreadyRequestedException e) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 		problem.setProperty(CODE, CANCELLATION_ALREADY_REQUESTED);
+		problem.setProperty(RETRYABLE, false);
+		return problem;
+	}
+
+	/** No such Order service request for this order in the caller's restaurant (same answer for another restaurant). */
+	@ExceptionHandler(OrderCancellationNotFoundException.class)
+	ProblemDetail orderCancellationNotFound(OrderCancellationNotFoundException e) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+	}
+
+	/** The kitchen has already answered this request. Nothing was changed. */
+	@ExceptionHandler(CancellationAlreadyAnsweredException.class)
+	ProblemDetail cancellationAlreadyAnswered(CancellationAlreadyAnsweredException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+		problem.setProperty(CODE, CANCELLATION_ALREADY_ANSWERED);
 		problem.setProperty(RETRYABLE, false);
 		return problem;
 	}

@@ -5,11 +5,11 @@ import java.util.UUID;
 
 /**
  * An event Kitchen sends to the Order service through the outbox. Every kind carries the same envelope (stable event
- * id, type, schema version, time, tenant, version, correlation) and the smallest payload it needs. The kinds are
- * proposals: none of them is agreed with the Order service yet.
+ * id, type, schema version, time, tenant, version, correlation) and the smallest payload it needs. The HTTP adapter maps
+ * each kind onto the matching Order service endpoint.
  */
-public sealed interface OutboundMessage
-		permits KitchenPreparationStartedMessage, KitchenOrderReadyMessage, KitchenCancellationRequestedMessage {
+public sealed interface OutboundMessage permits KitchenPreparationStartedMessage, KitchenOrderReadyMessage,
+		KitchenCancellationRequestedMessage, KitchenCancellationDecidedMessage {
 
 	UUID eventId();
 

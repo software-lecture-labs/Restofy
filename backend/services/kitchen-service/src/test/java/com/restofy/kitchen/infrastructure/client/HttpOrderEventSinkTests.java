@@ -1,5 +1,6 @@
 package com.restofy.kitchen.infrastructure.client;
 
+import com.restofy.kitchen.application.contract.KitchenCancellationDecidedMessage;
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
 import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
@@ -93,6 +94,69 @@ class HttpOrderEventSinkTests {
 				restaurantId, orderId, UUID.randomUUID(), 1, "corr-2", UUID.randomUUID(),
 				new KitchenCancellationRequestedMessage.Payload(orderId, reason,
 						"OUT_OF_STOCK".equals(reason) ? UUID.randomUUID() : null, null));
+	}
+
+	private final UUID cancellationId = UUID.randomUUID();
+
+	private KitchenCancellationDecidedMessage decided(String decision, String rejectionCode) {
+		return new KitchenCancellationDecidedMessage(eventId, KitchenCancellationDecidedMessage.TYPE, 1, AT, restaurantId, orderId, 3,
+				"corr-3", UUID.randomUUID(), new KitchenCancellationDecidedMessage.Payload(orderId, cancellationId, decision, rejectionCode));
+	}
+
+	private String decisionAck(String outcome, Object cancellation) {
+		return "{\"outcome\":\"" + outcome + "\",\"duplicate\":false,\"orderId\":\"" + orderId + "\",\"cancellationId\":\""
+				+ cancellation + "\",\"cancellationStatus\":\"APPLIED\"}";
+	}
+
+	@Test
+	void anApprovalIsPostedToTheDecisionEndpointWithoutAnyRejectionField() {
+		order.answerAlways(Answer.of(200, decisionAck("APPLIED", cancellationId)));
+
+		assertEquals(EventSink.Result.delivered(), deliver(decided("APPROVED", null)));
+
+		Received sent = order.received().getFirst();
+		assertEquals("/api/v1/internal/order-events/kitchen-cancellation", sent.path());
+		assertEquals(Set.of("eventId", "restaurantId", "orderId", "cancellationId", "decision"), fields(sent));
+		assertEquals(cancellationId.toString(), field(sent, "cancellationId"));
+		assertEquals("APPROVED", field(sent, "decision"));
+		assertEquals(eventId.toString(), field(sent, "eventId"));
+		assertEquals("/api/v1/internal/order-events/kitchen-cancellation", asked.getFirst().path());
+	}
+
+	@Test
+	void aRefusalCarriesItsCodeAndNoNote() {
+		order.answerAlways(Answer.of(200, decisionAck("APPLIED", cancellationId)));
+
+		deliver(decided("REJECTED", "KITCHEN_DECLINED"));
+
+		Received sent = order.received().getFirst();
+		assertEquals(Set.of("eventId", "restaurantId", "orderId", "cancellationId", "decision", "rejectionCode"), fields(sent));
+		assertEquals("KITCHEN_DECLINED", field(sent, "rejectionCode"));
+	}
+
+	@Test
+	void anAlreadyDecidedCancellationIsStillAnAcknowledgement() {
+		order.answerAlways(Answer.of(200, decisionAck("IGNORED_STALE", cancellationId)));
+
+		assertEquals(DeliveryOutcome.DELIVERED, deliver(decided("APPROVED", null)).outcome());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"other", "missing", "outcome"})
+	void aDecisionAcknowledgementMustNameThisCancellationAndADecisionOutcome(String flaw) {
+		String body = switch (flaw) {
+			case "other" -> decisionAck("APPLIED", UUID.randomUUID());
+			case "missing" -> "{\"outcome\":\"APPLIED\",\"orderId\":\"" + orderId + "\"}";
+			default -> decisionAck("REJECTED", cancellationId);
+		};
+		order.answerAlways(Answer.of(200, body));
+
+		assertEquals(EventSink.Result.retry("HTTP_200_INVALID_ACK"), deliver(decided("APPROVED", null)));
+	}
+
+	@Test
+	void decisionsAreNotHeldButCancellationRequestsAre() {
+		assertEquals(Set.of(KitchenCancellationRequestedMessage.TYPE), sink(credentials).heldEventTypes());
 	}
 
 	private static Set<String> fields(Received request) {

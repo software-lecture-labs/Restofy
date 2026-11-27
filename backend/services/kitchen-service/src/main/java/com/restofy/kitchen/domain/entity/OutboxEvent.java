@@ -27,6 +27,8 @@ public class OutboxEvent implements Persistable<UUID> {
 	public static final String AGGREGATE_KITCHEN_ORDER = "KITCHEN_ORDER";
 	/** One cancellation request of an order; a rejected request can be followed by a new one, each with its own events. */
 	public static final String AGGREGATE_CANCELLATION_REQUEST = "CANCELLATION_REQUEST";
+	/** One Order service request for the kitchen's confirmation; it gets exactly one answer event. */
+	public static final String AGGREGATE_ORDER_CANCELLATION_CONFIRMATION = "ORDER_CANCELLATION_CONFIRMATION";
 
 	@Id
 	private UUID id;

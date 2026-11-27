@@ -1,11 +1,13 @@
 package com.restofy.kitchen.application.service;
 
+import com.restofy.kitchen.application.contract.KitchenCancellationDecidedMessage;
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
 import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
 import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.domain.entity.CancellationRequest;
 import com.restofy.kitchen.domain.entity.KitchenOrder;
+import com.restofy.kitchen.domain.entity.OrderCancellationConfirmation;
 import com.restofy.kitchen.domain.entity.OutboxDelivery;
 import com.restofy.kitchen.domain.entity.OutboxEvent;
 import com.restofy.kitchen.infrastructure.config.CorrelationIdFilter;
@@ -93,6 +95,23 @@ public class KitchenEventRecorder {
 		return store(OutboxEvent.create(aggregate, eventData, clock.instant()), ORDER_DESTINATION);
 	}
 
+	/**
+	 * Records {@code KitchenCancellationDecided}: the kitchen's answer to an Order service request, for the Order service
+	 * only. The order itself is not changed by an answer, so its version is the one at answer time. At most one such
+	 * event exists per request (the database enforces it).
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public OutboxEvent recordCancellationDecided(OrderCancellationConfirmation confirmation, KitchenOrder order, UUID commandId) {
+		var payload = new KitchenCancellationDecidedMessage.Payload(confirmation.getOrderId(), confirmation.getCancellationId(),
+				confirmation.getStatus().name(), confirmation.getRejectionCode());
+		var aggregate = new OutboxEvent.Aggregate(OutboxEvent.AGGREGATE_ORDER_CANCELLATION_CONFIRMATION,
+				confirmation.getRestaurantId(), confirmation.getId(), order.getVersion());
+		var eventData = new OutboxEvent.EventData(KitchenCancellationDecidedMessage.TYPE,
+				KitchenCancellationDecidedMessage.SCHEMA_VERSION, MDC.get(CorrelationIdFilter.MDC_KEY), commandId,
+				jsonMapper.writeValueAsString(payload), confirmation.getAnsweredAt());
+		return store(OutboxEvent.create(aggregate, eventData, clock.instant()), ORDER_DESTINATION);
+	}
+
 	private OutboxEvent store(OutboxEvent event, String... destinations) {
 		events.saveAndFlush(event);
 		for (String destination : destinations) {
@@ -118,6 +137,12 @@ public class KitchenEventRecorder {
 					yield new KitchenCancellationRequestedMessage(event.getId(), event.getEventType(), event.getSchemaVersion(),
 							event.getOccurredAt(), event.getRestaurantId(), payload.orderId(), event.getAggregateId(),
 							event.getAggregateVersion(), event.getCorrelationId(), event.getCausationId(), payload);
+				}
+				case KitchenCancellationDecidedMessage.TYPE -> {
+					var payload = jsonMapper.readValue(event.getPayload(), KitchenCancellationDecidedMessage.Payload.class);
+					yield new KitchenCancellationDecidedMessage(event.getId(), event.getEventType(), event.getSchemaVersion(),
+							event.getOccurredAt(), event.getRestaurantId(), payload.orderId(), event.getAggregateVersion(),
+							event.getCorrelationId(), event.getCausationId(), payload);
 				}
 				default -> throw new IllegalStateException("Unknown outbox event type " + event.getEventType());
 			};

@@ -1,5 +1,7 @@
 package com.restofy.kitchen.infrastructure.client;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.restofy.kitchen.application.contract.KitchenCancellationDecidedMessage;
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
 import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
@@ -50,12 +52,14 @@ public class HttpOrderEventSink implements OrderEventSink {
 	/** Fixed by the Order service's contract (not configuration). */
 	static final String STATUS_ENDPOINT = "/api/v1/internal/order-events/kitchen";
 	static final String CANCELLATION_REQUEST_ENDPOINT = "/api/v1/internal/order-events/kitchen-cancellation-request";
+	static final String CANCELLATION_DECISION_ENDPOINT = "/api/v1/internal/order-events/kitchen-cancellation";
 	/** Longest answer that is read; the real ones are a few hundred bytes. */
 	static final int MAX_RESPONSE_BYTES = 16 * 1024;
 	private static final String AUTHORIZATION_SCHEME = "Service ";
 
 	private static final Set<String> STATUS_OUTCOMES = Set.of("APPLIED", "IGNORED_STALE", "IGNORED_ORDER_CLOSED");
 	private static final Set<String> CANCELLATION_OUTCOMES = Set.of("APPLIED", "REJECTED");
+	private static final Set<String> DECISION_OUTCOMES = Set.of("APPLIED", "IGNORED_STALE");
 	/** The answers that say this very request can never be accepted: status and the Order service's error code. */
 	private static final Set<String> DEFINITE_REFUSALS = Set.of("400_INVALID_REQUEST", "415_UNSUPPORTED_MEDIA_TYPE",
 			"422_VALIDATION_ERROR", "422_UNKNOWN_ORDER_ITEM", "422_CANCEL_QUANTITY_EXCEEDED", "409_IDEMPOTENCY_CONFLICT",
@@ -72,7 +76,19 @@ public class HttpOrderEventSink implements OrderEventSink {
 	record CancellationAsk(UUID eventId, UUID restaurantId, UUID orderId, boolean cancelAll, List<String> reasonCodes) {
 	}
 
-	private record Call(OutboundMessage message, UUID orderId, String path, Object body, Set<String> outcomes) {
+	/** Body of {@code POST /kitchen-cancellation}: the kitchen's answer. No note is sent (free text the guest could read). */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	record CancellationDecision(UUID eventId, UUID restaurantId, UUID orderId, UUID cancellationId, String decision,
+			String rejectionCode) {
+	}
+
+	/** {@code cancellationId}, when set, must also be named by the acknowledgement. */
+	private record Call(OutboundMessage message, UUID orderId, String path, Object body, Set<String> outcomes,
+			UUID cancellationId) {
+
+		Call(OutboundMessage message, UUID orderId, String path, Object body, Set<String> outcomes) {
+			this(message, orderId, path, body, outcomes, null);
+		}
 	}
 
 	/** {@code body} is null when the answer carried no readable JSON of an acceptable size. */
@@ -103,7 +119,16 @@ public class HttpOrderEventSink implements OrderEventSink {
 			case KitchenOrderReadyMessage ready ->
 					send(statusCall(ready, ready.orderId(), ready.payload().preparationStatus()));
 			case KitchenCancellationRequestedMessage requested -> requestCancellation(requested);
+			case KitchenCancellationDecidedMessage decided -> send(decisionCall(decided));
 		};
+	}
+
+	private static Call decisionCall(KitchenCancellationDecidedMessage decided) {
+		var payload = decided.payload();
+		var body = new CancellationDecision(decided.eventId(), decided.restaurantId(), payload.orderId(),
+				payload.cancellationId(), payload.decision(), payload.rejectionCode());
+		return new Call(decided, payload.orderId(), CANCELLATION_DECISION_ENDPOINT, body, DECISION_OUTCOMES,
+				payload.cancellationId());
 	}
 
 	private static Call statusCall(OutboundMessage message, UUID orderId, String kitchenStatus) {
@@ -187,7 +212,8 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private Result judge(Call call, Reply reply) {
 		if (reply.status() == 200) {
 			String outcome = text(reply.body(), "outcome");
-			if (!call.orderId().toString().equals(text(reply.body(), "orderId")) || !call.outcomes().contains(outcome)) {
+			if (!call.orderId().toString().equals(text(reply.body(), "orderId")) || !call.outcomes().contains(outcome)
+					|| (call.cancellationId() != null && !call.cancellationId().toString().equals(text(reply.body(), "cancellationId")))) {
 				return Result.retry("HTTP_200_INVALID_ACK");
 			}
 			acknowledged(call, outcome);
@@ -207,6 +233,11 @@ public class HttpOrderEventSink implements OrderEventSink {
 			log.warn("Order handled a Kitchen cancellation request with outcome {}; Kitchen's order and request are unchanged:"
 							+ " restaurantId={} orderId={} requestId={} eventId={}", outcome, requested.restaurantId(),
 					requested.orderId(), requested.requestId(), requested.eventId());
+		} else if (call.message() instanceof KitchenCancellationDecidedMessage decided) {
+			// The Order service's final word on the cancellation comes later as its own event; the kitchen order is unchanged.
+			log.info("Order received the kitchen's {} answer with outcome {}: restaurantId={} orderId={} cancellationId={}",
+					decided.payload().decision(), outcome, decided.restaurantId(), decided.orderId(),
+					decided.payload().cancellationId());
 		} else {
 			log.debug("Order acknowledged eventId={} with outcome {}", call.message().eventId(), outcome);
 		}

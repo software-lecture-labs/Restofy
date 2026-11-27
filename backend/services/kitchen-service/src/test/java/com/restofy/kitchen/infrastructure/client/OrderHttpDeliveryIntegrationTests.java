@@ -5,9 +5,12 @@ import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
 import com.restofy.kitchen.application.service.CancellationRequestService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
+import com.restofy.kitchen.application.contract.OrderCancellationRequestedMessage;
+import com.restofy.kitchen.application.service.OrderCancellationConfirmationService;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
 import com.restofy.kitchen.domain.enums.CancellationReason;
 import com.restofy.kitchen.domain.enums.DeliveryStatus;
+import com.restofy.kitchen.domain.enums.OrderDecision;
 import com.restofy.kitchen.infrastructure.config.OrderDeliveryConfiguration;
 import com.restofy.kitchen.support.OrderStubServer;
 import com.restofy.kitchen.support.OrderStubServer.Answer;
@@ -65,6 +68,8 @@ class OrderHttpDeliveryIntegrationTests {
 	private CancellationRequestService cancellations;
 	@Autowired
 	private OutboxDeliveryService delivery;
+	@Autowired
+	private OrderCancellationConfirmationService confirmations;
 	@Autowired
 	private JsonMapper json;
 	@Autowired
@@ -332,6 +337,45 @@ class OrderHttpDeliveryIntegrationTests {
 		assertTrue(((Timestamp) row(held).get("next_attempt_at")).toInstant().isBefore(Instant.now()), "not even claimed");
 		assertEquals(before, business(ticket));
 		assertEquals("REQUESTED:-", business(ticket).get("requests"));
+	}
+
+	/** The kitchen's answer to an Order service request travels the same way, to its own endpoint, and changes no order. */
+	@Test
+	void theKitchensAnswerIsDeliveredToTheDecisionEndpointWithItsStableIdentity() {
+		Ticket ticket = accepted();
+		start(ticket);
+		UUID line = jdbc.queryForObject("""
+				SELECT i.order_item_id FROM kitchen_order_items i JOIN kitchen_orders o ON o.id = i.kitchen_order_id
+				WHERE o.restaurant_id = ? AND o.order_id = ? LIMIT 1
+				""", UUID.class, ticket.restaurant(), ticket.orderId());
+		UUID cancellationId = UUID.randomUUID();
+		confirmations.register(new OrderCancellationRequestedMessage(UUID.randomUUID(), OrderCancellationRequestedMessage.TYPE, 1,
+				Instant.now(), ticket.restaurant(), ticket.orderId(), cancellationId, "FULL", true,
+				List.of(new OrderCancellationRequestedMessage.Item(line, 1))));
+		UUID preparing = deliveryId(ticket, PREPARING_EVENT);
+		delivery.attempt(preparing, sink());
+		confirmations.answer(ticket.restaurant(), UUID.randomUUID(), UUID.randomUUID(), ticket.orderId(), cancellationId,
+				OrderDecision.APPROVED);
+		UUID answer = deliveryId(ticket, "KitchenCancellationDecided");
+		Map<String, Object> before = business(ticket);
+		String ack = "{\"outcome\":\"APPLIED\",\"duplicate\":false,\"orderId\":\"" + ticket.orderId() + "\",\"cancellationId\":\""
+				+ cancellationId + "\",\"cancellationStatus\":\"APPLIED\"}";
+		order.answerAlways(Answer.lost());
+		delivery.attempt(answer, sink());
+		makeDue(answer);
+		order.answerAlways(Answer.of(200, ack));
+
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(answer, sink()));
+
+		List<Received> decisions = order.received().stream()
+				.filter(r -> r.path().equals("/api/v1/internal/order-events/kitchen-cancellation")).toList();
+		assertEquals(2, decisions.size());
+		assertEquals(decisions.get(0).body(), decisions.get(1).body(), "the same event id and body on the retry");
+		assertEquals(eventId(answer), decisions.get(0).eventId());
+		assertEquals("APPROVED", decisions.get(0).json().get("decision").stringValue());
+		assertRow(answer, "DELIVERED", 2, null);
+		assertEquals(before, business(ticket));
+		assertEquals("PREPARING", business(ticket).get("status"), "only the Order service's final decision may cancel");
 	}
 
 	/** Another sink (here the test fake used for the port contract) still gets cancellation requests: the hold is the HTTP sink's. */
