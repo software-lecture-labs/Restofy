@@ -51,7 +51,7 @@ class OrderDecisionRollbackTests {
 		UUID orderId = UUID.randomUUID();
 		ingest.ingest(simple(restaurant, orderId));
 		UUID requestId = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 		return new Asked(restaurant, orderId, requestId);
 	}
 

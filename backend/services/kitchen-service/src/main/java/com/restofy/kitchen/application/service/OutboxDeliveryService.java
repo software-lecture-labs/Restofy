@@ -92,10 +92,11 @@ public class OutboxDeliveryService {
 	}
 
 	/**
-	 * One attempt for one delivery. Empty if the delivery is not due, already final, claimed by another worker, or of an
-	 * event type the sink holds (the sink is not called and no attempt is counted). A stored event that cannot be read
-	 * is never sent: its delivery is marked FAILED ({@value #UNREADABLE_EVENT}) and the result is empty as well.
-	 * Otherwise returns the delivery's status after the result was recorded.
+	 * One attempt for one delivery. Empty if the delivery is not due, already final, claimed by another worker, of an
+	 * event type the sink holds, or an Order READY still waiting for its PREPARING to be delivered (the sink is not
+	 * called and no attempt is counted). A stored event that cannot be read is never sent: its delivery is marked FAILED
+	 * ({@value #UNREADABLE_EVENT}) and the result is empty as well. Otherwise returns the delivery's status after the
+	 * result was recorded.
 	 */
 	public Optional<DeliveryStatus> attempt(UUID deliveryId, EventSink sink) {
 		Optional<OutboundMessage> message = tx.execute(status -> claim(deliveryId, sink));
@@ -110,7 +111,8 @@ public class OutboxDeliveryService {
 	private Optional<OutboundMessage> claim(UUID deliveryId, EventSink sink) {
 		Instant now = clock.instant();
 		OutboxDelivery delivery = deliveries.findForUpdate(deliveryId).orElse(null);
-		if (delivery == null || !sink.destination().equals(delivery.getDestination()) || !delivery.isDue(now)) {
+		if (delivery == null || !sink.destination().equals(delivery.getDestination()) || !delivery.isDue(now)
+				|| deliveries.isWaitingForPreparing(deliveryId)) {
 			return Optional.empty();
 		}
 		OutboxEvent event = events.findById(delivery.getEventId()).orElseThrow();

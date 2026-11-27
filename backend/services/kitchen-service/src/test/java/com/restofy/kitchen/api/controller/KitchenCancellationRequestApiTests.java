@@ -194,17 +194,18 @@ class KitchenCancellationRequestApiTests {
 	}
 
 	@Test
-	void everyReasonIsAcceptedAndBlankTextIsStoredAsNone() throws Exception {
+	void everyReasonButOtherNeedsNoTextAndABlankOneIsStoredAsNone() throws Exception {
 		UUID restaurant = UUID.randomUUID();
-		for (String reason : List.of("OUT_OF_STOCK", "CUSTOMER_REQUEST", "KITCHEN_ERROR", "OTHER")) {
+		for (String reason : List.of("OUT_OF_STOCK", "CUSTOMER_REQUEST", "KITCHEN_ERROR")) {
 			UUID orderId = order(restaurant);
 			send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), bodyFor(restaurant, orderId, reason, "   "))
 					.andExpect(status().isAccepted())
 					.andExpect(jsonPath("$.reasonCode").value(reason)).andExpect(jsonPath("$.reasonText").value((Object) null));
 		}
-		assertEquals(4, requests(restaurant));
+		assertEquals(3, requests(restaurant));
 		UUID orderId = order(restaurant);
-		send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), body("OTHER", "ş".repeat(500))).andExpect(status().isAccepted());
+		send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), body("KITCHEN_ERROR", "ş".repeat(500)))
+				.andExpect(status().isAccepted());
 	}
 
 	@Test
@@ -246,7 +247,7 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = readyOrder(restaurant, actor);
 		Map<String, Object> before = orderState(restaurant, orderId);
 
-		send(restaurant, actor, orderId, UUID.randomUUID(), body("OTHER", null)).andExpect(status().isConflict())
+		send(restaurant, actor, orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("ORDER_STATE_CONFLICT")).andExpect(jsonPath("$.currentStatus").value("READY"))
 				.andExpect(jsonPath("$.retryable").value(false));
 
@@ -260,7 +261,7 @@ class KitchenCancellationRequestApiTests {
 		UUID restaurant = UUID.randomUUID();
 		UUID orderId = new KitchenOrderSeeder(jdbc).seed(restaurant, UUID.randomUUID(), "CANCELLED", Instant.parse("2026-10-20T10:00:00Z"));
 
-		send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), body("OTHER", null)).andExpect(status().isConflict())
+		send(restaurant, UUID.randomUUID(), orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("ORDER_STATE_CONFLICT")).andExpect(jsonPath("$.currentStatus").value("CANCELLED"));
 		assertEquals(0, requests(restaurant));
 	}
@@ -279,7 +280,7 @@ class KitchenCancellationRequestApiTests {
 		mvc.perform(post(path(orderId)).header(KEY, UUID.randomUUID().toString()).with(kitchen(restaurant)).with(csrf()))
 				.andExpect(status().isBadRequest());
 		mvc.perform(post("/api/v1/kitchen/orders/not-a-uuid/cancellation-requests").header(KEY, UUID.randomUUID().toString())
-				.contentType("application/json").content(body("OTHER", null)).with(kitchen(restaurant)).with(csrf()))
+				.contentType("application/json").content(body("KITCHEN_ERROR", null)).with(kitchen(restaurant)).with(csrf()))
 						.andExpect(status().isBadRequest());
 		assertEquals(0, requests(restaurant));
 		assertEquals(0, events(restaurant));
@@ -289,7 +290,7 @@ class KitchenCancellationRequestApiTests {
 	void theIdempotencyKeyIsMandatoryUniqueAndACanonicalUuid() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		UUID orderId = order(restaurant);
-		String json = body("OTHER", null);
+		String json = body("KITCHEN_ERROR", null);
 
 		mvc.perform(post(path(orderId)).contentType("application/json").content(json).with(kitchen(restaurant)).with(csrf()))
 				.andExpect(status().isBadRequest());
@@ -349,7 +350,7 @@ class KitchenCancellationRequestApiTests {
 		UUID restaurant = UUID.randomUUID();
 		UUID actor = UUID.randomUUID();
 		UUID orderId = order(restaurant);
-		send(restaurant, actor, orderId, UUID.randomUUID(), body("OTHER", null)).andExpect(status().isAccepted());
+		send(restaurant, actor, orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).andExpect(status().isAccepted());
 
 		send(restaurant, actor, orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("CANCELLATION_ALREADY_REQUESTED")).andExpect(jsonPath("$.retryable").value(false));
@@ -369,11 +370,11 @@ class KitchenCancellationRequestApiTests {
 		UUID actor = UUID.randomUUID();
 		UUID orderId = preparingOrder(restaurant, actor);
 		UUID key = UUID.randomUUID();
-		send(restaurant, actor, orderId, key, body("OTHER", null)).andExpect(status().isAccepted());
+		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isAccepted());
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
 
-		send(restaurant, actor, orderId, key, body("OTHER", null)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REQUESTED"));
-		send(restaurant, actor, orderId, UUID.randomUUID(), body("OTHER", null)).andExpect(status().isConflict())
+		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REQUESTED"));
+		send(restaurant, actor, orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("ORDER_STATE_CONFLICT"));
 		assertEquals("READY", orderState(restaurant, orderId).get("status"), "the request did not stop the order from becoming ready");
 	}
@@ -384,7 +385,7 @@ class KitchenCancellationRequestApiTests {
 	void onlyAnAuthenticatedKitchenUserWithCsrfMayRequestAndOtherRestaurantsSeeNothing() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		UUID orderId = order(restaurant);
-		String json = body("OTHER", null);
+		String json = body("KITCHEN_ERROR", null);
 
 		mvc.perform(ask(orderId, UUID.randomUUID(), json).with(csrf())).andExpect(status().isUnauthorized());
 		mvc.perform(ask(orderId, UUID.randomUUID(), json).header("X-Role", "KITCHEN").header("X-Restaurant-Id", restaurant.toString())
@@ -411,7 +412,7 @@ class KitchenCancellationRequestApiTests {
 		UUID restaurant = UUID.randomUUID();
 		UUID actor = UUID.randomUUID();
 		UUID orderId = order(restaurant);
-		String forged = body("OTHER", null).replace("}", ",\"restaurantId\":\"" + UUID.randomUUID() + "\",\"requestedByUserId\":\""
+		String forged = body("KITCHEN_ERROR", null).replace("}", ",\"restaurantId\":\"" + UUID.randomUUID() + "\",\"requestedByUserId\":\""
 				+ UUID.randomUUID() + "\",\"requestedAt\":\"1999-01-01T00:00:00Z\",\"status\":\"APPROVED\",\"decidedAt\":\"1999-01-01T00:00:00Z\"}");
 
 		mvc.perform(ask(orderId, UUID.randomUUID(), forged).with(kitchen(restaurant, actor)).with(csrf())).andExpect(status().isAccepted())
@@ -431,7 +432,7 @@ class KitchenCancellationRequestApiTests {
 		UUID actor = UUID.randomUUID();
 		UUID orderId = order(restaurant);
 
-		List<Integer> statuses = fire(8, n -> ask(orderId, UUID.randomUUID(), body("OTHER", null)).with(kitchen(restaurant, actor)).with(csrf()));
+		List<Integer> statuses = fire(8, n -> ask(orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).with(kitchen(restaurant, actor)).with(csrf()));
 
 		assertEquals(1, statuses.stream().filter(s -> s == 202).count(), "exactly one request was created: " + statuses);
 		assertEquals(7, statuses.stream().filter(s -> s == 409).count(), "the others were refused: " + statuses);
@@ -446,7 +447,7 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = order(restaurant);
 		UUID key = UUID.randomUUID();
 
-		List<Integer> statuses = fire(8, n -> ask(orderId, key, body("OTHER", null)).with(kitchen(restaurant, actor)).with(csrf()));
+		List<Integer> statuses = fire(8, n -> ask(orderId, key, body("KITCHEN_ERROR", null)).with(kitchen(restaurant, actor)).with(csrf()));
 
 		assertEquals(1, statuses.stream().filter(s -> s == 202).count(), "exactly one created it: " + statuses);
 		assertEquals(7, statuses.stream().filter(s -> s == 200).count(), "the others were verified repeats: " + statuses);
@@ -461,7 +462,7 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = preparingOrder(restaurant, actor);
 
 		List<Integer> statuses = fire(2, n -> n == 0
-				? ask(orderId, UUID.randomUUID(), body("OTHER", null)).with(kitchen(restaurant, actor)).with(csrf())
+				? ask(orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).with(kitchen(restaurant, actor)).with(csrf())
 				: patch("/api/v1/kitchen/orders/" + orderId + "/mark-ready").header(KEY, UUID.randomUUID().toString())
 						.with(kitchen(restaurant, actor)).with(csrf()));
 

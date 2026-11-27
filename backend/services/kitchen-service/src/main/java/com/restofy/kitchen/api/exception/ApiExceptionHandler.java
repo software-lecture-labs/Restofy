@@ -6,6 +6,7 @@ import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedExceptio
 import com.restofy.kitchen.domain.exception.OrderCancellationNotFoundException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
+import com.restofy.kitchen.domain.exception.InvalidReasonTextException;
 import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import com.restofy.kitchen.infrastructure.config.MenuIntegrationConfiguration;
@@ -39,6 +40,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String CANCELLATION_ALREADY_REQUESTED = "CANCELLATION_ALREADY_REQUESTED";
 	public static final String CANCELLATION_ALREADY_ANSWERED = "CANCELLATION_ALREADY_ANSWERED";
 	public static final String INVALID_STOCK_REFERENCE = "INVALID_STOCK_REFERENCE";
+	public static final String INVALID_REASON_TEXT = "INVALID_REASON_TEXT";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
 	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
 
@@ -74,6 +76,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	ProblemDetail invalidStockReference(InvalidStockReferenceException e) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
 		problem.setProperty(CODE, INVALID_STOCK_REFERENCE);
+		problem.setProperty(RETRYABLE, false);
+		return problem;
+	}
+
+	/** A request with the reason OTHER has no usable explanation. Nothing was stored; the text is not repeated back. */
+	@ExceptionHandler(InvalidReasonTextException.class)
+	ProblemDetail invalidReasonText(InvalidReasonTextException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+		problem.setProperty(CODE, INVALID_REASON_TEXT);
 		problem.setProperty(RETRYABLE, false);
 		return problem;
 	}

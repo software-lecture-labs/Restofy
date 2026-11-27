@@ -36,7 +36,8 @@ public class KitchenCancellationController {
 	 * {@code Idempotency-Key} makes a retry safe: the first call is 202 Accepted ("the request is recorded, the Order
 	 * service decides"), the same request sent again is 200 with the stored request, the same key for another request is
 	 * 409. The answer describes the REQUEST; the order is not cancelled and keeps its preparation status. READY and
-	 * CANCELLED orders are 409, and so is a second request while one is still undecided.
+	 * CANCELLED orders are 409, and so is a second request while one is still undecided. The reason OTHER without a usable
+	 * explanation of 1 to 300 characters is 400 {@code INVALID_REASON_TEXT}.
 	 */
 	@PostMapping("/{orderId}/cancellation-requests")
 	public ResponseEntity<CancellationRequestResponse> request(@AuthenticationPrincipal KitchenPrincipal principal,

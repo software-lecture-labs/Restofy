@@ -93,7 +93,7 @@ class HttpOrderEventSinkTests {
 		return new KitchenCancellationRequestedMessage(eventId, KitchenCancellationRequestedMessage.TYPE, 1, AT,
 				restaurantId, orderId, UUID.randomUUID(), 1, "corr-2", UUID.randomUUID(),
 				new KitchenCancellationRequestedMessage.Payload(orderId, reason,
-						"OUT_OF_STOCK".equals(reason) ? UUID.randomUUID() : null, null));
+						"OUT_OF_STOCK".equals(reason) ? UUID.randomUUID() : null, null, null));
 	}
 
 	private final UUID cancellationId = UUID.randomUUID();

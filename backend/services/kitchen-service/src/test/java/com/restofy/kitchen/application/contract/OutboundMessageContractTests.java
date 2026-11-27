@@ -17,7 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Freezes the PROPOSED wire contract of the events Kitchen sends, so a field cannot appear, disappear or change name by
  * accident. The contracts are not agreed with the Order or Notification services (NOT VERIFIED); they are versioned (v1),
- * carry the smallest payload that works, and never carry personal data, table numbers, products, notes, prices or free text.
+ * carry the smallest payload that works, and never carry personal data, table numbers, products, notes or prices. The one
+ * free text is the explanation of a cancellation request with the reason OTHER, which the Order service requires.
  */
 class OutboundMessageContractTests {
 
@@ -68,10 +69,11 @@ class OutboundMessageContractTests {
 	}
 
 	@Test
-	void theCancellationRequestEventIsVersionOneAndNeverCarriesTheFreeText() {
+	void theCancellationRequestEventIsVersionOneAndCarriesNoFreeTextForAStockReason() {
 		var message = new KitchenCancellationRequestedMessage(UUID.randomUUID(), KitchenCancellationRequestedMessage.TYPE,
 				KitchenCancellationRequestedMessage.SCHEMA_VERSION, T, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 4, "corr-1",
-				UUID.randomUUID(), new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OUT_OF_STOCK", UUID.randomUUID(), null));
+				UUID.randomUUID(), new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OUT_OF_STOCK", UUID.randomUUID(), null,
+						"Tavuk bitti"));
 
 		JsonNode tree = JSON.valueToTree(message);
 
@@ -82,12 +84,27 @@ class OutboundMessageContractTests {
 		assertEquals(1, tree.get("schemaVersion").asInt());
 	}
 
+	/** The explanation exists in the JSON for OTHER only; for every other reason the field is absent, whoever passes a text. */
+	@Test
+	void onlyTheReasonOtherCarriesAnExplanation() {
+		JsonNode other = JSON.valueToTree(
+				new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OTHER", null, null, "Fırın arızalandı"));
+		assertEquals(List.of("orderId", "reasonCode", "productId", "orderItemId", "reasonText"), fieldNames(other));
+		assertEquals("Fırın arızalandı", other.get("reasonText").asString());
+
+		for (String reason : List.of("OUT_OF_STOCK", "CUSTOMER_REQUEST", "KITCHEN_ERROR")) {
+			JsonNode node = JSON.valueToTree(
+					new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), reason, null, null, "iç not"));
+			assertEquals(List.of("orderId", "reasonCode", "productId", "orderItemId"), fieldNames(node), reason);
+		}
+	}
+
 	@Test
 	void noEventEverCarriesPersonalOrOperationalDetailsThatBelongToAnotherService() {
 		String everything = (JSON.writeValueAsString(ready()) + JSON.writeValueAsString(started())
 				+ JSON.writeValueAsString(new KitchenCancellationRequestedMessage(UUID.randomUUID(),
 				KitchenCancellationRequestedMessage.TYPE, 1, T, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1, null, null,
-				new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OTHER", null, null)))).toLowerCase(Locale.ROOT);
+				new KitchenCancellationRequestedMessage.Payload(UUID.randomUUID(), "OTHER", null, null, null)))).toLowerCase(Locale.ROOT);
 
 		for (String forbidden : List.of("table", "user", "email", "phone", "price", "note", "reasontext", "productname", "customer", "token",
 				"secret")) {

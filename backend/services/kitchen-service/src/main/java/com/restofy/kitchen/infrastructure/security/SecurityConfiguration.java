@@ -18,8 +18,9 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 /**
  * Deny by default. Kitchen endpoints need an authenticated KITCHEN or ADMIN principal; everything else is denied,
  * except the anonymous health endpoint that probes and pre-push rely on (no other actuator endpoint is open).
- * No authentication mechanism is wired because the Auth/service-identity contract is open (D-09): until it exists
- * all requests get 401. Form login, HTTP basic and the generated default user are intentionally absent.
+ * No staff authentication mechanism is wired because the Auth contract is open (D-09): until it exists all staff
+ * requests get 401. Form login, HTTP basic and the generated default user are intentionally absent. The one internal
+ * path for Order's events has its own, earlier chain ({@link OrderEventSecurityConfiguration}).
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {

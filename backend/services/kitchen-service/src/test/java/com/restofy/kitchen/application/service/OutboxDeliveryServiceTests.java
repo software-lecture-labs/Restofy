@@ -56,6 +56,16 @@ class OutboxDeliveryServiceTests {
 	private record Ready(UUID restaurant, UUID orderId, UUID deliveryId) {
 	}
 
+	/** The Order service refuses READY before PREPARING, so Kitchen hands READY over only after PREPARING arrived. */
+	private void deliverPreparing(UUID restaurant) {
+		UUID preparing = jdbc.queryForObject("""
+				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND d.destination = 'ORDER' AND e.event_type = 'KitchenPreparationStarted'
+				""", UUID.class, restaurant);
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED),
+				delivery.attempt(preparing, (OrderEventSink) message -> OrderEventSink.Result.delivered()));
+	}
+
 	private Ready readyOrder() {
 		UUID restaurant = UUID.randomUUID();
 		UUID actor = UUID.randomUUID();
@@ -63,6 +73,7 @@ class OutboxDeliveryServiceTests {
 		ingest.ingest(message(restaurant, orderId, UUID.randomUUID(), "1", "A-1", 1, UUID.randomUUID(), item("Burger", 1, null)));
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
+		deliverPreparing(restaurant);
 		UUID deliveryId = jdbc.queryForObject("""
 				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
 				WHERE d.restaurant_id = ? AND d.destination = 'ORDER' AND e.event_type = 'KitchenOrderReady'

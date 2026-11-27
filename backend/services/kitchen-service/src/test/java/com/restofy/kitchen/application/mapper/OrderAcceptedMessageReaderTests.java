@@ -22,6 +22,7 @@ class OrderAcceptedMessageReaderTests {
 		return """
 				{
 				  "eventId": "11111111-1111-1111-1111-111111111111",
+				  "eventType": "OrderAccepted",
 				  "schemaVersion": 1,
 				  "occurredAt": "2026-10-17T15:04:05Z",
 				  "correlationId": "corr-1",
@@ -29,6 +30,7 @@ class OrderAcceptedMessageReaderTests {
 				  "orderId": "33333333-3333-3333-3333-333333333333",
 				  "aggregateVersion": 1,
 				  "orderNumber": "A-100",
+				  "tableId": "88888888-8888-4888-8888-888888888888",
 				  "tableSessionId": "44444444-4444-4444-4444-444444444444",
 				  "tableNumber": "12"%s,
 				  "items": [
@@ -81,6 +83,41 @@ class OrderAcceptedMessageReaderTests {
 		assertThrows(InvalidOrderMessageException.class, () -> reader.read("null"));
 		assertThrows(InvalidOrderMessageException.class, () -> reader.read(null));
 		assertThrows(InvalidOrderMessageException.class, () -> reader.read("   "));
+	}
+
+	@Test
+	void tableIdAndTableNumberAreBothRequiredSoAMessageWithOnlyTheTableIdIsRefused() {
+		try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+			var validator = factory.getValidator();
+			assertEquals(UUID.fromString("88888888-8888-4888-8888-888888888888"), reader.read(valid()).tableId());
+
+			String onlyTableId = valid().replaceAll("(?s),\\s*\"tableNumber\": \"12\"", "");
+			assertFalse(onlyTableId.contains("tableNumber"));
+			assertEquals(java.util.List.of("tableNumber"), validator.validate(reader.read(onlyTableId)).stream()
+					.map(violation -> violation.getPropertyPath().toString()).toList());
+
+			String onlyTableNumber = valid().replace("\"tableId\": \"88888888-8888-4888-8888-888888888888\",", "");
+			assertEquals(java.util.List.of("tableId"), validator.validate(reader.read(onlyTableNumber)).stream()
+					.map(violation -> violation.getPropertyPath().toString()).toList());
+		}
+	}
+
+	/** The reader only maps JSON; the ingest service validates the values, so both halves are checked here. */
+	@Test
+	void theEventTypeIsReadAndOnlyOrderAcceptedPassesValidation() {
+		try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+			var validator = factory.getValidator();
+			OrderAcceptedMessage accepted = reader.read(valid());
+			assertEquals("OrderAccepted", accepted.eventType());
+			assertTrue(validator.validate(accepted).isEmpty());
+
+			for (String other : new String[] { "\"OrderCancelled\"", "\"orderaccepted\"", "\"\"", "null" }) {
+				OrderAcceptedMessage wrong = reader.read(valid().replace("\"OrderAccepted\"", other));
+				assertFalse(validator.validate(wrong).isEmpty(), other);
+			}
+			OrderAcceptedMessage missing = reader.read(valid().replace("\"eventType\": \"OrderAccepted\",", ""));
+			assertFalse(validator.validate(missing).isEmpty());
+		}
 	}
 
 	@Test
