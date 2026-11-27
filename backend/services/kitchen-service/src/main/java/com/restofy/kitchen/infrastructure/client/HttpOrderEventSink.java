@@ -47,8 +47,9 @@ public class HttpOrderEventSink implements OrderEventSink {
 	/** Event types that are not sent; see the class comment. */
 	static final Set<String> HELD = Set.of(KitchenCancellationRequestedMessage.TYPE);
 
-	static final String STATUS_PATH = "/api/v1/internal/order-events/kitchen";
-	static final String CANCELLATION_REQUEST_PATH = "/api/v1/internal/order-events/kitchen-cancellation-request";
+	/** Fixed by the Order service's contract (not configuration). */
+	static final String STATUS_ENDPOINT = "/api/v1/internal/order-events/kitchen";
+	static final String CANCELLATION_REQUEST_ENDPOINT = "/api/v1/internal/order-events/kitchen-cancellation-request";
 	/** Longest answer that is read; the real ones are a few hundred bytes. */
 	static final int MAX_RESPONSE_BYTES = 16 * 1024;
 	private static final String AUTHORIZATION_SCHEME = "Service ";
@@ -107,7 +108,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 
 	private static Call statusCall(OutboundMessage message, UUID orderId, String kitchenStatus) {
 		var body = new StatusReport(message.eventId(), message.restaurantId(), orderId, kitchenStatus, message.occurredAt());
-		return new Call(message, orderId, STATUS_PATH, body, STATUS_OUTCOMES);
+		return new Call(message, orderId, STATUS_ENDPOINT, body, STATUS_OUTCOMES);
 	}
 
 	private Result requestCancellation(KitchenCancellationRequestedMessage requested) {
@@ -127,7 +128,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 		}
 		var body = new CancellationAsk(requested.eventId(), requested.restaurantId(), requested.orderId(), true,
 				List.of(orderReason));
-		return send(new Call(requested, requested.orderId(), CANCELLATION_REQUEST_PATH, body, CANCELLATION_OUTCOMES));
+		return send(new Call(requested, requested.orderId(), CANCELLATION_REQUEST_ENDPOINT, body, CANCELLATION_OUTCOMES));
 	}
 
 	private Result send(Call call) {
@@ -212,8 +213,10 @@ public class HttpOrderEventSink implements OrderEventSink {
 	}
 
 	private static Result refused(OutboundMessage message, String code) {
-		log.warn("Order delivery cannot succeed and is not retried: eventId={} eventType={} code={}", message.eventId(),
-				message.eventType(), code);
+		if (log.isWarnEnabled()) {
+			log.warn("Order delivery cannot succeed and is not retried: eventId={} eventType={} code={}", message.eventId(),
+					message.eventType(), code);
+		}
 		return Result.permanentFailure(code);
 	}
 

@@ -120,7 +120,7 @@ public class OutboxDeliveryService {
 		OutboundMessage message;
 		try {
 			message = recorder.toMessage(event);
-		} catch (IllegalStateException e) {
+		} catch (IllegalStateException _) {
 			// A stored event never changes, so trying again cannot help; FAILED makes it visible and requeueable.
 			delivery.recordAttempt(DeliveryOutcome.PERMANENT_FAILURE, UNREADABLE_EVENT, now);
 			log.error("Outbox delivery {} -> FAILED: stored event {} cannot be read", deliveryId, event.getId());

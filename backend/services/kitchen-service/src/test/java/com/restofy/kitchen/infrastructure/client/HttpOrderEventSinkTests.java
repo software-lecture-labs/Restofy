@@ -54,8 +54,8 @@ class HttpOrderEventSinkTests {
 	}
 
 	private final List<Asked> asked = new ArrayList<>();
-	private final OrderServiceCredentials credentials = (restaurantId, path, body) -> {
-		asked.add(new Asked(restaurantId, path, body));
+	private final OrderServiceCredentials credentials = (restaurant, path, body) -> {
+		asked.add(new Asked(restaurant, path, body));
 		return "test-credential";
 	};
 
