@@ -67,9 +67,16 @@ restoranı yalnız doğrulanmış sonucun belirlemesi, 404/503 ayrımı) **deği
 | Açma | `MENU_QR_CALLER_PRIVATE_KEY` boşsa bağlantı **kapalı** (her müşteri isteği 404, eski davranış). Doluysa `QR_SERVICE_URL`, `MENU_QR_CALLER_KEY_ID` ve anahtar geçerli olmalı, değilse uygulama **başlangıçta durur**; hata ayar adını söyler, değeri asla göstermez |
 | Sırlar | Guest token ve imzalı kimlik hiçbir log satırına, istisna metnine, yanıta veya URL'ye girmez; hata yalnız sınıf adıyla loglanır |
 
-**Yeni ENV (onay ve Compose bağlantısı bekliyor):** `MENU_QR_CALLER_KEY_ID` ve `MENU_QR_CALLER_PRIVATE_KEY` (Base64 PKCS#8 RSA ≥ 2048 bit);
-`QR_SERVICE_URL` mevcut değişkendir. QR'a eşleşen **açık** anahtar `QR_MENU_CALLER_PUBLIC_KEYS` ile verilir. Bu iş `.env.example`,
-`docker-compose.yml` veya ortak yapılandırmaya **dokunmadı**; Menu servisine ENV aktarımı Alper'in ortak dosyalarındadır.
+**ENV ve Compose (Alper'in PR #55 tespiti üzerine tamamlandı):** `MENU_QR_CALLER_KEY_ID` ve `MENU_QR_CALLER_PRIVATE_KEY`
+(Base64 PKCS#8 RSA ≥ 2048 bit) `.env.example`'da değersiz belgelendi ve `docker-compose.yml`'de yalnız `menu-service` bloğuna aktarıldı
+(`${...:-}`; boş = bağlantı kapalı). `QR_SERVICE_URL` zaten paylaşılan çalışma zamanı ortamında olduğu için yeniden eklenmedi. QR'a
+eşleşen **açık** anahtar `QR_MENU_CALLER_PUBLIC_KEYS` ile verilir (`.env.example`'da mevcut). Özel anahtar yalnız ignore edilen yerel
+profil dosyasında (`.env.dev`) durur; hiçbir izlenen dosyada, log'da veya yanıtta yer almaz.
+
+**Dikkat (karar bekliyor):** Compose'un varsayılan `QR_SERVICE_URL=http://qr-service:8080` düz HTTP'dir. Menu, guest token gövdede gittiği için
+anahtar tanımlıyken **HTTPS kaynağı ister** (düz HTTP yalnız `localhost`; Order'ın `order-qr` kuralıyla aynı). Bu yüzden Compose ağında
+bağlantıyı açmak için QR önünde TLS ve HTTPS bir `QR_SERVICE_URL` gerekir; aksi halde anahtar tanımlandığında `menu-service` başlangıçta
+durur (hata ayar adını söyler). Bu kural gevşetilmedi.
 
 ### Doğrulama kapsamı (abartılmadan)
 
