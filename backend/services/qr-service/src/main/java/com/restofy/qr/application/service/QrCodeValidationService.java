@@ -27,7 +27,7 @@ public class QrCodeValidationService {
     @Transactional
     public ValidatedQrCodeResponse validate(String token) {
         String digest = codec.digest(token);
-        var location = codes.locateByDigest(digest).orElseThrow(InvalidQrCodeException::new);
+        var location = codes.locateByDigest(digest).orElseThrow(InvalidQrCodeException::unknown);
         // Reuse the lifecycle lock, then read fresh state. A successful lookup is
         // only a snapshot; session opening must revalidate in its own transaction.
         var table = tables.findForQrManagement(location.getRestaurantId(), location.getTableId())
