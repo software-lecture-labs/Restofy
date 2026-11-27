@@ -132,12 +132,18 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
         assertThat(repeat.guestSession().version()).isZero();
         assertThat(count(code.tableId())).isEqualTo(3);
         assertThat(tables.get(code.tableId()).version()).isEqualTo(1);
+    }
+
+    @Test
+    void theGuestTokenIsStoredOnlyAsADigestAndEveryScanLeavesOneEvent() {
+        var code = create("1");
+        var first = opening.open(code.qrToken());
         var stored = guests.findById(first.guestSession().id()).orElseThrow();
         assertThat(stored.getTokenDigest()).isEqualTo(tokens.digest(first.guestToken())).isNotEqualTo(first.guestToken());
         assertThat(first.toString()).doesNotContain(first.guestToken());
         assertThat(jdbc.queryForList("select column_name from information_schema.columns where table_name='guest_sessions'", String.class))
                 .containsExactlyInAnyOrder("id", "restaurant_id", "table_session_id", "token_digest", "status", "joined_at", "last_activity_at", "expires_at", "ended_at", "version");
-        assertThat(jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId())).isEqualTo(3);
+        assertThat(jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId())).isEqualTo(1);
     }
 
     @Test
@@ -315,7 +321,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Test
     void databaseEnforcesDigestUniquenessAndTheCompositeTenantParentKey() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("123");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("128");
         var opened = opening.open(create("1").qrToken());
         var guest = opened.guestSession();
         var duplicate = new GuestSession(guest.restaurantId(), guest.tableSessionId(), tokens.digest(opened.guestToken()), guest.joinedAt());

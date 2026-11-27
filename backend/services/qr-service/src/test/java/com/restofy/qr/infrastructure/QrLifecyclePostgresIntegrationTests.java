@@ -83,7 +83,7 @@ class QrLifecyclePostgresIntegrationTests extends com.restofy.qr.support.Q5TestS
     @Test
     void forwardMigrationAllowsInactiveStateWithNoRevocationTimestamp() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("123");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("128");
         var code = create();
         change(code, false, 0);
         assertThat(codes.findById(code.id()).orElseThrow().getRevokedAt()).isNull();
