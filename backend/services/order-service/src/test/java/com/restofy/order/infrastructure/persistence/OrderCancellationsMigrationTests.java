@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The chain through V131 runs from
+ * D-13: the order cancellation migration (V47) on a clean, throw-away PostgreSQL schema. The chain through V132 runs from
  * nothing, uses no number outside the Order range, passes Flyway's own validation (checksums, ordering) and leaves the
  * audit model in place: SERVICE is a real kind of author next to GUEST and STAFF, the staff member a service claims to act
  * for has a column of its own, and the guards keep both unchangeable. V50 (the version of a decision and the
@@ -69,7 +69,7 @@ class OrderCancellationsMigrationTests {
                 assertTrue(info.getState().isApplied() && info.getState().isResolved(), info.getVersion().toString());
                 versions.add(info.getVersion().toString());
             }
-            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "131"), versions);
+            assertEquals(List.of("41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "131", "132"), versions);
             assertEquals(0, flyway.info().pending().length);
             flyway.validate();                                  // checksums of every applied file still match
             assertEquals(0, flyway.migrate().migrationsExecuted, "a second run has nothing to do");
@@ -157,7 +157,7 @@ class OrderCancellationsMigrationTests {
             numbers.add(file.getName().substring(1, file.getName().indexOf("__")));
         }
         Collections.sort(numbers);
-        assertEquals(List.of("131", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), numbers);
+        assertEquals(List.of("131", "132", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50"), numbers);
     }
 
     @Test
@@ -198,9 +198,9 @@ class OrderCancellationsMigrationTests {
                         && guard.contains("cannot be taken back"), guard);
             }
 
-            Flyway latest = flyway(schema);
-            assertEquals(1, latest.migrate().migrationsExecuted, "V131 is the only migration after V50");
-            latest.validate();
+            Flyway v131 = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
+                    .locations("classpath:db/migration").target("131").load();
+            assertEquals(1, v131.migrate().migrationsExecuted, "V131 follows V50");
             try (Connection connection = dataSource.getConnection();
                     Statement statement = connection.createStatement()) {
                 String table = schema + ".table_session_closure_aborts";
@@ -210,6 +210,9 @@ class OrderCancellationsMigrationTests {
                         () -> statement.executeUpdate("UPDATE " + table + " SET aborted_at = now()"));
                 assertEquals("23514", change.getSQLState());
             }
+            Flyway latest = flyway(schema);
+            assertEquals(1, latest.migrate().migrationsExecuted, "V132 follows V131");
+            latest.validate();
         } finally {
             drop(schema);
         }

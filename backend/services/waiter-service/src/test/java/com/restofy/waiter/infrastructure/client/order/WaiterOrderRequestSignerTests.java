@@ -45,7 +45,7 @@ class WaiterOrderRequestSignerTests {
     @Test
     void blankConfigurationMeansNothingIsSigned() {
         assertThat(new WaiterOrderRequestSigner(CLOCK, "", "")
-                .authorization(RESTAURANT, HttpMethod.POST, TARGET, new byte[0], STAFF)).isEmpty();
+                .authorization(WaiterOrderRequestSigner.SERVE, RESTAURANT, HttpMethod.POST, TARGET, new byte[0], STAFF)).isEmpty();
     }
 
     @Test
@@ -53,7 +53,7 @@ class WaiterOrderRequestSignerTests {
         byte[] body = "{\"commandId\":\"x\"}".getBytes(StandardCharsets.UTF_8);
         var signer = new WaiterOrderRequestSigner(CLOCK, "waiter-key-1", encodedPrivateKey);
 
-        String header = signer.authorization(RESTAURANT, HttpMethod.POST, TARGET, body, STAFF).orElseThrow();
+        String header = signer.authorization(WaiterOrderRequestSigner.SERVE, RESTAURANT, HttpMethod.POST, TARGET, body, STAFF).orElseThrow();
 
         assertThat(header).startsWith("Service ");
         Jws<Claims> jws = Jwts.parser().verifyWith((RSAPublicKey) pair.getPublic())
@@ -83,7 +83,7 @@ class WaiterOrderRequestSignerTests {
         String target = "/api/v1/internal/orders/" + ORDER_ID + "/serve-commands/" + UUID.randomUUID()
                 + "?restaurantId=" + RESTAURANT;
 
-        String header = signer.authorization(RESTAURANT, HttpMethod.GET, target, new byte[0], STAFF).orElseThrow();
+        String header = signer.authorization(WaiterOrderRequestSigner.SERVE, RESTAURANT, HttpMethod.GET, target, new byte[0], STAFF).orElseThrow();
 
         Claims claims = Jwts.parser().verifyWith((RSAPublicKey) pair.getPublic())
                 .clock(() -> java.util.Date.from(CLOCK.instant())).build()
@@ -97,8 +97,8 @@ class WaiterOrderRequestSignerTests {
     void everyCredentialHasItsOwnIdentifier() {
         var signer = new WaiterOrderRequestSigner(CLOCK, "waiter-key-1", encodedPrivateKey);
 
-        assertThat(signer.authorization(RESTAURANT, HttpMethod.POST, TARGET, new byte[0], STAFF))
-                .isNotEqualTo(signer.authorization(RESTAURANT, HttpMethod.POST, TARGET, new byte[0], STAFF));
+        assertThat(signer.authorization(WaiterOrderRequestSigner.SERVE, RESTAURANT, HttpMethod.POST, TARGET, new byte[0], STAFF))
+                .isNotEqualTo(signer.authorization(WaiterOrderRequestSigner.SERVE, RESTAURANT, HttpMethod.POST, TARGET, new byte[0], STAFF));
     }
 
     @Test

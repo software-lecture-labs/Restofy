@@ -5,18 +5,22 @@ import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.infrastructure.client.DownstreamCalls;
 import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
-import com.restofy.waiter.infrastructure.security.StaffCredentials;
+import com.restofy.waiter.infrastructure.security.StaffAccessToken;
 import com.restofy.waiter.infrastructure.security.StaffSessionVerifier;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.StreamingHttpOutputMessage;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.DefaultUriBuilderFactory;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URI;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,7 +34,8 @@ import java.util.UUID;
  * Adapter for the Order service (its real contract, PR #45 / docs/order-service/entegrasyon-rehberi.md): the
  * owner of orders, snapshots, cancellations and the served fact. Queries are read-only (the search POSTs only
  * carry large filters in a body) and are made as the staff member of the current request, with that member's
- * verified session; the restaurant is Order's, taken from that session, so no tenant is ever sent in a read.
+ * verified session. Order derives the restaurant from that session; the signed POST reads bind the tenant
+ * in the service JWT, and the detail and cancellation GETs carry the staff cookie.
  * The single command is {@link #serve}: it is signed as Waiter's own service identity and delegates the staff
  * member through {@code X-Restofy-Staff-Delegation}. Order's answers are mapped to Waiter's {@link OrderDto}
  * by {@link OrderMapping}.
@@ -49,15 +54,20 @@ public class OrderClient {
     private final RestClient client;
     private final JsonMapper requests;
     private final WaiterOrderRequestSigner signer;
-    private final String basePath;
+    private final DefaultUriBuilderFactory uris;
+    private final boolean secureStaffTransport;
 
     public OrderClient(RestClient.Builder builder, ServiceUrlProperties urls, JsonMapper json,
-                       WaiterOrderRequestSigner signer) {
-        this.client = builder.clone().baseUrl(urls.orderUrl().toString()).build();
+                       WaiterOrderRequestSigner signer, Environment environment) {
+        URI orderUrl = urls.orderUrl();
+        this.uris = new DefaultUriBuilderFactory(orderUrl.toString());
+        this.client = builder.clone().uriBuilderFactory(uris).build();
         this.requests = json;
         this.signer = signer;
-        String path = urls.orderUrl().getPath();
-        this.basePath = path == null || path.equals("/") ? "" : path.replaceAll("/+$", "");
+        // HTTP is suitable only for local test peers bound to a literal loopback address.
+        this.secureStaffTransport = "https".equalsIgnoreCase(orderUrl.getScheme())
+                || (environment.matchesProfiles("test")
+                && ("127.0.0.1".equals(orderUrl.getHost()) || "[::1]".equals(orderUrl.getHost())));
     }
 
     /** Active order count per live session in one request; sessions without active orders map to zero. */
@@ -67,12 +77,8 @@ public class OrderClient {
             throw new IllegalArgumentException("Too many session ids for one request");
         }
         Set<UUID> requested = new HashSet<>(tableSessionIds);
-        OrderWire.SessionCounts result = DownstreamCalls.execute(DEPENDENCY, () -> client.post()
-                .uri(ORDERS + "/session-summaries")
-                .headers(OrderClient::asStaff)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new SessionSummaryRequest(List.copyOf(requested)))
-                .retrieve().body(OrderWire.SessionCounts.class));
+        OrderWire.SessionCounts result = readPost(restaurantId, ORDERS + "/session-summaries",
+                new SessionSummaryRequest(List.copyOf(requested)), OrderWire.SessionCounts.class);
         Map<UUID, Integer> counts = new HashMap<>();
         for (OrderWire.SessionCount entry : result.items()) {
             if (!requested.contains(entry.tableSessionId())) throw badResponse("summary for a session that was not requested");
@@ -85,7 +91,7 @@ public class OrderClient {
     }
 
     /**
-     * One page of orders (rows without items and version). Filters and ordering are applied by Order to the
+     * One page of orders (rows without items). Filters and ordering are applied by Order to the
      * whole data set; the answer is checked against the request so a downstream that ignores a filter is never
      * shown.
      */
@@ -95,12 +101,8 @@ public class OrderClient {
             throw new IllegalArgumentException("tableSessionIds must hold between 1 and " + MAX_SESSION_IDS + " ids");
         }
         List<UUID> sessions = tableSessionIds == null ? null : List.copyOf(new HashSet<>(tableSessionIds));
-        OrderWire.Page result = DownstreamCalls.execute(DEPENDENCY, () -> client.post()
-                .uri(ORDERS + "/search")
-                .headers(OrderClient::asStaff)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(OrderSearchRequest.of(tableId, sessions, view, page, size))
-                .retrieve().body(OrderWire.Page.class));
+        OrderWire.Page result = readPost(restaurantId, ORDERS + "/search",
+                OrderSearchRequest.of(tableId, sessions, view, page, size), OrderWire.Page.class);
         if (result.page() != page || result.limit() != size || result.items().size() > size
                 || result.totalItems() < result.items().size()) {
             throw badResponse("page metadata does not match the request");
@@ -133,13 +135,13 @@ public class OrderClient {
     public Optional<OrderDto> findOrder(UUID restaurantId, UUID orderId) {
         Optional<OrderWire.Detail> detail = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(ORDERS + "/" + orderId)
-                .headers(OrderClient::asStaff)
+                .headers(this::asStaff)
                 .retrieve().body(OrderWire.Detail.class));
         if (detail.isEmpty()) return Optional.empty();
         if (!detail.get().orderId().equals(orderId)) throw badResponse("order id does not match the request");
         Optional<OrderWire.Cancellations> cancellations = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
                 .uri(ORDERS + "/" + orderId + "/cancellations")
-                .headers(OrderClient::asStaff)
+                .headers(this::asStaff)
                 .retrieve().body(OrderWire.Cancellations.class));
         if (cancellations.isEmpty()) return Optional.empty();
         if (!cancellations.get().orderId().equals(orderId)) throw badResponse("cancellations of another order");
@@ -166,15 +168,16 @@ public class OrderClient {
      * A 401/403 is reported as a dependency rejection ({@code REJECTED}): Order did not process the request.
      */
     public ServeResponseDto serve(UUID orderId, ServeCommandRequestDto command) {
-        String target = basePath + INTERNAL_ORDERS + "/" + orderId + "/serve";
+        URI uri = uris.expand(INTERNAL_ORDERS + "/" + orderId + "/serve");
         byte[] body = requests.writeValueAsBytes(command);
         try {
             ServeResponseDto answer = client.post()
-                    .uri(INTERNAL_ORDERS + "/" + orderId + "/serve")
+                    .uri(uri)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Idempotency-Key", command.commandId().toString())
-                    .headers(headers -> delegated(headers, command.restaurantId(), HttpMethod.POST, target, body))
-                    .body(body)
+                    .headers(headers -> delegated(headers, WaiterOrderRequestSigner.SERVE,
+                            command.restaurantId(), HttpMethod.POST, uri, body))
+                    .body(raw(body))
                     .retrieve().body(ServeResponseDto.class);
             if (answer == null) throw badResponse("empty answer to the serve command");
             if (!answer.commandId().equals(command.commandId())) throw badResponse("answer for another command");
@@ -199,10 +202,11 @@ public class OrderClient {
      */
     public Optional<ServeStatusDto> serveStatus(UUID restaurantId, UUID orderId, UUID commandId) {
         String path = INTERNAL_ORDERS + "/" + orderId + "/serve-commands/" + commandId + "?restaurantId=" + restaurantId;
-        String target = basePath + path;
+        URI uri = uris.expand(path);
         Optional<ServeStatusDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
-                .uri(path)
-                .headers(headers -> delegated(headers, restaurantId, HttpMethod.GET, target, new byte[0]))
+                .uri(uri)
+                .headers(headers -> delegated(headers, WaiterOrderRequestSigner.SERVE,
+                        restaurantId, HttpMethod.GET, uri, new byte[0]))
                 .retrieve().body(ServeStatusDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
@@ -211,22 +215,52 @@ public class OrderClient {
         return status;
     }
 
-    /** Reads are made with the staff member's own verified session, never with a service identity. */
-    private static void asStaff(HttpHeaders headers) {
-        StaffCredentials.current()
-                .ifPresent(credential -> headers.add(HttpHeaders.COOKIE, StaffSessionVerifier.ACCESS_COOKIE + "=" + credential));
+    private <T> T readPost(UUID restaurantId, String path, Object request, Class<T> responseType) {
+        byte[] body = requests.writeValueAsBytes(request);
+        URI uri = uris.expand(path);
+        return DownstreamCalls.execute(DEPENDENCY, () -> client.post()
+                .uri(uri)
+                .contentType(MediaType.APPLICATION_JSON)
+                .headers(headers -> delegated(headers, WaiterOrderRequestSigner.READ,
+                        restaurantId, HttpMethod.POST, uri, body))
+                .body(raw(body))
+                .retrieve().body(responseType));
+    }
+
+    private static StreamingHttpOutputMessage.Body raw(byte[] body) {
+        return out -> out.write(body);
+    }
+
+    /** The detail and cancellation GETs use the staff member's verified access cookie. */
+    private void asStaff(HttpHeaders headers) {
+        StaffAccessToken.current().ifPresent(credential -> {
+            requireSecureStaffTransport();
+            headers.set(HttpHeaders.COOKIE, StaffSessionVerifier.ACCESS_COOKIE + "=" + credential);
+        });
     }
 
     /**
-     * Signs and delegates one internal request. Without a staff credential or a configured key nothing is sent,
+     * Signs and delegates one Order request. Without a staff credential or a configured key nothing is sent,
      * so Order answers 401 and the call is a dependency rejection: no identity is invented.
      */
-    private void delegated(HttpHeaders headers, UUID restaurantId, HttpMethod method, String target, byte[] body) {
-        StaffCredentials.current().ifPresent(credential -> signer.authorization(restaurantId, method, target, body, credential)
-                .ifPresent(authorization -> {
-                    headers.set(HttpHeaders.AUTHORIZATION, authorization);
-                    headers.set(STAFF_DELEGATION_HEADER, credential);
-                }));
+    private void delegated(HttpHeaders headers, String scope, UUID restaurantId, HttpMethod method, URI uri,
+                           byte[] body) {
+        StaffAccessToken.current().ifPresent(credential -> {
+            requireSecureStaffTransport();
+            String query = uri.getRawQuery();
+            String target = uri.getRawPath() + (query == null ? "" : "?" + query);
+            signer.authorization(scope, restaurantId, method, target, body, credential).ifPresent(authorization -> {
+                headers.set(HttpHeaders.AUTHORIZATION, authorization);
+                headers.set(STAFF_DELEGATION_HEADER, credential);
+            });
+        });
+    }
+
+    private void requireSecureStaffTransport() {
+        if (!secureStaffTransport) {
+            throw new DependencyException(DEPENDENCY, DependencyFailure.UNAVAILABLE,
+                    "Order's staff connection requires HTTPS");
+        }
     }
 
     /** Reasons Order may give; anything else becomes the generic code so foreign text is never reflected. */

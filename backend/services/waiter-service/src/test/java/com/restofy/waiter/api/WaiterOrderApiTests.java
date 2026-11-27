@@ -19,6 +19,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -95,7 +96,7 @@ class WaiterOrderApiTests extends ApiTestBase {
                 // A list row of Order has no cancellations (only the detail does): the row says so by being empty.
                 .andExpect(jsonPath("$.items[0].cancellations", hasSize(0)))
                 .andExpect(jsonPath("$.items[0].items", hasSize(0)))
-                .andExpect(jsonPath("$.items[0].version").value(nullValue()));
+                .andExpect(jsonPath("$.items[0].version").value((int) cancelled.version()));
         listOrders("?view=ACTIVE")
                 .andExpect(jsonPath("$.totalElements").value(4))
                 .andExpect(jsonPath("$.items[*].businessStatus").value(contains("ACCEPTED", "ACCEPTED", "ACCEPTED", "ACCEPTED")));
@@ -196,8 +197,7 @@ class WaiterOrderApiTests extends ApiTestBase {
     void servedOrderKeepsKitchenReadyAndTheDeliveryAxisSaysServed() throws Exception {
         mockMvc.perform(get("/api/v1/waiters/orders/" + servedAndPaid.id()).with(asWaiter()))
                 .andExpect(jsonPath("$.deliveryStatus").value("SERVED"))
-                // Order does not report when it was served on a read (a request to Order); it does in a serve receipt.
-                .andExpect(jsonPath("$.servedAt").value(nullValue()))
+                .andExpect(jsonPath("$.servedAt").value(servedAndPaid.servedAt().toString()))
                 .andExpect(jsonPath("$.preparation.status").value("READY"));
     }
 
@@ -269,8 +269,10 @@ class WaiterOrderApiTests extends ApiTestBase {
                 StreamSupport.stream(body.get("fulfillmentStatuses").spliterator(), false).map(n -> n.asString()).toList());
         assertEquals(5, body.get("limit").asInt());
         assertEquals(2, body.get("tableSessionIds").size());
-        assertEquals("restofy_access=fake-staff-" + RESTAURANT, search.header("Cookie"));
-        assertEquals(null, search.header("Authorization"), "A read is made as the staff member, not as a service");
+        assertEquals("fake-staff-" + RESTAURANT, search.header("X-Restofy-Staff-Delegation"));
+        assertEquals(null, search.header("Cookie"));
+        assertEquals(null, search.header("Origin"));
+        assertTrue(search.header("Authorization").startsWith("Service "));
     }
 
     @Test

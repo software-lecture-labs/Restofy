@@ -29,14 +29,14 @@ final class OrderMapping {
     private OrderMapping() {
     }
 
-    /** A list row: no items, no cancellations, no version and no cancelled amount (only the detail has them). */
+    /** A list row omits item and cancellation amounts. */
     static OrderDto fromSummary(UUID restaurantId, OrderWire.Summary row) {
         String currency = row.currency() == null ? "" : row.currency();
         BigDecimal gross = money(row.grossMinor(), currency);
         BigDecimal due = row.currentDueMinor() == null ? gross : money(row.currentDueMinor(), currency);
         return build(restaurantId, row.orderId(), row.orderNo(), row.tableId(), row.tableSessionId(),
                 row.fulfillmentStatus(), row.paymentStatus(), currency, gross, BigDecimal.ZERO, due, List.of(),
-                List.of(), row.placedAt(), row.placedAt(), null, false);
+                List.of(), row.placedAt(), row.placedAt(), row.servedAt(), row.version(), false);
     }
 
     static OrderDto fromDetail(UUID restaurantId, OrderWire.Detail detail, List<OrderWire.Cancellation> cancellations) {
@@ -51,18 +51,18 @@ final class OrderMapping {
         return build(restaurantId, detail.orderId(), detail.orderNo(), detail.tableId(), detail.tableSessionId(),
                 detail.fulfillmentStatus(), detail.paymentStatus(), currency, original, cancelled, due, items,
                 cancellations.stream().map(OrderMapping::cancellation).toList(), detail.placedAt(), asOf,
-                detail.version(), partly);
+                detail.servedAt(), detail.version(), partly);
     }
 
     private static OrderDto build(UUID restaurantId, UUID id, String orderNo, UUID tableId, UUID sessionId,
                                   String fulfillment, String payment, String currency, BigDecimal original,
                                   BigDecimal cancelled, BigDecimal payable, List<OrderItemDto> items,
-                                  List<CancellationDto> cancellations, Instant placedAt, Instant asOf, Long version,
+                                  List<CancellationDto> cancellations, Instant placedAt, Instant asOf, Instant servedAt, Long version,
                                   boolean partiallyCancelled) {
         boolean served = "SERVED".equals(fulfillment) || "COMPLETED".equals(fulfillment);
         return new OrderDto(id, restaurantId, orderNo, tableId, sessionId,
                 business(fulfillment, partiallyCancelled), served ? DeliveryStatus.SERVED : DeliveryStatus.PENDING,
-                placedAt, null, new PreparationProjectionDto(preparation(fulfillment), null, null, 0, asOf),
+                placedAt, servedAt, new PreparationProjectionDto(preparation(fulfillment), null, null, 0, asOf),
                 payment == null ? null : new PaymentProjectionDto(payment(payment), 0, asOf),
                 currency, original, cancelled, payable, items, cancellations, version);
     }

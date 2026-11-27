@@ -89,7 +89,7 @@ public abstract class AuthSessionTestSupport {
     static void sessionProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () -> "jdbc:tc:q5postgresql:17-alpine:///restofy_test");
         registry.add("auth.q5.qr-public-key", () -> Base64.getEncoder().encodeToString(Q5_QR_KEYS.getPublic().getEncoded()));
-        registry.add("auth.q5.qr-generation", () -> Q5_GENERATION.toString());
+        registry.add("auth.q5.qr-generation", Q5_GENERATION::toString);
         registry.add("auth.q5.retry.enabled", () -> "false");
         registry.add("auth.q5.qr-url", () -> "http://127.0.0.1:9");
         registry.add("auth.q5.command-private-key", () -> Base64.getEncoder().encodeToString(Q5_AUTH_KEYS.getPrivate().getEncoded()));

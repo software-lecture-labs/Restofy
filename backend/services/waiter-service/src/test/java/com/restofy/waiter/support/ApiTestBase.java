@@ -2,7 +2,7 @@ package com.restofy.waiter.support;
 
 import com.restofy.waiter.domain.enums.StaffRole;
 import com.restofy.waiter.infrastructure.security.AuthenticatedStaff;
-import com.restofy.waiter.infrastructure.security.TestStaffCredentials;
+import com.restofy.waiter.infrastructure.security.StaffAccessToken;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -120,14 +120,11 @@ public abstract class ApiTestBase {
     protected static RequestPostProcessor as(Object principal, String... authorities) {
         List<SimpleGrantedAuthority> granted = Arrays.stream(authorities)
                 .map(authority -> new SimpleGrantedAuthority("ROLE_" + authority)).toList();
-        RequestPostProcessor authenticated = authentication(new UsernamePasswordAuthenticationToken(principal, null, granted));
-        return request -> {
-            if (principal instanceof AuthenticatedStaff staff) {
-                // What the staff cookie filter keeps in production, so Waiter can act for this staff member at Order.
-                TestStaffCredentials.attach(request, TestStaffCredentials.credentialOf(staff.restaurantId()));
-            }
-            return authenticated.postProcessRequest(request);
-        };
+        var verified = UsernamePasswordAuthenticationToken.authenticated(principal, null, granted);
+        if (principal instanceof AuthenticatedStaff staff) {
+            verified.setDetails(new StaffAccessToken(FakeBackends.STAFF_CREDENTIAL_PREFIX + staff.restaurantId()));
+        }
+        return authentication(verified);
     }
 
     protected FakeBackends.Table addTable(UUID restaurantId, String number, String status, UUID sessionId) {

@@ -13,13 +13,13 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
-/** Supplies Spring MVC with the same bounded bytes covered by the QR signature. */
-final class QrSignedRequest extends HttpServletRequestWrapper {
+/** Supplies Spring MVC with the same bounded bytes covered by the service signature. */
+final class SignedServiceRequest extends HttpServletRequestWrapper {
     static final int MAX_BODY_BYTES = 256 * 1024;
 
     private final ServletInputStream stream;
 
-    QrSignedRequest(HttpServletRequest request, byte[] body) {
+    SignedServiceRequest(HttpServletRequest request, byte[] body) {
         super(request);
         var bytes = new ByteArrayInputStream(body);
         stream = new ServletInputStream() {
@@ -45,7 +45,7 @@ final class QrSignedRequest extends HttpServletRequestWrapper {
 
             @Override
             public void setReadListener(ReadListener listener) {
-                throw new UnsupportedOperationException("Lifecycle endpoints use synchronous request bodies");
+                throw new UnsupportedOperationException("Signed requests use synchronous request bodies");
             }
         };
     }

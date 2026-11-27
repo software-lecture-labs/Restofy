@@ -28,7 +28,8 @@ public record OrderDetailResponse(UUID orderId, String orderNo, UUID tableId, UU
                                   @JsonInclude(JsonInclude.Include.NON_NULL) Long cancelledGrossMinor,
                                   @JsonInclude(JsonInclude.Include.NON_NULL) Long activeGrossMinor,
                                   List<OrderResponse.OrderItemResponse> items, String note, Instant placedAt,
-                                  Instant updatedAt, long version) {
+                                  Instant updatedAt, long version,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL) Instant servedAt) {
 
     public OrderDetailResponse {
         items = ResponseCollections.copyOf(items);

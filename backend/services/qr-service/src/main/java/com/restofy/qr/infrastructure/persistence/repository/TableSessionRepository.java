@@ -40,4 +40,7 @@ public interface TableSessionRepository extends JpaRepository<TableSession, UUID
 
     Optional<TableSession> findByRestaurantIdAndTableIdAndStatusIn(UUID restaurantId, UUID tableId,
                                                                   Collection<TableSessionStatus> statuses);
+
+    List<TableSession> findByRestaurantIdAndTableIdInAndStatusIn(UUID restaurantId, Collection<UUID> tableIds,
+                                                                 Collection<TableSessionStatus> statuses);
 }

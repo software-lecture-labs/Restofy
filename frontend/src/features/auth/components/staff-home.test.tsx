@@ -4,7 +4,7 @@ import { renderWithIntl } from "@test/render-with-intl";
 import { ApiError } from "@/shared/lib/api";
 
 const replace = vi.hoisted(() => vi.fn());
-const api = vi.hoisted(() => ({ getSession: vi.fn(), refresh: vi.fn(), logout: vi.fn() }));
+const api = vi.hoisted(() => ({ getSession: vi.fn(), refresh: vi.fn(), logout: vi.fn(), regenerateRecoveryCodes: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 vi.mock("@/shared/lib/theme/actions", () => ({ setTheme: vi.fn() }));
@@ -33,6 +33,18 @@ describe("StaffHome", () => {
     expect(await screen.findByText("Garson")).toBeInTheDocument();
     expect(screen.getByText(/sonraki adımlarda eklenecek/)).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("offers the recovery code renewal only to an admin", async () => {
+    api.getSession.mockResolvedValue(session());
+    const { unmount } = renderWithIntl(<StaffHome />);
+    await screen.findByText("Garson");
+    expect(screen.queryByText("Kurtarma kodlarını yenile")).not.toBeInTheDocument();
+    unmount();
+
+    api.getSession.mockResolvedValue(session({ role: "ADMIN" }));
+    renderWithIntl(<StaffHome />);
+    expect(await screen.findByRole("button", { name: "Kurtarma kodlarını yenile" })).toBeInTheDocument();
   });
 
   it("renews an expired access cookie with the refresh cookie instead of signing the person out", async () => {

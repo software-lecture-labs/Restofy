@@ -20,9 +20,9 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Signs Waiter's own service identity for Order's serve command and its result query (Order PR #45: issuer
+ * Signs Waiter's own service identity for Order's signed reads, serve command and result query (Order PR #45: issuer
  * {@code restofy-waiter}, subject {@code waiter-service}, audience {@code restofy-order}, scope
- * {@code order:serve}). The credential is bound to one request (method, target, body digest), to the restaurant
+ * {@code order:read} or {@code order:serve}). The credential is bound to one request (method, target, body digest), to the restaurant
  * of the staff member and, through {@code staff_sha256}, to the one staff credential delegated in
  * {@code X-Restofy-Staff-Delegation}, and it lives for 30 seconds at most.
  *
@@ -37,7 +37,8 @@ public class WaiterOrderRequestSigner {
     static final String ISSUER = "restofy-waiter";
     static final String SUBJECT = "waiter-service";
     static final String AUDIENCE = "restofy-order";
-    static final String SCOPE = "order:serve";
+    static final String READ = "order:read";
+    static final String SERVE = "order:serve";
     static final long LIFETIME_SECONDS = 30;
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
@@ -57,7 +58,7 @@ public class WaiterOrderRequestSigner {
      * {@code target} is the path and query exactly as sent, {@code body} the exact bytes sent (empty for a GET)
      * and {@code staffCredential} the staff JWT that travels in the delegation header.
      */
-    Optional<String> authorization(UUID restaurantId, HttpMethod method, String target, byte[] body,
+    Optional<String> authorization(String scope, UUID restaurantId, HttpMethod method, String target, byte[] body,
                                    String staffCredential) {
         if (credentials == null) {
             return Optional.empty();
@@ -67,7 +68,7 @@ public class WaiterOrderRequestSigner {
                 .issuer(ISSUER).subject(SUBJECT).audience().add(AUDIENCE).and()
                 .id(UUID.randomUUID().toString()).claim("iat", issuedAt)
                 .claim("nbf", issuedAt).claim("exp", issuedAt + LIFETIME_SECONDS)
-                .claim("token_type", "service").claim("scope", SCOPE)
+                .claim("token_type", "service").claim("scope", scope)
                 .claim("restaurant_id", restaurantId.toString())
                 .claim("method", method.name()).claim("target", target).claim("body_sha256", digest(body))
                 .claim("staff_sha256", digest(staffCredential.getBytes(StandardCharsets.UTF_8)))

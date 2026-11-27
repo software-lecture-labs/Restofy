@@ -21,11 +21,11 @@ final class OrderWire {
     private OrderWire() {
     }
 
-    /** One row of a list or search; no items and no version (those are in the detail). */
+    /** One row of a list or search; item and cancellation rows are fetched separately. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Summary(UUID orderId, String orderNo, UUID tableId, UUID tableSessionId, String fulfillmentStatus,
                    String paymentStatus, String currency, Long grossMinor, Long currentDueMinor,
-                   Instant placedAt) {
+                   Instant placedAt, Long version, Instant servedAt) {
 
         Summary {
             required(orderId, "order.orderId");
@@ -78,7 +78,7 @@ final class OrderWire {
     record Detail(UUID orderId, String orderNo, UUID tableId, UUID tableSessionId, String fulfillmentStatus,
                   String paymentStatus, String currency, Amounts amounts, Long cancelledGrossMinor,
                   Long activeGrossMinor, Long currentDueMinor, List<Item> items, Instant placedAt,
-                  Instant updatedAt, Long version) {
+                  Instant updatedAt, Long version, Instant servedAt) {
 
         Detail {
             required(orderId, "order.orderId");
@@ -144,17 +144,5 @@ final class OrderWire {
         SessionCounts {
             items = requiredList(items, "items");
         }
-    }
-
-    /** Receipt of the serve command: 200 with APPLIED or DUPLICATE. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ServeReceipt(UUID commandId, UUID orderId, UUID tableSessionId, Long orderVersion, Instant servedAt,
-                        String outcome) {
-    }
-
-    /** What Order recorded for a command id. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ServeRecord(UUID commandId, UUID orderId, UUID tableSessionId, Long orderVersion, Instant decidedAt,
-                       Instant servedAt, String status, String rejectionCode) {
     }
 }

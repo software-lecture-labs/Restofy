@@ -252,7 +252,7 @@ public final class FakeBackends {
      * and no browser Cookie or Origin. 401 means no verifiable identity, 403 a valid identity that does not cover
      * the request.
      */
-    private static Response verifyDelegatedIdentity(Request request, UUID restaurantId) {
+    private static Response verifyDelegatedIdentity(Request request, UUID restaurantId, String scope) {
         String authorization = request.header("Authorization");
         String delegated = request.header("X-Restofy-Staff-Delegation");
         if (authorization == null || !authorization.startsWith("Service ") || delegated == null || delegated.isBlank()) {
@@ -262,7 +262,7 @@ public final class FakeBackends {
         try {
             claims = io.jsonwebtoken.Jwts.parser().verifyWith(ORDER_CALLER_KEYS.getPublic())
                     .requireIssuer("restofy-waiter").requireSubject("waiter-service").requireAudience("restofy-order")
-                    .require("token_type", "service").require("scope", "order:serve").build()
+                    .require("token_type", "service").require("scope", scope).build()
                     .parseSignedClaims(authorization.substring("Service ".length()).trim()).getPayload();
         } catch (io.jsonwebtoken.JwtException | IllegalArgumentException invalid) {
             return Response.json(401, "{\"status\":401,\"code\":\"UNAUTHENTICATED\"}");
@@ -277,7 +277,7 @@ public final class FakeBackends {
                 && sha256(request.body() == null ? "" : request.body()).equals(claims.get("body_sha256", String.class))
                 && sha256(delegated).equals(claims.get("staff_sha256", String.class))
                 && restaurantId.toString().equals(claims.get("restaurant_id", String.class))
-                && delegated.equals(STAFF_CREDENTIAL_PREFIX + restaurantId);
+                && restaurantId.equals(staffRestaurant(delegated));
         boolean browserHeaders = request.header("Cookie") != null || request.header("Origin") != null;
         if (!bound || browserHeaders) {
             return Response.json(403, "{\"status\":403,\"code\":\"ACCESS_DENIED\"}");
@@ -323,7 +323,7 @@ public final class FakeBackends {
         UUID commandId = UUID.fromString(body.get("commandId").asString());
         if (!commandId.toString().equals(request.header("Idempotency-Key"))) return rejection(400, "ORDER_REJECTED");
         UUID restaurantId = UUID.fromString(body.get("restaurantId").asString());
-        Response denied = verifyDelegatedIdentity(request, restaurantId);
+        Response denied = verifyDelegatedIdentity(request, restaurantId, "order:serve");
         if (denied != null) return denied;
         UUID sessionId = UUID.fromString(body.get("tableSessionId").asString());
         long expectedVersion = body.get("expectedVersion").asLong();
@@ -390,7 +390,7 @@ public final class FakeBackends {
         match.matches();
         UUID orderId = UUID.fromString(match.group(1));
         UUID commandId = UUID.fromString(match.group(2));
-        Response denied = verifyDelegatedIdentity(request, UUID.fromString(request.query().get("restaurantId")));
+        Response denied = verifyDelegatedIdentity(request, UUID.fromString(request.query().get("restaurantId")), "order:serve");
         if (denied != null) return denied;
         ServeFault fault = statusFaults.poll();
         if (fault == ServeFault.SERVER_ERROR) return Response.json(503, "{}");
@@ -434,7 +434,11 @@ public final class FakeBackends {
     private static UUID sessionRestaurant(Request request) {
         String cookie = request.header("Cookie");
         if (cookie == null || !cookie.startsWith("restofy_access=")) return null;
-        String credential = cookie.substring("restofy_access=".length()).trim();
+        return staffRestaurant(cookie.substring("restofy_access=".length()).trim());
+    }
+
+    private static UUID staffRestaurant(String credential) {
+        if (credential == null) return null;
         if (credential.startsWith(STAFF_CREDENTIAL_PREFIX)) {
             return UUID.fromString(credential.substring(STAFF_CREDENTIAL_PREFIX.length()));
         }
@@ -449,8 +453,10 @@ public final class FakeBackends {
 
     /** Active order count per session: fulfillment RECEIVED, PREPARING, READY or SERVED (not COMPLETED/CANCELLED). */
     private Response sessionSummaries(Request request) {
-        UUID restaurantId = sessionRestaurant(request);
+        UUID restaurantId = staffRestaurant(request.header("X-Restofy-Staff-Delegation"));
         if (restaurantId == null) return NO_STAFF_SESSION;
+        Response denied = verifyDelegatedIdentity(request, restaurantId, "order:read");
+        if (denied != null) return denied;
         JsonNode body = read(request.body());
         if (body.has("restaurantId")) return rejection(400, "INVALID_REQUEST");
         Set<UUID> sessionIds = new HashSet<>();
@@ -468,8 +474,10 @@ public final class FakeBackends {
     }
 
     private Response searchOrders(Request request) {
-        UUID restaurantId = sessionRestaurant(request);
+        UUID restaurantId = staffRestaurant(request.header("X-Restofy-Staff-Delegation"));
         if (restaurantId == null) return NO_STAFF_SESSION;
+        Response denied = verifyDelegatedIdentity(request, restaurantId, "order:read");
+        if (denied != null) return denied;
         JsonNode body = read(request.body());
         if (body.has("restaurantId")) return rejection(400, "INVALID_REQUEST");
         UUID tableId = body.hasNonNull("tableId") ? UUID.fromString(body.get("tableId").asString()) : null;
@@ -580,6 +588,8 @@ public final class FakeBackends {
         json.put("currentDueMinor", 15000 - cancelledGrossMinor(o));
         json.put("unitCount", 2 - cancelledQuantity(o));
         json.put("placedAt", o.acceptedAt());
+        json.put("version", o.version());
+        json.put("servedAt", o.servedAt());
         return json;
     }
 
@@ -601,6 +611,7 @@ public final class FakeBackends {
         json.put("placedAt", o.acceptedAt());
         json.put("updatedAt", Instant.parse("2026-10-16T10:00:00Z"));
         json.put("version", o.version());
+        json.put("servedAt", o.servedAt());
         return json;
     }
 

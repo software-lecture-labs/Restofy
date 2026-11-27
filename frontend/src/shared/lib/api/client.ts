@@ -8,7 +8,13 @@
  * Empty by default: requests go to this same origin and next.config.ts forwards /api to the Gateway. Setting
  * NEXT_PUBLIC_API_BASE_URL makes the browser call that address directly instead (it must then answer CORS).
  */
-export const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
+export const apiBaseUrl = withoutTrailingSlashes(process.env.NEXT_PUBLIC_API_BASE_URL ?? "");
+
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+  return value.slice(0, end);
+}
 
 /** status 0 means the request never got an answer (offline, gateway down, blocked by CORS). */
 export class ApiError extends Error {

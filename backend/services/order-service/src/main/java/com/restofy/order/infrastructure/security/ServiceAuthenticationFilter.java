@@ -42,7 +42,7 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/")
+        return WaiterAuthenticationFilter.handles(request) || !request.getRequestURI().startsWith("/api/")
                 || !isServiceScheme(request.getHeader(HttpHeaders.AUTHORIZATION));
     }
 
@@ -93,17 +93,17 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
             errors.write(response, ErrorCode.ACCESS_DENIED, "Service credential does not authorise the request");
             return null;
         }
-        byte[] body = request.getInputStream().readNBytes(QrSignedRequest.MAX_BODY_BYTES + 1);
-        if (body.length > QrSignedRequest.MAX_BODY_BYTES) {
+        byte[] body = request.getInputStream().readNBytes(SignedServiceRequest.MAX_BODY_BYTES + 1);
+        if (body.length > SignedServiceRequest.MAX_BODY_BYTES) {
             errors.write(response, ErrorCode.INVALID_REQUEST, "The lifecycle request body is too large");
             return null;
         }
-        if (!QrSignedRequest.digest(body).equals(signed.bodyDigest())
+        if (!SignedServiceRequest.digest(body).equals(signed.bodyDigest())
                 || ("GET".equals(signed.method()) && body.length != 0)) {
             errors.write(response, ErrorCode.ACCESS_DENIED, "Service credential does not authorise the request");
             return null;
         }
-        return new QrSignedRequest(request, body);
+        return new SignedServiceRequest(request, body);
     }
 
     private void reject(HttpServletResponse response) throws IOException {

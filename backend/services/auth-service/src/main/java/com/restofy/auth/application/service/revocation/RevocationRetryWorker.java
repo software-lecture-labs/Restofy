@@ -37,11 +37,13 @@ public class RevocationRetryWorker {
             if (queue.pending() > 0) {
                 log.info("Q5 queue pending={} oldest_seconds={}", queue.pending(), queue.oldestSeconds());
             }
-            for (var id : transactions.claimRetries()) {
-                try { coordinator.deliver(id); }
-                catch (RuntimeException unavailable) { log.warn("Q5 retry deferred operation={} stage=DELIVERY category={}", id, category(unavailable)); }
-            }
+            for (var id : transactions.claimRetries()) deliver(id);
         } catch (RuntimeException unavailable) { log.warn("Q5 retry deferred stage={} category={}", stage, category(unavailable)); }
+    }
+
+    private void deliver(java.util.UUID id) {
+        try { coordinator.deliver(id); }
+        catch (RuntimeException unavailable) { log.warn("Q5 retry deferred operation={} stage=DELIVERY category={}", id, category(unavailable)); }
     }
 
     private void refreshPeer() {

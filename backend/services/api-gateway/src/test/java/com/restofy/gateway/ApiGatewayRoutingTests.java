@@ -184,6 +184,34 @@ class ApiGatewayRoutingTests {
         assertEquals("application/json", received.header("Accept"));
     }
 
+    @Test
+    void replacesEveryClientClaimedAddressWithTheSocketPeer() throws Exception {
+        String id = UUID.randomUUID().toString();
+        var response = send(gatewayRequest("/api/v1/auth/login", id)
+                .header("X-Forwarded-For", "198.51.100.66").header("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
+                .header("Forwarded", "for=198.51.100.66").GET().build());
+        assertResponse(response, "auth-service", 200);
+        var received = onlyRequest(id, "auth-service");
+
+        var forwarded = received.headers().get("x-forwarded-for");
+        assertEquals(1, forwarded.size());
+        assertTrue(java.net.InetAddress.ofLiteral(forwarded.getFirst()).isLoopbackAddress(),
+                "the value is the address that connected to the Gateway: " + forwarded);
+        assertFalse(received.headers().toString().contains("198.51.100.66"), "no client claim reaches the service");
+        assertFalse(received.headers().toString().contains("203.0.113.7"), "no client claim reaches the service");
+    }
+
+    @Test
+    void addsTheSocketPeerEvenWhenTheClientSentNoAddressHeader() throws Exception {
+        String id = UUID.randomUUID().toString();
+        var response = send(gatewayRequest("/api/v1/orders/123", id).GET().build());
+        assertResponse(response, "order-service", 200);
+
+        var forwarded = onlyRequest(id, "order-service").headers().get("x-forwarded-for");
+        assertEquals(1, forwarded.size());
+        assertTrue(java.net.InetAddress.ofLiteral(forwarded.getFirst()).isLoopbackAddress());
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {200, 201, 400, 404, 500})
     void preservesDownstreamResponseStatusesAndBodies(int status) throws Exception {

@@ -26,9 +26,11 @@ public record ServeStatusDto(UUID commandId, UUID orderId, UUID tableSessionId, 
         required(status, "status");
         if (status == Status.APPLIED) {
             nonNegative(required(orderVersion, "orderVersion"), "orderVersion");
+            required(tableSessionId, "tableSessionId");
             required(servedAt, "servedAt");
         } else {
             requiredText(rejectionCode, "rejectionCode");
+            if (!"ORDER_SESSION_MISMATCH".equals(rejectionCode)) required(tableSessionId, "tableSessionId");
         }
     }
 }

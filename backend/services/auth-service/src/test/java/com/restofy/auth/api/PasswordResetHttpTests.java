@@ -30,7 +30,7 @@ class PasswordResetHttpTests extends AuthSessionTestSupport {
     @MockitoBean private MailClient mail;
     private Cookie csrf;
     @BeforeEach void setup() throws Exception {
-        jdbc.update("DELETE FROM password_reset_limits");
+        jdbc.update("DELETE FROM rate_limits");
         csrf=mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk()).andReturn().getResponse().getCookie(AuthCookies.CSRF);
     }
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder postJson(String path,String body) {
