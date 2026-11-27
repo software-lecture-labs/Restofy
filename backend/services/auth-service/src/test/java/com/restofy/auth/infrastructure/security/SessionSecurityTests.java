@@ -107,7 +107,7 @@ class SessionSecurityTests {
         String pending = jwt.issue(admin);
         assertThat(jwt.verify(pending, true).state()).isEqualTo(com.restofy.auth.domain.enums.SessionAuthState.MFA_PENDING);
         assertThatThrownBy(() -> jwt.verify(pending, false)).isInstanceOf(BadCredentialsException.class);
-        admin.completeMfa(clock.instant(), 604800);
+        admin.completeMfa(clock.instant(), 604800, false);
         String access = jwt.issue(admin);
         assertThat(jwt.verify(access, false).role()).isEqualTo(StaffRole.ADMIN);
         assertThatThrownBy(() -> jwt.verify(access, true)).isInstanceOf(BadCredentialsException.class);

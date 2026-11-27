@@ -67,6 +67,17 @@ export function confirmPasswordReset(newPassword: string): Promise<void> {
   return apiRequest<void>(`${BASE}/password-reset/confirm`, { method: "POST", body: { newPassword } });
 }
 
+/**
+ * The signed-in person replaces their own password; their other sessions end. A PASSWORD_PENDING session becomes
+ * usable here and receives its cookies in this answer.
+ */
+export function changePassword(currentPassword: string, newPassword: string, locale: string): Promise<StaffSession> {
+  return apiRequest<StaffSession>(`${BASE}/password/change`, {
+    method: "POST",
+    body: { currentPassword, newPassword, locale },
+  });
+}
+
 export function logout(): Promise<void> {
   return apiRequest<void>(`${BASE}/logout`, { method: "POST" });
 }

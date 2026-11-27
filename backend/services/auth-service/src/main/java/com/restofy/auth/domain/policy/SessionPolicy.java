@@ -6,6 +6,8 @@ import java.time.Duration;
 public final class SessionPolicy {
     /** A password-only ADMIN session (and its token) must finish MFA within this time. */
     public static final Duration MFA_PENDING_TTL = Duration.ofMinutes(5);
+    /** A session signed in with an ADMIN-set password (and its token) must choose a new password within this time. */
+    public static final Duration PASSWORD_PENDING_TTL = Duration.ofMinutes(10);
     /** Idle timeout for ADMIN and WAITER sessions. */
     public static final Duration IDLE_TIMEOUT = Duration.ofMinutes(15);
     /** Kitchen screens are rarely touched, so they get a longer idle timeout. */

@@ -84,6 +84,7 @@ describe("api client", () => {
     "/api/v1/auth/logout",
     "/api/v1/auth/mfa/verify",
     "/api/v1/auth/mfa/enroll/confirm",
+    "/api/v1/auth/password/change",
   ])("fetches a new token after %s, because the session changed", async (path) => {
     fetchMock
       .mockResolvedValueOnce(csrf("tok-1"))

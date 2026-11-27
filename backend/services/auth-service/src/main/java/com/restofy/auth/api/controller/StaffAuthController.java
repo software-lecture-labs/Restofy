@@ -3,7 +3,9 @@ package com.restofy.auth.api.controller;
 import java.util.Map;
 
 import com.restofy.auth.api.dto.request.LoginRequest;
+import com.restofy.auth.api.dto.request.PasswordChangeRequest;
 import com.restofy.auth.api.dto.response.SessionResponse;
+import com.restofy.auth.application.service.PasswordChangeService;
 import com.restofy.auth.application.service.StaffSessionService;
 import com.restofy.auth.application.service.StaffSessionService.Grant;
 import com.restofy.auth.domain.enums.SessionAuthState;
@@ -29,21 +31,24 @@ import org.springframework.http.HttpStatus;
 @RestController
 @RequestMapping("/api/v1/auth")
 public class StaffAuthController {
+    private static final String DEFAULT_LOCALE = "tr";
     private final StaffSessionService sessions;
     private final AuthCookies cookies;
     private final AuthCsrfTokens csrf;
     private final LoginRateLimiter limiter;
     private final MfaEnrollmentService mfa;
     private final ClientAddressResolver clients;
+    private final PasswordChangeService passwords;
 
     public StaffAuthController(StaffSessionService sessions, AuthCookies cookies, AuthCsrfTokens csrf, LoginRateLimiter limiter,
-            MfaEnrollmentService mfa, ClientAddressResolver clients) {
+            MfaEnrollmentService mfa, ClientAddressResolver clients, PasswordChangeService passwords) {
         this.sessions = sessions;
         this.cookies = cookies;
         this.csrf = csrf;
         this.limiter = limiter;
         this.mfa = mfa;
         this.clients = clients;
+        this.passwords = passwords;
     }
 
     @GetMapping("/csrf")
@@ -90,9 +95,23 @@ public class StaffAuthController {
         sessions.activity(identity);
     }
 
+    /**
+     * The caller replaces their own password. The other sessions end. A PASSWORD_PENDING session becomes usable and
+     * receives its cookies here; a usable session keeps its cookies.
+     */
+    @PostMapping("/password/change")
+    public SessionResponse changePassword(@AuthenticationPrincipal Identity identity,
+            @Valid @RequestBody PasswordChangeRequest body, HttpServletRequest request, HttpServletResponse response) {
+        var change = passwords.change(identity, body.currentPassword(), body.newPassword(),
+                body.locale() == null ? DEFAULT_LOCALE : body.locale());
+        if (change.grant() != null) {
+            writeGrant(change.grant(), request, response);
+        }
+        return SessionResponse.from(change.session());
+    }
+
     private void writeGrant(Grant grant, HttpServletRequest request, HttpServletResponse response) {
         cookies.writeGrant(response, grant);
-        String pending = grant.session().getAuthState() == SessionAuthState.MFA_PENDING ? grant.access() : null;
-        csrf.saveToken(csrf.create(AuthCsrfTokens.binding(grant.refresh(), pending)), request, response);
+        csrf.saveToken(csrf.create(AuthCsrfTokens.binding(grant)), request, response);
     }
 }

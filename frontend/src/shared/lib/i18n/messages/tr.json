@@ -36,7 +36,9 @@
         "invalidInput": "Bilgilerini kontrol edip tekrar dene.",
         "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
         "wrongRole": "Bu hesap seçtiğin rol için değil. Doğru rolü seçip tekrar dene.",
-        "unavailable": "Şu an giriş yapılamıyor. Biraz sonra tekrar dene."
+        "unavailable": "Şu an giriş yapılamıyor. Biraz sonra tekrar dene.",
+        "passwordRejected": "Mevcut parola hatalı ya da yeni parola kurallara uymuyor.",
+        "expired": "Süre doldu. Baştan giriş yap."
       },
       "forgot": "Parolamı unuttum"
     },
@@ -118,6 +120,31 @@
         "expired": "İşlemin süresi doldu. Baştan başla.",
         "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
         "unavailable": "Şu an işlem yapılamıyor. Biraz sonra tekrar dene."
+      }
+    },
+    "passwordChange": {
+      "heading": "Kendi parolanı belirle",
+      "hint": "Hesabın sana verilen geçici parolayla açıldı. Devam etmek için yalnız senin bildiğin yeni bir parola seç; en az 12 karakter olmalı.",
+      "current": "Mevcut parola",
+      "password": "Yeni parola",
+      "confirmation": "Yeni parola (tekrar)",
+      "submit": "Parolayı kaydet",
+      "homeHeading": "Parola",
+      "homeHint": "Parolanı değiştirdiğinde diğer cihazlardaki oturumların kapanır.",
+      "open": "Parolanı değiştir",
+      "cancel": "Vazgeç",
+      "done": "Parolan güncellendi. Diğer cihazlardaki oturumların kapatıldı.",
+      "errors": {
+        "currentRequired": "Mevcut parolanı yaz.",
+        "passwordRequired": "Yeni parolanı yaz.",
+        "passwordShort": "Parola en az 12 karakter olmalı.",
+        "passwordSame": "Yeni parola mevcut paroladan farklı olmalı.",
+        "passwordMismatch": "Parolalar aynı değil."
+      },
+      "problems": {
+        "rejected": "Mevcut parola hatalı ya da yeni parola kurallara uymuyor.",
+        "tooManyAttempts": "Çok fazla deneme yaptın. Biraz bekleyip tekrar dene.",
+        "unavailable": "Parola şu an değiştirilemiyor. Biraz sonra tekrar dene."
       }
     },
     "home": {

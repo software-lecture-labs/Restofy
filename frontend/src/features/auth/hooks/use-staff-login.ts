@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocale } from "next-intl";
 import { useRouter } from "next/navigation";
 import { ApiError } from "@/shared/lib/api";
 import * as authApi from "../api/auth-api";
@@ -6,7 +7,7 @@ import type { StaffRole } from "../config/staff-roles";
 import type { LoginValues } from "../model/login-schema";
 import type { MfaEnrollment, StaffSession } from "../model/session";
 
-export type LoginStep = "credentials" | "mfa" | "mfaSetup" | "recoveryCodes";
+export type LoginStep = "credentials" | "mfa" | "mfaSetup" | "recoveryCodes" | "passwordChange";
 
 /** Keys under auth.login.problems in the message files. */
 export type LoginProblem =
@@ -15,6 +16,8 @@ export type LoginProblem =
   | "invalidInput"
   | "tooManyAttempts"
   | "wrongRole"
+  | "passwordRejected"
+  | "expired"
   | "unavailable";
 
 const SIGNED_IN_PATH = "/";
@@ -39,14 +42,19 @@ function problemFor(error: unknown, unauthorized: LoginProblem): LoginProblem {
  *
  * Admin accounts always need a second factor: a first-time admin enrols an authenticator app (secret, then a
  * confirming code, then one-time recovery codes); afterwards every login asks for the six-digit code.
+ *
+ * A person who signs in with a password an admin chose (a new account, or a temporary password) must choose their
+ * own before the session can be used; for an admin that comes after the second factor.
  */
 export function useStaffLogin(role: StaffRole) {
   const router = useRouter();
+  const locale = useLocale();
   const [step, setStep] = useState<LoginStep>("credentials");
   const [problem, setProblem] = useState<LoginProblem | null>(null);
   const [pending, setPending] = useState(false);
   const [enrollment, setEnrollment] = useState<MfaEnrollment | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [passwordAfterCodes, setPasswordAfterCodes] = useState(false);
 
   async function endSession(next: LoginProblem | null) {
     await authApi.logout().catch(() => undefined);
@@ -74,7 +82,25 @@ export function useStaffLogin(role: StaffRole) {
       }
       return;
     }
+    if (session.status === "PASSWORD_PENDING") {
+      setStep("passwordChange");
+      return;
+    }
     router.replace(SIGNED_IN_PATH);
+  }
+
+  /** 400 is a refused password; 401 or 403 means the short pending session is gone, so the login starts over. */
+  async function changePassword(currentPassword: string, newPassword: string) {
+    setPending(true);
+    setProblem(null);
+    try {
+      await handle(await authApi.changePassword(currentPassword, newPassword, locale === "en" ? "en" : "tr"));
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) await endSession("expired");
+      else setProblem(error instanceof ApiError && error.status === 400 ? "passwordRejected" : problemFor(error, "unavailable"));
+    } finally {
+      setPending(false);
+    }
   }
 
   async function run(action: () => Promise<void>, unauthorized: LoginProblem) {
@@ -105,12 +131,15 @@ export function useStaffLogin(role: StaffRole) {
         const completion = await authApi.confirmMfaEnrollment(code);
         setEnrollment(null);
         setRecoveryCodes(completion.recoveryCodes);
+        setPasswordAfterCodes(completion.session.status === "PASSWORD_PENDING");
         setStep("recoveryCodes");
       }, "invalidCode"),
-    /** The person has stored the recovery codes; only now do they leave the screen. */
+    submitPasswordChange: changePassword,
+    /** The person has stored the recovery codes; only now do they leave the screen (or choose their password). */
     finish: () => {
       setRecoveryCodes([]);
-      router.replace(SIGNED_IN_PATH);
+      if (passwordAfterCodes) setStep("passwordChange");
+      else router.replace(SIGNED_IN_PATH);
     },
     /** A message about the previous attempt no longer applies once the person picks another role. */
     clearProblem: () => setProblem(null),

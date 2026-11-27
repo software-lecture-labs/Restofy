@@ -343,7 +343,8 @@ class PasswordResetIntegrationTests extends AuthSessionTestSupport {
         latest.migrate();
         assertThat(jdbc.queryForObject("SELECT password_hash FROM "+schema+".staff_users WHERE id=?",String.class,id)).isEqualTo(hash);
         assertThat(jdbc.queryForObject("SELECT password_changed_at FROM "+schema+".staff_users WHERE id=?",java.sql.Timestamp.class,id)).isNull();
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("8");
+        assertThat(jdbc.queryForObject("SELECT password_change_required FROM "+schema+".staff_users WHERE id=?",Boolean.class,id)).isFalse();
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("9");
     }
 
     @Test

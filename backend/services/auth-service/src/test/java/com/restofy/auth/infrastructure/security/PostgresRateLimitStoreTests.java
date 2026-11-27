@@ -1,6 +1,5 @@
 package com.restofy.auth.infrastructure.security;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -12,12 +11,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.restofy.auth.support.MutableAuthClock;
 import com.zaxxer.hikari.HikariDataSource;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -40,12 +39,8 @@ class PostgresRateLimitStoreTests {
     static void database() throws Exception {
         pool = newPool();
         jdbc = new JdbcTemplate(pool);
-        // V8 also drops the old reset table, which this plain database does not have.
-        jdbc.execute("DROP TABLE IF EXISTS password_reset_limits");
-        jdbc.execute("CREATE TABLE password_reset_limits (placeholder integer)");
-        jdbc.execute("DROP TABLE IF EXISTS rate_limits");
-        jdbc.execute(new String(new ClassPathResource("db/migration/V8__create_rate_limits.sql").getInputStream()
-                .readAllBytes(), StandardCharsets.UTF_8));
+        // The whole chain, not V8 alone: later migrations change the table's indexes (V9 replaced the eviction index).
+        Flyway.configure().dataSource(pool).locations("classpath:db/migration").cleanDisabled(true).load().migrate();
         byte[] key = new byte[32];
         for (int index = 0; index < key.length; index++) {
             key[index] = (byte) (index + 1);
@@ -83,6 +78,15 @@ class PostgresRateLimitStoreTests {
 
     private int rows() {
         return jdbc.queryForObject("SELECT count(*) FROM rate_limits", Integer.class);
+    }
+
+    @Test
+    void evictionHasAnIndexInTheOrderItScans() {
+        assertThat(jdbc.queryForList("SELECT indexdef FROM pg_indexes WHERE tablename = 'rate_limits'", String.class))
+                .anyMatch(definition -> definition.contains("ix_rate_limits_eviction")
+                        && definition.contains("(expires_at, attempts)")
+                        && definition.contains("WHERE (evictable AND (attempts < max_attempts))"))
+                .noneMatch(definition -> definition.contains("ix_rate_limits_evictable"));
     }
 
     @Test

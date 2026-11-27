@@ -20,6 +20,8 @@ public class StaffChangeRefusedException extends RuntimeException {
         NO_CHANGE(HttpStatus.CONFLICT),
         /** An earlier change of this member still waits for QR; it must finish first. */
         TRANSITION_PENDING(HttpStatus.CONFLICT),
+        /** An ADMIN's password is never set by another ADMIN; an ADMIN uses the e-mail reset with their own factor. */
+        ADMINISTRATOR_TARGET(HttpStatus.CONFLICT),
         /** The change would leave no active ADMIN. */
         LAST_ADMINISTRATOR(HttpStatus.CONFLICT),
         /** The operation id is already used for another member or another change. */

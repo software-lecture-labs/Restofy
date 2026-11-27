@@ -17,7 +17,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  */
 @Component
 public class StaffAuditLogger {
-    public enum Event { CREATED, ROLE_CHANGE_REQUESTED, DEACTIVATION_REQUESTED }
+    public enum Event { CREATED, ROLE_CHANGE_REQUESTED, DEACTIVATION_REQUESTED, TEMPORARY_PASSWORD_ASSIGNED }
 
     private static final Logger LOG = LoggerFactory.getLogger(StaffAuditLogger.class);
     private static final String FORMAT =
@@ -29,7 +29,17 @@ public class StaffAuditLogger {
     /** A new account. Written after commit, so a rolled back creation leaves no record that it happened. */
     public void created(UUID actorId, UUID targetId, StaffRole role) {
         Instant occurred = clock.instant();
-        Runnable write = () -> LOG.info(FORMAT, Event.CREATED, actorId, targetId, role, null, false, occurred);
+        afterCommit(() -> LOG.info(FORMAT, Event.CREATED, actorId, targetId, role, null, false, occurred));
+    }
+
+    /** A temporary password, written after commit like a creation. The password itself is never logged. */
+    public void temporaryPasswordAssigned(UUID actorId, UUID targetId) {
+        Instant occurred = clock.instant();
+        afterCommit(() -> LOG.info(FORMAT, Event.TEMPORARY_PASSWORD_ASSIGNED, actorId, targetId, null, null, false,
+                occurred));
+    }
+
+    private static void afterCommit(Runnable write) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { write.run(); }

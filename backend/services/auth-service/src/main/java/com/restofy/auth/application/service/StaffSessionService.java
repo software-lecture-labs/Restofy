@@ -18,6 +18,7 @@ import com.restofy.auth.application.service.revocation.RevocationPendingExceptio
 import com.restofy.auth.domain.entity.StaffUser;
 import com.restofy.auth.domain.entity.UserSession;
 import com.restofy.auth.domain.enums.SessionAuthState;
+import com.restofy.auth.domain.enums.StaffRole;
 import com.restofy.auth.infrastructure.config.AuthSettings;
 import com.restofy.auth.infrastructure.persistence.repository.RefreshTokenRepository;
 import com.restofy.auth.infrastructure.persistence.repository.StaffUserRepository;
@@ -25,6 +26,7 @@ import com.restofy.auth.infrastructure.persistence.repository.UserSessionReposit
 import com.restofy.auth.infrastructure.security.StaffJwtTokens;
 import com.restofy.auth.infrastructure.security.StaffJwtTokens.Identity;
 import jakarta.persistence.EntityManager;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
@@ -187,9 +189,54 @@ public class StaffSessionService {
 
     public Grant completeMfa(Identity identity) {
         UserSession session = authenticate(identity);
-        session.completeMfa(clock.instant(), settings.refreshTtl());
+        StaffUser user = users.findById(identity.userId()).orElseThrow(StaffSessionService::invalid);
+        session.completeMfa(clock.instant(), settings.refreshTtl(), user.isPasswordChangeRequired());
         sessions.flush();
         return grant(session, clock.instant(), 0);
+    }
+
+    /**
+     * Replaces the caller's own password. {@code expectedVersion} is the account version the current password was
+     * verified against (outside this transaction), so a concurrent change of the same account is refused instead of
+     * overwritten. The caller's other sessions end; a {@link SessionAuthState#PASSWORD_PENDING} session becomes usable
+     * and receives its first full credentials, while a usable session keeps the ones it has.
+     */
+    public PasswordChange changePassword(Identity identity, long expectedVersion, String passwordHash) {
+        UserSession session = authenticate(identity);
+        if (session.getAuthState() == SessionAuthState.MFA_PENDING) {
+            throw new AccessDeniedException("MFA required");
+        }
+        StaffUser user = users.findById(identity.userId()).orElseThrow(StaffSessionService::invalid);
+        if (user.getVersion() != expectedVersion) {
+            throw new OptimisticLockingFailureException("Account changed while the password was verified");
+        }
+        Instant now = clock.instant();
+        boolean required = session.getAuthState() == SessionAuthState.PASSWORD_PENDING;
+        revocations.prepareLocalFirst(settings.restaurantId(), user.getId(), RevocationTransactions.Action.OTHERS,
+                session.getId(), coordinator.generation());
+        user.changePassword(passwordHash, now);
+        users.flush();
+        Grant grant = null;
+        if (required) {
+            session.completePasswordChange(now, settings.refreshTtl());
+            sessions.flush();
+            grant = grant(session, now, 0);
+        }
+        return new PasswordChange(session, grant, user.getEmailNormalized(), required);
+    }
+
+    /**
+     * Sets a password an ADMIN chose and ends every session of the member, as the e-mail reset does (LOCAL_FIRST).
+     * The caller has already checked the target; the checks are repeated here under the member's lock.
+     */
+    public void assignTemporaryPassword(UUID staffUserId, long expectedVersion, String passwordHash) {
+        StaffUser user = lockIdentity(staffUserId);
+        if (user.getVersion() != expectedVersion || !user.isActive() || user.getRole() == StaffRole.ADMIN) {
+            throw new OptimisticLockingFailureException("Member changed before the password was set");
+        }
+        revocations.prepareReset(settings.restaurantId(), user.getId(), coordinator.generation());
+        user.assignTemporaryPassword(passwordHash, clock.instant());
+        users.flush();
     }
 
     public void revokeOtherSessions(Identity identity) {
@@ -279,6 +326,14 @@ public class StaffSessionService {
 
     private static BadCredentialsException invalid() {
         return new BadCredentialsException("Invalid session");
+    }
+
+    /**
+     * The result of a self-service password change. {@code grant} is set only when a pending session became usable;
+     * {@code recipient} is the address the change notice goes to.
+     */
+    public record PasswordChange(UserSession session, Grant grant, String recipient, boolean wasRequired) {
+        @Override public String toString() { return "Password change"; }
     }
 
     public record Grant(UserSession session, @JsonIgnore String access, @JsonIgnore String refresh) {
