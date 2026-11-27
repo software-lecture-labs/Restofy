@@ -277,6 +277,6 @@ Kaynak: Hamza'nın PR #49 yorumu, PR #79 (`d973223`) ve `docs/order-service/menu
 | Restoran yetkisi | İmzadaki restoran = gövdedeki restoran **ve** anahtar o restoran için yetkili (operatör listesi). Liste yoksa 403. **UYGULANDI (fail-closed)** |
 | Hata eşlemesi | Menu 400/401/403/413/415; Order bunların hepsini ve 5xx/zaman aşımını `503 DEPENDENCY_UNAVAILABLE` yapar. Yanıt şemaya uymazsa Order reddeder |
 | Sürüm | `v1`; geriye uyumlu alan eklenebilir (Menu gövdede bilinmeyen alanı yok sayar) |
-| ENV | `MENU_ORDER_CALLER_PUBLIC_KEYS` onaylandı ve eklendi. `MENU_ORDER_CALLER_RESTAURANTS` **onay bekliyor** |
+| ENV | `MENU_ORDER_CALLER_PUBLIC_KEYS` ve `MENU_ORDER_CALLER_RESTAURANTS` onaylandı; `.env.example` ve Compose'un `menu-service` bloğuna değersiz eklendi |
 
-**Hâlâ açık:** PR #79 merge ve çakışma çözümü; D-09'un hoca onayı; `MENU_ORDER_CALLER_RESTAURANTS` ENV adı; üretim TLS'i (Compose'un düz HTTP `MENU_SERVICE_URL` varsayılanı); açık anahtar dağıtımı ve rotasyonu; hız sınırı; gerçek QR ve Auth ile üç servisli E2E.
+**Hâlâ açık:** PR #79 merge ve çakışma çözümü; D-09'un hoca onayı; gerçek `MENU_ORDER_CALLER_RESTAURANTS` ve açık anahtar değerlerinin ortak ortamda tanımlanması; üretim TLS'i (Compose'un düz HTTP `MENU_SERVICE_URL` varsayılanı); açık anahtar dağıtımı ve rotasyonu; hız sınırı; gerçek QR ve Auth ile üç servisli E2E.
