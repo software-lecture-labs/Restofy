@@ -2,13 +2,13 @@
 
 Kitchen hazırlık durumunun, Order sipariş ve kesin iptal kararının sahibidir. Bu rehber iki servisin mevcut iş kurallarını ve Kitchen tarafında tamamlanacak bağlantıları açıklar. [Order entegrasyon sözleşmesi](INTEGRATION_CONTRACTS.md)
 
-**Devreye alma bekliyor.** Kitchen PR #77 yalnız sipariş kabulünü işler. Kabul için gerçek `tableNumber` ister ve dört iptal olayına `422 UNSUPPORTED_EVENT_TYPE` döner. Ortak ortamda Kitchen'ın HTTPS dinleyicisi de yok. Kabul, iptal ve iki yönlü HTTPS doğrulanana kadar `order-kitchen` profilini açmayın. [Kitchen PR #77](https://github.com/software-lecture-labs/Restofy/pull/77)
+**Devreye alma bekliyor.** Kitchen PR #77 sipariş kabul alıcısını içerir ve dört iptal olayına `422 UNSUPPORTED_EVENT_TYPE` döner. Kitchen PR #80 hazırlık olaylarının imzalı gönderimini ve Order’ın iptal isteğine verilen onay/ret akışını ekler. Bu akışın Order iptal talebini teslim alması için Kitchen alıcısında bağlantı hâlâ gerekir. Kabul, iptal ve iki yönlü HTTPS doğrulanana kadar `order-kitchen` profilini açmayın. [Kitchen PR #77](https://github.com/software-lecture-labs/Restofy/pull/77) · [Kitchen PR #80](https://github.com/software-lecture-labs/Restofy/pull/80)
 
 ## Kitchen tarafında tamamlanacak işler
 
 1. **Sipariş kabulünü gerçek Order ile doğrula.** Önce Order'ın nullable `tableNumber` desteği, sonra QR PR #78 birleşir. QR'dan gelen gerçek numaralı bir siparişin Kitchen kuyruğunda tek kayıt oluşturduğunu doğrula. Aynı olayın tekrarında ikinci sipariş oluşmamalı ve masa numarası değişmemeli.
 2. **Dört Order iptal olayını işle.** `OrderCancellationRequested` için mutfak onay akışını aç ve `cancellationId` ile kararı Order’a ilet. `OrderCancelled` geldiğinde yerel Kitchen talebi bulunmasa bile kesinleşmiş tam iptali işle. `OrderItemsCancelled` için kalan adetlerin ekrana etkisini D-02 kapsamında kararlaştır. `OrderCancellationRejected` ilgili açık talebi ret sonucuyla kapatmalı. Olayı aynı restoran, sipariş ve `eventId` kapsamında tekilleştir. Kalıcı geçiş veya doğrulanmış tekrar `204` döner. Henüz işlenemeyen olay `422` kalır.
-3. **Kitchen → Order göndericisini bağla.** Outbox'a gerçek HTTPS istemcisi, zamanlayıcı ve RS256 imzalayıcı ekle. `KitchenPreparationStarted` ve `KitchenOrderReady` olaylarını `kitchenStatus: PREPARING` ve `READY` olarak sırayla gönder. Kitchen’ın kendi iptal talebinde `cancelAll: true` kullan, `OUT_OF_STOCK` kodunu `ITEM_UNAVAILABLE` olarak eşle ve `OTHER` açıklamasını ilet. Tam karar makbuzunu yerelde uyguladıktan sonra teslimi onayla. Eksik makbuzu uzlaştırmaya bırak.
+3. **Kitchen → Order gönderimini doğrula.** #80’de HTTPS istemcisi, zamanlayıcı ve RS256 imzalayıcı var. `KitchenPreparationStarted` ve `KitchenOrderReady` olaylarının `kitchenStatus: PREPARING` ve `READY` olarak sırayla ulaştığını doğrula. Kitchen’ın kendi iptal talebi #80’de bekletiliyor. Bu akış açılınca `cancelAll: true` kullanılmalı, `OUT_OF_STOCK` kodu `ITEM_UNAVAILABLE` olarak eşlenmeli ve `OTHER` açıklaması iletilmeli. Tam karar makbuzu yerelde uygulandıktan sonra teslim onaylanmalı. Eksik makbuz uzlaştırmaya bırakılmalı.
 4. **Ortak ortamı ve hata senaryolarını doğrula.** İki yönün açık anahtar ve `kid` değerlerini karşılıklı tanımla. Sertifika ve hostname doğrulamasıyla gerçek servisleri bağla. Tam iptal, mutfak onayı, ret, kaybolan yanıt ve aynı olayın yeniden gönderimini birlikte dene. Önceden başarısız bir Order teslimini Kitchen destek ekledikten sonra Order operatörü yeniden sıraya alır.
 
 ## Kitchen’ın mevcut yüzeyi
@@ -34,7 +34,7 @@ Kitchen’ın V81–V89 migration’ları sipariş ve kalem snapshot’ı, durum
 
 ## 2. Hazırlık olaylarını Order’a gönder
 
-- Üretim `OrderEventSink` adaptörü ve `OutboxDeliveryService.deliverDue` çalıştırıcısı eklenmeli. `KitchenPreparationStarted` ve `KitchenOrderReady` mevcut Kitchen outbox’ında kalıcı olarak oluşuyor. Order’a mevcut korumalı `POST /api/v1/internal/order-events/kitchen` yolu üzerinden iletilebilir.
+- #80’deki `HttpOrderEventSink` ve `OrderDeliveryDispatcher`, Kitchen outbox’ındaki `KitchenPreparationStarted` ve `KitchenOrderReady` olaylarını Order’ın korumalı `POST /api/v1/internal/order-events/kitchen` yoluna iletir. `kitchen-order` profili varsayılan olarak kapalıdır.
 - Kitchen zarfını Order DTO’suna eşle. `eventId`, `restaurantId`, `orderId` ve `occurredAt` korunur. `payload.preparationStatus` Order isteğinde üst seviye `kitchenStatus` alanına taşınır. Hazırlık olayları için sırasıyla `PREPARING` ve `READY` gönder.
 - Aynı siparişte önce `PREPARING` teslim edilmeli. Önce gelen `READY` Order’da `409 INVALID_STATUS_TRANSITION` üretir. Eksik hazırlık olayı teslim edilene kadar READY’ye başarı onayı verme. Tekrar denemelerinde ilk `eventId` ve olay içeriğini koru.
 - İletim sırasında Kitchen DB satır kilidi açık tutulmamalı. Zaman aşımı veya belirsiz yanıt, hazırlık durumunu geri almamalı. Aynı siparişin güncel durumu `READY` olsa da önceki teslimatın sonucu ayrıca takip edilmeli.
@@ -56,6 +56,7 @@ Order aynı alıcıya `OrderCancellationRequested`, `OrderCancelled`, `OrderItem
 ## 4. İmza, teslim ve devreye alma
 
 - Her iki yön için `Authorization: Service <JWT>` kullan. JWT, RS256 ve `kid` ile doğrulanır. `token_type=service`, UUID `jti`, `iat = nbf < exp` ve en fazla 30 saniyelik süre kullanılır. `restaurant_id`, `method`, `target` ve `body_sha256` imzaya bağlıdır. `target` gönderilen ham yol, `body_sha256` gönderilen gövde baytlarının küçük harfli hex SHA-256 özetidir.
+- Order ileri tarihli Kitchen `iat` değerini `401` ile reddeder. Ortak ortamda iki servisin saatlerini eşitleyin. Kitchen #80’in `KITCHEN_ORDER_SIGNING_KEY_ID` ayarındaki `kid` ile eşleşen açık anahtar Order’da yapılandırılır. Kitchen özel anahtarını kendi ortamında tutar.
 - Kitchen → Order için `iss=restofy-kitchen`, `sub=kitchen-service`, `aud=restofy-order`, `scope=order:kitchen-events` kullan. İmza yalnız rehberdeki üç Kitchen POST yolunda kabul edilir.
 - Order → Kitchen için `iss=restofy-order`, `sub=order-service`, `aud=restofy-kitchen`, `scope=kitchen:order-events` ve `target=/api/v1/internal/kitchen/order-events` doğrula. Order’dan gelen gövde restoranıyla imzalı kapsamı karşılaştır.
 - Kitchen imzalama anahtarının açık karşılığını Order için `ORDER_KITCHEN_SERVICE_PUBLIC_KEYS` haritasına sağla. Bu ayar `kid → Base64 X.509 RSA açık anahtar` JSON eşlemesidir. Order kendi çıkış imzası için `ORDER_KITCHEN_CALLER_KEY_ID` ve Base64 PKCS#8 biçiminde `ORDER_KITCHEN_CALLER_PRIVATE_KEY` kullanır. Açık karşılığını Kitchen alıcısında yetkilendir. Özel anahtarlar sahibi olan serviste kalır. Order çıkış kapsamı ve Kitchen giriş kapsamı `ORDER_KITCHEN_SERVICE_RESTAURANTS` ile sınırlandırılır.
@@ -89,6 +90,8 @@ ORDER BY e.aggregate_version, e.occurred_at,
 ```
 
 ## 5. Entegrasyon kabulü
+
+Kitchen #80’in talep belgesindeki **KO3-01** (Kitchen servis imzasının doğrulanması) ve **KO3-02** (Order iptal onay talebinin gönderilmesi) Order PR #47 kapsamındadır. Order testleri üç Kitchen yolunda geçerli ve hatalı imzaları, ayrıca geçici hata sonrası `OrderCancellationRequested` olayının aynı kimlik ve gövdeyle tekrarını doğrular. Bu davranışların `dev`’e alınması ve çalışan iki servisle doğrulanması ayrı adımlardır. [Order PR #47](https://github.com/software-lecture-labs/Restofy/pull/47) · [KO3 talep belgesi](https://github.com/software-lecture-labs/Restofy/blob/9b023d3/docs/kitchen/integration/kitchen-order-requests-01.md)
 
 - [ ] Order’da oluşturulan sipariş Kitchen kuyruğunda tek bir `WAITING` kaydı oluşturur. Aynı olay tekrar gelirse ikinci kayıt oluşmaz.
 - [ ] Kitchen önce hazırlığı başlatır, sonra hazır yapar. Order’da `PREPARING` ve `READY` sırasıyla görülür. Order’daki servis teslimi Kitchen üzerindeki `READY` durumunu korur.

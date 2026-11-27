@@ -1,6 +1,7 @@
 package com.restofy.order.infrastructure.messaging;
 
 import com.restofy.order.domain.event.EventDestination;
+import com.restofy.order.domain.event.OrderCancellationRequestedEvent;
 import com.restofy.order.domain.event.OrderPlacedEvent;
 import com.restofy.order.infrastructure.client.KitchenEventsHttpClient;
 import com.restofy.order.infrastructure.config.KitchenRestaurantScope;
@@ -122,6 +123,49 @@ class KitchenOutboxDispatcherTests {
         assertTrue(store.claim(tenant, 5, lease).isEmpty());
         assertEquals("FAILED", state(accepted));
         assertEquals("PENDING", state(followUp));
+    }
+
+    @Test
+    void confirmationRequestKeepsItsKitchenContractAndExactBytesAcrossRetries() {
+        UUID tenant = UUID.randomUUID();
+        UUID order = UUID.randomUUID();
+        UUID cancellation = UUID.randomUUID();
+        UUID line = UUID.randomUUID();
+        UUID event = record(tenant, order, 1, OrderCancellationRequestedEvent.TYPE, Map.of(
+                "cancellationId", cancellation, "scope", "PARTIAL", "kitchenConfirmationRequired", true,
+                "items", List.of(Map.of("orderItemId", line, "quantity", 1, "remainingQuantity", 2)),
+                "reasons", List.of(Map.of("code", "OTHER", "text", "internal reason")), "projectedDueMinor", 250));
+        var peer = mock(KitchenEventsHttpClient.class);
+        List<byte[]> sent = new ArrayList<>();
+        when(peer.send(any(), any())).thenAnswer(call -> {
+            assertEquals(tenant, call.getArgument(0));
+            sent.add(call.getArgument(1));
+            return sent.size() == 1 ? 503 : 204;
+        });
+        var dispatcher = dispatcher(tenant, peer);
+        dispatcher.dispatch();
+        assertEquals("PENDING", state(event));
+        makeDue(event);
+        dispatcher.dispatch();
+
+        assertEquals("DELIVERED", state(event));
+        assertEquals(2, sent.size());
+        assertArrayEquals(sent.get(0), sent.get(1));
+        var body = json.readTree(sent.getFirst());
+        assertEquals(event.toString(), body.path("eventId").asString());
+        assertEquals(OrderCancellationRequestedEvent.TYPE, body.path("eventType").asString());
+        assertEquals(1, body.path("schemaVersion").asInt());
+        assertTrue(body.path("occurredAt").isTextual());
+        assertEquals(tenant.toString(), body.path("restaurantId").asString());
+        assertEquals(order.toString(), body.path("orderId").asString());
+        assertEquals(cancellation.toString(), body.path("cancellationId").asString());
+        assertEquals("PARTIAL", body.path("scope").asString());
+        assertTrue(body.path("kitchenConfirmationRequired").asBoolean());
+        assertEquals(1, body.path("items").size());
+        assertEquals(line.toString(), body.path("items").get(0).path("orderItemId").asString());
+        assertEquals(1, body.path("items").get(0).path("quantity").asInt());
+        assertFalse(body.has("reasons"));
+        assertFalse(body.has("projectedDueMinor"));
     }
 
     @Test

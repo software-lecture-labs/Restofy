@@ -5,6 +5,8 @@ import com.restofy.order.infrastructure.config.KitchenRestaurantScope;
 import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -35,6 +37,7 @@ class KitchenServiceIdentityTests {
     private static final Instant NOW = Instant.parse("2026-11-24T09:00:00Z");
     private static final UUID RESTAURANT = UUID.randomUUID();
     private static final KeyPair KEY = Jwts.SIG.RS256.keyPair().build();
+    private static final KeyPair UNTRUSTED_KEY = Jwts.SIG.RS256.keyPair().build();
     private static final byte[] BODY = "{}".getBytes(StandardCharsets.UTF_8);
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -43,9 +46,10 @@ class KitchenServiceIdentityTests {
         SecurityContextHolder.clearContext();
     }
 
-    @Test
-    void signedHttpsRequestKeepsVerifiedScopeAndOriginalBytes() throws Exception {
-        var request = request(PATH, token(PATH, RESTAURANT, NOW, "order:kitchen-events"), BODY, true);
+    @ParameterizedTest
+    @ValueSource(strings = {PATH, PATH + "-cancellation-request", PATH + "-cancellation"})
+    void signedHttpsRequestKeepsVerifiedScopeAndOriginalBytes(String path) throws Exception {
+        var request = request(path, token(path, RESTAURANT, NOW, "order:kitchen-events"), BODY, true);
         var chain = new MockFilterChain();
         filter().doFilter(request, new MockHttpServletResponse(), chain);
         assertNotNull(chain.getRequest());
@@ -55,10 +59,19 @@ class KitchenServiceIdentityTests {
         assertFalse(actor.isKitchenFor(UUID.randomUUID()));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {PATH, PATH + "-cancellation-request", PATH + "-cancellation"})
+    void rejectsAnUntrustedKeyWrongRestaurantAndChangedBodyOnEveryKitchenRoute(String path) throws Exception {
+        reject(request(path, token(path, RESTAURANT, NOW, "order:kitchen-events", UNTRUSTED_KEY), BODY, true), 401);
+        reject(request(path, token(path, UUID.randomUUID(), NOW, "order:kitchen-events"), BODY, true), 401);
+        reject(request(path, token(path, RESTAURANT, NOW, "order:kitchen-events"),
+                "{} ".getBytes(StandardCharsets.UTF_8), true), 403);
+    }
+
     @Test
     void rejectsUntrustedTenantExpiredSignatureAndWrongScope() throws Exception {
-        reject(request(PATH, token(PATH, UUID.randomUUID(), NOW, "order:kitchen-events"), BODY, true), 401);
         reject(request(PATH, token(PATH, RESTAURANT, NOW.minusSeconds(31), "order:kitchen-events"), BODY, true), 401);
+        reject(request(PATH, token(PATH, RESTAURANT, NOW.plusSeconds(1), "order:kitchen-events"), BODY, true), 401);
         reject(request(PATH, token(PATH, RESTAURANT, NOW, "different-scope"), BODY, true), 401);
         reject(request("/api/v1/internal/order-events/payment",
                 token(PATH, RESTAURANT, NOW, "order:kitchen-events"), BODY, true), 401);
@@ -67,7 +80,6 @@ class KitchenServiceIdentityTests {
     @Test
     void rejectsModifiedBytesDifferentKitchenPathAndNonTls() throws Exception {
         String token = token(PATH, RESTAURANT, NOW, "order:kitchen-events");
-        reject(request(PATH, token, "{} ".getBytes(StandardCharsets.UTF_8), true), 403);
         reject(request(PATH + "-cancellation", token, BODY, true), 403);
         reject(request(PATH, token, BODY, false), 403);
     }
@@ -107,12 +119,17 @@ class KitchenServiceIdentityTests {
     }
 
     private static String token(String target, UUID restaurant, Instant issued, String scope) {
+        return token(target, restaurant, issued, scope, KEY);
+    }
+
+    private static String token(String target, UUID restaurant, Instant issued, String scope, KeyPair signingKey) {
         long iat = issued.getEpochSecond();
         return Jwts.builder().header().keyId("test").and()
                 .issuer("restofy-kitchen").subject("kitchen-service").audience().add("restofy-order").and()
                 .id(UUID.randomUUID().toString()).claim("token_type", "service").claim("scope", scope)
                 .claim("iat", iat).claim("nbf", iat).claim("exp", iat + 30)
                 .claim("restaurant_id", restaurant.toString()).claim("method", "POST").claim("target", target)
-                .claim("body_sha256", QrSignedRequest.digest(BODY)).signWith(KEY.getPrivate(), Jwts.SIG.RS256).compact();
+                .claim("body_sha256", SignedServiceRequest.digest(BODY))
+                .signWith(signingKey.getPrivate(), Jwts.SIG.RS256).compact();
     }
 }
