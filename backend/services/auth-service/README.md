@@ -282,6 +282,21 @@ dosyalarında tutulur. Testler kendi JVM-içi anahtarlarını üretir.
 V2 yalnız `user_sessions` ve `refresh_tokens` ekler. Canlı migration/rebuild ayrı onay
 gerektirir. Audit tablosu, session listesi/silme API'si ve frontend ekranları kapsam dışındadır.
 
+### Mail adresi ve iç ağda HTTP (ADR-ORTAK-001)
+
+`MAIL_SERVICE_URL` her ortamda HTTPS olabilir. Düz HTTP yalnız şu dördü birlikte sağlanınca kabul edilir
+(`InternalHttpPolicy`):
+
+1. `INTERNAL_HTTP_ALLOWED=true` (varsayılan `false`; `true`/`false` dışı değer servisi başlatmaz).
+2. `APP_ENV` `dev`, `local` ya da `test`. Boş `APP_ENV` yetmez; profil önemli değildir.
+3. `prod`/`production` profili yok. Ayar `true` iken `APP_ENV=prod` ya da prod profili varsa servis **başlamaz**.
+4. Host bir Compose servis adı (harfle başlayan, noktasız `a-z0-9-`) ya da loopback. IP ve noktalı alan adı reddedilir.
+
+Kabul edilen HTTP adres başlangıçta bir kez `internal_http=ENABLED` uyarısıyla yazılır (yalnız ayar adı ve origin).
+Mail istemcisi yönlendirme izlemez. Eskiden `dev` profili tek başına HTTP'ye izin veriyordu; artık Compose'da HTTP
+kullanmak için `.env`'e `INTERNAL_HTTP_ALLOWED=true` yazılır. Auth testleri bunu
+`src/test/resources/config/application-test.properties` ile açar. Q5 istemcisi (Auth → QR) bu kuralın dışındadır.
+
 ## AUTH-03 ADMIN MFA
 
 MFA yalnız ADMIN içindir. Parola doğrulaması her zaman 300 saniyelik `MFA_PENDING`
