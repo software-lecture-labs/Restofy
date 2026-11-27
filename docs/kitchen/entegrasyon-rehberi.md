@@ -1,33 +1,23 @@
 # Kitchen entegrasyon rehberi — Order
 
-Order ekibi için. Yalnız PR #47'deki Order taleplerine (`6d4fdb3`, `docs/order-service/kitchen-entegrasyon-rehberi.md`) Kitchen tarafında yapılan hazırlığı anlatır. Order sorumlusunun sonradan verdiği yanıtlar işlenmiştir; yanıttaki bir davranış PR #47 kodunda henüz yoksa ayrıca belirtilir.
+Order ekibi ve inceleyenler için. Kitchen ile Order arasındaki iki yönü anlatır: Order → Kitchen olayları (Kitchen PR #77'nin alıcısı) ve Kitchen → Order olayları (KITCHEN-INT-03, Kitchen PR #80). Bu belge, #77 ile #80'i birleştirip bağlayan yerel `chore/kitchen-int-03-wiring` branch'inin durumudur; Order sözleşmesi birleşmemiş Order PR #47 (`00bb2aa`) ile karşılaştırıldı.
 
-> **Order–Kitchen entegrasyonu tamamlanmadı ve etkinleştirilmedi.** Order'ın bugünkü kabul mesajı Kitchen tarafından **reddedilir** (`tableNumber` yok). Ortak ortamda Kitchen için HTTPS de yoktur. Bu iki konu çözülmeden Order'da `order-kitchen` profili Kitchen'a karşı açılmamalıdır: reddedilen olay Order outbox'ında kalıcı hataya düşer ve aynı siparişin sonraki olaylarını durdurur.
+> **Entegrasyon etkinleştirilmedi ve çalışan iki servisle uçtan uca doğrulanmadı.** Kod tarafı iki yönde tamam; açılması için §9'daki ortam hazırlığı ve #47, #77, #80'in `dev`'e girmesi gerekir. Order'ın bugünkü kabul mesajı `tableNumber` taşımadığı için Kitchen tarafından reddedilir; sıra #47 → QR #78 → Order'da zorunluluk.
 
-## 1. Taleplerin durumu
+## 1. Durum
 
-Beklenen yanıtların ayrıntısı Order sorumlusuyla ayrıca paylaşılır; `KO2-xx` numaraları o listedeki maddelerdir. "Ekip kararı", yalnız Order'ın veya yalnız Kitchen'ın veremeyeceği kararları gösterir.
+| Akış | Kitchen'da | Doğrulama |
+|---|---|---|
+| Sipariş kabulü (`OrderAccepted`) | Uygulandı (#77) | Kitchen testleri; `tableNumber` sırası yukarıda |
+| `PREPARING` / `READY` gönderimi | Uygulandı; `READY`, `PREPARING` teslim edilmeden seçilmez (#77 koruması) | Kitchen testleri; gerçek Order koduyla geçici deneme (§8) |
+| Kitchen'ın kendi iptal talebi | Uygulandı: `OTHER` açıklamasıyla gönderim, Order yanıtının doğrulanıp karar olarak kaydı | Kitchen testleri; gerçek Order koduyla geçici deneme |
+| Order'ın onay isteği → mutfak cevabı | Uygulandı: istek kaydı, personel cevabı, cevabın gönderimi | Kitchen testleri; gerçek Order koduyla geçici deneme |
+| Order'ın kesin tam iptali (`OrderCancelled`) | `WAITING`/`PREPARING` sipariş iptal edilir; `READY` için uygulanmaz (D-02) | Kitchen testleri; gövde gerçek Order projeksiyonuyla denendi |
+| Order'ın reddi (`OrderCancellationRejected`) | Onaylanır; mutfak siparişi değişmez | Kitchen testleri; gövde gerçek Order projeksiyonuyla denendi |
+| Kısmi iptal (`OrderItemsCancelled`) | **Uygulanmaz:** `422` (D-02 açık) | Kitchen testleri |
+| İki yönlü imza ve HTTPS | Doğrulama (#77) ve imzalama (#80) hazır | İmza #47 doğrulayıcısıyla denendi; gerçek TLS ile iki servis denenmedi |
 
-| Order talebi | Kitchen tarafında hazır | Açık kalan | Sonraki gerçek entegrasyona kaldı |
-|---|---|---|---|
-| Olay alım ucu | Uç var; yalnız sipariş kabulünü işler; varsayılan kapalı | Ortak ortamda HTTPS (ekip kararı, KO2-07) | Gerçek bağlantı ve etkinleştirme |
-| Servis imzası, restoran kapsamı, HTTPS | Doğrulama hazır; anahtar rotasyonu yerelde denendi | `kid` ve açık anahtar paylaşımı (KO2-07); HTTPS | Ortak ortam denemesi |
-| `eventType: "OrderAccepted"` | Hazır | – | – |
-| Zorunlu `tableId`, isteğe bağlı `tableNumber` | `tableId` kabul ediliyor. `tableNumber` **zorunlu kaldı** | Order'ın numarayı sipariş anının snapshot'ı olarak göndermesi; QR teyidi (KO2-01) | – |
-| Fiyat ve misafir bilgisi kabul etmeme | Zaten vardı | – | – |
-| Seçenek, alan ve boyut sınırları | Hazır; saklanamayan metin açıkça reddediliyor | Order'ın kalem adedi ayarı, ortak sınır belirlenmeden 999 üstüne açılmamalı (KO2-09) | – |
-| Tekrar teslim ve yeniden gönderim | Reddedilen veya geçici hata alan olay iz bırakmıyor; aynı gövde yeniden değerlendiriliyor. Yalnız `tableId`'si farklı tekrar ayırt edilemiyor | Order'da başarısız teslimlerin görünürlüğü ve yeniden gönderimi (KO2-04, henüz yok) | – |
-| Giden olayların taşınması (`OrderEventSink`, çalıştırıcı) | Olaylar sabit `eventId` ile outbox'ta bekliyor | – | İstemci, zamanlayıcı, gerçek gönderim |
-| `kitchenStatus` eşlemesi, `PREPARING` → `READY` sırası | Yerel veri ve kuyruk kuralı hazır | – | Eşleme ve gönderim |
-| Kitchen iptal talebinin Order'a eşlenmesi | Talep sabit `eventId` ile outbox'ta | – | `cancelAll`, neden kodu eşlemesi, gönderim |
-| `OTHER` açıklaması | Hazır: personel API'si 1–300 karakter zorunlu tutuyor; yerel olay yükü `reasonText`'i yalnız `OTHER`'da taşıyor | – | Gönderim |
-| `APPLIED` / `REJECTED` yanıtını karara çevirme | Yerel yanıt doğrulaması ve karar servisi hazır; eksik yanıt uygulanmıyor (KO2-08) | Eksik yanıtın uzlaştırılması | İstemci ve yanıtın okunması |
-| Order kaynaklı iptal onayı | **Hazır değil;** olay reddedilir | Kitchen iş akışı ve şema kararı (KO2-05) | Alıcı, karar ve gönderim |
-| Yerel talebi olmayan kesin tam iptal | **Hazır değil;** olay reddedilir | Neden biçimi belli (KO2-03). `READY` davranışı, açık yerel talep ve şema kararı | Uygulama |
-| Kısmi iptal tüm siparişi iptal etmesin, yanlış başarı dönmesin | Hazır: `422`, hiçbir veri değişmez | Mutfak ekranındaki davranış ekip kararı (D-02) | Kısmi iptalin uygulanması |
-| Dört iptal olayı, commit sonrası `204` | **Kısmen:** `204` yalnız sipariş kabulünde ve commit sonrası; dört iptal olayı `422` | KO2-03 – KO2-05 | İptal olaylarının uygulanması |
-| Kitchen'ın giden isteklerini imzalaması | Yok | – | Anahtar, imzalama, güven ilişkisi |
-| İki yönlü uçtan uca deneme | Yok | – | Tamamı |
+**Uygulanmayan ürün kararları:** `READY` bir siparişin iptali ve kısmi iptalin mutfağa etkisi D-02'dir. Kitchen bu iki durumda başarı dönmez (§4). Order'da başarısız teslim aynı siparişin sonraki olaylarını beklettiği için bu durum Order'ın başarısız teslim listesinde görünür ve elle uzlaştırılır.
 
 ## 2. Uç ve güvenlik koşulları
 
@@ -80,7 +70,7 @@ Kitchen `jti` zorunlu tutar, fakat **saklamaz**. Gerekçe:
 - Uygulanan tek olay sipariş kabulüdür. `eventId` ve restoran–sipariş çifti veritabanında kalıcı olarak tekildir; Kitchen sipariş silmez. Aynı gövde ikinci sipariş oluşturmaz ve hazırlık ya da iptal durumunu geri almaz.
 - İlk isteği Kitchen'a ulaşmadan yakalayıp sonradan gönderen biri, yalnız Order'ın imzaladığı gerçek siparişi oluşturabilir.
 
-Kalan risk: süre içinde aynı isteğin çok kez gönderilmesi yinelenen sorgu, log ve sayaç yükü üretir; hız sınırı yoktur. Bu gerekçe **yalnız** bugünkü davranış için geçerlidir. Yeni bir olay türü (ör. iptal) uygulanmadan önce `eventId` ile aynı kalıcılıkta tekilleştirilmelidir.
+Kalan risk: süre içinde aynı isteğin çok kez gönderilmesi yinelenen sorgu, log ve sayaç yükü üretir; hız sınırı yoktur. Bu gerekçe her uygulanan olay türü için `eventId` ile kalıcı tekilleştirmeye dayanır; iptal olayları için bkz. §5.
 
 ## 3. Sipariş kabul sözleşmesi (`schemaVersion` 1)
 
@@ -155,299 +145,133 @@ Bu **uçtan uca bir garanti değildir.** Karşılaştırılan `tableSessionId` v
 
 ## 4. Yanıtlar
 
-**`204` yalnız** olay kalıcı olarak saklandığında döner: yeni sipariş commit edildiğinde veya **aynı `eventId`** aynı içerikle tekrar geldiğinde. Diğer yanıtların hiçbirinde saklanan veri değişmez.
+**`204` yalnız** olay kalıcı olarak uygulandığında veya aynı `eventId` aynı içerikle tekrar geldiğinde döner. Diğer yanıtların hiçbirinde saklanan veri değişmez. PR #47'de `400`, `409`, `422` ilk denemede kalıcı hatadır; `401`, `403`, `404`, `408`, `429`, `5xx` sınırlı sayıda yeniden denenir.
 
-| Durum | `code` | Ne zaman | PR #47 göndericisinin davranışı |
-|---|---|---|---|
-| `204` | – | Saklandı veya aynı olayın tekrarı | Teslim edildi |
-| `400` | `INVALID_ORDER_EVENT` | Sözleşmeye uymayan gövde veya bilinmeyen olay türü | Kalıcı hata |
-| `401` | `UNAUTHENTICATED` | Uç kapalı veya kimlik geçersiz | Sınırlı tekrar |
-| `403` | `HTTPS_REQUIRED`, `REQUEST_NOT_SIGNED`, `RESTAURANT_MISMATCH` | Güvenli bağlantı yok, istek imzalananla aynı değil veya restoran farklı | Sınırlı tekrar |
-| `409` | `CONTENT_CONFLICT` | `eventId` başka içerik, sipariş veya restoranda; ya da kalem kimliği başka siparişte | Kalıcı hata |
-| `409` | `OTHER_EVENT_STORED` | Aynı sipariş ve sürüm farklı `eventId` ile saklı | Kalıcı hata |
-| `409` | `STALE_VERSION` | Saklanandan eski sürüm | Kalıcı hata |
-| `409` | `NEWER_VERSION_NOT_APPLIED` | Saklanandan yeni sürüm (D-02 açık) | Kalıcı hata |
-| `413` | `BODY_TOO_LARGE` | Gövde sınırı aşıldı | Kalıcı hata |
-| `415` | – | İçerik türü JSON değil | Kalıcı hata |
-| `422` | `UNSUPPORTED_EVENT_TYPE` | Dört iptal olayından biri | Kalıcı hata |
-| `503` | `TEMPORARILY_UNAVAILABLE`, `AUTHENTICATION_UNAVAILABLE` | Beklenmeyen hata | Sınırlı tekrar |
+| Durum | `code` | Ne zaman |
+|---|---|---|
+| `204` | – | Uygulandı veya aynı olayın tekrarı |
+| `400` | `INVALID_ORDER_EVENT` | Sözleşmeye uymayan gövde, bilinmeyen tür veya alan |
+| `401` | `UNAUTHENTICATED` | Uç kapalı veya kimlik geçersiz |
+| `403` | `HTTPS_REQUIRED`, `REQUEST_NOT_SIGNED`, `RESTAURANT_MISMATCH` | Güvenli bağlantı yok, istek imzalananla aynı değil veya restoran farklı |
+| `409` | `CONTENT_CONFLICT` | `eventId` başka içerikle; iptal isteğinde çakışan kimlik ya da başka siparişin kalemi |
+| `409` | `OTHER_EVENT_STORED` | Sipariş başka bir olayla saklı ya da başka bir kararla iptal edilmiş |
+| `409` | `STALE_VERSION` | Saklanandan eski sipariş sürümü |
+| `409` | `NEWER_VERSION_NOT_APPLIED` | Kabul olayında saklanandan yeni sürüm (D-02) |
+| `409` | `UNKNOWN_ORDER` | İptal olayı Kitchen'ın tanımadığı bir sipariş için |
+| `409` | `NEEDS_RECONCILIATION` | `READY` siparişe kesin iptal (D-02) ya da iptal edilmiş siparişe onay isteği |
+| `413` | `BODY_TOO_LARGE` | Gövde sınırı aşıldı |
+| `415` | – | İçerik türü JSON değil |
+| `422` | `UNSUPPORTED_EVENT_TYPE` | Yalnız `OrderItemsCancelled` |
+| `503` | `TEMPORARILY_UNAVAILABLE`, `AUTHENTICATION_UNAVAILABLE` | Beklenmeyen hata |
 
-PR #47'de bir olay en çok 5 kez denenir ve teslim edilmeyen olay aynı siparişin sonraki olaylarını bekletir. Başarısız teslimleri görme ve aynı `eventId` ve gövdeyle yeniden gönderme Order tarafında planlanıyor; **bugün yok**.
-
-**Yeniden gönderim:** `204` dışında yanıt alan olaydan Kitchen'da kayıt kalmaz ve `eventId` kullanılmış sayılmaz. Aynı gövde her seferinde yeniden değerlendirilir: sözleşmeye uymayan gövde yine `400`, desteklenmeyen olay yine `422` alır. Geçici hatadan (`503`) sonra aynı gövde siparişi bir kez oluşturur. Desteklenmeyen olay ancak Kitchen o türü desteklediğinde uygulanabilir.
-
-Örnek hata gövdesi (`application/problem+json`):
-
-```json
-{
-  "title": "Bad Request",
-  "status": 400,
-  "detail": "The event does not match the contract; nothing was changed",
-  "instance": "/api/v1/internal/kitchen/order-events",
-  "code": "INVALID_ORDER_EVENT",
-  "violations": ["tableNumber must not be blank"]
-}
-```
-
-`violations` alan adını ve kuralı yazar; gönderilen değeri yazmaz. Kimlik, HTTPS, imza ve boyut redlerinde `instance` ve `violations` bulunmaz.
+**Yeniden gönderim:** `204` dışında yanıt alan olaydan Kitchen'da kayıt kalmaz; aynı gövde her seferinde yeniden değerlendirilir.
 
 ### Tekrar teslim
 
 İçerik karşılaştırması sipariş sürümünü, masa oturumunu, masa ve sipariş numarasını ve bütün kalemleri kapsar. Sipariş numarası, masa numarası ve ürün adının baş ve son boşlukları yok sayılır. `occurredAt` ve `correlationId` saklanmadığı için karşılaştırılmaz. `tableId` de saklanmaz: **yalnız `tableId` değeri farklı olan bir tekrar `204` alır.** İlk kabul olayı, sipariş hazırlanmaya başladıktan veya iptal edildikten sonra da aynı olay sayılır.
 
-## 5. İptal olayları
+## 5. Order → Kitchen iptal olayları
 
-`OrderCancellationRequested`, `OrderCancelled`, `OrderItemsCancelled` ve `OrderCancellationRejected` için Kitchen yalnız kimliği ve restoran kapsamını doğrular, sonra `422` döner. Olayın diğer alanları işlenmez, hiçbir kayıt oluşmaz. Hiçbir olay kısmi iptali tüm siparişin iptaline çevirmez. Uygulanmayan olaya `204` dönülmez.
+Gövde PR #47'nin Kitchen projeksiyonundaki alanlardır ve kabul mesajıyla aynı katılıkta okunur: `eventId`, `eventType`, `schemaVersion` (1), `occurredAt`, `correlationId`, `restaurantId`, `orderId`, `orderVersion`, `cancellationId`, `scope` (`FULL`/`PARTIAL`), `kitchenConfirmationRequired`, `items[{orderItemId, quantity, remainingQuantity}]`, `decidedAt`, `rejectionCode`, `reasons[{code}]` (yalnız `OrderCancelled`). Tutar, serbest metin ve kişi bilgisi gelmez; bilinmeyen alan reddedilir.
 
-Kitchen'ın mevcut karar servisi yalnız **kendi açtığı** iptal talebinin kararını uygular. Bu servis `requestId` (Kitchen'ın kimliği), `orderVersion` ve `decidedAt` ister; Kitchen bunların hiçbirini uydurmaz.
-
-### 5.1 Kesin tam iptal (henüz uygulanmıyor)
-
-Belirlenen neden biçimi: `"reasons": [ { "code": "CHANGED_MIND" } ]`; neden yoksa `"reasons": []`. Serbest metin gönderilmez; sonradan eklenen neden ayrı olay üretmez. PR #47'nin Kitchen mesajında `reasons` alanı **henüz yoktur**. Bu biçimdeki mesaj `WAITING`, `PREPARING` ve `READY` durumlarının hepsinde `422` alır.
-
-Bugünkü sonuçları:
-
-- Order'da iptal kesinleşse de sipariş mutfak kuyruğunda kalır ve mutfak hazırlamaya devam edebilir.
-- Bu siparişe sonradan gönderilecek hazırlık bilgisine Order `IGNORED_ORDER_CLOSED`, yeni bir Kitchen iptal talebine `ORDER_ALREADY_CANCELLED` döner. Daha önce işlenmiş aynı talebin tekrarında ilk karar geçerlidir.
-- Uygulanmadan önce karar gereken konular: `READY` siparişin durumu (D-02), o sırada açık Kitchen iptal talebinin nasıl kapanacağı ve yerel talebi olmayan iptalin kalıcı tekilleştirilmesi için şema değişikliği.
-
-### 5.2 Mutfak onayı bekleyen iptal (henüz uygulanmıyor)
-
-Order bu talebi süre dolunca kendiliğinden reddetmez; 15 dakika yalnız yönetici görünümündeki dikkat süresidir. Talep açıkken hazırlık `READY`'ye ilerleyebilir ve `READY` talebi kapatmaz. Sonradan verilen onayı Order yeniden denetler ve `ORDER_ALREADY_PREPARED` ile reddedebilir. Açık talep varken Kitchen'ın yeni talebine `409 CANCELLATION_ALREADY_PENDING` ve mevcut `cancellationId` döner; karar o talep üzerinden beklenir.
-
-Kitchen bugün Order'ın açık talebini **bilemez** (olay `422` alır). Bu yüzden aynı sipariş için yeni yerel talep kabul edebilir (`202`). Gönderim kurulduğunda Order bunu `409` ile reddeder ve yerel talebi kapatacak bir yol bugün yoktur. Bu akış kurulmadan Kitchen iptal talebi gönderimi açılmamalıdır.
-
-## 6. Kitchen → Order
-
-**Gönderim yoktur.** İstemci, zamanlayıcı, imzalama ve Kitchen özel anahtarı eklenmedi; olaylar Kitchen outbox'ında bekler ve teslim edilmiş işaretlenmez.
-
-| Outbox olayı | Gövdede hazır olan |
-|---|---|
-| `KitchenPreparationStarted` | `preparationStatus: PREPARING`, `startedAt` |
-| `KitchenOrderReady` | `preparationStatus: READY`, `startedAt`, `readyAt` |
-| `KitchenCancellationRequested` | `requestId`, `orderId`, `reasonCode` (`OUT_OF_STOCK`, `CUSTOMER_REQUEST`, `KITCHEN_ERROR`, `OTHER`), stok nedeninde `productId`, `orderItemId`; **yalnız `OTHER`'da** `reasonText` (diğer kodlarda alan hiç yoktur) |
-
-Her olayın `eventId` değeri saklanır; tekrar denemede aynı kalır. İptal talebi bütün siparişi kapsar. Order'a eşlemede `cancelAll: true` ve `OUT_OF_STOCK` → `ITEM_UNAVAILABLE` gönderim geliştirilirken uygulanacaktır; diğer üç kod Order kataloğunda aynı adla vardır.
-
-**`OTHER` açıklaması.** Personel API'sinde (`POST /api/v1/kitchen/orders/{orderId}/cancellation-requests`) `OTHER` için `reasonText` zorunludur. Baştaki ve sondaki boşluklar atıldıktan sonra 1–300 karakter olmalıdır; uzunluk Order'daki gibi sayılır (bir emoji 2). Metin eksikse, boşsa, yalnız boşluksa (bölünmez boşluk dahil), 300'ü aşıyorsa ya da ASCII dışı kontrol karakteri veya eşsiz surrogate içeriyorsa yanıt `400 INVALID_REASON_TEXT` olur. ASCII kontrol karakteri ve 500'ü aşan metin genel doğrulamada `code` alanı olmayan `400` alır. İki durumda da kayıt oluşmaz. Diğer kodlarda metin isteğe bağlıdır (en çok 500) ve Kitchen'da kalır. (5.1'deki "serbest metin gönderilmez" kuralı yalnız Order → Kitchen tam iptal mesajı içindir.)
-
-> **Metni misafir okuyabilir.** Gönderim kurulduğunda `OTHER` açıklamasını Order'daki iptal ayrıntısında **siparişin sahibi olan misafir** ile aynı restoranın yetkili garsonu ve yöneticisi okuyabilir. Metin için ayrı bir otomatik silme süresi görülmemiştir. Açıklamaya kişisel bilgi veya mutfak içi not yazılmamalıdır. Personel ekranında bu uyarı henüz yoktur; bu çalışmada frontend değiştirilmedi.
-
-Bu kuraldan önce açıklamasız kaydedilmiş bir `OTHER` talebinin olayında metin yoktur ve Order onu reddeder; sonradan metin üretilmez. Aynı `Idempotency-Key` ile açıklamasız tekrar artık `400` alır.
-
-Sıra kuralı hazırdır:
-
-- Bir siparişin `KitchenOrderReady` kaydı, aynı siparişin `KitchenPreparationStarted` kaydı Order hedefine **teslim edilmeden** gönderime alınmaz.
-- Hazırlık olayı tekrar beklerken veya kalıcı olarak başarısızken `READY` bekler ve deneme hakkı harcamaz. Mutfaktaki `READY` durumu değişmez.
-- Başka siparişler, başka restoranlar ve bildirim teslimi etkilenmez.
-
-### 6.1 Order'ın iptal talebi yanıtı
-
-PR #47, Kitchen'ın **kendi** iptal talebinin sonucunu Kitchen'a sonradan olay olarak göndermez; sonuç yalnız HTTP yanıtında gelir. Bu yanıt için yerel doğrulama hazırdır (`OrderCancellationReceipt`); onu çağıran bir istemci yoktur.
-
-| Yanıt | Yerel sonuç |
-|---|---|
-| `outcome` (`APPLIED` veya `REJECTED`), eşleşen `orderId`, `cancellationId`, `scope: FULL`, `orderVersion`, `decidedAt`; rette `rejectionCode` | Karar mesajı oluşur; karar servisinin kuralları uygulanır (eski sürüm uygulanmaz; `READY` sipariş iptal edilmez, uzlaştırma kaydı oluşur) |
-| Bu alanlardan biri eksik (72 saat sonrasındaki tekrar yanıtı dahil) | **Eksik:** karar oluşmaz, hiçbir kayıt değişmez, talep `REQUESTED` kalır |
-| Başka sipariş, kısmi kapsam, bilinmeyen sonuç veya onayda `rejectionCode` | **Uyuşmazlık:** hiçbir şey uygulanmaz |
-
-Yanıtın kendi olay kimliği olmadığı için karar, gönderilen Kitchen olayının `eventId` değeriyle tekilleştirilir; aynı yanıtın tekrarı ikinci kez uygulanmaz.
-
-**Kalan risk:** Eksik yanıtta `outcome: APPLIED` ise Order siparişi iptal etmiştir, Kitchen ise siparişi aktif görmeye devam eder. Bu durum yalnız talebin `REQUESTED` kalmasından anlaşılır; uzlaştırmayı kimin nasıl yapacağı belirlenmemiştir. Order'ın `eventId` ile ilk karar bağını inbox saklama süresi boyunca koruma önerisi uygulanırsa geç tekrar da eksiksiz olabilir; bu öneri henüz uygulanmamıştır.
-
-### 6.2 Gönderim geliştirilirken yanıtların eşlenmesi (öneri, uygulanmadı)
-
-| Order'ın yanıtı | Kitchen teslim kaydı |
-|---|---|
-| Hazırlık olayına `200`: `APPLIED`, `IGNORED_STALE`, `IGNORED_ORDER_CLOSED` | Teslim edildi |
-| İptal talebine eksiksiz `200` | Karar önce yerelde uygulanır, sonra teslim edildi |
-| İptal talebine eksik veya uyuşmayan `200` | Teslim edildi sayılmaz; görünür bir hata koduyla (ör. `ORDER_RECEIPT_INCOMPLETE`) uzlaştırma bekler |
-| `409 ORDER_ALREADY_CANCELLED`, `409 CANCELLATION_ALREADY_PENDING` | Başarısız; hata kodu saklanır. Yerel talebin kapanışı 5.1 ve 5.2'deki kararlara bağlıdır |
-| Zaman aşımı, bağlantı hatası, `5xx` | Sonuç belirsiz; aynı `eventId` ile yeniden denenir |
-
-## 7. Doğrulamanın sınırı
-
-Davranış Kitchen'ın yerel testleriyle doğrulandı: test amaçlı imzalayıcı, test sırasında üretilen anahtarlar ve gerçek sunucuda geçici sertifikalı TLS. Order yanıtları testlerde PR #47'nin yanıt biçimine göre elle yazıldı. PR #47'nin imzalayıcı sınıfının ürettiği kimlik, önceki bir yerel denemede Kitchen doğrulayıcısından geçti. **Çalışan bir Order servisine bağlanılmadı;** gerçek mesaj akışı, anahtar dağıtımı ve ortak ortam doğrulanmadı.
-
-Yukarıdaki `OTHER` kuralı dışında personel ekranı uçları bu belgenin kapsamında değildir.
-
----
-
-## Kitchen → Order olay teslimatı (KITCHEN-INT-03)
-
-- **Tarih:** 27 Kasım 2026
-- **Dayanak:** `dev` `49aa16a` üzerindeki Order uçları. Servis kimliği ve Order'ın Kitchen'a gönderdiği iptal isteği yalnız birleşmemiş [PR #47](https://github.com/software-lecture-labs/Restofy/pull/47)'de yazılı; bu iki konu için o sözleşme kullanıldı.
-- **Durum:** Kitchen tarafı yazıldı ve yerel bir HTTP test sunucusuyla test edildi. İmza, PR #47'nin Order doğrulayıcısıyla izole bir çalışma alanında denendi. **Çalışan bir Order servisiyle doğrulanmadı.**
-- **Order'dan beklenenler:** [kitchen-order-requests-01.md](integration/kitchen-order-requests-01.md)
-
-### 1. Akışların durumu
-
-| Akış | Kitchen'da | Açılması için kalan |
+| Olay | Kitchen'ın yaptığı | Tekilleştirme |
 |---|---|---|
-| A. Hazırlık başladı (`PREPARING`) | Gönderim ve imza hazır | Order doğrulayıcısı `dev`'de (KO3-01), anahtar değişimi, HTTPS |
-| B. Hazır (`READY`) | Gönderim ve imza hazır; **sıra koruması yok** | A'dakiler; `READY`'nin `PREPARING` teslimine kadar bekletilmesi (Kitchen PR #77) |
-| C. Kitchen'ın kendi iptal talebi | Gövde eşlemesi hazır, ama **talepler gönderilmez, bekletilir** (§4) | Order cevabının doğrulanıp uygulanması (doğrulama Kitchen PR #77'de); `OTHER` açıklaması (PR #77); A'dakiler |
-| D. Order isteğine Kitchen'ın onay/ret cevabı | Kayıt, personel ucu, cevap olayı ve gönderim hazır | Order'ın isteği Kitchen'a göndermesi (KO3-02); isteği alan Kitchen ucu (PR #77); A'dakiler |
+| `OrderCancellationRequested` (`kitchenConfirmationRequired=true`) | İsteği personelin cevabı için kaydeder (`order_cancellation_confirmations`); sipariş değişmez. Siparişte aynı anda tek bekleyen istek olur. | `(restaurant_id, request_event_id)` ve `(restaurant_id, cancellation_id)` benzersiz |
+| `OrderCancelled` (`FULL`, tüm kalemlerde `remainingQuantity=0`) | Sürüm Kitchen'ın bildiğinden büyükse `WAITING`/`PREPARING` sipariş `CANCELLED` olur; neden kodları siparişte virgülle saklanır. `READY` sipariş iptal edilmez (`409 NEEDS_RECONCILIATION`). | Durum geçmişindeki `source_event_id` |
+| `OrderCancellationRejected` | Hiçbir şey değişmez; onaylanır. | Değişiklik olmadığı için gerekmez |
+| `OrderItemsCancelled` | Uygulanmaz: `422` | – |
 
-Order'ın kesinleşmiş iptal olaylarının (`OrderCancelled`, `OrderItemsCancelled`, `OrderCancellationRejected`) Kitchen'da işlenmesi bu işin kapsamında değildir (Order → Kitchen yönü). Bu olayların alıcısı PR #77'de; işlenmeleri sonraki bir Kitchen işidir ve `READY` + iptal durumu için D-02 kararı gerektirir.
+#77'nin §2.4 koşulu (yeni olay türü `eventId` ile kalıcı tekilleştirilmeden uygulanmaz) bu üç türde sağlanır: aynı gövdenin 30 saniye içinde tekrar gönderilmesi ikinci bir değişiklik yapamaz.
 
-### 2. Olay → uç → gövde eşlemesi
+Kitchen yalnız Order'ın kararıyla iptal eder. Kitchen'ın kendi talebinin sonucu için Order olay göndermez (§6.4); personelin onay verdiği Order isteğinin sonucu ise `OrderCancelled` ya da `OrderCancellationRejected` ile gelir.
 
-Kaynak, Kitchen outbox'ındaki `ORDER` hedefli teslimatlardır. `NOTIFICATION` teslimatlarına dokunulmaz.
+**Açık ürün kararları (uygulanmadı):** `READY` siparişin iptali ve kısmi iptal (D-02); Order bir siparişi kendi kararıyla iptal ettiğinde Kitchen'da açık kalan Kitchen talebinin gösterimi (talep `REQUESTED` kalır; gönderilirse Order `409 ORDER_ALREADY_CANCELLED` ile reddeder ve teslim `FAILED` olur).
+
+## 6. Kitchen → Order (KITCHEN-INT-03)
+
+Kaynak, Kitchen outbox'ındaki `ORDER` hedefli teslimatlardır; yalnız `kitchen-order` profiliyle gönderilir.
+
+### 6.1 Olay → uç → gövde
 
 | Kitchen işlemi | Outbox olayı | Order ucu (`/api/v1/internal/order-events`) | Gönderilen alanlar |
 |---|---|---|---|
 | Hazırlığı başlat | `KitchenPreparationStarted` | `POST /kitchen` | `eventId`, `restaurantId`, `orderId`, `kitchenStatus: "PREPARING"`, `occurredAt` |
 | Hazır işaretle | `KitchenOrderReady` | `POST /kitchen` | aynı alanlar, `kitchenStatus: "READY"` |
-| İptal talebi (**bekletilir**) | `KitchenCancellationRequested` | `POST /kitchen-cancellation-request` | `eventId`, `restaurantId`, `orderId`, `cancelAll: true`, `reasonCodes` (tek kod) |
-| Order isteğine cevap | `KitchenCancellationDecided` | `POST /kitchen-cancellation` | `eventId`, `restaurantId`, `orderId`, `cancellationId`, `decision` (`APPROVED`/`REJECTED`), rette `rejectionCode: "KITCHEN_DECLINED"` |
+| Kitchen iptal talebi | `KitchenCancellationRequested` | `POST /kitchen-cancellation-request` | `eventId`, `restaurantId`, `orderId`, `cancelAll: true`, `reasonCodes` (tek kod); yalnız `OTHER`'da `reasonText` |
+| Order isteğine cevap | `KitchenCancellationDecided` | `POST /kitchen-cancellation` | `eventId`, `restaurantId`, `orderId`, `cancellationId`, `decision`; rette `rejectionCode: "KITCHEN_DECLINED"` |
 
-Neden kodları: `OUT_OF_STOCK` → `ITEM_UNAVAILABLE`; `CUSTOMER_REQUEST` ve `KITCHEN_ERROR` aynen. `OTHER` için Order açıklama zorunlu tutar ve kayıtlı Kitchen olayı açıklama taşımaz; bekletme kalktığında `OTHER` talebi gönderilmez ve `FAILED` (`REASON_TEXT_MISSING`) olur.
+Neden kodları: `OUT_OF_STOCK` → `ITEM_UNAVAILABLE`; `CUSTOMER_REQUEST`, `KITCHEN_ERROR`, `OTHER` aynen. Açıklaması olmayan eski bir `OTHER` kaydı gönderilmez (`FAILED`, `REASON_TEXT_MISSING`). Ret kodu Order sözleşmesindeki örnektir; Kitchen'da ret nedeni kataloğu yoktur. Personel bilgisi, iç not ve fiyat gönderilmez. Başlıklar: `Authorization: Service <token>`, `Content-Type`, `Accept` ve varsa `X-Correlation-Id`.
 
-Ret kodu: Order bir kod zorunlu tutar ve sözleşmesinde örnek olarak `KITCHEN_DECLINED` verir. Kitchen'da ret nedeni kataloğu yoktur; personel yalnız evet/hayır seçer. Ret notu (`rejectionNote`) gönderilmez.
+### 6.2 İmza ve taşıma
 
-Order bilinmeyen alanı reddettiği için gövdeye başka alan eklenmez. Ürün, personel kimliği, iç not ve fiyat gönderilmez.
+- Her denemede yeni RS256 token: `iss=restofy-kitchen`, `sub=kitchen-service`, `aud=restofy-order`, `scope=order:kitchen-events`, `token_type=service`, UUID `jti`, `iat = nbf`, `exp = iat + 30 sn`, `restaurant_id`, `method=POST`, `target`, `body_sha256`.
+- Anahtar yalnız Kitchen'da: `KITCHEN_ORDER_SIGNING_KEY_ID`, `KITCHEN_ORDER_SIGNING_PRIVATE_KEY` (Base64 PKCS#8 RSA, en az 2048 bit). Eksik veya geçersizse profil açılmaz; hata mesajı değeri yazmaz. Anahtar ve token loglanmaz.
+- `ORDER_SERVICE_URL` yalnız yolsuz HTTPS adresi olabilir (düz HTTP yalnız loopback). Sertifika ve hostname doğrulaması kapatılmaz; yönlendirme izlenmez; yanıtın en çok 16 KiB'ı okunur.
 
-Başlıklar: `Authorization: Service <token>`, `Content-Type: application/json`, `Accept: application/json` ve olayda varsa `X-Correlation-Id`. Order tekrar eden teslimi gövdedeki `eventId` ile tanır.
+### 6.3 Teslim onayı
 
-### 3. Güvenlik
+- Teslimat yalnız `200` ve sözleşmeye uyan gövdeyle `DELIVERED` olur: `orderId` aynı, `outcome` ucun değeri (`/kitchen`: `APPLIED`, `IGNORED_STALE`, `IGNORED_ORDER_CLOSED`; `/kitchen-cancellation`: `APPLIED`, `IGNORED_STALE` ve aynı `cancellationId`).
+- Kesin retler (`400`, `415`, `422 VALIDATION_ERROR` / `UNKNOWN_ORDER_ITEM` / `CANCEL_QUANTITY_EXCEEDED`, `409 IDEMPOTENCY_CONFLICT` / `ORDER_ALREADY_CANCELLED`) hemen `FAILED`; `409 INVALID_STATUS_TRANSITION`, diğer `409`, `401`, `403`, `404`, `408`, `429`, `5xx`, `3xx`, zaman aşımı, bağlantı hatası ve sözleşmeye uymayan `200` yeniden denenir.
 
-| Konu | Uygulanan |
-|---|---|
-| Servis kimliği | `OrderRequestSigner`: her denemede yeni bir RS256 token. Claim'ler PR #47'nin Kitchen sözleşmesindeki değerler: `iss=restofy-kitchen`, `sub=kitchen-service`, `aud=restofy-order`, `scope=order:kitchen-events`, `token_type=service`, UUID `jti`, `iat = nbf`, `exp = iat + 30 sn`. İsteğe bağlanan claim'ler: `restaurant_id`, `method=POST`, `target`, `body_sha256`. Token başka restoran, yol veya gövde için kullanılamaz. |
-| Anahtar | Yalnız Kitchen'da: `KITCHEN_ORDER_SIGNING_PRIVATE_KEY` (Base64 PKCS#8 RSA, en az 2048 bit) ve `KITCHEN_ORDER_SIGNING_KEY_ID`. Eksik veya geçersizse profil açılmaz; hata mesajı değeri tekrar etmez. Order'a yalnız açık anahtar ve `kid` verilir. |
-| Taşıma | `ORDER_SERVICE_URL` yalnız yolsuz bir HTTPS adresi olabilir. Düz HTTP yalnız `localhost`, `127.0.0.1` ve `::1` için kabul edilir. Sertifika ve hostname doğrulaması Java varsayılanıdır, kapatılmaz. PR #47'deki Order doğrulayıcısı da Kitchen isteklerini yalnız HTTPS ile kabul eder. |
-| Yönlendirme, yanıt | Yönlendirme izlenmez. Yanıtın en çok 16 KiB'ı okunur. |
-| Loglar | Anahtar, token, istek gövdesi ve yanıt gövdesi loglanmaz. Saklanan hata kodu yalnız HTTP durumu ve Order'ın büyük harfli hata kodudur. |
-| CSRF, çerez, `Origin` | Uygulanmaz: tarayıcı oturumu kullanılmayan servis çağrısıdır; çerez ve `Origin` gönderilmez. |
-| Personel ucu (D) | `GET` KITCHEN ve ADMIN, `POST` yalnız KITCHEN. Mevcut güvenlik zinciri değişmedi. Restoran ve kullanıcı doğrulanmış kimlikten alınır; başka restoranın isteği `404` döner. `Idempotency-Key` zorunlu. |
-| Restoran sınırı | Giden isteklerde `restaurantId` kayıtlı outbox olayından gelir ve imzaya bağlıdır. |
+### 6.4 Kitchen talebinin kararı (ACK ile karar ayrı)
 
-### 4. Teslim onayı ile iş kararı ayrımı
+Order, Kitchen'ın kendi talebini aldığı anda karara bağlar (`APPLIED` = iptal edildi, `REJECTED` = edilmedi). Karar yalnız bu yanıttadır.
 
-- Teslimat yalnız `200` **ve** sözleşmeye uyan gövde ile `DELIVERED` olur. Gövdedeki `orderId` gönderilenle aynı olmalı, `outcome` da ucun tanımladığı bir değer olmalı:
-  - `/kitchen`: `APPLIED`, `IGNORED_STALE`, `IGNORED_ORDER_CLOSED`.
-  - `/kitchen-cancellation`: `APPLIED`, `IGNORED_STALE`; ayrıca gövdedeki `cancellationId` aynı olmalı.
-- Teslimat durumu yalnız `outbox_deliveries` satırını değiştirir. Hazırlık durumu, geçmiş, talepler ve inbox değişmez.
-- **Kitchen talepleri bekletilir (kod koruması).** Order, Kitchen'ın kendi talebini aldığı anda karara bağlar ve karar yalnız o yanıttadır. Kitchen bu yanıtı henüz uygulayamadığı için HTTP göndericisi `KitchenCancellationRequested` olaylarını almaz (`heldEventTypes`):
-  - Bu teslimatlar seçilmez ve sahiplenilmez; `PENDING` kalır ve deneme harcamaz.
-  - Talep Kitchen'da `REQUESTED` görünür.
-  - Bekletme ancak yanıt doğrulanıp `OrderDecisionService.apply` ile aynı akışta uygulandığında kaldırılmalı. Kaldırmadan önce birikmiş talepler incelenmeli.
-- **D cevabı iptal değildir.** `APPROVED`, mutfağın kabul ettiğini söyler; Order siparişi o anki durumuna göre yeniden değerlendirir ve kendisi de reddedebilir. Kitchen siparişi değişmez. Kesin sonuç Order'ın sonraki olayıyla gelir; o olayın işlenmesi sonraki bir iştir (§1).
-- Kitchen'da bir siparişi `CANCELLED` yapan tek yol `OrderDecisionService.apply` olarak kalır.
+1. Yanıt, #77'nin `OrderCancellationReceipt` sınıfıyla **gönderilen talebe göre** okunur: restoran, sipariş ve talep kimliği yanıttan alınmaz.
+2. Tam karar `OrderDecisionService` ile kaydedilir: inbox, sürüm ve zaman kuralları geçerlidir. `APPLIED` → Kitchen siparişi `CANCELLED`, talep `APPROVED`; `REJECTED` → talep `REJECTED`, sipariş aynı.
+3. Teslimat ancak karar kaydedildikten sonra `DELIVERED` olur. Kayıt sırasında hata → yeniden deneme; Order aynı `eventId` için ilk kararı tekrar döner ve inbox kararı bir kez uygular.
+4. İlk kararın değerleri olmayan geç yanıt (`DECISION_INCOMPLETE`) ya da başka talebe ait yanıt (`DECISION_MISMATCH`) hiçbir şey uygulamadan `FAILED` olur ve uzlaştırma ister.
 
-### 5. Yanıt sınıflandırması
+Yanıt yapılandırılmış Order adresine TLS ile kurulan bağlantıdan gelir; gönderici Order kabul edilir.
 
-| Order'ın cevabı | Teslimat |
-|---|---|
-| `200` + uygun gövde | `DELIVERED` |
-| `400 INVALID_REQUEST`, `415 UNSUPPORTED_MEDIA_TYPE`, `422 VALIDATION_ERROR` / `UNKNOWN_ORDER_ITEM` / `CANCEL_QUANTITY_EXCEEDED`, `409 IDEMPOTENCY_CONFLICT` / `ORDER_ALREADY_CANCELLED` | Hemen `FAILED` |
-| `409 INVALID_STATUS_TRANSITION` (eksik adım; Order bunu hatırlamaz) | Yeniden denenir |
-| `404 ORDER_NOT_FOUND` / `CANCELLATION_NOT_FOUND`, diğer `409`, `401`, `403`, `408`, `429`, `5xx`, `3xx` | Yeniden denenir |
-| Order'ın hata kodunu taşımayan hata gövdesi | Yeniden denenir (cevap aradaki bir bileşenden gelmiş olabilir) |
-| `200` ama boş, okunamayan, büyük veya uyumsuz gövde; `200` dışındaki `2xx` | Yeniden denenir |
-| Zaman aşımı, bağlantı hatası, yanıtsız kapanan bağlantı | Yeniden denenir |
-| Okunamayan kayıtlı olay (bilinmeyen tür, bozuk gövde) | Gönderilmez; hemen `FAILED` (`UNREADABLE_EVENT`) |
+Order'ın kendi isteği mutfak cevabı beklerken Kitchen yeni bir Kitchen talebi açmaz (`409 ORDER_CANCELLATION_AWAITING_ANSWER`): Order bu talebi `CANCELLATION_ALREADY_PENDING` ile reddederdi.
 
-### 6. Idempotency ve sıralama
+### 6.5 Mutfak cevabı (personel)
 
-- Teslim **en az bir kez** modelidir; "tam bir kez" garantisi yoktur. Cevap kaybolursa veya gönderici sonucu yazmadan durursa aynı olay yeniden gider.
-- Yeniden denemede ve elle yeniden sıraya almada `eventId` ve gövde baytları değişmez (testli). Token her denemede yeniden üretilir.
-- Order'ın aynı `eventId`'yi tek kez işlediği **çalışan Order ile doğrulanmadı**.
-- Aynı komutun tekrarı yeni olay üretmez:
-  - Hazırlık komutları: mevcut davranış.
-  - D cevabı: aynı `Idempotency-Key` ve aynı cevap `200` döner ve ikinci olay üretmez. Aynı anahtar başka bir cevap için `409 COMMAND_ID_CONFLICT`, cevaplanmış istek `409 CANCELLATION_ALREADY_ANSWERED` döner.
-  - Veritabanı her isteğe tek cevap olayı izin verir.
-- Order'ın aynı isteği yeniden göndermesi (D kaydı) `eventId` ile tanınır: aynı içerik tekrar sayılır, farklı içerik çakışmadır.
-- **Sıra:** Gönderici vadesi gelenleri en eski vade önce gönderir.
-  - `PREPARING` yeniden deneme beklerken `READY` denenebilir. Order eksik adımı `409 INVALID_STATUS_TRANSITION` ile reddettiği için durum atlanmaz, ama `READY` her ret alışında bir deneme harcar ve `PREPARING` uzun süre ulaşamazsa `FAILED` olabilir.
-  - Koruma PR #77'de; bu branch'e alınmadı. O zamana kadar `FAILED` bir `READY`, §7'deki betikle `PREPARING`'den sonra yeniden sıraya alınabilir.
-  - D cevabının diğer olaylarla bir sıra bağı yoktur; Order cevabı siparişin o anki durumuyla değerlendirir.
-- Bir siparişin teslim hatası başka siparişleri durdurmaz.
+- `GET /api/v1/kitchen/orders/{orderId}/order-cancellations`: KITCHEN ve ADMIN; istekleri, istenen kalemleri ve cevabı listeler.
+- `POST /api/v1/kitchen/orders/{orderId}/order-cancellations/{cancellationId}/answer`: yalnız KITCHEN, `Idempotency-Key` zorunlu, gövde `{"decision":"APPROVED"|"REJECTED"}`. İlk cevap `202`, aynı cevabın tekrarı `200`, aynı anahtar başka cevap için `409 COMMAND_ID_CONFLICT`, cevaplanmış istek `409 CANCELLATION_ALREADY_ANSWERED`.
+- Cevap ve `KitchenCancellationDecided` olayı aynı transaction'da yazılır; mutfak siparişi değişmez. Kesin sonuç Order'ın olayıyla gelir (§5).
 
-### 7. Yeniden deneme, zaman aşımı ve yeniden sıraya alma
+### 6.6 Sıra, idempotency ve yeniden deneme
 
-- Gecikmeler: 5, 10, 20, 40, 80, 160, 320 saniye. 8. deneme de başarısız olursa teslimat `FAILED` (`MAX_ATTEMPTS_EXCEEDED`).
-- **Sınır:** Bekleme sürelerinin toplamı **10 dakika 35 saniyedir** (istek süreleri ve zamanlayıcı aralığı hariç). Order bundan uzun süre kapalı kalırsa bekleyen teslimatlar `FAILED` olur. Kayıt ve olay silinmez.
-- Başarısızları görmek (Kitchen veritabanında, salt okunur):
-
-  ```sql
-  SELECT d.id, d.restaurant_id, e.event_type, e.aggregate_id, e.id AS event_id,
-         d.attempt_count, d.last_error_code, d.last_attempt_at
-  FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
-  WHERE d.destination = 'ORDER' AND d.status = 'FAILED'
-  ORDER BY e.restaurant_id, e.occurred_at;
-  ```
-
-- **Yeniden sıraya alma:** Neden giderildikten sonra Kitchen veritabanında yazma yetkisi olan operatör, tek bir teslimatı [`requeue-order-delivery.sql`](../../backend/services/kitchen-service/ops/requeue-order-delivery.sql) ile `PENDING`'e döndürür:
+- Teslim **en az bir kez**dir; "tam bir kez" garantisi yoktur. Yeniden denemede `eventId` ve gövde baytları değişmez; token her denemede yenilenir.
+- `READY`, aynı siparişin `PREPARING` teslimi `DELIVERED` olmadan seçilmez ve deneme harcamaz; `PREPARING` `FAILED` olursa da bekler (#77 koruması).
+- Gecikmeler 5, 10, 20, 40, 80, 160, 320 sn; 8. denemeden sonra `FAILED`. Bekleme sürelerinin toplamı 10 dk 35 sn'dir.
+- Her deneme satır kilidiyle 60 sn sahiplenilir; HTTP çağrısı sırasında transaction ve kilit açık değildir. Birden çok örnek aynı anda çalışabilir; duran göndericinin işi süre dolunca yeniden alınır. Okunamayan kayıtlı olay bir kez `FAILED` (`UNREADABLE_EVENT`) olur.
+- **Yeniden sıraya alma:** neden giderildikten sonra Kitchen veritabanında yetkili operatör tek bir `FAILED` teslimatı [`requeue-order-delivery.sql`](../../backend/services/kitchen-service/ops/requeue-order-delivery.sql) ile aynı olay ve gövdeyle `PENDING`'e döndürür; önceki deneme sayısını, hata kodunu ve işlemi yapanı döner. Aynı siparişte önce `PREPARING`, sonra `READY`.
 
   ```text
   psql -X -v ON_ERROR_STOP=1 -d <KITCHEN_DATABASE> -v restaurant_id=<RESTAURANT_UUID> -v event_id=<EVENT_UUID> -f backend/services/kitchen-service/ops/requeue-order-delivery.sql
   ```
 
-  - **Kapsam:** yalnız verilen restorana ait, `ORDER` hedefli ve `FAILED` durumundaki teslimat değişir. Olay, `eventId` ve gövde aynı kalır.
-  - **Sonuç:** önceki deneme sayısı, hata kodu ve işlemi yapan veritabanı kullanıcısı döner; bunları olay kaydına ekleyin. Satır dönmezse yeniden sıraya alınacak bir teslimat yoktur.
-  - **Sıra:** aynı siparişte önce `PREPARING`, sonra `READY` yeniden sıraya alınır.
-- Her denemeden önce teslimat satır kilidiyle 60 saniyeliğine sahiplenilir. HTTP çağrısı sırasında transaction ve kilit açık değildir; bu yüzden birden çok örnek aynı anda çalışabilir ve duran bir göndericinin işi süre dolunca yeniden alınır.
-- İstemci kendi başına yeniden denemez. Okuma zaman aşımı yanıt gövdesini de kapsar.
-- Kitchen komutları Order'ı beklemez; Order kapalıyken de işlemler başarılı olur ve olay outbox'ta kalır.
+## 7. Yapılandırma
 
-### 8. D akışı: Order isteğine mutfak cevabı
-
-1. **İsteğin kaydı:** Order, `PREPARING` bir siparişin iptalini mutfağa sorduğunda (`kitchenConfirmationRequired=true`) istek `OrderCancellationConfirmationService.register` ile kaydedilir (`V90__create_order_cancellation_confirmations.sql`). Bu çağrıyı yapacak gelen uç PR #77'de; bu yüzden **üretimde henüz çağıranı yok**. Kurallar:
-   - Önce sipariş satırı kilitlenir.
-   - Biçim (tür, kapsam, kalemler), sipariş ve kalemlerin bu siparişe ait olması denetlenir.
-   - Aynı olay tekrarı yeni kayıt açmaz; aynı kimlikle farklı içerik çakışmadır.
-   - İptal edilmiş sipariş kaydedilmez.
-   - Bir siparişte aynı anda tek bekleyen istek olabilir.
-   - Reddedilen istek hiçbir şey yazmaz.
-2. **Görüntüleme:** `GET /api/v1/kitchen/orders/{orderId}/order-cancellations` siparişin isteklerini en yeniden eskiye listeler: kapsam (`FULL`/`PARTIAL`), istenen kalem ve adetler, durum ve cevap.
-3. **Cevap:** `POST /api/v1/kitchen/orders/{orderId}/order-cancellations/{cancellationId}/answer` ile `{"decision":"APPROVED"}` veya `{"decision":"REJECTED"}` gönderilir; `Idempotency-Key` zorunlu. İlk cevap `202`, aynı cevabın tekrarı `200` döner. Cevap ve `KitchenCancellationDecided` olayı aynı transaction'da yazılır.
-4. **Kalıcılık:** İstenen alanlar değişmez, cevap kesindir, satır silinmez (veritabanı tetikleyicileri). Mutfak siparişinin durumu değişmez.
-
-Kısmi (`PARTIAL`) bir isteğe verilen cevap da yalnız bir cevaptır. Kısmi iptalin mutfak ekranına yansıması D-02'ye bağlıdır ve bu işte yapılmadı.
-
-### 9. Yapılandırma
-
-| Ayar | Tür | Not |
+| Ayar | Yön | Not |
 |---|---|---|
-| `kitchen-order` Spring profili | `SPRING_PROFILES_ACTIVE` | Gönderici, imzalayıcı ve zamanlayıcı yalnız bu profille oluşur |
-| `KITCHEN_ORDER_SIGNING_KEY_ID`, `KITCHEN_ORDER_SIGNING_PRIVATE_KEY` | **yeni ENV** | Kitchen'ın imza anahtarı. `.env.example`'da değersiz. `docker-compose` bu değerleri geçirmez, çünkü oradaki Order adresi HTTP'dir ve bu profil orada çalışamaz. |
-| `ORDER_SERVICE_URL` | mevcut ENV | HTTPS gerekir. `.env.example` içindeki yerel değer `http://order-service:8080` bu profille reddedilir. |
-| `REST_CLIENT_CONNECT_TIMEOUT_MS`, `REST_CLIENT_READ_TIMEOUT_MS` | mevcut ENV | Varsayılan 3000 / 5000. Pozitif ve toplamı 60 saniyeden kısa olmalı. |
-| `restofy.kitchen.order-delivery.interval` | düz uygulama ayarı | Varsayılan `PT2S`; her turda en çok 20 teslimat |
+| `KITCHEN_ORDER_CALLER_PUBLIC_KEYS`, `ORDER_KITCHEN_SERVICE_RESTAURANTS` | Order → Kitchen | §2.1 |
+| `kitchen-order` Spring profili | Kitchen → Order | Gönderici, imzalayıcı ve zamanlayıcı yalnız bu profille oluşur |
+| `KITCHEN_ORDER_SIGNING_KEY_ID`, `KITCHEN_ORDER_SIGNING_PRIVATE_KEY` | Kitchen → Order | `.env.example`'da boş; `docker-compose` geçirmez |
+| `ORDER_SERVICE_URL` | Kitchen → Order | HTTPS; yerel değer `http://order-service:8080` bu profille reddedilir |
+| `REST_CLIENT_CONNECT_TIMEOUT_MS`, `REST_CLIENT_READ_TIMEOUT_MS` | Kitchen → Order | Pozitif, toplamı 60 sn'den kısa |
+| `restofy.kitchen.order-delivery.interval` | Kitchen → Order | Varsayılan `PT2S`, turda en çok 20 teslimat |
 
-Yeni bağımlılık yok. Migration: `V90` (Kitchen aralığının son numarası; bundan sonra Kitchen migration'ı için aralık kararı gerekir).
+Migration: `V90` (Kitchen aralığının son numarası).
 
-### 10. Açmadan önce
+## 8. Doğrulama
 
-1. Order'da Kitchen doğrulayıcısı `dev`'de, Kitchen'ın açık anahtarı ve `kid` Order'a tanımlı (KO3-01).
-2. `READY` sıra koruması (PR #77).
-3. Order için HTTPS adresi ve iki servis arasında saat eşitlemesi.
-4. Birikmiş `PENDING` olaylar incelendi; profil açılınca hepsi gönderilmeye başlar.
-
-D akışı için ayrıca KO3-02 ve PR #77'deki alıcı gerekir. Kitchen talepleri (C) için §4'teki koşullar gerekir. Gerçek siparişlerle uçtan uca deneme için sipariş kabulünün Kitchen'a ulaşması (PR #77) ve personel oturumu ([PR #61](https://github.com/software-lecture-labs/Restofy/pull/61)) da gerekir. PR #61 birleştiğinde yeni `GET .../order-cancellations` ucu, oradaki personel okuma listesine eklenmelidir; eklenmezse yazma gibi oturum teyidine girer.
-
-### 11. Doğrulama
-
-`backend/` klasöründe (Docker çalışırken):
-
-```text
-.\services\kitchen-service\mvnw.cmd -B -ntp -f pom.xml -pl services/kitchen-service -am clean test
-```
-
-| Test sınıfı | Gösterdiği |
+| Kontrol | Sonuç |
 |---|---|
-| `HttpOrderEventSinkTests` | Gerçek `RestClient` ile uç, başlık, gövde, yanıt sınıflandırması, zaman aşımı, bağlantı hatası, yönlendirme; D cevabının eşlemesi |
-| `OrderRequestSignerTests` | Token alanları, süre, isteğe bağlama, anahtar ayarı hataları |
-| `OrderHttpDeliveryIntegrationTests` | PostgreSQL üzerinde komut → outbox → HTTP: onay, kayıp cevap, kesinti, deneme sınırı, yeniden sıraya alma betiği, talep bekletme, okunamayan olay, paralel gönderici, duran gönderici, D cevabının teslimi |
-| `OrderDeliveryDispatcherTests` | `kitchen-order` profiliyle zamanlanmış teslim, gerçek imzalayıcı, her denemede yeni token |
-| `OrderCancellationConfirmationServiceTests`, `KitchenOrderCancellationApiTests` | D kaydı kuralları, personel ucu, yetki, idempotency, veritabanı korumaları |
-| `OrderDeliveryConfigurationTests` | Profil, anahtar, adres ve zaman aşımı kuralları |
+| Kitchen testleri (#77 + #80 + bağlantı) | Gerçek PostgreSQL; imzalı alıcı, HTTP gönderici, karar kaydı, sıra, yeniden sıraya alma |
+| Geçici çapraz deneme (commit edilmedi) | Gerçek Order kodu (#47) gerçek bir yerel portta ve PostgreSQL ile; Kitchen'ın derlenmiş göndericisi `PREPARING`/`READY`, Kitchen talebi (`OTHER` dahil) ve mutfak cevabını gönderdi. Order siparişi ilerletti, iptal etti veya reddetti. Order'ın kendi projeksiyonunun ürettiği iptal gövdeleri Kitchen'ın okuyucusundan geçti. Bu denemede Order'ın test kimliği kullanıldı; HTTPS yoktu. |
+| İmza | Kitchen'ın imzası #47'nin `KitchenServiceIdentityVerifier` ve `ServiceAuthenticationFilter` sınıflarıyla denendi; başka restoran ve değiştirilmiş gövde reddedildi |
 
-**Geçici çapraz doğrulama (commit edilmedi):** Kitchen'ın derlenmiş imzalayıcısı, PR #47'nin Order `KitchenServiceIdentityVerifier` ve `ServiceAuthenticationFilter` sınıflarıyla izole bir çalışma alanında denendi:
+**Doğrulanmadı:** iki servisin uygulama olarak gerçek HTTPS ile birlikte çalışması, anahtar dağıtımı ve ortak ortam. Engeller: Kitchen personel uçları kimlik doğrulaması ister (#61 ve HTTPS'li Auth); Order'ın `order-kitchen` profili `dev`/`test` ile başlatılamaz, bu yüzden sipariş oluşturmak için gerçek QR ve Auth da gerekir.
 
-- Doğru restoran: kabul edildi.
-- İzin verilmeyen restoran ve değiştirilmiş gövde: reddedildi.
+## 9. Açmadan önce
 
-Test sunucusu ve bu deneme çalışan Order Service değildir. Gerçek Order'ın idempotent işleyişi ve durum sıralaması doğrulanmadı.
+1. #47, #77 ve #80'in `dev`'e girmesi; ardından bu bağlantı branch'i.
+2. Anahtar değişimi: Kitchen'ın açık anahtarı ve `kid` → Order `ORDER_KITCHEN_SERVICE_PUBLIC_KEYS`; Order'ın açık anahtarı ve `kid` → Kitchen `KITCHEN_ORDER_CALLER_PUBLIC_KEYS`; iki tarafta `ORDER_KITCHEN_SERVICE_RESTAURANTS`. Özel anahtarlar paylaşılmaz.
+3. İki servis için HTTPS adresi ve sertifika güveni; Kitchen'ın kendi TLS dinleyicisi (§2.2); saat eşitlemesi (iki yönde de ileri tarihli `iat` reddedilir).
+4. `tableNumber` sırası: #47 → QR #78 → Order'da zorunluluk.
+5. #61 birleşince yeni `GET .../order-cancellations` ucu personel okuma listesine eklenmeli.
+6. Profil ilk açıldığında birikmiş `PENDING` olaylar gönderilmeye başlar; önce incelenmeli.
