@@ -26,9 +26,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
- * No test caller imported: this is the production wiring until a verified Order service identity exists. Every lookup is
- * refused as unauthenticated, whatever it asks, and there is no HTTP route that answers one: forged identity headers
- * (X-Restaurant-Id, X-Role, X-Service-Name, a staff session, a CSRF token) open nothing.
+ * No test caller imported and NO Order key configured: this is the production default. Every lookup is refused as
+ * unauthenticated, whatever it asks, and the HTTP route (a signed Order credential is the only way in) answers 401 to everyone:
+ * forged identity headers (X-Restaurant-Id, X-Role, X-Service-Name, a staff session, a CSRF token) open nothing.
  */
 @SpringBootTest
 @AutoConfigureMockMvc

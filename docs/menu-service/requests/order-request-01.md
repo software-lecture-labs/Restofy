@@ -8,7 +8,7 @@
 | **Talep eden** | Menu Service (Merve) |
 | **İlgili servis ve ekip** | Order Service (Hamza). Madde 4.7 servis kimliği olduğu için Auth (Kerem); madde 6 soru 12 ortak ENV/Compose olduğu için Alper |
 | **Bağlı PDA görevi** | MENU-INT-02 — Order → Menu için gerekli API'lerin sağlanması |
-| **Durum** | **Karar bekliyor.** MENU-INT-02 **KISMİ**: Menu iç uygulama katmanı hazır ([ADR-MENU-006](../../decisions/ADR-MENU-006-order-katalog-sorgusu.md)); HTTP ucu **açılmadı**, servis kimliği ve tel biçimi kararları bekleniyor |
+| **Durum** | **Order yanıtladı (PR #79, henüz `dev`'de değil); Menu HTTP ucu uygulandı ve gerçek Order ile yerelde doğrulandı** ([ADR-MENU-009](../../decisions/ADR-MENU-009-order-katalog-http-ucu.md)). Üretimde uç, Order açık anahtarı ve restoran yetki listesi tanımlanana kadar kapalıdır |
 
 Bu belge bir taleptir. Order, Auth, Kitchen veya QR kodunda değişiklik içermez. İlk commit'te yalnız belgeydi; MENU-INT-02 ile Menu tarafında kararlardan bağımsız iç katman eklendi (`OrderCatalogService`, kimliği doğrulanmış çağıran kapısı, DTO'lar, testler). Aşağıdaki "Mevcut" bölümleri bu eklemeden **önceki** `dev` durumunu anlatır; "İstenen" ve "Öneri" başlıklarından HTTP ucu ve servis kimliği **uygulanmamıştır**. Neyin yapıldığı ve neyin beklediği: bölüm 9.
 
@@ -261,3 +261,22 @@ Kararlar bu belgeye yanıt olarak (PR yorumu veya ayrı yanıt belgesi) geldikte
 | Servis kimliği doğrulayıcı (Order → Menu) | **UYGULANMADI** (Auth/Order kararı) |
 | `priceVersion` | **UYGULANMADI** (karar yok; üretilmez) |
 | Gerçek Order → Menu uçtan uca testi | **DOĞRULANMADI** (Order'ın gerçek adaptörü yok) |
+
+## 10. Order yanıtı ve MENU-INT-02 HTTP bağlantısı (28 Kasım 2026)
+
+Kaynak: Hamza'nın PR #49 yorumu, PR #79 (`d973223`) ve `docs/order-service/menu-entegrasyon-rehberi.md`. Aşağıdakiler 6. bölümdeki sorulara verilen yanıtlar ve Menu'nun uygulaması.
+
+| Konu | Karar ve durum |
+|---|---|
+| Uç ve sınırlar | `POST /api/v1/internal/menu/catalog/products:lookup`, en çok 50 farklı id, tekrar eden id tekilleştirilir. **UYGULANDI** |
+| Tutar ve KDV | Minor `long`, KDV tam sayı `taxRateBps`. KDV hariç, fazla ondalıklı veya kesirli KDV: `null` + `priceIssue`; Order satılamaz sayar (yuvarlama yok). **UYGULANDI** |
+| `priceVersion` | Üretilmiyor, Order'da isteğe bağlı. Menu daha sonra üretirse fiyat alanlarından türetilen opak değer |
+| Arşivli ürün, pasif seçenek | Arşivli: `published=false` ile döner. Pasif seçenek `active=false`. `sortOrder` yok. **UYGULANDI** |
+| `availabilityStatus` | **Gönderilmez** (v1 minimal, Menu kararı). **UYGULANDI** |
+| Servis kimliği | Order kendi anahtarıyla imzalar (`scope=menu:catalog-read`, `aud=restofy-menu`, `restaurant_id` + `method`/`target`/`body_sha256`); Menu açık anahtarla yerelde doğrular. **UYGULANDI** |
+| Restoran yetkisi | İmzadaki restoran = gövdedeki restoran **ve** anahtar o restoran için yetkili (operatör listesi). Liste yoksa 403. **UYGULANDI (fail-closed)** |
+| Hata eşlemesi | Menu 400/401/403/413/415; Order bunların hepsini ve 5xx/zaman aşımını `503 DEPENDENCY_UNAVAILABLE` yapar. Yanıt şemaya uymazsa Order reddeder |
+| Sürüm | `v1`; geriye uyumlu alan eklenebilir (Menu gövdede bilinmeyen alanı yok sayar) |
+| ENV | `MENU_ORDER_CALLER_PUBLIC_KEYS` onaylandı ve eklendi. `MENU_ORDER_CALLER_RESTAURANTS` **onay bekliyor** |
+
+**Hâlâ açık:** PR #79 merge ve çakışma çözümü; D-09'un hoca onayı; `MENU_ORDER_CALLER_RESTAURANTS` ENV adı; üretim TLS'i (Compose'un düz HTTP `MENU_SERVICE_URL` varsayılanı); açık anahtar dağıtımı ve rotasyonu; hız sınırı; gerçek QR ve Auth ile üç servisli E2E.

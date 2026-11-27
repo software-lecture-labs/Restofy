@@ -222,6 +222,8 @@ services:
       <<: *database-env
       DB_MENU_NAME: ${DB_MENU_NAME:?}
       MENU_IMAGE_ALLOWED_ORIGINS: ${MENU_IMAGE_ALLOWED_ORIGINS:-}
+      # Order -> Menu catalog lookup (ADR-MENU-009): public keys only. Empty = nobody is trusted.
+      MENU_ORDER_CALLER_PUBLIC_KEYS: ${MENU_ORDER_CALLER_PUBLIC_KEYS:-}
     ports:
       - "127.0.0.1:${MENU_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 

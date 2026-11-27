@@ -1,6 +1,7 @@
 # ADR-MENU-006 — Order katalog sorgusu: güvenilir çağıran, tam doğru fiyat ve açık kararlar
 
 - **Durum:** Menu tarafı iç uygulama katmanı kabul edildi; HTTP ucu, tel biçimi ve servis kimliği **Order (Hamza) ve Auth (Kerem) kararlarını bekliyor**
+- **Güncelleme (2026-11-28):** HTTP ucu ve servis kimliği doğrulaması [ADR-MENU-009](ADR-MENU-009-order-katalog-http-ucu.md) ile eklendi; aşağıdaki "HTTP ucu yok" ifadeleri o güne kadarki durumu anlatır.
 - **Tarih:** 2026-11-24
 - **Sahip:** Menu (Merve); Order ve Auth ile ortak karar gerektirir
 - **İlgili talep:** [`order-request-01.md`](../menu-service/requests/order-request-01.md) (PR #49)
