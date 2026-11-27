@@ -1,5 +1,10 @@
-import { StaffHome } from "@/features/auth";
+import { StaffActivity, StaffHome } from "@/features/auth";
 
 export default function Home() {
-  return <StaffHome />;
+  return (
+    <>
+      <StaffActivity />
+      <StaffHome />
+    </>
+  );
 }

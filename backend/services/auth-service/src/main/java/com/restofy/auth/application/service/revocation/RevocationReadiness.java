@@ -10,6 +10,6 @@ public class RevocationReadiness implements HealthIndicator {
     public RevocationReadiness(RevocationBootstrapTransactions bootstrap) { this.bootstrap=bootstrap; }
     @Override public Health health() {
         try { return bootstrap.active() ? Health.up().build() : Health.down().build(); }
-        catch (RuntimeException unavailable) { return Health.down().build(); }
+        catch (RuntimeException _) { return Health.down().build(); }
     }
 }

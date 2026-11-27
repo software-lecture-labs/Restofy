@@ -198,7 +198,8 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
             try { sessions.refresh(other.refresh()); return true; }
             catch (BadCredentialsException _) { return false; }
         });
-        assertThatThrownBy(() -> sessions.refresh(other.refresh())).isInstanceOf(BadCredentialsException.class);
+        String otherRefresh = other.refresh();
+        assertThatThrownBy(() -> sessions.refresh(otherRefresh)).isInstanceOf(BadCredentialsException.class);
         assertThat(sessions.authenticate(owner).getRevokedAt()).isNull();
     }
 
@@ -245,7 +246,7 @@ class MfaIntegrationTests extends AuthSessionTestSupport {
         var latest = org.flywaydb.core.Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
                 .locations("classpath:db/migration").cleanDisabled(true).load();
         latest.migrate();
-        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(5);
+        assertThat(java.util.Arrays.stream(latest.info().applied()).filter(info -> info.getVersion() != null)).hasSize(6);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions WHERE auth_state = 'MFA_PENDING'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM " + schema + ".user_sessions migrated JOIN public.user_sessions original "

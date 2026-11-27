@@ -14,6 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RevocationBootstrapTransactions {
+    private static final String STATE_PHASE = "phase";
+    private static final String STATE_NONCE = "qr_nonce";
+    private static final String STATE_RESTAURANT = "restaurant_id";
+    private static final String STATE_GENERATION = "generation";
+    private static final String ACTIVE_PHASE = "ACTIVE";
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final QrRevocationReceipts receipts;
@@ -29,15 +34,19 @@ public class RevocationBootstrapTransactions {
 
     @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = RevocationPendingException.class)
     public void requireActive() {
+        requireActiveBarrier();
+    }
+
+    private void requireActiveBarrier() {
         requireDurablePrimary();
         var state = jdbc.queryForMap("SELECT *,database_start=pg_postmaster_start_time() AS current_database FROM staff_revocation_source_state WHERE singleton=true FOR SHARE");
         requireIdentity(state, restaurant, generation);
-        if (!"ACTIVE".equals(state.get("phase")) || !Boolean.TRUE.equals(state.get("current_database"))) throw new RevocationPendingException();
+        if (!ACTIVE_PHASE.equals(state.get(STATE_PHASE)) || !Boolean.TRUE.equals(state.get("current_database"))) throw new RevocationPendingException();
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void requireActive(UUID restaurant, UUID generation) {
-        requireActive();
+        requireActiveBarrier();
         requireLocalIdentity(restaurant, generation);
     }
 
@@ -64,12 +73,12 @@ public class RevocationBootstrapTransactions {
         UUID id = (UUID) state.get("bootstrap_id");
         // Another worker may have completed this nonce while our earlier 'not ready' reply was in flight.
         // Reuse the already-committed baseline, rather than fencing sessions issued after it completed.
-        boolean completed="ACTIVE".equals(state.get("phase")) && nonce.equals(state.get("qr_nonce"))
-                && restaurant.equals(state.get("restaurant_id")) && generation.equals(state.get("generation"))
+        boolean completed=ACTIVE_PHASE.equals(state.get(STATE_PHASE)) && nonce.equals(state.get(STATE_NONCE))
+                && restaurant.equals(state.get(STATE_RESTAURANT)) && generation.equals(state.get(STATE_GENERATION))
                 && Boolean.TRUE.equals(state.get("current_database"));
-        if ("PREPARING".equals(state.get("phase")) && nonce.equals(state.get("qr_nonce"))
-                && (!restaurant.equals(state.get("restaurant_id")) || !generation.equals(state.get("generation")))) throw new RevocationPendingException();
-        if (!completed && (!"PREPARING".equals(state.get("phase")) || !nonce.equals(state.get("qr_nonce")))) {
+        if ("PREPARING".equals(state.get(STATE_PHASE)) && nonce.equals(state.get(STATE_NONCE))
+                && (!restaurant.equals(state.get(STATE_RESTAURANT)) || !generation.equals(state.get(STATE_GENERATION)))) throw new RevocationPendingException();
+        if (!completed && (!"PREPARING".equals(state.get(STATE_PHASE)) || !nonce.equals(state.get(STATE_NONCE)))) {
             id = UUID.randomUUID();
             jdbc.update("UPDATE staff_revocation_source_state SET phase='PREPARING',bootstrap_id=?,qr_nonce=?,restaurant_id=?,generation=?,database_start=NULL WHERE singleton=true", id, nonce, restaurant, generation);
             jdbc.update("DELETE FROM staff_revocation_baseline");
@@ -93,12 +102,12 @@ public class RevocationBootstrapTransactions {
         requireLocalIdentity(baseline.restaurantId(), baseline.generation());
         receipts.verifyBaseline(receipt, baseline);
         var state = jdbc.queryForMap("SELECT * FROM staff_revocation_source_state WHERE singleton=true FOR UPDATE");
-        if (!baseline.operationId().equals(state.get("bootstrap_id")) || !baseline.nonce().equals(state.get("qr_nonce"))
-                || !baseline.restaurantId().equals(state.get("restaurant_id")) || !baseline.generation().equals(state.get("generation"))
+        if (!baseline.operationId().equals(state.get("bootstrap_id")) || !baseline.nonce().equals(state.get(STATE_NONCE))
+                || !baseline.restaurantId().equals(state.get(STATE_RESTAURANT)) || !baseline.generation().equals(state.get(STATE_GENERATION))
                 || !digest(baseline).equals(state.get("manifest_digest"))) {
             throw new RevocationPendingException();
         }
-        if ("ACTIVE".equals(state.get("phase"))) return;
+        if (ACTIVE_PHASE.equals(state.get(STATE_PHASE))) return;
         Timestamp now = Timestamp.from(clock.instant());
         jdbc.update("UPDATE user_sessions SET revoked_at=?,version=version+1 WHERE revoked_at IS NULL AND id IN (SELECT session_id FROM staff_revocation_baseline)", now);
         jdbc.update("UPDATE refresh_tokens SET revoked_at=? WHERE revoked_at IS NULL AND session_id IN (SELECT session_id FROM staff_revocation_baseline)", now);
@@ -124,8 +133,8 @@ public class RevocationBootstrapTransactions {
 
     private void requireIdentity(java.util.Map<String,Object> state, UUID restaurant, UUID generation) {
         requireLocalIdentity(restaurant, generation);
-        if ((state.get("restaurant_id") != null && !restaurant.equals(state.get("restaurant_id")))
-                || (state.get("generation") != null && !generation.equals(state.get("generation")))) throw identityMismatch();
+        if ((state.get(STATE_RESTAURANT) != null && !restaurant.equals(state.get(STATE_RESTAURANT)))
+                || (state.get(STATE_GENERATION) != null && !generation.equals(state.get(STATE_GENERATION)))) throw identityMismatch();
     }
 
     private static org.springframework.web.server.ResponseStatusException identityMismatch() {

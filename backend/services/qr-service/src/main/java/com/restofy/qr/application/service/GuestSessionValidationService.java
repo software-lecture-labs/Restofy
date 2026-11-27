@@ -4,6 +4,7 @@ import com.restofy.qr.domain.OrderSessionState;
 import com.restofy.qr.domain.enums.TableOperationalStatus;
 import com.restofy.qr.domain.exception.InvalidGuestSessionException;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -56,9 +57,10 @@ public class GuestSessionValidationService {
         var unknown = OrderSessionState.unknown(restaurantId, identity.sessionId());
         var local = writes.execute(status -> {
             var locked = contexts.lockIdentity(token, restaurantId, identity.sessionId(), identity.guestId());
-            return OrderGuestSessionState.needsOrder(locked) ? null : OrderGuestSessionState.requireActive(locked, unknown, protection);
+            return OrderGuestSessionState.needsOrder(locked) ? Optional.<ValidatedGuestContext>empty()
+                    : Optional.of(OrderGuestSessionState.requireActive(locked, unknown, protection));
         });
-        if (local != null) { return local; }
+        if (local.isPresent()) { return local.get(); }
         var evidence = protection.inspect(restaurantId, identity.sessionId());
         return writes.execute(status -> {
             var locked = contexts.lockIdentity(token, restaurantId, identity.sessionId(), identity.guestId());

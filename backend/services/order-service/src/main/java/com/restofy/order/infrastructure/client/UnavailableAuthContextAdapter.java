@@ -10,11 +10,10 @@ import org.springframework.stereotype.Component;
 import java.util.Optional;
 
 /**
- * Fail-closed stand-in used outside the dev/test profiles until the real Auth Service adapter exists. It never
- * authenticates anybody, so no staff identity can be forged in production.
+ * Fail-closed stand-in when staff authentication is not configured.
  */
 @Component
-@Profile("(!dev & !test) | prod")
+@Profile("((!dev & !test) | prod) & !order-auth")
 public class UnavailableAuthContextAdapter implements AuthContextPort {
 
     @Override

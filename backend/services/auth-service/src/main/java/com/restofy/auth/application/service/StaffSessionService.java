@@ -33,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(noRollbackFor = {BadCredentialsException.class, RevocationPendingException.class})
 public class StaffSessionService {
+    private static final String STATUS_COMPLETED = "COMPLETED";
     /** How long after its first use a refresh token is still honoured for a concurrent refresh of the same client. */
     public static final long REFRESH_REUSE_GRACE_SECONDS = 10;
     /** 256 random bits; base64url encodes them to the 43 characters the cookie validation expects. */
@@ -96,7 +97,7 @@ public class StaffSessionService {
         if (!session.isUsable(now) || user.getRole() != session.getRoleSnapshot()
                 || session.getAuthState() != SessionAuthState.AUTHENTICATED || (spent && !replayedInsideGrace)
                 || token.getRevokedAt() != null || !now.isBefore(token.getExpiresAt())) {
-            revoke(session, now);
+            revoke(session);
             throw invalid();
         }
         if (spent) {
@@ -125,7 +126,7 @@ public class StaffSessionService {
         }
         if (!session.isUsable(clock.instant()) || session.getRoleSnapshot() != user.getRole()
                 || identity.role() != user.getRole()) {
-            revoke(session, clock.instant());
+            revoke(session);
             throw invalid();
         }
         return session;
@@ -157,14 +158,14 @@ public class StaffSessionService {
         StaffUser user = lockUser(staffUserId);
         var operation = revocations.prepareLocked(settings.restaurantId(), user.getId(),
                 RevocationTransactions.Action.DISABLE, null, coordinator.generation());
-        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
+        if (!operation.status().equals(STATUS_COMPLETED)) throw new RevocationPendingException();
     }
 
     public void revokeAllSessions(UUID staffUserId) {
         lockUser(staffUserId);
         var operation = revocations.prepareLocked(settings.restaurantId(), staffUserId,
                 RevocationTransactions.Action.ALL, null, coordinator.generation());
-        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
+        if (!operation.status().equals(STATUS_COMPLETED)) throw new RevocationPendingException();
     }
 
     /** Stable caller key: retries observe the original immutable operation, even after a later login. */
@@ -173,7 +174,7 @@ public class StaffSessionService {
         lockIdentity(staffUserId);
         var operation = revocations.prepareLocked(operationId, settings.restaurantId(), staffUserId,
                 RevocationTransactions.Action.DISABLE, null, coordinator.generation());
-        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
+        if (!operation.status().equals(STATUS_COMPLETED)) throw new RevocationPendingException();
     }
 
     public void revokeAllSessions(UUID staffUserId, UUID operationId) {
@@ -181,7 +182,7 @@ public class StaffSessionService {
         lockIdentity(staffUserId);
         var operation = revocations.prepareLocked(operationId, settings.restaurantId(), staffUserId,
                 RevocationTransactions.Action.ALL, null, coordinator.generation());
-        if (!operation.status().equals("COMPLETED")) throw new RevocationPendingException();
+        if (!operation.status().equals(STATUS_COMPLETED)) throw new RevocationPendingException();
     }
 
     public Grant completeMfa(Identity identity) {
@@ -197,7 +198,7 @@ public class StaffSessionService {
                 identity.sessionId(), coordinator.generation());
     }
 
-    public void revokeForPasswordReset(UUID user, UUID requestId) {
+    public void revokeForPasswordReset(UUID user) {
         revocations.prepareReset(settings.restaurantId(), user, coordinator.generation());
     }
 
@@ -262,7 +263,7 @@ public class StaffSessionService {
         }
     }
 
-    private void revoke(UserSession session, Instant now) {
+    private void revoke(UserSession session) {
         if (session.getRevokedAt() == null) revocations.prepareLocalFirst(settings.restaurantId(),
                 session.getStaffUserId(), RevocationTransactions.Action.SESSION, session.getId(),
                 coordinator.generation());

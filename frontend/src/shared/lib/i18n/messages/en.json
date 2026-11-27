@@ -131,6 +131,24 @@
       "signingOut": "Signing out…",
       "problems": {
         "unavailable": "Your session cannot be loaded right now. Try again shortly."
+      },
+      "recovery": {
+        "heading": "Recovery codes",
+        "hint": "Get new codes if you are running low or someone else may have seen them. All old codes stop working and your sessions on other devices are signed out.",
+        "open": "Renew recovery codes",
+        "password": "Your password",
+        "submit": "Get new codes",
+        "cancel": "Cancel",
+        "doneHint": "Your new codes are below. The old ones no longer work. Save them somewhere safe now; they will not be shown again.",
+        "errors": {
+          "passwordRequired": "Enter your password."
+        },
+        "problems": {
+          "invalidCredentials": "Wrong password or code.",
+          "invalidInput": "Check your details and try again.",
+          "tooManyAttempts": "Too many attempts. Wait a little and try again.",
+          "unavailable": "Your codes cannot be renewed right now. Try again shortly."
+        }
       }
     }
   }

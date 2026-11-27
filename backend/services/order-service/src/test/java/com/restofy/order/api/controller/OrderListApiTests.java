@@ -3,7 +3,10 @@ package com.restofy.order.api.controller;
 import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.application.port.GuestSessionContext.SessionState;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
+import com.restofy.order.infrastructure.client.mock.InMemoryServiceIdentityAdapter;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.JsonNode;
 
@@ -12,8 +15,11 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -281,6 +287,84 @@ class OrderListApiTests extends AbstractCartApiTest {
             assertEquals(7, walked.size());
             assertEquals(expected, new HashSet<>(walked), "no order skipped or repeated");
         }
+    }
+
+    @Test
+    void staffSearchFiltersBeforePagingAndKeepsOrdersWithEqualTimestampsInStableOrder() throws Exception {
+        Instant placedAt = Instant.now().minusSeconds(60);
+        UUID otherSession = UUID.randomUUID();
+        UUID first = insertA1("READY", "PENDING", placedAt);
+        UUID second = insertOrder(DevFixtures.RESTAURANT_A, DevFixtures.TABLE_A1, otherSession, UUID.randomUUID(),
+                "READY", "PENDING", placedAt);
+        UUID served = insertA1("SERVED", "PENDING", placedAt.plusSeconds(10));
+        UUID completed = insertA1("COMPLETED", "PENDING", placedAt.plusSeconds(20));
+        insertA1("READY", "PAID", placedAt.plusSeconds(30));
+        insertOrder(DevFixtures.RESTAURANT_A, DevFixtures.TABLE_A1, UUID.randomUUID(), UUID.randomUUID(),
+                "READY", "PENDING", placedAt.plusSeconds(40));
+        insertOrder(DevFixtures.RESTAURANT_B, DevFixtures.TABLE_A1, otherSession, UUID.randomUUID(),
+                "READY", "PENDING", placedAt.plusSeconds(50));
+
+        String waiter = staff(DevFixtures.STAFF_WAITER_A);
+        var filters = new HashMap<String, Object>(Map.of(
+                "tableId", DevFixtures.TABLE_A1, "tableSessionIds", List.of(DevFixtures.TABLE_SESSION_A1, otherSession),
+                "fulfillmentStatuses", List.of("READY"), "paymentStatus", "PENDING", "limit", 1));
+        List<String> expected = List.of(first.toString(), second.toString()).stream()
+                .sorted(Comparator.reverseOrder()).toList();
+        for (int page = 0; page < expected.size(); page++) {
+            filters.put("page", page);
+            JsonNode answer = searchPage(waiter, filters);
+            assertEquals(2, answer.path("totalItems").asInt());
+            assertEquals(2, answer.path("totalPages").asInt());
+            assertEquals(List.of(expected.get(page)), ids(answer));
+        }
+
+        filters.put("page", 0);
+        filters.put("limit", 100);
+        filters.put("sort", "placedAt,asc");
+        filters.put("fulfillmentStatuses", List.of("READY", "SERVED", "COMPLETED"));
+        assertEquals(List.of(expected.get(1), expected.get(0), served.toString(), completed.toString()),
+                ids(searchPage(staff(DevFixtures.STAFF_ADMIN_A), filters)));
+    }
+
+    @Test
+    void staffSearchEnforcesSessionAndStatusFilterLimits() throws Exception {
+        String admin = staff(DevFixtures.STAFF_ADMIN_A);
+        UUID order = insertA1("READY", "NOT_REQUESTED", Instant.now());
+        List<UUID> sessions = new ArrayList<>();
+        for (int i = 0; i < 499; i++) {
+            sessions.add(UUID.randomUUID());
+        }
+        sessions.add(DevFixtures.TABLE_SESSION_A1);
+        assertEquals(List.of(order.toString()), ids(searchPage(admin, Map.of("tableSessionIds", sessions))));
+        sessions.add(UUID.randomUUID());
+
+        List<Map<String, ?>> invalidFilters = List.of(
+                Map.of("tableSessionIds", sessions), Map.of("tableSessionIds", List.of()),
+                Map.of("fulfillmentStatuses", List.of()), Map.of("fulfillmentStatuses", List.of("WAITING")),
+                Map.of("view", "active", "fulfillmentStatuses", List.of("READY")), Map.of("limit", 101));
+        for (Map<String, ?> invalid : invalidFilters) {
+            search(admin, invalid).andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+        search(admin, Map.of("restaurantId", DevFixtures.RESTAURANT_B)).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void staffSearchRejectsCallersOutsideAdminAndWaiterRoles() throws Exception {
+        search(null, Map.of()).andExpect(status().isUnauthorized());
+        search(guest(A1), Map.of()).andExpect(status().isUnauthorized());
+        search(staff(DevFixtures.STAFF_KITCHEN_A), Map.of()).andExpect(status().isForbidden());
+        search(service(InMemoryServiceIdentityAdapter.KITCHEN_CREDENTIAL), Map.of()).andExpect(status().isForbidden());
+    }
+
+    private JsonNode searchPage(String authorization, Map<String, ?> filters) throws Exception {
+        return json.readTree(search(authorization, filters).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+    }
+
+    private ResultActions search(String authorization, Map<String, ?> filters) throws Exception {
+        return mvc.perform(withCredential(MockMvcRequestBuilders.post(LIST + "/search"), authorization)
+                .contentType(MediaType.APPLICATION_JSON).content(toJson(filters)));
     }
 
     @Test

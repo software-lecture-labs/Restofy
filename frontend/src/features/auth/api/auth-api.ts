@@ -42,6 +42,18 @@ export function recoverWithCode(code: string): Promise<StaffSession> {
   return apiRequest<StaffSession>(`${BASE}/mfa/recover`, { method: "POST", body: { code } });
 }
 
+/** Exactly one second factor goes with the password: a code from the app or one of the current recovery codes. */
+export type RegenerationFactor = { totpCode: string } | { recoveryCode: string };
+
+/** Admin only. Every old recovery code stops working and the person's other sessions are ended. */
+export async function regenerateRecoveryCodes(password: string, factor: RegenerationFactor): Promise<string[]> {
+  const answer = await apiRequest<{ recoveryCodes: string[] }>(`${BASE}/mfa/recovery-codes/regenerate`, {
+    method: "POST",
+    body: { password, ...factor },
+  });
+  return answer.recoveryCodes;
+}
+
 /** The reset runs on its own cookie (restofy_reset), set by the Auth service and sent back by the browser. */
 export function requestPasswordReset(email: string, totpCode: string, locale: string): Promise<void> {
   return apiRequest<void>(`${BASE}/password-reset/request`, { method: "POST", body: { email, totpCode, locale } });

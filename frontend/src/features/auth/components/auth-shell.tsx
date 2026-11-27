@@ -6,7 +6,7 @@ import { AuthBackground } from "./auth-background";
 import { LoginCard } from "./login-card";
 
 /** The page frame shared by every screen before sign-in: background, theme switch, logo and the glowing card. */
-export function AuthShell({ children }: { children: ReactNode }) {
+export function AuthShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <main className="relative grid min-h-dvh place-items-center overflow-hidden px-4 py-10">
       <AuthBackground />

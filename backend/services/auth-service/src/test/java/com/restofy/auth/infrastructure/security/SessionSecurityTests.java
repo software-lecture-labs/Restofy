@@ -1,5 +1,6 @@
 package com.restofy.auth.infrastructure.security;
 
+import com.restofy.auth.support.InMemoryRateLimitStore;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
@@ -58,7 +59,8 @@ class SessionSecurityTests {
     @ParameterizedTest
     @ValueSource(strings = {"301", "900", "3600"})
     void q5RejectsAccessTtlBeyondItsFiveMinuteGuarantee(String seconds) {
-        assertThatThrownBy(() -> new AuthSettings(environment().withProperty("auth.session.access-ttl-seconds", seconds)))
+        var invalidEnvironment = environment().withProperty("auth.session.access-ttl-seconds", seconds);
+        assertThatThrownBy(() -> new AuthSettings(invalidEnvironment))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("JWT_ACCESS_TTL_SECONDS");
     }
 
@@ -233,7 +235,7 @@ class SessionSecurityTests {
 
     @Test
     void loginLimiterNormalizesAccountsAndExpiresWindows() {
-        LoginRateLimiter limiter = new LoginRateLimiter(clock);
+        LoginRateLimiter limiter = new LoginRateLimiter(new InMemoryRateLimitStore(clock), true);
         for (int attempt = 0; attempt < LoginRateLimiter.ATTEMPTS_PER_ACCOUNT_AND_PEER; attempt++) {
             limiter.check(" STAFF@EXAMPLE.COM ", PEER);
         }

@@ -10,15 +10,15 @@ function effectiveTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+function toggle() {
+  const next: Theme = effectiveTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  void setTheme(next);
+}
+
 /** Switches between light and dark. The attribute is set at once; the cookie keeps the choice for later visits. */
 export function ThemeToggle() {
   const t = useTranslations("theme");
-
-  function toggle() {
-    const next: Theme = effectiveTheme() === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    void setTheme(next);
-  }
 
   return (
     <button

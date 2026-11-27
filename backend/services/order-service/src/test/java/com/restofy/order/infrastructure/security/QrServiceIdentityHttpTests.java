@@ -297,7 +297,7 @@ class QrServiceIdentityHttpTests {
                 .notBefore(Date.from(issued)).expiration(Date.from(issued.plusSeconds(30)))
                 .claim("token_type", "service").claim("scope", scope).claim("restaurant_id", tenant.toString())
                 .claim("method", method).claim("target", target)
-                .claim("body_sha256", QrSignedRequest.digest(body.getBytes(StandardCharsets.UTF_8)))
+                .claim("body_sha256", SignedServiceRequest.digest(body.getBytes(StandardCharsets.UTF_8)))
                 .signWith(key.getPrivate(), Jwts.SIG.RS256).compact();
     }
 

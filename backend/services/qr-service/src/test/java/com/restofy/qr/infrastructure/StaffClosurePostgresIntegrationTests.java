@@ -45,6 +45,7 @@ class StaffClosurePostgresIntegrationTests extends TransitionIntegrationSupport 
 
     @BeforeEach void verifiedWaiterFixture() {
         when(waiterAccess.requireStaff()).thenAnswer(invocation -> new Staff(tenant, staffId));
+        when(waiterAccess.requireServiceRestaurant()).thenAnswer(invocation -> tenant);
     }
 
     private Request request(Fixture fixture) {

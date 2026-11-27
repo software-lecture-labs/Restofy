@@ -343,7 +343,12 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
     }
 
     private void assertActivityRejected(StaffSessionService.Grant grant, boolean pending, Class<? extends Throwable> expected) {
-        assertThatThrownBy(() -> service.activity(jwt.verify(grant.access(), pending))).isInstanceOf(expected);
+        assertThatThrownBy(() -> recordActivity(grant, pending)).isInstanceOf(expected);
+    }
+
+    /** Verification may itself reject the token, so it stays inside the call the test expects to fail. */
+    private void recordActivity(StaffSessionService.Grant grant, boolean pending) {
+        service.activity(jwt.verify(grant.access(), pending));
     }
 
     private StaffSessionService.Grant login() { return service.login("waiter@example.com", PASSWORD, "Test browser"); }
@@ -351,8 +356,8 @@ class StaffSessionIntegrationTests extends AuthSessionTestSupport {
         return !service.refresh(raw).concurrentReplay();
     }
     private boolean refreshOutcome(String raw) {
-        try { service.refresh(raw); return true; } catch (BadCredentialsException _) { return false; }
-        catch (org.springframework.web.server.ResponseStatusException pending) { return false; }
+        try { service.refresh(raw); return true; }
+        catch (BadCredentialsException | org.springframework.web.server.ResponseStatusException _) { return false; }
     }
     private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         CountDownLatch start = new CountDownLatch(1);

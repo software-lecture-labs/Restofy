@@ -5,5 +5,5 @@ export type StaffRole = (typeof staffRoles)[number];
 export const defaultStaffRole: StaffRole = "ADMIN";
 
 export function isStaffRole(value: unknown): value is StaffRole {
-  return staffRoles.some((role) => role === value);
+  return (staffRoles as readonly unknown[]).includes(value);
 }

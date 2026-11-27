@@ -61,6 +61,7 @@ public class StaffSessionVerifier {
     private final Clock clock;
     private final long accessTtlSeconds;
 
+    @SuppressWarnings("java:S2143") // jjwt's Clock contract returns java.util.Date; the time itself comes from the injected java.time Clock.
     public StaffSessionVerifier(AuthProperties properties, RestClient.Builder builder, Clock clock) {
         this.clock = clock;
         this.accessTtlSeconds = properties.accessTtlSeconds();

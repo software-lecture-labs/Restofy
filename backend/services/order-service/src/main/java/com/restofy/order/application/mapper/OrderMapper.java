@@ -42,19 +42,19 @@ public class OrderMapper {
                 items, order.getNote(), order.getPlacedAt());
     }
 
-    public OrderDetailResponse toDetail(Order order) {
+    public OrderDetailResponse toDetail(Order order, Instant servedAt) {
         OrderResponse base = toResponse(order);
         return new OrderDetailResponse(order.getId(), order.getOrderNo(), order.getTableId(), order.getTableSessionId(),
                 order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), order.getCurrency(),
                 base.amounts(), order.getCurrentDueMinor(), cancelledGross(order), activeGross(order), base.items(),
-                order.getNote(), order.getPlacedAt(), order.getUpdatedAt(), order.getVersion());
+                order.getNote(), order.getPlacedAt(), order.getUpdatedAt(), order.getVersion(), servedAt);
     }
 
     /**
      * What the kitchen may see of an order: the same lines, quantities, extras, removed ingredients and notes, but no
      * payment status, no amounts and no prices.
      */
-    public OrderDetailResponse toKitchenDetail(Order order) {
+    public OrderDetailResponse toKitchenDetail(Order order, Instant servedAt) {
         OrderResponse base = toResponse(order);
         List<OrderItemResponse> items = base.items().stream().map(item -> new OrderItemResponse(item.orderItemId(),
                 item.productId(), item.name(), item.quantity(), item.cancelledQuantity(), item.remainingQuantity(),
@@ -63,7 +63,7 @@ public class OrderMapper {
                         .toList(), item.note(), null, null, null, null, null)).toList();
         return new OrderDetailResponse(order.getId(), order.getOrderNo(), order.getTableId(), order.getTableSessionId(),
                 order.getFulfillmentStatus().name(), null, null, null, null, null, null, items, order.getNote(),
-                order.getPlacedAt(), order.getUpdatedAt(), order.getVersion());
+                order.getPlacedAt(), order.getUpdatedAt(), order.getVersion(), servedAt);
     }
 
     public OrderPlacedEvent toPlacedEvent(Order order, UUID eventId, String correlationId, Instant occurredAt) {
