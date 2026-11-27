@@ -19,6 +19,11 @@ public class TestActorProvider implements CurrentActorProvider {
         this.actor = new AuthenticatedActor(UUID.randomUUID(), restaurantId, role);
     }
 
+    /** A specific user, so a test can make the same person act twice or two persons act for one restaurant. */
+    public void actAs(UUID userId, UUID restaurantId, ActorRole role) {
+        this.actor = new AuthenticatedActor(userId, restaurantId, role);
+    }
+
     public void actAsNobody() {
         this.actor = null;
     }

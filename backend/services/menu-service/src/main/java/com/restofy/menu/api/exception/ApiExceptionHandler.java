@@ -16,11 +16,14 @@ import com.restofy.menu.domain.exception.ProductOptionNotFoundException;
 import com.restofy.menu.domain.exception.ProductOptionVersionConflictException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.domain.exception.PublicMenuNotFoundException;
+import com.restofy.menu.domain.exception.RateLimitExceededException;
+import com.restofy.menu.domain.exception.RateLimitUnavailableException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -65,6 +68,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             PublicMenuNotFoundException.class})
     ProblemDetail notFound(RuntimeException e) {
         return problem(HttpStatus.NOT_FOUND, "Not found", e.getMessage());
+    }
+
+    /** A budget is spent: 429 and when to come back. Nothing about the counter, the key or the limit. */
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> tooManyRequests(RateLimitExceededException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()))
+                .cacheControl(CacheControl.noStore()).body(problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", e.getMessage()));
+    }
+
+    /** The request could not be counted, so it is refused (fail-closed), never let through uncounted. */
+    @ExceptionHandler(RateLimitUnavailableException.class)
+    ResponseEntity<ProblemDetail> rateLimitUnavailable(RateLimitUnavailableException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()))
+                .cacheControl(CacheControl.noStore()).body(problem(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable", e.getMessage()));
     }
 
     @ExceptionHandler({DuplicateCategoryNameException.class, CategoryVersionConflictException.class,
