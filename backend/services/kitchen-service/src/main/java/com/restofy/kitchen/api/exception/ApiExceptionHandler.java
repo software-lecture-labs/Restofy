@@ -3,6 +3,7 @@ package com.restofy.kitchen.api.exception;
 import com.restofy.kitchen.application.service.ProductAvailabilityException;
 import com.restofy.kitchen.domain.exception.CancellationAlreadyAnsweredException;
 import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedException;
+import com.restofy.kitchen.domain.exception.OrderCancellationAwaitingAnswerException;
 import com.restofy.kitchen.domain.exception.OrderCancellationNotFoundException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
@@ -39,6 +40,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String ORDER_BUSY = "ORDER_BUSY";
 	public static final String CANCELLATION_ALREADY_REQUESTED = "CANCELLATION_ALREADY_REQUESTED";
 	public static final String CANCELLATION_ALREADY_ANSWERED = "CANCELLATION_ALREADY_ANSWERED";
+	public static final String ORDER_CANCELLATION_AWAITING_ANSWER = "ORDER_CANCELLATION_AWAITING_ANSWER";
 	public static final String INVALID_STOCK_REFERENCE = "INVALID_STOCK_REFERENCE";
 	public static final String INVALID_REASON_TEXT = "INVALID_REASON_TEXT";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
@@ -102,6 +104,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler(OrderCancellationNotFoundException.class)
 	ProblemDetail orderCancellationNotFound(OrderCancellationNotFoundException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+	}
+
+	/** The Order service's own request for this order waits for the kitchen's answer. Nothing was stored. */
+	@ExceptionHandler(OrderCancellationAwaitingAnswerException.class)
+	ProblemDetail orderCancellationAwaitingAnswer(OrderCancellationAwaitingAnswerException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+		problem.setProperty(CODE, ORDER_CANCELLATION_AWAITING_ANSWER);
+		problem.setProperty(RETRYABLE, false);
+		return problem;
 	}
 
 	/** The kitchen has already answered this request. Nothing was changed. */

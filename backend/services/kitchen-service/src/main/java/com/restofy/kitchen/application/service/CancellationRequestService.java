@@ -13,7 +13,10 @@ import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.InvalidReasonTextException;
 import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
+import com.restofy.kitchen.domain.enums.ConfirmationStatus;
+import com.restofy.kitchen.domain.exception.OrderCancellationAwaitingAnswerException;
 import com.restofy.kitchen.infrastructure.persistence.repository.CancellationRequestRepository;
+import com.restofy.kitchen.infrastructure.persistence.repository.OrderCancellationConfirmationRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenOrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,13 +54,15 @@ public class CancellationRequestService {
 
 	private final KitchenOrderRepository orders;
 	private final CancellationRequestRepository requests;
+	private final OrderCancellationConfirmationRepository confirmations;
 	private final KitchenEventRecorder events;
 	private final Clock clock;
 
 	public CancellationRequestService(KitchenOrderRepository orders, CancellationRequestRepository requests,
-			KitchenEventRecorder events, Clock clock) {
+			OrderCancellationConfirmationRepository confirmations, KitchenEventRecorder events, Clock clock) {
 		this.orders = orders;
 		this.requests = requests;
+		this.confirmations = confirmations;
 		this.events = events;
 		this.clock = clock;
 	}
@@ -82,6 +87,11 @@ public class CancellationRequestService {
 		}
 		if (requests.findByRestaurantIdAndOrderIdAndStatus(restaurantId, orderId, CancellationRequestStatus.REQUESTED).isPresent()) {
 			throw new CancellationAlreadyRequestedException();
+		}
+		// The Order service refuses a Kitchen request (409 CANCELLATION_ALREADY_PENDING) while its own request waits for the
+		// kitchen's answer: answer that one instead of creating a request that can only fail.
+		if (confirmations.existsByRestaurantIdAndOrderIdAndStatus(restaurantId, orderId, ConfirmationStatus.AWAITING_KITCHEN)) {
+			throw new OrderCancellationAwaitingAnswerException();
 		}
 
 		checkStockReferenceBelongsToOrder(order, body);

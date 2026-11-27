@@ -179,7 +179,31 @@ class OrderCancellationEventApiTests {
 		assertEquals("CANCELLED", kitchenOrder().get("status"));
 		assertEquals(1, jdbc.queryForObject("""
 				SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenCancellationDecided'
-				""", Integer.class, RESTAURANT));
+				  AND payload ->> 'orderId' = ?
+				""", Integer.class, RESTAURANT, orderId.toString()));
+	}
+
+	/** While the Order service's request waits, it would refuse a Kitchen request: Kitchen refuses it first. */
+	@Test
+	void aKitchenRequestWaitsUntilTheOrderServicesRequestIsAnswered() throws Exception {
+		UUID line = order("PREPARING");
+		send(event(UUID.randomUUID(), "OrderCancellationRequested", 3, line, null, null, null)).andExpect(status().isNoContent());
+		String path = "/api/v1/kitchen/orders/" + orderId + "/cancellation-requests";
+		String body = "{\"reasonCode\":\"KITCHEN_ERROR\"}";
+
+		mvc.perform(post(path).header("Idempotency-Key", UUID.randomUUID().toString()).contentType(MediaType.APPLICATION_JSON)
+						.content(body).with(kitchen(RESTAURANT)).with(csrf()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ORDER_CANCELLATION_AWAITING_ANSWER"));
+		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM cancellation_requests WHERE restaurant_id = ? AND order_id = ?",
+				Integer.class, RESTAURANT, orderId));
+
+		mvc.perform(post("/api/v1/kitchen/orders/" + orderId + "/order-cancellations/" + cancellationId + "/answer")
+						.header("Idempotency-Key", UUID.randomUUID().toString()).contentType(MediaType.APPLICATION_JSON)
+						.content("{\"decision\":\"REJECTED\"}").with(kitchen(RESTAURANT)).with(csrf()))
+				.andExpect(status().isAccepted());
+		mvc.perform(post(path).header("Idempotency-Key", UUID.randomUUID().toString()).contentType(MediaType.APPLICATION_JSON)
+						.content(body).with(kitchen(RESTAURANT)).with(csrf()))
+				.andExpect(status().isAccepted());
 	}
 
 	@Test
