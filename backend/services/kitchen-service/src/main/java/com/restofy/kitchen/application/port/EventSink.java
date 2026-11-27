@@ -6,9 +6,9 @@ import com.restofy.kitchen.domain.enums.DeliveryOutcome;
 /**
  * Boundary towards ONE other service that receives Kitchen's outbox events. A sink is bound to one destination, and the
  * delivery of an event to that destination is tracked on its own: another destination being down, slow or final changes
- * nothing here. There is NO production implementation of any sink: the transport (D-10), the target address and the
- * service-to-service identity are not decided, and none is invented. An adapter added later must honour this contract,
- * which the delivery tests pin down:
+ * nothing here. The Order destination has an HTTP implementation ({@code HttpOrderEventSink}); it cannot run in a real
+ * environment yet because Kitchen's service identity is not decided (D-09). Notification has no implementation. Every
+ * adapter must honour this contract, which the delivery tests pin down:
  * <ul>
  *   <li>Return {@link DeliveryOutcome#DELIVERED} only for a positive acknowledgement of THIS event id.</li>
  *   <li>A timeout, connection problem, 5xx, throttling or any unknown result is {@code RETRYABLE_FAILURE} (throwing

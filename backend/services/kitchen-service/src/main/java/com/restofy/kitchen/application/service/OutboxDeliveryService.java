@@ -24,7 +24,8 @@ import java.util.UUID;
 /**
  * Runs delivery attempts against an {@link EventSink}. One attempt = claim (short transaction, row lock, lease)
  * -> call the sink with NO transaction and NO lock open -> record the result (short transaction). Nothing in here
- * schedules itself and nothing wires a real sink: until the transport is decided (D-10) it is only invoked by tests.
+ * schedules itself: the Order delivery is driven by {@code OrderDeliveryDispatcher}, which only the
+ * {@code kitchen-order} profile creates; the Notification destination has no sink yet.
  * It never touches the order, its history or its READY status: a delivery problem cannot undo "ready".
  */
 @Service
@@ -33,7 +34,7 @@ public class OutboxDeliveryService {
 	private static final Logger log = LoggerFactory.getLogger(OutboxDeliveryService.class);
 
 	/** How long a claimed delivery stays invisible to other workers; after that it is due again (crashed worker). */
-	static final Duration LEASE = Duration.ofSeconds(60);
+	public static final Duration LEASE = Duration.ofSeconds(60);
 	private static final int MAX_ERROR_CODE = 80;
 
 	private final OutboxDeliveryRepository deliveries;
@@ -61,13 +62,22 @@ public class OutboxDeliveryService {
 		return attempt(deliveryId, (EventSink) sink);
 	}
 
-	/** Attempts every delivery to the sink's destination that is due now, oldest first, at most {@code limit}. Returns the attempts made. */
+	/**
+	 * Attempts every delivery to the sink's destination that is due now, oldest first, at most {@code limit}. Returns the
+	 * attempts made. A delivery that cannot be processed here (unreadable event, lock or database problem) is left as it
+	 * is and does not stop the others.
+	 */
 	public int deliverDue(EventSink sink, int limit) {
 		List<UUID> due = deliveries.findDueIds(clock.instant(), sink.destination(), PageRequest.of(0, limit));
 		int attempts = 0;
 		for (UUID id : due) {
-			if (attempt(id, sink).isPresent()) {
-				attempts++;
+			try {
+				if (attempt(id, sink).isPresent()) {
+					attempts++;
+				}
+			} catch (RuntimeException e) {
+				// Nothing is marked: a claimed delivery becomes due again after its lease. Only the type is logged.
+				log.error("Outbox delivery {} could not be processed: {}", id, e.getClass().getSimpleName());
 			}
 		}
 		return attempts;

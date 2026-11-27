@@ -28,7 +28,7 @@ import java.util.UUID;
 @Component
 public class KitchenEventRecorder {
 
-	/** The Order service. Delivery itself is not implemented (D-10). */
+	/** The Order service. Recording happens here; delivery is the outbox's job. */
 	public static final String ORDER_DESTINATION = "ORDER";
 	/** The Notification service, which only receives the order-ready event (architecture: Kitchen -> Order, Waiter, Notification). */
 	public static final String NOTIFICATION_DESTINATION = "NOTIFICATION";
