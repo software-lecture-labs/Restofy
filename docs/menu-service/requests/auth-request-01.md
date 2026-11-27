@@ -8,7 +8,7 @@
 | **Talep eden** | Menu Service (Merve) |
 | **İlgili servis ve ekip** | Auth Service (Kerem). Madde 7 ortak altyapı olduğu için Alper; madde 5 Order (Hamza) ve Kitchen (Nisa) ile ortak |
 | **Bağlı PDA görevi** | MENU-INT-01 — Menu Service Auth ve Güvenlik Entegrasyonu |
-| **Durum** | **Karar bekliyor.** MENU-INT-01 şu an **KISMİ** |
+| **Durum** | **Auth yanıtladı (PR #46 yorumları, sözleşme PR #67).** MENU-INT-01 **KISMİ**: ENV ve Compose bağlantısı tamam, güncel `dev` Auth'uyla yerel E2E yapıldı; pasifleştirme/rol senaryoları PR #81'e bağlı (bloke), ortak ortamda deneme yok |
 
 Bu belge yalnız bir taleptir. Auth, Order, Kitchen veya QR kodunda değişiklik içermez ve hiçbirini Menu tarafı uygulamış gibi anlatmaz.
 
@@ -131,3 +131,17 @@ Menu, Auth kodunu değiştirmeyi önermiyor; Auth'a ait değişiklikler Auth sah
 - Auth rotasyonu ve `kid` planı.
 - Çok restoranlı üyelik geldiğinde `restaurant_id` biçimi.
 - Menu CORS ön-uçuş desteği: arayüz gelince Menu'nun ayrı, onaylı işi; bu talebin parçası değil.
+
+## 8. Auth yanıtı ve güncel durum (28 Kasım 2026)
+
+Kerem (PR #46): açık anahtar adı `MENU_AUTH_STAFF_PUBLIC_KEY` uygun, değeri `MAIL_AUTH_PUBLIC_KEY`; `kid` yok, planlı rotasyon yok (değişirse önceden haber); token ömrü **en çok** 300 sn; CSRF için çerez-başlık eşitliği ve tek izinli `Origin` yeterli, imza Auth'ta ve paylaşılmaz; Menu için en çok 300 sn iptal gecikmesi kabul, ek mekanizma yok; Auth merkezi servis kimliği vermez, her çağıran kendi anahtarıyla imzalar (D-09 kararı Menu/Order/Kitchen ve hocada); sözleşme `docs/auth-service/staff-contract.md`. Son yorum: pasifleştirme/rol denemesi DB'den değil, PR #81 uçlarıyla yapılacak; Menu'de değişiklik gerekmiyor.
+
+| Madde | Durum |
+|---|---|
+| 1 Açık anahtar adı ve değeri | Onaylı. `.env.example` ve Compose'un `menu-service` bloğuna eklendi (değersiz); yerel `.env.dev` dolduruldu. Ortak ortamda değer tanımı Alper/Kerem'de |
+| 2 JWT sözleşmesi | Menu doğrulayıcısı sözleşmeyle uyumlu, kod değişmedi |
+| 3 CSRF | Seviye (a), kod değişmedi |
+| 4 İptal | Seçenek (a): en çok 300 sn, gerçek Auth'la ölçüldü |
+| 5 Servis kimliği | Auth'tan beklenen yok; Order → Menu ucu kendi imza modeliyle tamamlandı (PR #49), Kitchen → Menu bekliyor |
+| 6 Gerçek Auth testi | Yerel izole E2E yapıldı (ADR-MENU-005 güncellemesi). Pasifleştirme/rol: **bloke (PR #81)**. MFA'lı akış ve Gateway/tarayıcı: yapılmadı |
+| 7 ENV/Compose | **Tamamlandı** (ENV adı onaylı) |

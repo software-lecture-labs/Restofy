@@ -1,6 +1,6 @@
 # ADR-MENU-005 — Personel kimliği: Auth `staff-v1` token'ının Menu'da yerel doğrulanması
 
-- **Durum:** Kabul edildi (geliştirme aşaması). Üretimde etkinleştirme iki onaya bağlı: yeni ENV (`MENU_AUTH_STAFF_PUBLIC_KEY`) ve çalışan Auth ile uçtan uca deneme
+- **Durum:** Kabul edildi (geliştirme aşaması). `MENU_AUTH_STAFF_PUBLIC_KEY` ENV'i onaylandı ve `.env.example` ile Compose'un `menu-service` bloğuna eklendi (28 Kasım 2026). Üretimde etkinleştirme, ortak ortamda açık anahtarın tanımlanmasına ve ortak ortamda uçtan uca denemeye bağlı
 - **Tarih:** 2026-11-23 (MENU-INT-01)
 - **Sahip:** Menu (Merve); üretici sözleşme Auth (Kerem)
 - **İlgili kod:** `StaffJwtVerifier`, `StaffCookieAuthenticationFilter`, `StaffCsrfProtection`, `StaffAuthProperties`, `StaffSecurity`,
@@ -104,7 +104,7 @@ paylaşılan ortamda etkinleşmesi ve bazı maddeler dış kararlara bağlıdır
 
 | # | Gereksinim | Durum | Not |
 |---|---|---|---|
-| 1 | Auth JWT/HttpOnly cookie entegrasyonu | KISMİ | Kod ve testler tamam; gerçek Auth koduyla izole ortamda doğrulandı (yukarıdaki bölüm). `MENU_AUTH_STAFF_PUBLIC_KEY` onaysız/aktarılmamış → paylaşılan Docker'da 401. Paylaşılan ortamda deneme yok |
+| 1 | Auth JWT/HttpOnly cookie entegrasyonu | KISMİ | Kod ve testler tamam; gerçek Auth koduyla izole ortamda doğrulandı (yukarıdaki bölüm). ENV artık `.env.example` ve Compose'ta; paylaşılan ortamda değer tanımlanana kadar 401. Güncel `dev` Auth'uyla yeniden doğrulandı (aşağıdaki güncelleme). Paylaşılan ortamda deneme yok |
 | 2 | Kategori/ürün/seçenek ADMIN yetkisi | TAMAMLANDI | WAITER/KITCHEN 403; testli. Etkinleşmesi madde 1'deki anahtara bağlı |
 | 3 | CSRF ve Origin | KISMİ | Origin allowlist, çift gönderim eşitliği, içerik türü, süre: tamam. **CSRF imzası doğrulanmıyor** (HMAC Auth'ta), CORS/ön-uçuş yok |
 | 4 | Güncel oturum, hesap aktifliği, rol değişikliği | KISMİ | Yeni token'ın rolü hemen geçerli; logout/pasifleştirme/rol değişikliği eski token için en çok 300 sn gecikir. **Logout için gerçek Auth'la ölçüldü**: Auth hemen reddetti, Menu süre dolana kadar kabul etti. Anlık yansıma yok |
@@ -116,8 +116,17 @@ paylaşılan ortamda etkinleşmesi ve bazı maddeler dış kararlara bağlıdır
 
 | Madde | Neden | Karar sahibi |
 |---|---|---|
-| `MENU_AUTH_STAFF_PUBLIC_KEY` ENV'i, `.env.example` ve Compose aktarımı | Yeni ENV ve ortak dosyalar (SECURITY.md §1) | Ekip / Alper (Compose), Kerem (anahtar sağlama) |
+| Ortak ortamda `MENU_AUTH_STAFF_PUBLIC_KEY` değerinin tanımlanması (`MAIL_AUTH_PUBLIC_KEY` ile aynı açık anahtar) | ENV adı ve Compose aktarımı **tamam**; yalnız gerçek değer ortak ortamda yok | Alper (ortak ortam), Kerem (anahtar) |
 | Anlık iptal (introspection veya Menu'yu Q5 hedefi yapma) | Auth sözleşmesinde yok; servis kimliği, timeout ve kesinti politikası gerekir | Auth + Menu |
 | Kitchen/Order → Menu servis kimliği ve HTTP ucu | D-09: token biçimi, `aud`, kapsam, replay, izin matrisi onaysız; Kitchen'da Menu adaptörü yok | Auth + Kitchen + Order + Menu |
 | CORS/ön-uçuş | Yeni güvenlik yüzeyi; arayüz henüz yok | Menu + frontend |
 | Paylaşılan ortamda uçtan uca doğrulama | Anahtar aktarımı (ENV onayı), güncel Auth imajı ve `JWT_ACCESS_TTL_SECONDS=300`, MFA'lı hesap gerekir | Menu + Auth + Alper |
+
+## Güncelleme (28 Kasım 2026): güncel `dev` Auth'uyla doğrulama
+
+Kerem'in PR #46 yanıtları (Auth'un merkezi servis kimliği yok; Menu için en çok 300 sn iptal gecikmesi kabul; CSRF için eşitlik + tek izinli `Origin` yeterli; sözleşme `docs/auth-service/staff-contract.md`, PR #67) Menu kodunu **değiştirmeyi gerektirmedi**: JWT, çerez ve CSRF kuralları sözleşmeyle birebir uyumlu. `origin/dev` (66 commit, Auth rate limit ve CSRF çerezi düzeltmeleri dahil) bu dala çakışmasız birleştirildi.
+
+- **ENV/Compose:** `MENU_AUTH_STAFF_PUBLIC_KEY` değersiz belgelendi, yalnız `menu-service`'e aktarılıyor. `JWT_ISSUER` ve `CORS_ALLOWED_ORIGINS` paylaşılan ortamdan geliyor. Yerel `.env.dev`'e mevcut `MAIL_AUTH_PUBLIC_KEY` değeri (Auth'un özel anahtarından türetilen açık anahtarla eşleştiği doğrulanarak) eklendi; Git'e girmedi.
+- **Gerçek Auth ile yerel E2E** (güncel `dev` Auth + QR + Menu üç ayrı süreç, atılabilir PostgreSQL, üretilmiş anahtarlar, MFA kapalı dev hesapları): ADMIN giriş ve kategori okuma/oluşturma 200/201; WAITER ve KITCHEN gerçek hesaplarıyla okuma ve yazma 403; CSRF başlığı yok, çerezle uyuşmuyor, `Origin` yok, yabancı `Origin`, `text/plain` içerik türü 403; çerezsiz, sahte `X-Restaurant-Id`/`X-Role` ve çöp çerez 401, rol başlığı sahtesi etkisiz; oluşturulan kayıtlar token'ın restoranına ait; Auth yenilemesi sonrası yeni çerez çalışıyor; **çıkıştan sonra** Auth `/session` hemen 401, Menu eski çerezi süre dolana kadar kabul etti (beklenen, ≤ 300 sn); **süre dolumundan sonra** (314 sn) 401. Günlüklerde (Menu, Auth, QR) özel anahtar, CSRF sırrı, çerez değerleri, parola ve JWT yok.
+- **Bloke:** Pasifleştirme ve rol değişikliği senaryoları. Auth veritabanı elle değiştirilmedi (Q5 iptalini atlar); PR #81 uçları (`POST /api/v1/auth/staff/{id}/role` ve `/deactivate`) `dev`'e girmedi.
+- **Kapsam dışı kalanlar:** MFA'lı (TOTP) giriş akışı bu denemede kapalıydı; Gateway ve tarayıcı üzerinden akış (çerez ve `Origin` aktarımı) denenmedi.
