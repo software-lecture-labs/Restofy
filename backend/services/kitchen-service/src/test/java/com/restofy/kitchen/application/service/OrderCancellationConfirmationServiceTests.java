@@ -213,9 +213,11 @@ class OrderCancellationConfirmationServiceTests {
 		assertThrows(DataAccessException.class,
 				() -> jdbc.update("UPDATE order_cancellation_confirmations SET status = 'APPROVED' WHERE id = ?", id),
 				"an answer always has its command, author and time");
+		UUID command = UUID.randomUUID();
+		UUID user = UUID.randomUUID();
 		assertThrows(DataAccessException.class, () -> jdbc.update("UPDATE order_cancellation_confirmations SET status = 'REJECTED',"
-				+ " answer_command_id = ?, answered_by_user_id = ?, answered_at = now() WHERE id = ?", UUID.randomUUID(),
-				UUID.randomUUID(), id), "a refusal always has its code");
+				+ " answer_command_id = ?, answered_by_user_id = ?, answered_at = now() WHERE id = ?", command, user, id),
+				"a refusal always has its code");
 
 		confirmations.answer(order.restaurant(), UUID.randomUUID(), UUID.randomUUID(), order.orderId(), cancellationId,
 				OrderDecision.APPROVED);

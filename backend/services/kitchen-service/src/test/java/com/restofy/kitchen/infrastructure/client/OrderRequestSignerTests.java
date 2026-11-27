@@ -103,9 +103,12 @@ class OrderRequestSignerTests {
 	@Test
 	void theTokenIsRefusedAfterItsLifetimeAndWithAnotherKey() {
 		String token = signer().credentialFor(UUID.randomUUID(), PATH, new byte[0]);
+		PublicKey right = keys.getPublic();
+		PublicKey wrong = otherKeys.getPublic();
+		Instant expired = NOW.plusSeconds(31);
 
-		assertThrows(JwtException.class, () -> read(token, keys.getPublic(), NOW.plusSeconds(31)));
-		assertThrows(JwtException.class, () -> read(token, otherKeys.getPublic(), NOW));
+		assertThrows(JwtException.class, () -> read(token, right, expired));
+		assertThrows(JwtException.class, () -> read(token, wrong, NOW));
 	}
 
 	@Test

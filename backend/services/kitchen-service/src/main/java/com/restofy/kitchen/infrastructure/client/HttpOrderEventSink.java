@@ -57,9 +57,11 @@ public class HttpOrderEventSink implements OrderEventSink {
 	static final int MAX_RESPONSE_BYTES = 16 * 1024;
 	private static final String AUTHORIZATION_SCHEME = "Service ";
 
-	private static final Set<String> STATUS_OUTCOMES = Set.of("APPLIED", "IGNORED_STALE", "IGNORED_ORDER_CLOSED");
-	private static final Set<String> CANCELLATION_OUTCOMES = Set.of("APPLIED", "REJECTED");
-	private static final Set<String> DECISION_OUTCOMES = Set.of("APPLIED", "IGNORED_STALE");
+	private static final String APPLIED = "APPLIED";
+	private static final String IGNORED_STALE = "IGNORED_STALE";
+	private static final Set<String> STATUS_OUTCOMES = Set.of(APPLIED, IGNORED_STALE, "IGNORED_ORDER_CLOSED");
+	private static final Set<String> CANCELLATION_OUTCOMES = Set.of(APPLIED, "REJECTED");
+	private static final Set<String> DECISION_OUTCOMES = Set.of(APPLIED, IGNORED_STALE);
 	/** The answers that say this very request can never be accepted: status and the Order service's error code. */
 	private static final Set<String> DEFINITE_REFUSALS = Set.of("400_INVALID_REQUEST", "415_UNSUPPORTED_MEDIA_TYPE",
 			"422_VALIDATION_ERROR", "422_UNKNOWN_ORDER_ITEM", "422_CANCEL_QUANTITY_EXCEEDED", "409_IDEMPOTENCY_CONFLICT",
