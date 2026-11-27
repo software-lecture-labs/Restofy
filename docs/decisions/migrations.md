@@ -66,3 +66,8 @@ V132        - ORDER-SERVICE (EK SÜRÜM) - HAMZA
 
 23 Kasım 2026: V132, WAITER-03 servis edildi komutunun ilk sonucunu kalıcı olarak
 saklamak için Order'a ayrıldı. Order zinciri V41–V50 ve V131–V132.
+
+27 Kasım 2026: KITCHEN-INT-03 kapsamında Kitchen V90'ı, Order'ın mutfak onayı bekleyen
+iptal isteklerini ve mutfağın cevabını tutan `order_cancellation_confirmations` tablosu için
+kullandı. Kitchen zinciri V81–V90; Kitchen aralığında boş numara kalmadı, yeni bir Kitchen
+migration'ı için aralık genişletme kararı gerekir.
