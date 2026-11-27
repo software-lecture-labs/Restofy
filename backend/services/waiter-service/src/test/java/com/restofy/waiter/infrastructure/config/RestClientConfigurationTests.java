@@ -239,11 +239,11 @@ class RestClientConfigurationTests {
                 tables + "/" + table + "?restaurantId=" + restaurant);
         assertSigned(pair, staffToken, "POST", sessionPath + "/close", "qr:session-close", true,
                 sessionPath + "/close");
-        assertSigned(pair, staffToken, "GET", sessionPath + "/close-commands/" + command, "qr:session-close", true,
+        assertSigned(pair, staffToken, "GET", sessionPath + "/close-commands/" + command, "qr:session-close", false,
                 sessionPath + "/close-commands/" + command + "?restaurantId=" + restaurant);
         assertSigned(pair, staffToken, "POST", tables + "/" + table + "/cleaned", "qr:table-clean", true,
                 tables + "/" + table + "/cleaned");
-        assertSigned(pair, staffToken, "GET", tables + "/" + table + "/clean-commands/" + command, "qr:table-clean", true,
+        assertSigned(pair, staffToken, "GET", tables + "/" + table + "/clean-commands/" + command, "qr:table-clean", false,
                 tables + "/" + table + "/clean-commands/" + command + "?restaurantId=" + restaurant);
     }
 
@@ -269,12 +269,12 @@ class RestClientConfigurationTests {
         assertNull(sent.header("Cookie"));
         assertNull(sent.header("Origin"));
         if (delegated) {
-            assertEquals(staffToken, sent.header("X-Staff-Token"), path);
+            assertEquals(staffToken, sent.header("X-Restofy-Staff-Delegation"), path);
             assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(staffToken.getBytes(StandardCharsets.UTF_8))), claims.get("staff_token_sha256"), path);
+                    .digest(staffToken.getBytes(StandardCharsets.UTF_8))), claims.get("staff_sha256"), path);
         } else {
-            assertNull(sent.header("X-Staff-Token"), path);
-            assertNull(claims.get("staff_token_sha256"), path);
+            assertNull(sent.header("X-Restofy-Staff-Delegation"), path);
+            assertNull(claims.get("staff_sha256"), path);
         }
     }
 

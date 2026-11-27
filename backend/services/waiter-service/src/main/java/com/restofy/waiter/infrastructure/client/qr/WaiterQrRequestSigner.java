@@ -64,8 +64,8 @@ public class WaiterQrRequestSigner {
 
     /**
      * The {@code Authorization} value for this request, or empty while Waiter has no service key configured. The
-     * close and clean scopes also need the staff member's access token (forwarded in {@code X-Staff-Token}); its
-     * SHA-256 digest is bound into the credential as {@code staff_token_sha256}. The token itself is never signed in
+     * close and clean scopes also need the staff member's access token (forwarded in {@code X-Restofy-Staff-Delegation}); its
+     * SHA-256 digest is bound into the credential as {@code staff_sha256}. The token itself is never signed in
      * clear and never logged.
      */
     Optional<String> authorization(String scope, HttpMethod method, String target, byte[] body, String staffToken) {
@@ -81,7 +81,7 @@ public class WaiterQrRequestSigner {
                 .claim("restaurant_id", credentials.restaurantId().toString())
                 .claim("method", method.name()).claim("target", target).claim("body_sha256", digest(body));
         if (staffToken != null) {
-            builder.claim("staff_token_sha256", digest(staffToken.getBytes(StandardCharsets.UTF_8)));
+            builder.claim("staff_sha256", digest(staffToken.getBytes(StandardCharsets.UTF_8)));
         }
         return Optional.of("Service " + builder.signWith(credentials.privateKey(), Jwts.SIG.RS256).compact());
     }

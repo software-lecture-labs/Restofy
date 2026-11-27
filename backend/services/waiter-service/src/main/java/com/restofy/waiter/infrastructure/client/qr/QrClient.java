@@ -39,7 +39,7 @@ import java.util.UUID;
  * <p>Every call uses the shared {@code /api/v1/internal} prefix and carries Waiter's own service identity
  * ({@link WaiterQrRequestSigner}), one scope per route family: {@code qr:guest-validate} (QR PR #41),
  * {@code qr:table-read}, {@code qr:session-close} and {@code qr:table-clean} (QR PR #51). The close and clean
- * routes, including their status reads, also need the staff member's access token in {@code X-Staff-Token}
+ * POST routes also need the staff member's access token in {@code X-Restofy-Staff-Delegation}
  * ({@link StaffAccessToken}), bound to the credential by digest. While no service key is configured nothing is signed
  * and QR answers 401. The close command follows ADR-QR-001 K11; QR PR #51 implements the table reads and the cleaning
  * command with the same paths and payloads Waiter already used. Not verified against a running QR yet.
@@ -68,7 +68,7 @@ public class QrClient {
     private static final String TABLES = "/api/v1/internal/tables";
     private static final byte[] NO_BODY = new byte[0];
     /** The header QR reads the delegated staff token from on the close and clean routes (QR PR #51). */
-    static final String STAFF_TOKEN_HEADER = "X-Staff-Token";
+    static final String STAFF_TOKEN_HEADER = "X-Restofy-Staff-Delegation";
 
     private final RestClient client;
     private final JsonMapper requests;
@@ -169,9 +169,8 @@ public class QrClient {
 
     /**
      * Signs the request for QR: one service credential per request, bound to its method, target (with the query
-     * string, exactly as sent) and body digest. The close and clean routes also need the staff member's token, taken
-     * from the request being served. Outside a request (the reconciler) there is none and nothing is invented, so QR
-     * answers 401, which is reported as a rejection of Waiter and never as "closed".
+     * string, exactly as sent) and body digest. Close and clean POSTs also require the current staff access token.
+     * Result lookups use the service credential alone, including when the background reconciler calls QR.
      */
     private void sign(HttpHeaders headers, String scope, HttpMethod method, String target, byte[] body,
                       boolean delegated) {
@@ -272,7 +271,7 @@ public class QrClient {
     public Optional<QrCloseResultDto> closeStatus(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID commandId) {
         String target = sessionPath(tableId, tableSessionId) + "/close-commands/" + commandId + "?" + RESTAURANT_ID + "=" + restaurantId;
         Optional<QrCloseResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get().uri(target)
-                .headers(headers -> sign(headers, WaiterQrRequestSigner.SESSION_CLOSE, HttpMethod.GET, target, NO_BODY, true))
+                .headers(headers -> sign(headers, WaiterQrRequestSigner.SESSION_CLOSE, HttpMethod.GET, target, NO_BODY, false))
                 .retrieve().body(QrCloseResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
@@ -316,7 +315,7 @@ public class QrClient {
     public Optional<QrCleanResultDto> cleanStatus(UUID restaurantId, UUID tableId, UUID commandId) {
         String target = TABLES + "/" + tableId + "/clean-commands/" + commandId + "?" + RESTAURANT_ID + "=" + restaurantId;
         Optional<QrCleanResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get().uri(target)
-                .headers(headers -> sign(headers, WaiterQrRequestSigner.TABLE_CLEAN, HttpMethod.GET, target, NO_BODY, true))
+                .headers(headers -> sign(headers, WaiterQrRequestSigner.TABLE_CLEAN, HttpMethod.GET, target, NO_BODY, false))
                 .retrieve().body(QrCleanResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
