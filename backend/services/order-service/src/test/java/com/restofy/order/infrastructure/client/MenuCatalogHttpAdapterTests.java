@@ -97,6 +97,29 @@ class MenuCatalogHttpAdapterTests {
     }
 
     @Test
+    void mapsMenusMinimalV1ResponseWithOptionsAndExplicitNulls() {
+        UUID extra = UUID.randomUUID();
+        UUID ingredient = UUID.randomUUID();
+        respond("""
+                {"products":[{"productId":"%s","name":"Salad","published":true,"available":true,
+                "currency":"TRY","basePriceGrossMinor":1300,"taxRateBps":1000,"priceIssue":null,
+                "options":[{"optionId":"%s","name":"Cheese","type":"ADD",
+                "priceDeltaMinor":200,"minQuantity":0,"maxQuantity":2,"active":true},
+                {"optionId":"%s","name":"Onion","type":"INCLUDED",
+                "priceDeltaMinor":0,"minQuantity":0,"maxQuantity":1,"active":false}]}]}
+                """.formatted(PRODUCT, extra, ingredient));
+        var product = adapter().findProducts(RESTAURANT, List.of(PRODUCT)).get(PRODUCT);
+        assertTrue(product.sellable());
+        assertNull(product.priceVersion());
+        assertEquals(List.of(extra, ingredient), product.options().stream().map(option -> option.optionId()).toList());
+        assertEquals(200L, product.options().getFirst().priceDeltaMinor());
+        assertEquals(2, product.options().getFirst().maxQuantity());
+        assertTrue(product.options().getFirst().active());
+        assertFalse(product.options().getLast().active());
+        peer.verify();
+    }
+
+    @Test
     void protectsRestaurantAndBatchLimitBeforeContactingMenu() {
         var adapter = adapter();
         assertTrue(adapter.findProducts(RESTAURANT, List.of()).isEmpty());
@@ -121,7 +144,31 @@ class MenuCatalogHttpAdapterTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {302, 400, 401, 403, 429, 503})
+    @ValueSource(strings = {"1299.9", "\"1299\"", "\"\""})
+    void rejectsNonIntegerPricesAndTaxInsteadOfCoercingThem(String value) {
+        respond(products(product(PRODUCT, value, "1000", "")));
+        respond(products(product(PRODUCT, "1300", value, "")));
+        var adapter = adapter();
+        assertUnavailable(adapter, List.of(PRODUCT));
+        assertUnavailable(adapter, List.of(PRODUCT));
+        peer.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"25.5", "\"25\""})
+    void rejectsNonIntegerOptionPriceDifferences(String value) {
+        respond("""
+                {"products":[{"productId":"%s","name":"Salad","published":true,"available":true,
+                "currency":"TRY","basePriceGrossMinor":1300,"taxRateBps":1000,"priceIssue":null,
+                "options":[{"optionId":"%s","name":"Cheese","type":"ADD","priceDeltaMinor":%s,
+                "minQuantity":0,"maxQuantity":2,"active":true}]}]}
+                """.formatted(PRODUCT, UUID.randomUUID(), value));
+        assertUnavailable(adapter(), List.of(PRODUCT));
+        peer.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {302, 400, 401, 403, 413, 415, 429, 503})
     void peerErrorsAreDependencyFailures(int httpStatus) {
         peer.expect(requestTo(BASE + LOOKUP)).andRespond(withStatus(HttpStatus.valueOf(httpStatus)));
         assertUnavailable(adapter(), List.of(PRODUCT));

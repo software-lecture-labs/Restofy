@@ -13,10 +13,14 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.cfg.CoercionAction;
+import tools.jackson.databind.cfg.CoercionInputShape;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.type.LogicalType;
 
 import java.net.URI;
 import java.time.Clock;
@@ -55,7 +59,14 @@ class MenuCatalogHttpAdapter implements MenuCatalogPort {
         signer = new OrderServiceRequestSigner(clock, keyId, privateKey, "ORDER_MENU_CALLER",
                 "restofy-menu", "menu:catalog-read");
         restaurant = configuredRestaurant(restaurantId);
-        this.http = http.build();
+        JsonMapper catalogJson = json.rebuild()
+                .withCoercionConfig(LogicalType.Integer, config -> config
+                        .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                        .setCoercion(CoercionInputShape.String, CoercionAction.Fail)
+                        .setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail))
+                .build();
+        this.http = http.clone().configureMessageConverters(converters ->
+                converters.withJsonConverter(new JacksonJsonHttpMessageConverter(catalogJson))).build();
         this.json = json;
     }
 
@@ -73,7 +84,7 @@ class MenuCatalogHttpAdapter implements MenuCatalogPort {
             var result = http.post().uri(endpoint).contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .header(HttpHeaders.AUTHORIZATION, signer.authorization(restaurant, HttpMethod.POST, LOOKUP, body))
-                    .body(body)
+                    .body(output -> output.write(body))
                     .exchange((request, response) -> {
                         if (response.getStatusCode().value() != 200) {
                             throw unavailable();
