@@ -5,7 +5,9 @@ import com.restofy.kitchen.application.contract.KitchenCancellationDecidedMessag
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
 import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
+import com.restofy.kitchen.application.contract.OrderCancellationReceipt;
 import com.restofy.kitchen.application.contract.OutboundMessage;
+import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.infrastructure.config.CorrelationIdFilter;
 import org.slf4j.Logger;
@@ -21,6 +23,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -35,19 +38,14 @@ import java.util.regex.Pattern;
  * endpoint defines. Anything else that is not a definite refusal of this request is an unknown result and is retried
  * with the same event id and the same body.
  *
- * <p><b>An acknowledgement is not a business decision.</b> For a cancellation request the body also says whether the
- * Order service cancelled ({@code APPLIED}) or refused ({@code REJECTED}). Both mean the request arrived and was
- * handled, so both acknowledge the delivery.
- *
- * <p><b>Cancellation requests are held.</b> The Order service decides a Kitchen request at once, and that answer is the
- * only place the decision ever appears. Kitchen cannot apply it yet, so sending a request would cancel the order at the
- * Order service while it stays active in the kitchen. Until the answer is validated and applied, this sink is never
- * given a {@code KitchenCancellationRequested}: those deliveries stay PENDING (see {@link #heldEventTypes()}).
+ * <p><b>An acknowledgement is not a business decision.</b> For Kitchen's own cancellation request the Order service
+ * decides at once ({@code APPLIED} = cancelled, {@code REJECTED} = not cancelled), and this answer is the only place the
+ * decision ever appears: no later event about Kitchen's own request comes. So the answer is first checked against the
+ * request that was sent ({@code OrderCancellationReceipt}) and recorded as the Order service's decision
+ * ({@link OrderDecisionRecorder}); only then is the delivery DELIVERED. An answer that cannot be recorded leaves the
+ * delivery retried (unknown) or FAILED (cannot ever be recorded), never DELIVERED.
  */
 public class HttpOrderEventSink implements OrderEventSink {
-
-	/** Event types that are not sent; see the class comment. */
-	static final Set<String> HELD = Set.of(KitchenCancellationRequestedMessage.TYPE);
 
 	/** Fixed by the Order service's contract (not configuration). */
 	static final String STATUS_ENDPOINT = "/api/v1/internal/order-events/kitchen";
@@ -74,8 +72,13 @@ public class HttpOrderEventSink implements OrderEventSink {
 	record StatusReport(UUID eventId, UUID restaurantId, UUID orderId, String kitchenStatus, Instant occurredAt) {
 	}
 
-	/** Body of {@code POST /kitchen-cancellation-request}. Kitchen only ever asks for the whole order. */
-	record CancellationAsk(UUID eventId, UUID restaurantId, UUID orderId, boolean cancelAll, List<String> reasonCodes) {
+	/**
+	 * Body of {@code POST /kitchen-cancellation-request}. Kitchen only ever asks for the whole order. {@code reasonText}
+	 * goes with OTHER only, where the Order service requires it.
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	record CancellationAsk(UUID eventId, UUID restaurantId, UUID orderId, boolean cancelAll, List<String> reasonCodes,
+			String reasonText) {
 	}
 
 	/** Body of {@code POST /kitchen-cancellation}: the kitchen's answer. No note is sent (free text the guest could read). */
@@ -100,17 +103,15 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private final RestClient client;
 	private final JsonMapper json;
 	private final OrderServiceCredentials credentials;
+	private final OrderDecisionRecorder decisions;
 
 	/** {@code client} must already point at the Order service and have its timeouts set. */
-	public HttpOrderEventSink(RestClient client, JsonMapper json, OrderServiceCredentials credentials) {
+	public HttpOrderEventSink(RestClient client, JsonMapper json, OrderServiceCredentials credentials,
+			OrderDecisionRecorder decisions) {
 		this.client = client;
 		this.json = json;
 		this.credentials = credentials;
-	}
-
-	@Override
-	public Set<String> heldEventTypes() {
-		return HELD;
+		this.decisions = decisions;
 	}
 
 	@Override
@@ -140,21 +141,22 @@ public class HttpOrderEventSink implements OrderEventSink {
 
 	private Result requestCancellation(KitchenCancellationRequestedMessage requested) {
 		String reason = requested.payload().reasonCode();
-		if ("OTHER".equals(reason)) {
-			// The Order service demands an explanation for OTHER and the stored event does not carry one. Nothing is sent
-			// rather than sending a request that is known to be invalid or inventing a text.
+		String text = requested.payload().reasonText();
+		if ("OTHER".equals(reason) && (text == null || text.isBlank())) {
+			// The Order service demands an explanation for OTHER. An event stored before the explanation was required has
+			// none: nothing is sent rather than a request that is known to be invalid or an invented text.
 			return refused(requested, "REASON_TEXT_MISSING");
 		}
 		String orderReason = switch (reason) {
 			case "OUT_OF_STOCK" -> "ITEM_UNAVAILABLE";
-			case "CUSTOMER_REQUEST", "KITCHEN_ERROR" -> reason;
+			case "CUSTOMER_REQUEST", "KITCHEN_ERROR", "OTHER" -> reason;
 			default -> null;
 		};
 		if (orderReason == null) {
 			return refused(requested, "UNMAPPED_REASON");
 		}
 		var body = new CancellationAsk(requested.eventId(), requested.restaurantId(), requested.orderId(), true,
-				List.of(orderReason));
+				List.of(orderReason), "OTHER".equals(reason) ? text : null);
 		return send(new Call(requested, requested.orderId(), CANCELLATION_REQUEST_ENDPOINT, body, CANCELLATION_OUTCOMES));
 	}
 
@@ -218,6 +220,9 @@ public class HttpOrderEventSink implements OrderEventSink {
 					|| (call.cancellationId() != null && !call.cancellationId().toString().equals(text(reply.body(), "cancellationId")))) {
 				return Result.retry("HTTP_200_INVALID_ACK");
 			}
+			if (call.message() instanceof KitchenCancellationRequestedMessage requested) {
+				return recordDecision(requested, reply.body());
+			}
 			acknowledged(call, outcome);
 			return Result.delivered();
 		}
@@ -229,13 +234,37 @@ public class HttpOrderEventSink implements OrderEventSink {
 		return Result.retry("HTTP_" + detail);
 	}
 
+	/**
+	 * The answer to Kitchen's own request carries the Order service's decision. It is read against what was sent, never
+	 * trusted for restaurant, order or request, and recorded through the same rules as any Order decision (inbox, version,
+	 * time). DELIVERED only once it is recorded; a repeat of the same answer is recognised by the sent event id.
+	 */
+	private Result recordDecision(KitchenCancellationRequestedMessage requested, JsonNode body) {
+		OrderCancellationReceipt receipt;
+		try {
+			receipt = new OrderCancellationReceipt(text(body, "outcome"), uuid(body, "orderId"), uuid(body, "cancellationId"),
+					nullableText(body, "scope"), nullableText(body, "rejectionCode"), version(body), instant(body));
+		} catch (IllegalArgumentException | DateTimeParseException _) {
+			return Result.retry("HTTP_200_INVALID_ACK");
+		}
+		OrderCancellationReceipt.Reading reading = receipt.readFor(requested);
+		if (reading.verdict() != OrderCancellationReceipt.Verdict.DECISION) {
+			// MISMATCH: the answer is not about this request. INCOMPLETE: the first decision's values are gone (a late
+			// repeat); nothing is made up, so it needs reconciliation. Sending again cannot change either.
+			return refused(requested, "DECISION_" + reading.verdict());
+		}
+		OrderDecisionService.DecisionResult result = decisions.record(reading.decision());
+		if (result == null || result.outcome() == null || !result.outcome().isRecorded()) {
+			return refused(requested, "DECISION_" + (result == null || result.outcome() == null ? "NOT_RECORDED" : result.outcome()));
+		}
+		log.info("Order decided the kitchen's cancellation request: {} -> kitchen {} (repeat={}): restaurantId={} orderId={} requestId={}",
+				receipt.outcome(), result.outcome(), result.duplicate(), requested.restaurantId(), requested.orderId(),
+				requested.requestId());
+		return Result.delivered();
+	}
+
 	private static void acknowledged(Call call, String outcome) {
-		if (call.message() instanceof KitchenCancellationRequestedMessage requested) {
-			// The decision is in this answer only and Kitchen does not apply it: leave a trace for reconciliation.
-			log.warn("Order handled a Kitchen cancellation request with outcome {}; Kitchen's order and request are unchanged:"
-							+ " restaurantId={} orderId={} requestId={} eventId={}", outcome, requested.restaurantId(),
-					requested.orderId(), requested.requestId(), requested.eventId());
-		} else if (call.message() instanceof KitchenCancellationDecidedMessage decided) {
+		if (call.message() instanceof KitchenCancellationDecidedMessage decided) {
 			// The Order service's final word on the cancellation comes later as its own event; the kitchen order is unchanged.
 			log.info("Order received the kitchen's {} answer with outcome {}: restaurantId={} orderId={} cancellationId={}",
 					decided.payload().decision(), outcome, decided.restaurantId(), decided.orderId(),
@@ -251,6 +280,38 @@ public class HttpOrderEventSink implements OrderEventSink {
 					message.eventType(), code);
 		}
 		return Result.permanentFailure(code);
+	}
+
+	private static String nullableText(JsonNode body, String field) {
+		JsonNode node = body.get(field);
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		if (!node.isString()) {
+			throw new IllegalArgumentException(field);
+		}
+		return node.stringValue();
+	}
+
+	private static UUID uuid(JsonNode body, String field) {
+		String value = nullableText(body, field);
+		return value == null ? null : UUID.fromString(value);
+	}
+
+	private static Long version(JsonNode body) {
+		JsonNode node = body.get("orderVersion");
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		if (!node.isIntegralNumber() || !node.canConvertToLong()) {
+			throw new IllegalArgumentException("orderVersion");
+		}
+		return node.longValue();
+	}
+
+	private static Instant instant(JsonNode body) {
+		String value = nullableText(body, "decidedAt");
+		return value == null ? null : Instant.parse(value);
 	}
 
 	private static String text(JsonNode body, String field) {

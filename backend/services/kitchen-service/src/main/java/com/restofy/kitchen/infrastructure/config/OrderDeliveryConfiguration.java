@@ -1,6 +1,7 @@
 package com.restofy.kitchen.infrastructure.config;
 
 import com.restofy.kitchen.application.port.OrderEventSink;
+import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
 import com.restofy.kitchen.infrastructure.client.HttpOrderEventSink;
 import com.restofy.kitchen.infrastructure.client.OrderRequestSigner;
@@ -57,11 +58,12 @@ public class OrderDeliveryConfiguration {
 	OrderEventSink httpOrderEventSink(HttpClient orderHttpClient, @Value("${ORDER_SERVICE_URL:}") String orderServiceUrl,
 			@Value("${restofy.rest-client.connect-timeout-ms}") long connectTimeoutMs,
 			@Value("${restofy.rest-client.read-timeout-ms}") long readTimeoutMs, JsonMapper json,
-			OrderServiceCredentials orderRequestSigner) {
+			OrderServiceCredentials orderRequestSigner, OrderDecisionService decisions) {
 		URI origin = orderOrigin(orderServiceUrl);
 		checkTimeouts(connectTimeoutMs, readTimeoutMs);
+		// The answer arrives on the TLS connection to the configured Order address: the Order service is the sender.
 		return new HttpOrderEventSink(orderClient(orderHttpClient, origin, Duration.ofMillis(readTimeoutMs)), json,
-				orderRequestSigner);
+				orderRequestSigner, decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision));
 	}
 
 	@Bean

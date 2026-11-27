@@ -1,5 +1,8 @@
 package com.restofy.kitchen.infrastructure.client;
 
+import com.restofy.kitchen.application.contract.OrderCancellationDecisionMessage;
+import com.restofy.kitchen.application.service.OrderDecisionService;
+import com.restofy.kitchen.domain.enums.DecisionOutcome;
 import com.restofy.kitchen.application.contract.KitchenCancellationDecidedMessage;
 import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
@@ -33,6 +36,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,9 +74,27 @@ class HttpOrderEventSinkTests {
 		httpClient.close();
 	}
 
+	/** What the sink handed over as the Order service's decision, and what recording it answers. */
+	private final List<OrderCancellationDecisionMessage> recorded = new ArrayList<>();
+	private OrderDecisionService.DecisionResult recording = new OrderDecisionService.DecisionResult(DecisionOutcome.CANCELLED, false);
+
 	private HttpOrderEventSink sink(OrderServiceCredentials provider) {
 		return new HttpOrderEventSink(OrderDeliveryConfiguration.orderClient(httpClient, URI.create(order.url()), READ_TIMEOUT),
-				JSON, provider);
+				JSON, provider, decision -> {
+					recorded.add(decision);
+					return recording;
+				});
+	}
+
+	private static final Instant DECIDED = Instant.parse("2026-11-27T10:16:00.654321Z");
+	private final UUID orderCancellationId = UUID.randomUUID();
+
+	/** The Order service's answer to Kitchen's own request, with the first decision's values. */
+	private String receipt(String outcome) {
+		String rejection = "REJECTED".equals(outcome) ? "\"ORDER_ALREADY_PAID\"" : "null";
+		return "{\"outcome\":\"" + outcome + "\",\"duplicate\":false,\"orderId\":\"" + orderId + "\",\"cancellationId\":\""
+				+ orderCancellationId + "\",\"scope\":\"FULL\",\"rejectionCode\":" + rejection + ",\"fulfillmentStatus\":\"PREPARING\","
+				+ "\"paymentStatus\":\"NOT_REQUESTED\",\"orderVersion\":7,\"decidedAt\":\"" + DECIDED + "\"}";
 	}
 
 	private EventSink.Result deliver(OutboundMessage message) {
@@ -89,11 +111,17 @@ class HttpOrderEventSinkTests {
 				UUID.randomUUID(), new KitchenOrderReadyMessage.Payload("READY", AT.minusSeconds(60), AT));
 	}
 
+	private final UUID requestId = UUID.randomUUID();
+
 	private KitchenCancellationRequestedMessage cancellation(String reason) {
+		return cancellation(reason, null);
+	}
+
+	private KitchenCancellationRequestedMessage cancellation(String reason, String text) {
 		return new KitchenCancellationRequestedMessage(eventId, KitchenCancellationRequestedMessage.TYPE, 1, AT,
-				restaurantId, orderId, UUID.randomUUID(), 1, "corr-2", UUID.randomUUID(),
+				restaurantId, orderId, requestId, 1, "corr-2", UUID.randomUUID(),
 				new KitchenCancellationRequestedMessage.Payload(orderId, reason,
-						"OUT_OF_STOCK".equals(reason) ? UUID.randomUUID() : null, null, null));
+						"OUT_OF_STOCK".equals(reason) ? UUID.randomUUID() : null, null, text));
 	}
 
 	private final UUID cancellationId = UUID.randomUUID();
@@ -155,8 +183,8 @@ class HttpOrderEventSinkTests {
 	}
 
 	@Test
-	void decisionsAreNotHeldButCancellationRequestsAre() {
-		assertEquals(Set.of(KitchenCancellationRequestedMessage.TYPE), sink(credentials).heldEventTypes());
+	void nothingIsHeldAnyMoreBecauseTheAnswerToARequestIsRecorded() {
+		assertTrue(sink(credentials).heldEventTypes().isEmpty());
 	}
 
 	private static Set<String> fields(Received request) {
@@ -215,7 +243,9 @@ class HttpOrderEventSinkTests {
 	@ParameterizedTest
 	@CsvSource({"OUT_OF_STOCK,ITEM_UNAVAILABLE", "CUSTOMER_REQUEST,CUSTOMER_REQUEST", "KITCHEN_ERROR,KITCHEN_ERROR"})
 	void aCancellationRequestAsksForTheWholeOrderWithTheOrderServicesReasonCode(String kitchen, String expected) {
-		assertEquals(DeliveryOutcome.DELIVERED, deliver(cancellation(kitchen)).outcome());
+		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+
+		assertEquals(DeliveryOutcome.DELIVERED, deliver(cancellation(kitchen, "never sent")).outcome());
 
 		Received sent = order.received().getFirst();
 		assertEquals("/api/v1/internal/order-events/kitchen-cancellation-request", sent.path());
@@ -225,6 +255,18 @@ class HttpOrderEventSinkTests {
 		assertEquals(1, sent.json().get("reasonCodes").size());
 		assertEquals(expected, sent.json().get("reasonCodes").get(0).asString());
 		assertEquals(eventId.toString(), field(sent, "eventId"));
+	}
+
+	@Test
+	void otherIsSentWithItsExplanationTheOnlyFreeTextThatLeavesKitchen() {
+		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+
+		assertEquals(DeliveryOutcome.DELIVERED, deliver(cancellation("OTHER", "Fırın arızalı")).outcome());
+
+		Received sent = order.received().getFirst();
+		assertEquals(Set.of("eventId", "restaurantId", "orderId", "cancelAll", "reasonCodes", "reasonText"), fields(sent));
+		assertEquals("OTHER", sent.json().get("reasonCodes").get(0).asString());
+		assertEquals("Fırın arızalı", field(sent, "reasonText"));
 	}
 
 	@ParameterizedTest
@@ -246,11 +288,87 @@ class HttpOrderEventSinkTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"APPLIED", "REJECTED"})
-	void bothAnswersToACancellationRequestOnlyAcknowledgeItsDelivery(String outcome) {
-		order.answerAlways(Answer.of(200, OrderStubServer.ack(orderId, outcome)));
+	@CsvSource({"APPLIED,APPROVED,OrderCancelled", "REJECTED,REJECTED,OrderCancellationRejected"})
+	void theAnswerToARequestIsRecordedAsTheOrderServicesDecisionBeforeTheDeliveryCounts(String outcome, String decision,
+			String type) {
+		order.answerAlways(Answer.of(200, receipt(outcome)));
 
 		assertEquals(EventSink.Result.delivered(), deliver(cancellation("KITCHEN_ERROR")));
+
+		assertEquals(1, recorded.size());
+		OrderCancellationDecisionMessage recordedDecision = recorded.getFirst();
+		assertEquals(decision, recordedDecision.decision().name());
+		assertEquals(type, recordedDecision.eventType());
+		assertEquals(eventId, recordedDecision.eventId(), "a repeated answer is the same decision");
+		assertEquals(restaurantId, recordedDecision.restaurantId());
+		assertEquals(orderId, recordedDecision.orderId());
+		assertEquals(requestId, recordedDecision.requestId(), "taken from what was sent, never from the answer");
+		assertEquals(7, recordedDecision.orderVersion());
+		assertEquals(DECIDED, recordedDecision.decidedAt());
+		assertEquals("REJECTED".equals(outcome) ? "ORDER_ALREADY_PAID" : null, recordedDecision.reasonCode());
+	}
+
+	/** A late repeat of the answer may carry the outcome without the first decision's values: nothing is made up. */
+	@Test
+	void anIncompleteAnswerIsNeverRecordedAndFailsForReconciliation() {
+		order.answerAlways(Answer.of(200, "{\"outcome\":\"APPLIED\",\"duplicate\":true,\"orderId\":\"" + orderId
+				+ "\",\"cancellationId\":null,\"scope\":null,\"rejectionCode\":null,\"fulfillmentStatus\":\"CANCELLED\","
+				+ "\"paymentStatus\":\"NOT_REQUESTED\",\"orderVersion\":null,\"decidedAt\":null}"));
+
+		assertEquals(EventSink.Result.permanentFailure("DECISION_INCOMPLETE"), deliver(cancellation("KITCHEN_ERROR")));
+		assertTrue(recorded.isEmpty());
+	}
+
+	@Test
+	void anAnswerAboutSomethingElseIsNeverRecorded() {
+		order.answerAlways(Answer.of(200, receipt("APPLIED").replace("\"FULL\"", "\"PARTIAL\"")));
+
+		assertEquals(EventSink.Result.permanentFailure("DECISION_MISMATCH"), deliver(cancellation("KITCHEN_ERROR")));
+		assertTrue(recorded.isEmpty());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"\"orderVersion\":7", "\"decidedAt\":\"" + "2026-11-27T10:16:00.654321Z" + "\"",
+			"\"cancellationId\":\"@ID\""})
+	void anUnreadableAnswerIsRetried(String field) {
+		String body = receipt("APPLIED").replace(field.replace("@ID", orderCancellationId.toString()),
+				field.substring(0, field.indexOf(':') + 1) + "\"not-a-value\"");
+		order.answerAlways(Answer.of(200, body));
+
+		assertEquals(EventSink.Result.retry("HTTP_200_INVALID_ACK"), deliver(cancellation("KITCHEN_ERROR")));
+		assertTrue(recorded.isEmpty());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"UNKNOWN", "INVALID", "SOURCE_NOT_TRUSTED"})
+	void aDecisionKitchenRefusesToRecordFailsTheDelivery(String outcome) {
+		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.valueOf(outcome), false);
+		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+
+		assertEquals(EventSink.Result.permanentFailure("DECISION_" + outcome), deliver(cancellation("KITCHEN_ERROR")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"CANCELLED", "REQUEST_REJECTED", "STALE", "ALREADY_DECIDED", "NEEDS_RECONCILIATION"})
+	void everyRecordedOutcomeCompletesTheDelivery(String outcome) {
+		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.valueOf(outcome), true);
+		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+
+		assertEquals(EventSink.Result.delivered(), deliver(cancellation("KITCHEN_ERROR")));
+	}
+
+	@Test
+	void aFailureWhileRecordingIsNotADelivery() {
+		HttpOrderEventSink sink = new HttpOrderEventSink(
+				OrderDeliveryConfiguration.orderClient(httpClient, URI.create(order.url()), READ_TIMEOUT), JSON, credentials,
+				decision -> {
+					throw new IllegalStateException("database down");
+				});
+		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+		KitchenCancellationRequestedMessage message = cancellation("KITCHEN_ERROR");
+
+		assertThrows(IllegalStateException.class, () -> sink.deliver(message),
+				"the delivery service turns this into a retry with the same event id");
 	}
 
 	@ParameterizedTest

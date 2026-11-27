@@ -1,6 +1,7 @@
 package com.restofy.kitchen.infrastructure.config;
 
 import com.restofy.kitchen.application.port.OrderEventSink;
+import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
 import com.restofy.kitchen.infrastructure.client.OrderRequestSigner;
 import com.restofy.kitchen.infrastructure.client.OrderServiceCredentials;
@@ -37,6 +38,7 @@ class OrderDeliveryConfigurationTests {
 			.withBean(JsonMapper.class, () -> JsonMapper.builder().build())
 			.withBean(Clock.class, Clock::systemUTC)
 			.withBean(OutboxDeliveryService.class, () -> mock(OutboxDeliveryService.class))
+			.withBean(OrderDecisionService.class, () -> mock(OrderDecisionService.class))
 			.withPropertyValues("ORDER_SERVICE_URL=https://order.internal.example", "restofy.rest-client.connect-timeout-ms=3000",
 					"restofy.rest-client.read-timeout-ms=5000");
 

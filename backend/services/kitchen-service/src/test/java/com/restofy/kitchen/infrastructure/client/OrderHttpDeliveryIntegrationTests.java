@@ -7,6 +7,7 @@ import com.restofy.kitchen.application.service.CancellationRequestService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.application.contract.OrderCancellationRequestedMessage;
 import com.restofy.kitchen.application.service.OrderCancellationConfirmationService;
+import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
 import com.restofy.kitchen.domain.enums.CancellationReason;
 import com.restofy.kitchen.domain.enums.DeliveryStatus;
@@ -71,6 +72,8 @@ class OrderHttpDeliveryIntegrationTests {
 	@Autowired
 	private OrderCancellationConfirmationService confirmations;
 	@Autowired
+	private OrderDecisionService decisions;
+	@Autowired
 	private JsonMapper json;
 	@Autowired
 	private JdbcTemplate jdbc;
@@ -94,10 +97,20 @@ class OrderHttpDeliveryIntegrationTests {
 		httpClient.close();
 	}
 
+	/** Wired like production: the Order service's answer to a Kitchen request is recorded by the real decision service. */
 	private OrderEventSink sink(String url) {
 		return new HttpOrderEventSink(
 				OrderDeliveryConfiguration.orderClient(httpClient, URI.create(url), Duration.ofSeconds(3)), json,
-				(restaurantId, path, body) -> "test-credential");
+				(restaurantId, path, body) -> "test-credential",
+				decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision));
+	}
+
+	/** The Order service's answer to Kitchen's own request, with the first decision's values. */
+	private static String receipt(Ticket ticket, String outcome) {
+		String rejection = "REJECTED".equals(outcome) ? "\"ORDER_ALREADY_PAID\"" : "null";
+		return "{\"outcome\":\"" + outcome + "\",\"duplicate\":false,\"orderId\":\"" + ticket.orderId() + "\",\"cancellationId\":\""
+				+ UUID.randomUUID() + "\",\"scope\":\"FULL\",\"rejectionCode\":" + rejection + ",\"fulfillmentStatus\":\"CANCELLED\","
+				+ "\"paymentStatus\":\"NOT_REQUESTED\",\"orderVersion\":9,\"decidedAt\":\"" + Instant.now() + "\"}";
 	}
 
 	private OrderEventSink sink() {
@@ -325,25 +338,67 @@ class OrderHttpDeliveryIntegrationTests {
 	}
 
 	/**
-	 * The Order service cancels as soon as it receives a Kitchen request, and Kitchen cannot apply that answer yet. So a
-	 * request is never sent: it stays PENDING with no attempt used, and it does not hold up the other deliveries.
+	 * The Order service decides Kitchen's own request at once and says so only in its answer. APPLIED: the kitchen order is
+	 * CANCELLED and the request APPROVED, in one transaction, before the delivery counts. The answer lost once and sent
+	 * again (the Order service repeats the first decision) is applied exactly once.
 	 */
 	@Test
-	void aCancellationRequestIsHeldAndNeverSentWhileItsAnswerCannotBeApplied() {
+	void anAppliedAnswerCancelsTheKitchenOrderOnceEvenWhenTheAnswerWasLostOnce() {
+		Ticket ticket = accepted();
+		UUID requestId = requestCancellation(ticket);
+		UUID id = deliveryId(ticket, CANCELLATION_EVENT);
+		String answer = receipt(ticket, "APPLIED");
+		order.answerAlways(Answer.lost());
+		assertEquals(Optional.of(DeliveryStatus.PENDING), delivery.attempt(id, sink()));
+		assertEquals("WAITING", business(ticket).get("status"), "no answer, no decision");
+		makeDue(id);
+		order.answerAlways(Answer.of(200, answer));
+
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, sink()));
+
+		Map<String, Object> after = business(ticket);
+		assertEquals("CANCELLED", after.get("status"));
+		assertEquals(9L, after.get("source_order_version"));
+		assertEquals(1L, after.get("inbox"));
+		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM cancellation_requests WHERE id = ?", String.class, requestId));
+		assertEquals(order.received().get(0).body(), order.received().get(1).body());
+		// The same answer once more (a redelivery after a crash before the result was written) changes nothing.
+		jdbc.update("UPDATE outbox_deliveries SET status = 'PENDING', delivered_at = NULL, next_attempt_at = now() - interval '1 second'"
+				+ " WHERE id = ?", id);
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, sink()));
+		assertEquals(after, business(ticket));
+	}
+
+	@Test
+	void aRejectedAnswerClosesTheRequestAndLeavesTheOrderAsItIs() {
+		Ticket ticket = accepted();
+		UUID requestId = requestCancellation(ticket);
+		UUID id = deliveryId(ticket, CANCELLATION_EVENT);
+		order.answerAlways(Answer.of(200, receipt(ticket, "REJECTED")));
+
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, sink()));
+
+		assertEquals("WAITING", business(ticket).get("status"));
+		assertEquals("REJECTED", jdbc.queryForObject("SELECT status FROM cancellation_requests WHERE id = ?", String.class, requestId));
+		assertEquals("ORDER_ALREADY_PAID", jdbc.queryForObject("SELECT decision_reason_code FROM cancellation_requests WHERE id = ?",
+				String.class, requestId));
+	}
+
+	/** A late answer without the first decision's values: nothing is made up and the delivery is FAILED for reconciliation. */
+	@Test
+	void anIncompleteAnswerChangesNothingAndIsVisibleAsFailed() {
 		Ticket ticket = accepted();
 		requestCancellation(ticket);
-		UUID held = deliveryId(ticket, CANCELLATION_EVENT);
-		start(ticket);
+		UUID id = deliveryId(ticket, CANCELLATION_EVENT);
 		Map<String, Object> before = business(ticket);
+		order.answerAlways(Answer.of(200, "{\"outcome\":\"APPLIED\",\"duplicate\":true,\"orderId\":\"" + ticket.orderId()
+				+ "\",\"cancellationId\":null,\"scope\":null,\"rejectionCode\":null,\"fulfillmentStatus\":\"CANCELLED\","
+				+ "\"paymentStatus\":\"NOT_REQUESTED\",\"orderVersion\":null,\"decidedAt\":null}"));
 
-		assertEquals(Optional.empty(), delivery.attempt(held, sink()));
-		assertEquals(1, delivery.deliverDue(sink(), 1), "the held one does not take the only slot of the batch");
+		assertEquals(Optional.of(DeliveryStatus.FAILED), delivery.attempt(id, sink()));
 
-		assertEquals(List.of("/api/v1/internal/order-events/kitchen"), order.received().stream().map(Received::path).toList());
-		assertRow(held, "PENDING", 0, null);
-		assertTrue(((Timestamp) row(held).get("next_attempt_at")).toInstant().isBefore(Instant.now()), "not even claimed");
+		assertRow(id, "FAILED", 1, "DECISION_INCOMPLETE");
 		assertEquals(before, business(ticket));
-		assertEquals("REQUESTED:-", business(ticket).get("requests"));
 	}
 
 	/** The kitchen's answer to an Order service request travels the same way, to its own endpoint, and changes no order. */
@@ -385,15 +440,6 @@ class OrderHttpDeliveryIntegrationTests {
 		assertEquals("PREPARING", business(ticket).get("status"), "only the Order service's final decision may cancel");
 	}
 
-	/** Another sink (here the test fake used for the port contract) still gets cancellation requests: the hold is the HTTP sink's. */
-	@Test
-	void theHoldBelongsToTheHttpSinkOnly() {
-		Ticket ticket = accepted();
-		requestCancellation(ticket);
-		UUID id = deliveryId(ticket, CANCELLATION_EVENT);
-
-		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, (OrderEventSink) message -> OrderEventSink.Result.delivered()));
-	}
 
 	/** Operator requeue script (ops/requeue-order-delivery.sql) with the psql variables bound as parameters. */
 	private List<Map<String, Object>> requeue(UUID restaurant, UUID eventId) throws Exception {
