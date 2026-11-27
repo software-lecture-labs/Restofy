@@ -329,6 +329,8 @@ class OrderHttpDeliveryIntegrationTests {
 
 		order.answerWith(OrderStubServer::acknowledge);
 		requeue(ticket.restaurant(), UUID.fromString(eventId(preparingDelivery)));
+		// The script uses the database clock; a container clock slightly ahead of the JVM's must not make this flaky.
+		jdbc.update("UPDATE outbox_deliveries SET next_attempt_at = now() - interval '1 minute' WHERE id = ?", preparingDelivery);
 		delivery.deliverDue(sink(), 20);
 		delivery.deliverDue(sink(), 20);
 
@@ -429,12 +431,12 @@ class OrderHttpDeliveryIntegrationTests {
 
 		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(answer, sink()));
 
-		List<Received> decisions = order.received().stream()
+		List<Received> answers = order.received().stream()
 				.filter(r -> r.path().equals("/api/v1/internal/order-events/kitchen-cancellation")).toList();
-		assertEquals(2, decisions.size());
-		assertEquals(decisions.get(0).body(), decisions.get(1).body(), "the same event id and body on the retry");
-		assertEquals(eventId(answer), decisions.get(0).eventId());
-		assertEquals("APPROVED", decisions.get(0).json().get("decision").stringValue());
+		assertEquals(2, answers.size());
+		assertEquals(answers.get(0).body(), answers.get(1).body(), "the same event id and body on the retry");
+		assertEquals(eventId(answer), answers.get(0).eventId());
+		assertEquals("APPROVED", answers.get(0).json().get("decision").stringValue());
 		assertRow(answer, "DELIVERED", 2, null);
 		assertEquals(before, business(ticket));
 		assertEquals("PREPARING", business(ticket).get("status"), "only the Order service's final decision may cancel");
