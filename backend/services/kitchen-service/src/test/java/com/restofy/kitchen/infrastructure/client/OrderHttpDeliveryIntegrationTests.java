@@ -173,7 +173,9 @@ class OrderHttpDeliveryIntegrationTests {
 		UUID readyDelivery = deliveryId(ticket, READY_EVENT);
 		Map<String, Object> before = business(ticket);
 
-		assertEquals(2, delivery.deliverDue(sink(), 20));
+		// READY is held back until PREPARING is DELIVERED, so it goes in the next run, never before PREPARING.
+		assertEquals(1, delivery.deliverDue(sink(), 20));
+		assertEquals(1, delivery.deliverDue(sink(), 20));
 
 		List<Received> sent = order.received();
 		assertEquals(2, sent.size(), "the Notification delivery of READY is not the Order sink's business");
@@ -292,29 +294,34 @@ class OrderHttpDeliveryIntegrationTests {
 	}
 
 	/**
-	 * What the Order service answers when READY arrives first. Kitchen does not yet hold READY back itself (the delivery
-	 * simply waits for its next attempt and uses up one), so this shows only that the refusal loses and delivers nothing.
+	 * READY is never offered to the Order service before its PREPARING is DELIVERED: while PREPARING fails, READY uses no
+	 * attempt, and even a FAILED PREPARING keeps holding it until an operator requeues PREPARING.
 	 */
 	@Test
-	void aReadyRefusedBecausePreparingIsMissingIsNotDeliveredAndIsSentAgainUnchanged() {
+	void readyWaitsWithoutUsingAttemptsUntilPreparingIsDeliveredEvenAfterPreparingFailed() throws Exception {
 		Ticket ticket = accepted();
 		start(ticket);
 		ready(ticket);
 		UUID preparingDelivery = deliveryId(ticket, PREPARING_EVENT);
 		UUID readyDelivery = deliveryId(ticket, READY_EVENT);
-		order.answerAlways(Answer.of(409, OrderStubServer.error("INVALID_STATUS_TRANSITION")));
-
-		assertEquals(Optional.of(DeliveryStatus.PENDING), delivery.attempt(readyDelivery, sink()));
-		assertRow(readyDelivery, "PENDING", 1, "HTTP_409_INVALID_STATUS_TRANSITION");
+		order.answerAlways(Answer.of(500, OrderStubServer.error("INTERNAL_ERROR")));
+		for (int attempt = 1; attempt <= 8; attempt++) {
+			makeDue(preparingDelivery);
+			delivery.deliverDue(sink(), 20);
+			assertEquals(Optional.empty(), delivery.attempt(readyDelivery, sink()));
+		}
+		assertRow(preparingDelivery, "FAILED", 8, "MAX_ATTEMPTS_EXCEEDED");
+		assertRow(readyDelivery, "PENDING", 0, null);
+		assertTrue(order.received().stream().allMatch(r -> "PREPARING".equals(r.json().get("kitchenStatus").stringValue())));
 
 		order.answerWith(OrderStubServer::acknowledge);
-		delivery.attempt(preparingDelivery, sink());
-		makeDue(readyDelivery);
-		delivery.attempt(readyDelivery, sink());
+		requeue(ticket.restaurant(), UUID.fromString(eventId(preparingDelivery)));
+		delivery.deliverDue(sink(), 20);
+		delivery.deliverDue(sink(), 20);
 
 		assertRow(preparingDelivery, "DELIVERED", 1, null);
-		assertRow(readyDelivery, "DELIVERED", 2, null);
-		assertEquals(order.received().get(0).body(), order.received().get(2).body());
+		assertRow(readyDelivery, "DELIVERED", 1, null);
+		assertEquals("READY", order.received().getLast().json().get("kitchenStatus").stringValue());
 	}
 
 	/**
