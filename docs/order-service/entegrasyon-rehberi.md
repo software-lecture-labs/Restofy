@@ -1,6 +1,6 @@
 # Waiter → Order entegrasyon rehberi
 
-Order, WAITER-01 masa ve sipariş okumaları ile WAITER-03 “servis edildi” komutunun uçlarını sağlıyor. Waiter PR #40, ortak uçlara ve imzalı servis komutuna geçişi içeriyor. PR #40’taki istemcide kalan adım, toplu sayım ve arama için `order:read` imzasını kullanmak. [Order API sözleşmesi](INTEGRATION_CONTRACTS.md)
+Order, WAITER-01 masa ve sipariş okumaları ile WAITER-03 “servis edildi” komutunun uçlarını sağlıyor. Waiter PR #40, ortak uçlara ve imzalı servis komutuna geçişi içeriyor. Toplu sayım ve aramada da `order:read` imzası ve aktif personel delegasyonu kullanılıyor. [Order API sözleşmesi](INTEGRATION_CONTRACTS.md)
 
 ## 1. Masa ve sipariş ekranlarını Order okumalarına bağla
 
@@ -18,7 +18,7 @@ Order, WAITER-01 masa ve sipariş okumaları ile WAITER-03 “servis edildi” k
 - Waiter görünümlerini şimdi kullanılan Order alanlarına eşle. `ACTIVE` için `view: "active"`, `CANCELLED` için `view: "cancelled"`, `AWAITING_DELIVERY` için `fulfillmentStatuses: ["READY"]`, `READY_HISTORY` için `fulfillmentStatuses: ["READY", "SERVED", "COMPLETED"]` gönder. `view` ile `fulfillmentStatuses` aynı istekte `422` döner.
 - `OrderPageDto` eşlemesinde `size` yerine `limit`, `totalElements` yerine `totalItems` oku. `page` 0 tabanlı, `limit` 1–100 aralığındadır. Açık durum listesiyle aramada `view` değeri `null` olabilir. Filtreyi sayfalamadan önce Order uygular. Waiter gelen sayfayı tekrar filtreleyerek toplamı türetmemeli.
 - Liste ve detay için Order’ın DTO’larına uygun ayrı eşlemeler kullan. `orderId`, `orderNo`, `fulfillmentStatus` ve `paymentStatus` alanlarını oku. `version` liste, arama ve detay yanıtlarında bulunur. Kalemler detay yanıtındadır, iptaller ayrı uçtan okunur. Tutarlar para biriminin minor birimindedir. Yanıtın sipariş, masa ve oturum kimliklerini istekle karşılaştır.
-- `servedAt`, Order’ın durum geçmişindeki ilk `SERVED` geçişinin zamanıdır. Sipariş `COMPLETED` olduğunda da aynı değer döner. Durum geçmişinde servis kaydı yoksa alan JSON’da bulunmaz. Waiter PR #40’ın okuma DTO’larına bu alanlar eklendiğinde ekranlar bunları kullanabilir.
+- `servedAt`, Order’ın durum geçmişindeki ilk `SERVED` geçişinin zamanıdır. Sipariş `COMPLETED` olduğunda da aynı değer döner. Durum geçmişinde servis kaydı yoksa alan JSON’da bulunmaz. Waiter bu alanı liste, arama ve detay yanıtlarına eşler.
 
 ### Okuma isteklerinde personel kimliği
 

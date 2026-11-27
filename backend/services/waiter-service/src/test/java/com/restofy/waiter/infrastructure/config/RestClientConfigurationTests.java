@@ -4,9 +4,16 @@ import com.restofy.waiter.domain.exception.DependencyException;
 import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.infrastructure.client.notification.NotificationClient;
 import com.restofy.waiter.infrastructure.client.order.OrderClient;
+import com.restofy.waiter.infrastructure.client.order.WaiterOrderRequestSigner;
+import com.restofy.waiter.infrastructure.client.qr.QrCleanRequestDto;
 import com.restofy.waiter.infrastructure.client.qr.QrClient;
+import com.restofy.waiter.infrastructure.client.qr.QrCloseRequestDto;
+import com.restofy.waiter.infrastructure.security.StaffAccessToken;
+import com.restofy.waiter.infrastructure.client.qr.WaiterQrRequestSigner;
 import com.restofy.waiter.support.DownstreamStub;
 import com.restofy.waiter.support.FakeBackends;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,8 +32,15 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -70,8 +84,9 @@ class RestClientConfigurationTests {
     private ApplicationContextRunner runner(Map<String, Object> env) {
         return new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, RestClientAutoConfiguration.class))
-                .withUserConfiguration(RestClientConfiguration.class, QrClient.class, OrderClient.class,
-                        NotificationClient.class)
+                .withBean(java.time.Clock.class, java.time.Clock::systemUTC)
+                .withUserConfiguration(RestClientConfiguration.class, QrClient.class, WaiterQrRequestSigner.class,
+                        OrderClient.class, WaiterOrderRequestSigner.class, NotificationClient.class)
                 .withInitializer(context -> {
                     var sources = context.getEnvironment().getPropertySources();
                     sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
@@ -141,7 +156,8 @@ class RestClientConfigurationTests {
         runner(environment()).run(context -> {
             assertTrue(context.getBean(QrClient.class).listAllTables(restaurant).isEmpty());
             assertTrue(context.getBean(QrClient.class).findTable(restaurant, UUID.randomUUID()).isEmpty());
-            assertTrue(context.getBean(OrderClient.class).findOrder(restaurant, UUID.randomUUID()).isEmpty());
+            assertThrows(DependencyException.class,
+                    () -> context.getBean(OrderClient.class).findOrder(restaurant, UUID.randomUUID()));
             assertTrue(context.getBean(OrderClient.class).activeOrderCounts(restaurant, List.of()).isEmpty());
         });
         assertNotNull(backends);
@@ -149,7 +165,143 @@ class RestClientConfigurationTests {
         for (DownstreamStub.Request request : peer.requests()) {
             assertNull(request.header("Authorization"), "No token may be invented before the service identity contract exists");
             assertNull(request.header("Cookie"));
-            assertTrue(request.path().startsWith("/api/v1/internal/"), request.path());
+            assertTrue(request.path().startsWith("/api/v1/internal/") || request.path().startsWith("/api/v1/orders/"),
+                    request.path());
+        }
+    }
+
+    @Test
+    void orderNeverSendsStaffCredentialsOverAnUnencryptedServiceUrl() {
+        Map<String, Object> env = environment();
+        env.put("ORDER_SERVICE_URL", "http://order-service:8080");
+        var authentication = org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+                .authenticated("staff", null, List.of());
+        authentication.setDetails(new StaffAccessToken("staff.access.token"));
+        var context = org.springframework.security.core.context.SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        org.springframework.security.core.context.SecurityContextHolder.setContext(context);
+        try {
+            runner(env).run(application -> {
+                OrderClient orders = application.getBean(OrderClient.class);
+                UUID restaurant = UUID.randomUUID();
+                var failure = assertThrows(DependencyException.class,
+                        () -> orders.activeOrderCounts(restaurant, List.of(UUID.randomUUID())));
+                assertEquals(DependencyFailure.UNAVAILABLE, failure.failure());
+                assertEquals("Order's staff connection requires HTTPS", failure.getMessage());
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    void signedGuestValidationSendsTheRawJsonBytesTheCredentialIsBoundTo() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair pair = generator.generateKeyPair();
+        Map<String, Object> env = environment();
+        env.put("WAITER_QR_CALLER_KEY_ID", "waiter-key-1");
+        env.put("WAITER_QR_CALLER_PRIVATE_KEY", Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()));
+        env.put("WAITER_QR_CALLER_RESTAURANT_ID", UUID.randomUUID().toString());
+        new FakeBackends().installOn(peer);
+        runner(env).run(context ->
+                assertTrue(context.getBean(QrClient.class).verifyGuest("unknown-guest-token").isEmpty()));
+
+        DownstreamStub.Request sent = peer.requests("POST", FakeBackends.GUEST_VALIDATE).getFirst();
+        // A byte[] written through a JSON converter would arrive as a quoted Base64 string, not as an object.
+        assertEquals("{\"guestToken\":\"unknown-guest-token\"}", sent.body());
+        String credential = sent.header("Authorization");
+        assertTrue(credential.startsWith("Service "));
+        Claims claims = Jwts.parser().verifyWith((RSAPublicKey) pair.getPublic()).build()
+                .parseSignedClaims(credential.substring("Service ".length())).getPayload();
+        assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(sent.body().getBytes(StandardCharsets.UTF_8))), claims.get("body_sha256"));
+    }
+
+    @Test
+    void everyQrRouteCarriesItsOwnScopeAndOnlyCommandsCarryTheStaffToken() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair pair = generator.generateKeyPair();
+        Map<String, Object> env = environment();
+        env.put("WAITER_QR_CALLER_KEY_ID", "waiter-key-1");
+        env.put("WAITER_QR_CALLER_PRIVATE_KEY", Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()));
+        env.put("WAITER_QR_CALLER_RESTAURANT_ID", UUID.randomUUID().toString());
+        new FakeBackends().installOn(peer);
+        UUID restaurant = UUID.randomUUID();
+        UUID table = UUID.randomUUID();
+        UUID session = UUID.randomUUID();
+        UUID command = UUID.randomUUID();
+        UUID staff = UUID.randomUUID();
+        String staffToken = "staff.access.token";
+
+        var context = org.springframework.security.core.context.SecurityContextHolder.createEmptyContext();
+        var authentication = org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+                .authenticated(staff, null, List.of());
+        authentication.setDetails(new StaffAccessToken(staffToken));
+        context.setAuthentication(authentication);
+        org.springframework.security.core.context.SecurityContextHolder.setContext(context);
+        try {
+            runner(env).run(qr -> {
+                QrClient client = qr.getBean(QrClient.class);
+                // The stub answers for its own data; only what Waiter sent is under test here.
+                ignoringAnswer(() -> client.listAllTables(restaurant));
+                ignoringAnswer(() -> client.findTable(restaurant, table));
+                ignoringAnswer(() -> client.closeSession(new QrCloseRequestDto(command, restaurant, table, session,
+                        3L, staff, null, java.time.Instant.parse("2026-11-25T10:00:00Z"))));
+                ignoringAnswer(() -> client.closeStatus(restaurant, table, session, command));
+                ignoringAnswer(() -> client.markCleaned(new QrCleanRequestDto(command, restaurant, table, 4L, staff,
+                        java.time.Instant.parse("2026-11-25T10:00:00Z"))));
+                ignoringAnswer(() -> client.cleanStatus(restaurant, table, command));
+            });
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+
+        String tables = "/api/v1/internal/tables";
+        String sessionPath = tables + "/" + table + "/sessions/" + session;
+        assertSigned(pair, staffToken, "GET", tables, "qr:table-read", false,
+                tables + "?restaurantId=" + restaurant + "&page=0&size=200");
+        assertSigned(pair, staffToken, "GET", tables + "/" + table, "qr:table-read", false,
+                tables + "/" + table + "?restaurantId=" + restaurant);
+        assertSigned(pair, staffToken, "POST", sessionPath + "/close", "qr:session-close", true,
+                sessionPath + "/close");
+        assertSigned(pair, staffToken, "GET", sessionPath + "/close-commands/" + command, "qr:session-close", false,
+                sessionPath + "/close-commands/" + command + "?restaurantId=" + restaurant);
+        assertSigned(pair, staffToken, "POST", tables + "/" + table + "/cleaned", "qr:table-clean", true,
+                tables + "/" + table + "/cleaned");
+        assertSigned(pair, staffToken, "GET", tables + "/" + table + "/clean-commands/" + command, "qr:table-clean", false,
+                tables + "/" + table + "/clean-commands/" + command + "?restaurantId=" + restaurant);
+    }
+
+    private static void ignoringAnswer(Runnable call) {
+        try {
+            call.run();
+        } catch (RuntimeException _) {
+            // Only the request is inspected; the stub's answer to this synthetic id does not matter.
+        }
+    }
+
+    private void assertSigned(KeyPair pair, String staffToken, String method, String path, String scope,
+                              boolean delegated, String target) throws Exception {
+        DownstreamStub.Request sent = peer.requests().stream()
+                .filter(r -> r.method().equals(method) && r.path().equals(path)).findFirst().orElseThrow();
+        Claims claims = Jwts.parser().verifyWith((RSAPublicKey) pair.getPublic()).build()
+                .parseSignedClaims(sent.header("Authorization").substring("Service ".length())).getPayload();
+        assertEquals(scope, claims.get("scope"), path);
+        assertEquals(method, claims.get("method"), path);
+        assertEquals(target, claims.get("target"), path);
+        assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(sent.body().getBytes(StandardCharsets.UTF_8))), claims.get("body_sha256"), path);
+        assertNull(sent.header("Cookie"));
+        assertNull(sent.header("Origin"));
+        if (delegated) {
+            assertEquals(staffToken, sent.header("X-Restofy-Staff-Delegation"), path);
+            assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(staffToken.getBytes(StandardCharsets.UTF_8))), claims.get("staff_sha256"), path);
+        } else {
+            assertNull(sent.header("X-Restofy-Staff-Delegation"), path);
+            assertNull(claims.get("staff_sha256"), path);
         }
     }
 

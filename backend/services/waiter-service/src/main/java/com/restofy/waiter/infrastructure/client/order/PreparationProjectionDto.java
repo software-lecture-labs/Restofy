@@ -19,8 +19,5 @@ public record PreparationProjectionDto(PreparationStatus status, Instant started
         required(status, "preparation.status");
         required(asOf, "preparation.asOf");
         nonNegative(sourceVersion, "preparation.sourceVersion");
-        if (status == PreparationStatus.READY && readyAt == null) {
-            throw new IllegalArgumentException("preparation.readyAt is required when the status is READY");
-        }
     }
 }

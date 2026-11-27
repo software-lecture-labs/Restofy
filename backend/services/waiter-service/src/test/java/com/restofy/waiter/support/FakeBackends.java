@@ -116,6 +116,7 @@ public final class FakeBackends {
     public final List<Order> orders = new CopyOnWriteArrayList<>();
     private final Map<UUID, ServeRecord> serveRecords = new HashMap<>();
     private final Deque<ServeFault> serveFaults = new ArrayDeque<>();
+    private final Deque<ServeFault> statusFaults = new ArrayDeque<>();
     public volatile PartialCancellation partialCancellation = PartialCancellation.ALLOW;
     /** Known guest credentials by token; an unknown token is answered with 404. */
     public final Map<String, Guest> guests = new ConcurrentHashMap<>();
@@ -126,14 +127,16 @@ public final class FakeBackends {
             + "\"detail\":\"Guest session is unavailable.\"}";
 
     private static final Pattern TABLE_ID = Pattern.compile("/api/v1/internal/tables/([0-9a-f-]{36})");
-    private static final Pattern ORDER_ID = Pattern.compile("/api/v1/internal/orders/([0-9a-f-]{36})");
+    private static final Pattern ORDER_ID = Pattern.compile("/api/v1/orders/([0-9a-f-]{36})");
+    private static final Pattern ORDER_CANCELLATIONS = Pattern.compile("/api/v1/orders/([0-9a-f-]{36})/cancellations");
 
     public FakeBackends installOn(DownstreamStub stub) {
         stub.route("GET", "/api/v1/internal/tables", this::listTables);
         stub.route("GET", TABLE_ID.pattern(), this::getTable);
-        stub.route("POST", "/api/v1/internal/orders/session-summaries", this::sessionSummaries);
-        stub.route("POST", "/api/v1/internal/orders/search", this::searchOrders);
+        stub.route("POST", "/api/v1/orders/session-summaries", this::sessionSummaries);
+        stub.route("POST", "/api/v1/orders/search", this::searchOrders);
         stub.route("GET", ORDER_ID.pattern(), this::getOrder);
+        stub.route("GET", ORDER_CANCELLATIONS.pattern(), this::getCancellations);
         stub.route("POST", GUEST_VALIDATE, this::verifyGuest);
         stub.route("POST", "/api/v1/internal/orders/[0-9a-f-]{36}/serve", this::serveOrder);
         stub.route("GET", "/api/v1/internal/orders/[0-9a-f-]{36}/serve-commands/[0-9a-f-]{36}", this::serveStatus);
@@ -210,6 +213,78 @@ public final class FakeBackends {
         serveFaults.add(fault);
     }
 
+    /** The next serve result query fails (SERVER_ERROR answers 503, UNAUTHORIZED answers 401). */
+    public synchronized void failNextServeStatus(ServeFault fault) {
+        statusFaults.add(fault);
+    }
+
+    /** The key pair of Waiter's Order service identity: Order holds the public key, Waiter the private one. */
+    public static final java.security.KeyPair ORDER_CALLER_KEYS = generateKeys();
+    public static final String ORDER_CALLER_KEY_ID = "waiter-test-key";
+
+    private static java.security.KeyPair generateKeys() {
+        try {
+            java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair();
+        } catch (java.security.GeneralSecurityException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    public static String orderCallerPrivateKey() {
+        return java.util.Base64.getEncoder().encodeToString(ORDER_CALLER_KEYS.getPrivate().getEncoded());
+    }
+
+    private static String sha256(String text) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    /**
+     * What Order's Waiter-serve filter demands of the serve command and of its result query: a Service
+     * credential of Waiter (RS256, issuer, subject, audience, scope, 30 s lifetime) bound to this very request
+     * (method, target, body digest) and to the delegated staff credential, a staff session of the same restaurant,
+     * and no browser Cookie or Origin. 401 means no verifiable identity, 403 a valid identity that does not cover
+     * the request.
+     */
+    private static Response verifyDelegatedIdentity(Request request, UUID restaurantId, String scope) {
+        String authorization = request.header("Authorization");
+        String delegated = request.header("X-Restofy-Staff-Delegation");
+        if (authorization == null || !authorization.startsWith("Service ") || delegated == null || delegated.isBlank()) {
+            return Response.json(401, "{\"status\":401,\"code\":\"UNAUTHENTICATED\"}");
+        }
+        io.jsonwebtoken.Claims claims;
+        try {
+            claims = io.jsonwebtoken.Jwts.parser().verifyWith(ORDER_CALLER_KEYS.getPublic())
+                    .requireIssuer("restofy-waiter").requireSubject("waiter-service").requireAudience("restofy-order")
+                    .require("token_type", "service").require("scope", scope).build()
+                    .parseSignedClaims(authorization.substring("Service ".length()).trim()).getPayload();
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException invalid) {
+            return Response.json(401, "{\"status\":401,\"code\":\"UNAUTHENTICATED\"}");
+        }
+        String query = request.rawQuery();
+        String target = request.path() + (query == null || query.isEmpty() ? "" : "?" + query);
+        boolean lifetime = claims.getIssuedAt() != null && claims.getExpiration() != null
+                && claims.getIssuedAt().equals(claims.getNotBefore())
+                && !claims.getExpiration().toInstant().isAfter(claims.getIssuedAt().toInstant().plusSeconds(30));
+        boolean bound = lifetime && request.method().equals(claims.get("method", String.class))
+                && target.equals(claims.get("target", String.class))
+                && sha256(request.body() == null ? "" : request.body()).equals(claims.get("body_sha256", String.class))
+                && sha256(delegated).equals(claims.get("staff_sha256", String.class))
+                && restaurantId.toString().equals(claims.get("restaurant_id", String.class))
+                && restaurantId.equals(staffRestaurant(delegated));
+        boolean browserHeaders = request.header("Cookie") != null || request.header("Origin") != null;
+        if (!bound || browserHeaders) {
+            return Response.json(403, "{\"status\":403,\"code\":\"ACCESS_DENIED\"}");
+        }
+        return null;
+    }
+
     /** Order-side cancellation racing with a serve command; returns false if the order was already served. */
     public synchronized boolean cancel(UUID orderId) {
         for (int index = 0; index < orders.size(); index++) {
@@ -248,6 +323,8 @@ public final class FakeBackends {
         UUID commandId = UUID.fromString(body.get("commandId").asString());
         if (!commandId.toString().equals(request.header("Idempotency-Key"))) return rejection(400, "ORDER_REJECTED");
         UUID restaurantId = UUID.fromString(body.get("restaurantId").asString());
+        Response denied = verifyDelegatedIdentity(request, restaurantId, "order:serve");
+        if (denied != null) return denied;
         UUID sessionId = UUID.fromString(body.get("tableSessionId").asString());
         long expectedVersion = body.get("expectedVersion").asLong();
         String digest = orderId + "|" + sessionId + "|" + expectedVersion + "|" + body.get("requestedByUserId").asString();
@@ -256,7 +333,7 @@ public final class FakeBackends {
         if (known != null) {
             if (!known.digest().equals(digest)) return rejection(409, "ORDER_COMMAND_CONFLICT");
             if (!known.applied()) return rejection(known.rejectionStatus(), known.rejectionCode());
-            return Response.json(200, write(serveAnswer(commandId, "DUPLICATE", order(orderId))));
+            return Response.json(200, write(serveReceipt(commandId, "DUPLICATE", order(orderId))));
         }
         int index = indexOf(orderId, restaurantId);
         if (index < 0) return rejection(404, "ORDER_NOT_FOUND");   // not recorded: nothing to replay
@@ -269,7 +346,7 @@ public final class FakeBackends {
         orders.set(index, order.served(Instant.parse("2026-10-16T10:30:00Z")));
         serveRecords.put(commandId, new ServeRecord(digest, true, 0, null));
         Response answer = Response.json(200, fault == ServeFault.GARBAGE_ANSWER ? "not json"
-                : write(serveAnswer(commandId, "APPLIED", orders.get(index))));
+                : write(serveReceipt(commandId, "APPLIED", orders.get(index))));
         return answer.delayed(fault == ServeFault.LOST_ANSWER ? 1500 : 0);
     }
 
@@ -293,11 +370,14 @@ public final class FakeBackends {
         return -1;
     }
 
-    private static Map<String, Object> serveAnswer(UUID commandId, String outcome, Order order) {
+    private static Map<String, Object> serveReceipt(UUID commandId, String outcome, Order order) {
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("commandId", commandId);
+        answer.put("orderId", order.id());
+        answer.put("tableSessionId", order.sessionId());
+        answer.put("orderVersion", order.version());
+        answer.put("servedAt", order.servedAt());
         answer.put("outcome", outcome);
-        answer.put("order", orderJson(order));
         return answer;
     }
 
@@ -310,13 +390,23 @@ public final class FakeBackends {
         match.matches();
         UUID orderId = UUID.fromString(match.group(1));
         UUID commandId = UUID.fromString(match.group(2));
+        Response denied = verifyDelegatedIdentity(request, UUID.fromString(request.query().get("restaurantId")), "order:serve");
+        if (denied != null) return denied;
+        ServeFault fault = statusFaults.poll();
+        if (fault == ServeFault.SERVER_ERROR) return Response.json(503, "{}");
+        if (fault == ServeFault.UNAUTHORIZED) return Response.json(401, "{}");
         ServeRecord known = serveRecords.get(commandId);
         if (known == null) return Response.json(404, "{\"status\":404}");
+        Order order = order(orderId);
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("commandId", commandId);
+        answer.put("orderId", orderId);
+        answer.put("tableSessionId", order.sessionId());
+        answer.put("orderVersion", known.applied() ? order.version() : null);
+        answer.put("decidedAt", Instant.parse("2026-10-16T10:30:00Z"));
+        answer.put("servedAt", known.applied() ? order.servedAt() : null);
         answer.put("status", known.applied() ? "APPLIED" : "REJECTED");
         answer.put("rejectionCode", known.rejectionCode());
-        answer.put("order", known.applied() ? orderJson(order(orderId)) : null);
         return Response.json(200, write(answer));
     }
 
@@ -335,16 +425,45 @@ public final class FakeBackends {
         return Response.json(200, write(body));
     }
 
-    // ----- Order -----
+    // ----- Order: the real read contract (PR #45) -----
 
+    /** The staff credential a test request carries: {@code restofy_access=fake-staff-<restaurant>}. */
+    public static final String STAFF_CREDENTIAL_PREFIX = "fake-staff-";
+
+    /** Order takes the restaurant from the staff session, never from the request: here from the forwarded cookie. */
+    private static UUID sessionRestaurant(Request request) {
+        String cookie = request.header("Cookie");
+        if (cookie == null || !cookie.startsWith("restofy_access=")) return null;
+        return staffRestaurant(cookie.substring("restofy_access=".length()).trim());
+    }
+
+    private static UUID staffRestaurant(String credential) {
+        if (credential == null) return null;
+        if (credential.startsWith(STAFF_CREDENTIAL_PREFIX)) {
+            return UUID.fromString(credential.substring(STAFF_CREDENTIAL_PREFIX.length()));
+        }
+        // A real Auth access token: its restaurant claim stands for the session Order would look up.
+        String[] parts = credential.split("\\.");
+        if (parts.length != 3) return null;
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(parts[1]), java.nio.charset.StandardCharsets.UTF_8);
+        return UUID.fromString(read(payload).get("restaurant_id").asString());
+    }
+
+    private static final Response NO_STAFF_SESSION = Response.json(401, "{\"status\":401,\"code\":\"UNAUTHENTICATED\"}");
+
+    /** Active order count per session: fulfillment RECEIVED, PREPARING, READY or SERVED (not COMPLETED/CANCELLED). */
     private Response sessionSummaries(Request request) {
+        UUID restaurantId = staffRestaurant(request.header("X-Restofy-Staff-Delegation"));
+        if (restaurantId == null) return NO_STAFF_SESSION;
+        Response denied = verifyDelegatedIdentity(request, restaurantId, "order:read");
+        if (denied != null) return denied;
         JsonNode body = read(request.body());
-        UUID restaurantId = UUID.fromString(body.get("restaurantId").asString());
+        if (body.has("restaurantId")) return rejection(400, "INVALID_REQUEST");
         Set<UUID> sessionIds = new HashSet<>();
         body.get("tableSessionIds").forEach(node -> sessionIds.add(UUID.fromString(node.asString())));
         Map<UUID, Long> counts = new LinkedHashMap<>();
         for (Order order : orders) {
-            boolean active = order.business().equals("ACCEPTED") || order.business().equals("PARTIALLY_CANCELLED");
+            boolean active = !Set.of("COMPLETED", "CANCELLED").contains(fulfillment(order));
             if (order.restaurantId().equals(restaurantId) && sessionIds.contains(order.sessionId()) && active) {
                 counts.merge(order.sessionId(), 1L, Long::sum);
             }
@@ -355,91 +474,144 @@ public final class FakeBackends {
     }
 
     private Response searchOrders(Request request) {
+        UUID restaurantId = staffRestaurant(request.header("X-Restofy-Staff-Delegation"));
+        if (restaurantId == null) return NO_STAFF_SESSION;
+        Response denied = verifyDelegatedIdentity(request, restaurantId, "order:read");
+        if (denied != null) return denied;
         JsonNode body = read(request.body());
-        UUID restaurantId = UUID.fromString(body.get("restaurantId").asString());
+        if (body.has("restaurantId")) return rejection(400, "INVALID_REQUEST");
         UUID tableId = body.hasNonNull("tableId") ? UUID.fromString(body.get("tableId").asString()) : null;
         String view = body.hasNonNull("view") ? body.get("view").asString() : null;
+        Set<String> statuses = null;
+        if (body.hasNonNull("fulfillmentStatuses")) {
+            statuses = new HashSet<>();
+            for (JsonNode node : body.get("fulfillmentStatuses")) statuses.add(node.asString());
+        }
+        if (view != null && statuses != null) return rejection(422, "INVALID_REQUEST");
         Set<UUID> sessions = null;
         if (body.hasNonNull("tableSessionIds")) {
             sessions = new HashSet<>();
             for (JsonNode node : body.get("tableSessionIds")) sessions.add(UUID.fromString(node.asString()));
         }
         int page = body.get("page").asInt();
-        int size = body.get("size").asInt();
+        int limit = body.get("limit").asInt();
+        boolean ascending = body.hasNonNull("sort") && "placedAt,asc".equals(body.get("sort").asString());
         Set<UUID> sessionFilter = sessions;
-        Comparator<Order> order = switch (view == null ? "" : view) {
-            case "READY_HISTORY" -> Comparator.comparing(Order::readyAt).reversed().thenComparing(Order::id);
-            case "AWAITING_DELIVERY" -> Comparator.comparing(Order::readyAt).thenComparing(Order::id);
-            default -> Comparator.comparing(Order::acceptedAt).reversed().thenComparing(Order::id);
-        };
+        Set<String> statusFilter = statuses;
+        Comparator<Order> order = ascending ? Comparator.comparing(Order::acceptedAt).thenComparing(Order::id)
+                : Comparator.comparing(Order::acceptedAt).reversed().thenComparing(Order::id);
         List<Order> matching = orders.stream()
                 .filter(o -> o.restaurantId().equals(restaurantId))
                 .filter(o -> tableId == null || o.tableId().equals(tableId))
                 .filter(o -> sessionFilter == null || sessionFilter.contains(o.sessionId()))
                 .filter(o -> inView(o, view))
+                .filter(o -> statusFilter == null || statusFilter.contains(fulfillment(o)))
                 .sorted(order).toList();
-        int from = (int) Math.min((long) page * size, matching.size());
-        int to = Math.min(from + size, matching.size());
+        int from = (int) Math.min((long) page * limit, matching.size());
+        int to = Math.min(from + limit, matching.size());
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("items", matching.subList(from, to).stream().map(FakeBackends::orderJson).toList());
+        response.put("items", matching.subList(from, to).stream().map(FakeBackends::summaryJson).toList());
         response.put("page", page);
-        response.put("size", size);
-        response.put("totalElements", matching.size());
+        response.put("limit", limit);
+        response.put("totalItems", matching.size());
+        response.put("totalPages", (matching.size() + limit - 1) / limit);
+        response.put("view", view);
         return Response.json(200, write(response));
     }
 
     private Response getOrder(Request request) {
+        UUID restaurantId = sessionRestaurant(request);
+        if (restaurantId == null) return NO_STAFF_SESSION;
         Matcher match = ORDER_ID.matcher(request.path());
         match.matches();
         UUID id = UUID.fromString(match.group(1));
-        UUID restaurantId = UUID.fromString(request.query().get("restaurantId"));
         return orders.stream().filter(o -> o.id().equals(id) && o.restaurantId().equals(restaurantId)).findFirst()
-                .map(o -> Response.json(200, write(orderJson(o))))
+                .map(o -> Response.json(200, write(detailJson(o))))
                 .orElse(Response.json(404, "{\"status\":404}"));
     }
 
+    private Response getCancellations(Request request) {
+        UUID restaurantId = sessionRestaurant(request);
+        if (restaurantId == null) return NO_STAFF_SESSION;
+        Matcher match = ORDER_CANCELLATIONS.matcher(request.path());
+        match.matches();
+        UUID id = UUID.fromString(match.group(1));
+        return orders.stream().filter(o -> o.id().equals(id) && o.restaurantId().equals(restaurantId)).findFirst()
+                .map(o -> {
+                    Map<String, Object> json = new LinkedHashMap<>();
+                    json.put("orderId", o.id());
+                    json.put("cancellations", cancelledQuantity(o) > 0 ? List.of(cancellation(o)) : List.of());
+                    return Response.json(200, write(json));
+                })
+                .orElse(Response.json(404, "{\"status\":404}"));
+    }
+
+    /** Order's {@code active} view: fulfillment RECEIVED..SERVED; {@code cancelled}: CANCELLED. */
     private static boolean inView(Order o, String view) {
         if (view == null) return true;
-        boolean ready = "READY".equals(o.preparation()) && !o.business().equals("CANCELLED");
         return switch (view) {
-            case "ACTIVE" -> o.business().equals("ACCEPTED") || o.business().equals("PARTIALLY_CANCELLED");
-            case "READY_HISTORY" -> ready;
-            case "AWAITING_DELIVERY" -> ready && o.delivery().equals("PENDING");
-            case "CANCELLED" -> o.business().equals("CANCELLED");
+            case "active" -> !Set.of("COMPLETED", "CANCELLED").contains(fulfillment(o));
+            case "cancelled" -> fulfillment(o).equals("CANCELLED");
             default -> throw new IllegalArgumentException("unknown view " + view);
         };
     }
 
-    public static Map<String, Object> orderJson(Order o) {
+    /** Order's single fulfillment axis, derived from the test order's business, delivery and kitchen state. */
+    static String fulfillment(Order o) {
+        if (o.business().equals("CANCELLED")) return "CANCELLED";
+        if (o.business().equals("COMPLETED")) return "COMPLETED";
+        if (o.delivery().equals("SERVED")) return "SERVED";
+        if ("READY".equals(o.preparation())) return "READY";
+        if ("PREPARING".equals(o.preparation())) return "PREPARING";
+        return "RECEIVED";
+    }
+
+    private static String paymentStatus(Order o) {
+        return switch (o.payment()) {
+            case "NOT_PAID" -> "NOT_REQUESTED";
+            case "UNKNOWN" -> "FAILED";
+            default -> o.payment();
+        };
+    }
+
+    /** One row of a list or search: no items, no version. */
+    public static Map<String, Object> summaryJson(Order o) {
         Map<String, Object> json = new LinkedHashMap<>();
-        json.put("id", o.id());
-        json.put("restaurantId", o.restaurantId());
-        json.put("orderNumber", o.number());
+        json.put("orderId", o.id());
+        json.put("orderNo", o.number());
         json.put("tableId", o.tableId());
         json.put("tableSessionId", o.sessionId());
-        json.put("businessStatus", o.business());
-        json.put("deliveryStatus", o.delivery());
-        json.put("acceptedAt", o.acceptedAt());
-        json.put("servedAt", o.servedAt());
-        if (o.preparation() == null) {
-            json.put("preparation", null);
-        } else {
-            Map<String, Object> prep = new LinkedHashMap<>();
-            prep.put("status", o.preparation());
-            prep.put("startedAt", o.readyAt() == null ? null : o.readyAt().minusSeconds(300));
-            prep.put("readyAt", o.readyAt());
-            prep.put("sourceVersion", 3);
-            prep.put("asOf", Instant.parse("2026-10-16T10:00:00Z"));
-            json.put("preparation", prep);
-        }
-        json.put("payment", Map.of("status", o.payment(), "sourceVersion", 1, "asOf", Instant.parse("2026-10-16T10:00:00Z")));
+        json.put("fulfillmentStatus", fulfillment(o));
+        json.put("paymentStatus", paymentStatus(o));
         json.put("currency", "TRY");
-        json.put("originalGrossTotal", new BigDecimal("150.00"));
-        json.put("cancelledGrossTotal", cancelledGross(o));
-        json.put("payableTotal", new BigDecimal("150.00").subtract(cancelledGross(o)));
-        json.put("items", List.of(item(o)));
-        json.put("cancellations", cancelledQuantity(o) > 0 ? List.of(cancellation(o)) : List.of());
+        json.put("grossMinor", 15000 - cancelledGrossMinor(o));
+        json.put("currentDueMinor", 15000 - cancelledGrossMinor(o));
+        json.put("unitCount", 2 - cancelledQuantity(o));
+        json.put("placedAt", o.acceptedAt());
         json.put("version", o.version());
+        json.put("servedAt", o.servedAt());
+        return json;
+    }
+
+    public static Map<String, Object> detailJson(Order o) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("orderId", o.id());
+        json.put("orderNo", o.number());
+        json.put("tableId", o.tableId());
+        json.put("tableSessionId", o.sessionId());
+        json.put("fulfillmentStatus", fulfillment(o));
+        json.put("paymentStatus", paymentStatus(o));
+        json.put("currency", "TRY");
+        json.put("amounts", Map.of("netMinor", 12500, "vatMinor", 2500, "grossMinor", 15000));
+        json.put("currentDueMinor", 15000 - cancelledGrossMinor(o));
+        json.put("cancelledGrossMinor", cancelledGrossMinor(o));
+        json.put("activeGrossMinor", 15000 - cancelledGrossMinor(o));
+        json.put("items", List.of(item(o)));
+        json.put("note", null);
+        json.put("placedAt", o.acceptedAt());
+        json.put("updatedAt", Instant.parse("2026-10-16T10:00:00Z"));
+        json.put("version", o.version());
+        json.put("servedAt", o.servedAt());
         return json;
     }
 
@@ -452,37 +624,40 @@ public final class FakeBackends {
         };
     }
 
-    private static BigDecimal cancelledGross(Order o) {
-        return new BigDecimal("75.00").multiply(BigDecimal.valueOf(cancelledQuantity(o)));
+    private static long cancelledGrossMinor(Order o) {
+        return 7500L * cancelledQuantity(o);
     }
 
     private static Map<String, Object> item(Order o) {
         Map<String, Object> item = new LinkedHashMap<>();
-        item.put("id", UUID.nameUUIDFromBytes(("item-" + o.id()).getBytes()));
+        item.put("orderItemId", UUID.nameUUIDFromBytes(("item-" + o.id()).getBytes()));
         item.put("productId", UUID.nameUUIDFromBytes("product".getBytes()));
-        item.put("productName", "Izgara Köfte");
+        item.put("name", "Izgara Köfte");
         item.put("quantity", 2);
         item.put("cancelledQuantity", cancelledQuantity(o));
-        item.put("unitGrossPrice", new BigDecimal("75.00"));
-        item.put("lineGrossTotal", new BigDecimal("150.00"));
+        item.put("remainingQuantity", 2 - cancelledQuantity(o));
+        item.put("removedIngredients", List.of(Map.of("ingredientId", UUID.nameUUIDFromBytes("onion".getBytes()),
+                "name", "Soğan")));
+        item.put("extras", List.of(Map.of("ingredientId", UUID.nameUUIDFromBytes("cheese".getBytes()),
+                "name", "Ekstra peynir", "quantity", 1, "unitPriceMinor", 1000)));
         item.put("note", "Az pişmiş, soğansız");
-        item.put("options", List.of(
-                Map.of("name", "Ekstra peynir", "action", "ADD", "quantity", 1, "unitPriceDelta", new BigDecimal("10.00")),
-                Map.of("name", "Soğan", "action", "REMOVE", "quantity", 1, "unitPriceDelta", BigDecimal.ZERO)));
+        item.put("unitGrossMinor", 7500);
+        item.put("lineGrossMinor", 15000);
         return item;
     }
 
     private static Map<String, Object> cancellation(Order o) {
         Map<String, Object> cancellation = new LinkedHashMap<>();
-        cancellation.put("id", UUID.nameUUIDFromBytes(("cancel-" + o.id()).getBytes()));
-        cancellation.put("source", "KITCHEN");
-        cancellation.put("status", "APPROVED");
-        cancellation.put("reasonCode", "OUT_OF_STOCK");
-        cancellation.put("reasonText", "Köfte bitti");
-        cancellation.put("requestedAt", Instant.parse("2026-10-16T09:50:00Z"));
-        cancellation.put("decidedAt", Instant.parse("2026-10-16T09:51:00Z"));
+        cancellation.put("cancellationId", UUID.nameUUIDFromBytes(("cancel-" + o.id()).getBytes()));
+        cancellation.put("orderId", o.id());
+        cancellation.put("scope", "ITEMS");
+        cancellation.put("status", "APPLIED");
         cancellation.put("items", List.of(Map.of("orderItemId", UUID.nameUUIDFromBytes(("item-" + o.id()).getBytes()),
                 "quantity", cancelledQuantity(o))));
+        cancellation.put("reasons", List.of(Map.of("source", "KITCHEN", "code", "OUT_OF_STOCK", "text", "Köfte bitti")));
+        cancellation.put("requestedAt", Instant.parse("2026-10-16T09:50:00Z"));
+        cancellation.put("decidedAt", Instant.parse("2026-10-16T09:51:00Z"));
+        cancellation.put("requestedBy", Map.of("type", "SERVICE", "role", "KITCHEN"));
         return cancellation;
     }
 

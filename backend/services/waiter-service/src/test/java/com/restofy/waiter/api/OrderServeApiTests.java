@@ -132,7 +132,12 @@ class OrderServeApiTests extends ApiTestBase {
         assertEquals(S1.toString(), command.get("tableSessionId").asString());
         assertEquals(4, command.get("expectedVersion").asInt());
         assertEquals(WAITER_A.toString(), command.get("requestedByUserId").asString());
-        assertNull(sent.header("Authorization"), "No service credential is invented before the service identity contract exists");
+        // Signed as Waiter and delegated by the staff member; no browser Cookie or Origin on an internal call.
+        // (The Order stub itself verifies signature, target, body digest and delegation digest.)
+        assertTrue(sent.header("Authorization").startsWith("Service "));
+        assertEquals("fake-staff-" + RESTAURANT, sent.header("X-Restofy-Staff-Delegation"));
+        assertNull(sent.header("Cookie"));
+        assertNull(sent.header("Origin"));
         // Technical record: who, which key, how it ended.
         Map<String, Object> row = commandRow();
         assertEquals("CONFIRMED", row.get("status"));
@@ -503,14 +508,51 @@ class OrderServeApiTests extends ApiTestBase {
     }
 
     @Test
-    void anAnswerForTheWrongRestaurantOrOrderIsNeverTrusted() throws Exception {
+    void aRefusedOrUnavailableResultQueryNeverTurnsTheCommandIntoARejection() throws Exception {
+        backends.failNextServe(ServeFault.GARBAGE_ANSWER);
+        serve(asWaiter(), order, newKey(), 4).andExpect(status().isBadGateway());
+        assertEquals("UNKNOWN", commandStatus());
+        String path = "/api/v1/waiters/orders/" + order.id() + "/served-commands/" + commandId();
+        // 401/403/503 on the query say nothing about the command: it stays unknown, never REJECTED.
+        for (ServeFault fault : new ServeFault[]{ServeFault.UNAUTHORIZED, ServeFault.SERVER_ERROR}) {
+            backends.failNextServeStatus(fault);
+            mockMvc.perform(get(path).with(asWaiter())).andExpect(status().is5xxServerError());
+            assertEquals("UNKNOWN", commandStatus());
+        }
+        mockMvc.perform(get(path).with(asWaiter())).andExpect(jsonPath("$.status").value("CONFIRMED"));
+        // The query is signed and delegated like the command itself (the Order stub verifies it).
+        DownstreamStub.Request query = STUB.requests("GET", "/api/v1/internal/orders/[0-9a-f-]{36}/serve-commands/[0-9a-f-]{36}")
+                .getLast();
+        assertTrue(query.header("Authorization").startsWith("Service "));
+        assertEquals("fake-staff-" + RESTAURANT, query.header("X-Restofy-Staff-Delegation"));
+        assertEquals(RESTAURANT.toString(), query.query().get("restaurantId"));
+    }
+
+    @Test
+    void aServeCommandWithoutAStaffCredentialIsRefusedByOrderAndNothingIsInvented() throws Exception {
+        // Authenticated through the security context only: no credential of the staff member to delegate.
+        mockMvc.perform(post("/api/v1/waiters/orders/" + order.id() + "/served")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                                .authentication(new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                                        new com.restofy.waiter.infrastructure.security.AuthenticatedStaff(WAITER_A, RESTAURANT,
+                                                com.restofy.waiter.domain.enums.StaffRole.WAITER), null,
+                                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_WAITER")))))
+                        .with(staffCsrf()).header("Idempotency-Key", newKey())
+                        .contentType(MediaType.APPLICATION_JSON).content(body(S1, 4)))
+                .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("DEPENDENCY_REJECTED"));
+        DownstreamStub.Request sent = servePosts().getFirst();
+        assertNull(sent.header("Authorization"));
+        assertNull(sent.header("X-Restofy-Staff-Delegation"));
+        assertEquals("PENDING", backends.order(order.id()).delivery());
+    }
+
+    @Test
+    void aReceiptForAnotherOrderIsNeverTrusted() throws Exception {
         STUB.override("POST", SERVE_POST, request -> {
             JsonNode command = FakeBackends.read(request.body());
-            FakeBackends.Order foreign = new FakeBackends.Order(order.id(), OTHER_RESTAURANT, order.tableId(), S1, "ORD-1",
-                    "ACCEPTED", "SERVED", "READY", Instant.parse("2026-10-16T09:00:00Z"), Instant.parse("2026-10-16T09:10:00Z"),
-                    Instant.parse("2026-10-16T10:30:00Z"));
             return Response.json(200, FakeBackends.write(Map.of("commandId", command.get("commandId").asString(),
-                    "outcome", "APPLIED", "order", FakeBackends.orderJson(foreign))));
+                    "orderId", UUID.randomUUID().toString(), "tableSessionId", S1.toString(), "orderVersion", 5,
+                    "servedAt", "2026-10-16T10:30:00Z", "outcome", "APPLIED")));
         });
         serve(asWaiter(), order, newKey(), 4).andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("SERVE_RESULT_UNKNOWN"));
@@ -521,9 +563,9 @@ class OrderServeApiTests extends ApiTestBase {
     void anAnswerThatContradictsItselfIsNotAConfirmation() throws Exception {
         STUB.override("POST", SERVE_POST, request -> {
             JsonNode command = FakeBackends.read(request.body());
-            // "APPLIED" but the returned order is still pending delivery.
+            // "APPLIED" but without when it was served or at which version: the receipt contradicts itself.
             return Response.json(200, FakeBackends.write(Map.of("commandId", command.get("commandId").asString(),
-                    "outcome", "APPLIED", "order", FakeBackends.orderJson(order))));
+                    "orderId", order.id().toString(), "tableSessionId", S1.toString(), "outcome", "APPLIED")));
         });
         serve(asWaiter(), order, newKey(), 4).andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("SERVE_RESULT_UNKNOWN"));
@@ -633,7 +675,8 @@ class OrderServeApiTests extends ApiTestBase {
     @Test
     void servingNeedsOnlyOrderAndNeverQrOrKitchen() throws Exception {
         serveOnce(order).andExpect(status().isOk());
-        assertTrue(STUB.requests().stream().allMatch(r -> r.path().startsWith("/api/v1/internal/orders/")),
+        assertTrue(STUB.requests().stream().allMatch(r -> r.path().startsWith("/api/v1/internal/orders/")
+                        || r.path().startsWith("/api/v1/orders/")),
                 "Only Order is involved in the command: " + STUB.requests().stream().map(DownstreamStub.Request::path).toList());
     }
 }

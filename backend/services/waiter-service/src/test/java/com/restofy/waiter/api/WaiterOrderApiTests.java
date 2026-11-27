@@ -17,7 +17,9 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -91,22 +93,22 @@ class WaiterOrderApiTests extends ApiTestBase {
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.items[0].orderNumber").value("ORD-4"))
                 .andExpect(jsonPath("$.items[0].businessStatus").value("CANCELLED"))
-                .andExpect(jsonPath("$.items[0].cancellations", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].cancellations[0].source").value("KITCHEN"))
-                .andExpect(jsonPath("$.items[0].cancellations[0].status").value("APPROVED"))
-                .andExpect(jsonPath("$.items[0].cancellations[0].reasonCode").value("OUT_OF_STOCK"))
-                .andExpect(jsonPath("$.items[0].cancellations[0].reasonText").value("Köfte bitti"));
+                // A list row of Order has no cancellations (only the detail does): the row says so by being empty.
+                .andExpect(jsonPath("$.items[0].cancellations", hasSize(0)))
+                .andExpect(jsonPath("$.items[0].items", hasSize(0)))
+                .andExpect(jsonPath("$.items[0].version").value((int) cancelled.version()));
         listOrders("?view=ACTIVE")
                 .andExpect(jsonPath("$.totalElements").value(4))
                 .andExpect(jsonPath("$.items[*].businessStatus").value(contains("ACCEPTED", "ACCEPTED", "ACCEPTED", "ACCEPTED")));
     }
 
     @Test
-    void orderThatKitchenHasNotConfirmedIsNeitherReadyNorHiddenAndKeepsAnUnknownPreparation() throws Exception {
+    void orderThatKitchenHasNotStartedIsWaitingNeitherReadyNorHidden() throws Exception {
         String json = listOrders("").andReturn().getResponse().getContentAsString();
         var unconfirmed = StreamSupport.stream(FakeBackends.read(json).get("items").spliterator(), false)
                 .filter(node -> node.get("orderNumber").asString().equals("ORD-5")).findFirst().orElseThrow();
-        Assertions.assertTrue(unconfirmed.has("preparation") && unconfirmed.get("preparation").isNull());
+        // Order's RECEIVED is a waiting order: there is no unknown preparation in Order's contract.
+        assertEquals("WAITING", unconfirmed.get("preparation").get("status").asString());
         listOrders("?view=READY_HISTORY").andExpect(content().string(not(containsString("ORD-5"))));
         listOrders("?view=AWAITING_DELIVERY").andExpect(content().string(not(containsString("ORD-5"))));
     }
@@ -142,7 +144,7 @@ class WaiterOrderApiTests extends ApiTestBase {
         backends.tables.add(new FakeBackends.Table(UUID.randomUUID(), RESTAURANT, "1", "AVAILABLE", null));
         listOrders("").andExpect(status().isOk()).andExpect(jsonPath("$.items", hasSize(0)))
                 .andExpect(jsonPath("$.totalElements").value(0));
-        assertEquals(0, STUB.requests("POST", "/api/v1/internal/orders/search").size());
+        assertEquals(0, STUB.requests("POST", "/api/v1/orders/search").size());
     }
 
     @Test
@@ -195,7 +197,7 @@ class WaiterOrderApiTests extends ApiTestBase {
     void servedOrderKeepsKitchenReadyAndTheDeliveryAxisSaysServed() throws Exception {
         mockMvc.perform(get("/api/v1/waiters/orders/" + servedAndPaid.id()).with(asWaiter()))
                 .andExpect(jsonPath("$.deliveryStatus").value("SERVED"))
-                .andExpect(jsonPath("$.servedAt").exists())
+                .andExpect(jsonPath("$.servedAt").value(servedAndPaid.servedAt().toString()))
                 .andExpect(jsonPath("$.preparation.status").value("READY"));
     }
 
@@ -234,35 +236,55 @@ class WaiterOrderApiTests extends ApiTestBase {
     void orderServiceThatLeaksAnotherTenantsOrderIsNeverRelayed() throws Exception {
         FakeBackends.Order foreign = backends.orders.stream().filter(o -> o.restaurantId().equals(OTHER_RESTAURANT)).findFirst()
                 .orElseThrow();
-        STUB.override("GET", "/api/v1/internal/orders/[0-9a-f-]{36}",
-                request -> DownstreamStub.Response.json(200, FakeBackends.write(FakeBackends.orderJson(foreign))));
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}",
+                request -> DownstreamStub.Response.json(200, FakeBackends.write(FakeBackends.detailJson(foreign))));
+        STUB.override("GET", "/api/v1/orders/[0-9a-f-]{36}/cancellations", request -> DownstreamStub.Response.json(200,
+                FakeBackends.write(Map.of("orderId", foreign.id(), "cancellations", List.of()))));
         mockMvc.perform(get("/api/v1/waiters/orders/" + foreign.id()).with(asWaiter()))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"))
                 .andExpect(content().string(not(containsString("ORD-FOREIGN"))));
 
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> DownstreamStub.Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(foreign)), "page", 0, "size", 20, "totalElements", 1))));
+        STUB.override("POST", "/api/v1/orders/search", request -> DownstreamStub.Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.summaryJson(foreign)), "page", 0, "limit", 20, "totalItems", 1))));
         listOrders("").andExpect(status().isBadGateway()).andExpect(content().string(not(containsString("ORD-FOREIGN"))));
     }
 
     @Test
     void orderServiceThatIgnoresTheRequestedViewIsDetected() throws Exception {
-        STUB.override("POST", "/api/v1/internal/orders/search", request -> DownstreamStub.Response.json(200, FakeBackends.write(Map.of(
-                "items", List.of(FakeBackends.orderJson(servedAndPaid)), "page", 0, "size", 20, "totalElements", 1))));
+        STUB.override("POST", "/api/v1/orders/search", request -> DownstreamStub.Response.json(200, FakeBackends.write(Map.of(
+                "items", List.of(FakeBackends.summaryJson(servedAndPaid)), "page", 0, "limit", 20, "totalItems", 1))));
         listOrders("?view=AWAITING_DELIVERY").andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"));
     }
 
     @Test
-    void requestToOrderCarriesOnlyTheVerifiedRestaurantAndTheAllowListedFilters() throws Exception {
+    void requestToOrderCarriesNoTenantAndOnlyTheAllowListedFiltersAsTheStaffMember() throws Exception {
         listOrders("?view=READY_HISTORY&size=5&page=0").andExpect(status().isOk());
-        DownstreamStub.Request search = STUB.requests("POST", "/api/v1/internal/orders/search").getFirst();
+        DownstreamStub.Request search = STUB.requests("POST", "/api/v1/orders/search").getFirst();
         var body = FakeBackends.read(search.body());
-        assertEquals(RESTAURANT.toString(), body.get("restaurantId").asString());
-        assertEquals("READY_HISTORY", body.get("view").asString());
-        assertEquals(5, body.get("size").asInt());
+        assertEquals(false, body.has("restaurantId"), "Order takes the restaurant from the staff session");
+        assertEquals(false, body.has("view"), "A view and an explicit status list are never sent together");
+        assertEquals(List.of("READY", "SERVED", "COMPLETED"),
+                StreamSupport.stream(body.get("fulfillmentStatuses").spliterator(), false).map(n -> n.asString()).toList());
+        assertEquals(5, body.get("limit").asInt());
         assertEquals(2, body.get("tableSessionIds").size());
-        assertEquals(null, search.header("Authorization"), "No credentials are invented for the downstream call");
+        assertEquals("fake-staff-" + RESTAURANT, search.header("X-Restofy-Staff-Delegation"));
+        assertEquals(null, search.header("Cookie"));
+        assertEquals(null, search.header("Origin"));
+        assertTrue(search.header("Authorization").startsWith("Service "));
+    }
+
+    @Test
+    void theOtherViewsMapToOrdersOwnFiltersAndOrdering() throws Exception {
+        listOrders("?view=ACTIVE").andExpect(status().isOk());
+        listOrders("?view=CANCELLED").andExpect(status().isOk());
+        listOrders("?view=AWAITING_DELIVERY").andExpect(status().isOk());
+        var searches = STUB.requests("POST", "/api/v1/orders/search").stream().map(r -> FakeBackends.read(r.body())).toList();
+        assertEquals("active", searches.get(0).get("view").asString());
+        assertEquals("cancelled", searches.get(1).get("view").asString());
+        assertEquals("READY", searches.get(2).get("fulfillmentStatuses").get(0).asString());
+        assertEquals("placedAt,asc", searches.get(2).get("sort").asString());
+        assertEquals(false, searches.get(2).has("view"));
     }
 }
