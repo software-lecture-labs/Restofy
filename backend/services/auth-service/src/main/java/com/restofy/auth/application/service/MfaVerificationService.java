@@ -3,7 +3,6 @@ package com.restofy.auth.application.service;
 import java.time.Clock;
 import java.util.List;
 import com.restofy.auth.domain.entity.MfaRecoveryCode;
-import com.restofy.auth.domain.entity.StaffMfa;
 import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.infrastructure.persistence.repository.*;
 import com.restofy.auth.infrastructure.security.*;
@@ -99,6 +98,36 @@ public class MfaVerificationService {
                 org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 throw failure;
             }
+        });
+    }
+
+    /**
+     * Step-up for a request that grants ADMIN rights: the signed-in ADMIN repeats the password and one second factor,
+     * so a stolen session cookie alone cannot create a lasting administrator. Failures count towards the same MFA
+     * lock as sign-in. The factor is spent here, in its own transaction, even if the change is refused afterwards.
+     * Unlike regeneration it revokes no session: nothing about the caller's own credentials changes.
+     */
+    public void confirmAdministrator(Identity identity, String password, String totpCode, String recoveryCode,
+            String peer) {
+        attempts.attempt(identity, peer, (mfaState, session) -> {
+            requireState(identity, SessionAuthState.AUTHENTICATED);
+            Long counter;
+            MfaRecoveryCode matched;
+            try {
+                factors.requireEnabled(mfaState);
+                var user = users.findById(identity.userId()).orElseThrow(MfaVerificationService::invalid);
+                passwords.verify(user.getEmailNormalized(), password);
+                if ((totpCode == null) == (recoveryCode == null)) { throw invalid(); }
+                counter = totpCode == null ? null : factors.verifiedCounter(mfaState, totpCode);
+                matched = recoveryCode == null ? null : factors.findCode(identity.userId(), recoveryCode);
+            } catch (BadCredentialsException _) {
+                throw new StepUpRejectedException();
+            }
+            if (counter != null) { factors.advance(mfaState, counter); }
+            else { factors.consume(matched); }
+            mfaState.clearFailures(clock.instant());
+            audit.publish(Event.STEP_UP_VERIFIED, identity.userId(), identity.sessionId());
+            return null;
         });
     }
 

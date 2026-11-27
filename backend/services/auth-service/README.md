@@ -245,8 +245,8 @@ KITCHEN 3600 sn. Pending ADMIN ayrıca 300 sn mutlak sınırla ve iş authority'
 kısıtlanır. Yalnız başarılı `/activity`, sunucu saatiyle last_activity_at günceller;
 session okuma, polling, heartbeat ve refresh güncellemez. Frontend activity'yi yalnız
 kullanıcı etkileşiminde göndermelidir; sunucu insan etkileşimini kriptografik kanıtlayamaz.
-`StaffSessionService.deactivate` kullanıcı ve bütün session'ları aynı transaction'da
-kapatır. Doğrudan pasifleştirme de sonraki Auth kontrolünde erişimi reddeder ve iptali tamamlar.
+Pasifleştirme ve rol değişikliği Q5 onaylı iptal işlemiyle yapılır (AUTH-05); kullanıcı satırı
+QR onayından sonra değişir. Doğrudan pasifleştirme de sonraki Auth kontrolünde erişimi reddeder ve iptali tamamlar.
 
 Login limiti üç katmanlıdır (`LoginRateLimiter`, 15 dakikalık pencere; başarılı denemeler de
 sayılır):
@@ -378,3 +378,93 @@ Hesap kilidi mevcut doğrulanmış diğer cihazların yetkisini kendiliğinden k
 - Kök ENV şablonu ve Compose, MFA anahtarı için güncellenmiştir (Alper onayıyla).
   Gerçek MFA anahtarını işletici hazırlamalıdır. Canlı V3/rebuild ve dev ADMIN enrollment
   ayrıca izin gerektirir. DB/migration/HTTP entegrasyon testleri Docker ile doğrulanmalıdır.
+
+## AUTH-05 ADMIN personel yönetimi
+
+ADMIN kendi restoranının personelini yönetir (F-AD-01). Tek restoran kurulumunda bütün personel
+`AUTH_RESTAURANT_ID` restoranına aittir; başka restoranın personeli Auth'ta bulunmaz. Uçlar yalnız
+ön yüz içindir, diğer servisler kullanmaz. Hepsi MFA'sı tamamlanmış tam ADMIN oturumu ister; POST'lar
+ayrıca izinli `Origin` ve `X-CSRF-TOKEN` ister. Yetki yalnız oturumdan alınır, istemcinin rol veya
+kullanıcı başlıkları dikkate alınmaz. Migration ve yeni ENV yoktur.
+
+| Method / path | Gövde | Başarılı cevap | Uca özgü hatalar |
+| --- | --- | --- | --- |
+| GET `/api/v1/auth/staff?page=0&size=50` | Yok | 200 `items,page,size,hasNext` | 400 (`size` 1–100, `page` 0–10000) |
+| POST `/api/v1/auth/staff` | `email,password,role` (ADMIN için ek `confirmation`) | 201 personel | 400, 401 `STEP_UP_REJECTED`, 409, 429 |
+| POST `/api/v1/auth/staff/{id}/role` | `role,version,operationId` (ADMIN için ek `confirmation`) | 200 uygulandı, 202 QR onayı bekliyor | 400, 401 `STEP_UP_REJECTED`, 404, 409, 429, 503 |
+| POST `/api/v1/auth/staff/{id}/deactivate` | `version,operationId` | 200 uygulandı, 202 QR onayı bekliyor | 400, 404, 409, 429, 503 |
+
+Personel cevabı: `id,email,role,active,version,createdAt,pendingChange`; parola ya da hash hiçbir
+cevapta yoktur. Bütün uçlarda `reason` taşımayan 401 oturum yok/geçersiz, 403 rol, eksik MFA, CSRF veya
+Origin demektir. Liste e-postaya göre sıralıdır.
+
+**Neden kodları.** Bu uçların kendi retleri problem gövdesinde `reason` taşır; ön yüz tepkisini buna göre seçer:
+
+| `reason` | Durum | Anlamı ve ön yüzün tepkisi |
+| --- | --- | --- |
+| `EMAIL_TAKEN` | 409 | Adres başka bir hesapta |
+| `SELF_CHANGE` | 409 | ADMIN kendi rolünü değiştiremez, kendini pasifleştiremez |
+| `STALE_VERSION` | 409 | Kişi bu arada değişti; listeyi yeniden yükle |
+| `NOT_ACTIVE` | 409 | Kişi zaten pasif |
+| `NO_CHANGE` | 409 | Kişi zaten bu rolde |
+| `TRANSITION_PENDING` | 409 | Kişinin önceki değişikliği QR onayını bekliyor; bitmesini bekle |
+| `LAST_ADMINISTRATOR` | 409 | Aktif ADMIN kalmaz (bugünkü akışta oluşmaz, ek savunma) |
+| `OPERATION_MISMATCH` | 409 | `operationId` başka kişi ya da değişiklik için kullanılmış; yeni UUID üret |
+| `STEP_UP_REQUIRED` | 400 | ADMIN yetkisi veren istekte `confirmation` yok |
+| `STEP_UP_REJECTED` | 401 | `confirmation` yanlış; **oturum geçerli**, kullanıcıdan tekrar iste |
+| `BUSY` | 503 ve `Retry-After: 1` | Başka bir personel değişikliği kaydediliyor; hiçbir şey yapılmadı, aynı isteği tekrar gönder |
+
+`reason` taşımayan 503 (Q5 kaynağı hazır değil, ya da işlemi yapanın oturumu bekleyen bir değişiklik
+yüzünden kapalı) de aynı istekle güvenle tekrar denenir.
+
+- **ADMIN yetkisi vermek ek doğrulama ister** (`docs/SECURITY.md` §3: kritik yönetici eylemleri için
+  yeniden doğrulama). ADMIN oluşturma ve ADMIN'e yükseltme isteği, işlemi yapanın kendi parolasını ve
+  tek bir ikinci faktörü taşır: `"confirmation":{"password":"...","totpCode":"123456"}` ya da
+  `totpCode` yerine `recoveryCode`. Biçim kurtarma kodu yenilemeyle aynıdır. Böylece çalınmış bir oturum
+  çerezi tek başına kalıcı bir yönetici hesabı açamaz. Yanlış denemeler girişle aynı MFA kilidine sayılır
+  (5 hatada 5 dk, 429). Kod bu istekte harcanır: değişiklik sonradan reddedilse bile (ör. `STALE_VERSION`)
+  yeni bir kod gerekir. Zaten kayıtlı bir ADMIN yükseltmesinin aynı `operationId` ile tekrarı yeni bir şey
+  yaratmadığı için ek doğrulama istemez. Rol düşürme ve pasifleştirme yetki vermez, ek doğrulama istemez.
+- **İlk parola:** ADMIN belirler; AUTH-01 parola kuralı geçerlidir. ADMIN rolündeki personel ilk
+  girişte MFA kurar (`mfaSetupRequired=true`; kurulana kadar personel uçları 403). **Bilinen sınır:**
+  şifre sıfırlama (AUTH-04) yalnız ADMIN içindir; WAITER ve KITCHEN, ADMIN'in verdiği parolayı bugün
+  değiştiremez, yani ADMIN bu parolayı bilir. Kendi parolasını değiştirme ayrı bir uç gerektirir ve ayrı
+  PR'dadır. Bekleyen bir ADMIN sıfırlaması, kişi pasifleşir ya da ADMIN olmaktan çıkarsa tamamlanamaz
+  (onay adımı aktif ADMIN arar).
+- **Rol değişikliği ve pasifleştirme** Q5 `ACK_REQUIRED` işlemidir. Auth işlemi kaydeder; QR kişinin
+  oturumlarını kapattığını onaylayınca rol ya da aktiflik yazılır ve oturumlar iptal edilir. Oturumu
+  olmayan kişide değişiklik hemen uygulanır (200). QR'a ulaşılamazsa cevap 202 ve
+  `pendingChange=true` olur. Bu sürede kişi Auth'ta oturum kullanamaz (503) ve ona yeni bir değişiklik
+  kabul edilmez (`TRANSITION_PENDING`). Retry worker teslimi sürdürür; QR hiç onay vermezse işlem, hedef
+  token'ların süresi dolunca (en çok 300 sn) tamamlanır.
+- **`operationId`:** istemcinin her yeni değişiklik için ürettiği UUID'dir. Tekrar denemede aynı istek
+  aynı `operationId` ile gönderilir; 200 dönünce değişiklik tamamlanmıştır. Tekrarı başka bir ADMIN de
+  gönderebilir (denetimde `retry=true` ile görünür). Uzun süre önce tamamlanmış bir `operationId` tekrar
+  gönderilirse yeni bir şey yapılmaz ve cevap kişinin **bugünkü** halidir, o işlemin hemen sonraki hali
+  değildir.
+- **`version`:** listede görülen değerdir; uyuşmazsa `STALE_VERSION` (başkası önce değiştirdi).
+- **Son ADMIN:** ADMIN kendi rolünü değiştiremez, kendini pasifleştiremez. Bütün rol ve pasifleştirme
+  istekleri `AdvisoryLocks.STAFF_ADMINISTRATION` kilidiyle sıraya girer; kilit doluysa istek beklemez,
+  `BUSY` döner. Bir ADMIN'i çıkaran istek, aktif ve bekleyen değişikliği olmayan başka bir ADMIN
+  kalmıyorsa reddedilir. Bugünkü akışta bu ret oluşmaz (işlemi yapan kendisi aktif ADMIN'dir ve hedef
+  olamaz); ileride personeli başka yoldan değiştiren bir akış eklenirse değişmezi korur. Çıkışta olan
+  ADMIN'in oturumu 503 aldığı için karşıdaki ADMIN'i de çıkaramaz.
+- **Limit:** ADMIN başına 15 dakikada 30 değişiklik isteği (`StaffAdministrationLimiter`, ortak
+  `rate_limits` tablosu); aşılınca 429 ve `Retry-After`. Liste okuma limitsizdir.
+- **Denetim:** `StaffAuditLogger` işlemi yapan, hedef, rol, işlem kimliği ve `retry` alanını yazar;
+  e-posta ve parola yazılmaz. `CREATED` commit sonrası yazılır. `ROLE_CHANGE_REQUESTED` ve
+  `DEACTIVATION_REQUESTED`, Q5 işlemi kendi transaction'ında kaydedilir kaydedilmez ve tekrarlar dahil her
+  istek için yazılır. Ek doğrulama `mfa_event=STEP_UP_VERIFIED` olarak görünür. Tamamlanma Q5 logunda
+  aynı işlem kimliğiyle görünür. Dayanıklı bir audit deposu değildir (AUTH-03 sınırı).
+- **Veritabanını elle değiştirmeyin.** Bu uçlardan önce pasifleştirme ve rol değişikliği veritabanından
+  deneniyordu; artık uçlar kullanılmalı. Elle yapılan değişiklik Q5 iptalini atlar. Kişinin bekleyen bir
+  Q5 işlemi varken sürümü elle değiştirilirse o işlem "reconciliation" hatasıyla tamamlanamaz ve kişi elle
+  düzeltilene kadar kilitli kalır. Uygulama kodunda bunu yapan bir yol yoktur (parola sıfırlama, bekleyen
+  işlem varken 503 döner).
+- **Bağlantı havuzu:** bir değişiklik isteği, dış transaction açıkken Q5 kaydı için kısa süre ikinci bir
+  bağlantı kullanır. Kilit beklenmeyip yalnız denendiği için aynı anda en çok bir istek bunu yapar.
+- **Diğer servisler:** değişiklik `/session` kullanan servislere anında, yalnız yerel token doğrulayanlara
+  en geç 300 sn içinde yansır (`docs/auth-service/staff-contract.md`).
+
+Kapsam dışı, ayrı PR: e-posta değiştirme, yeniden aktifleştirme, personelin MFA'sını sıfırlama,
+personelin kendi parolasını değiştirmesi ve ön yüz ekranı.

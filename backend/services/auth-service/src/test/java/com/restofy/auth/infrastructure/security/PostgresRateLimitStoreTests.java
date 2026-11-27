@@ -275,8 +275,8 @@ class PostgresRateLimitStoreTests {
     void anUnreachableDatabaseFailsClosed() {
         HikariDataSource closed = newPool();
         closed.close();
-        assertThatThrownBy(() -> new PostgresRateLimitStore(closed, codes, clock, 10)
-                .hit("k", 3, WINDOW)).isInstanceOf(RateLimitUnavailableException.class);
+        var unreachable = new PostgresRateLimitStore(closed, codes, clock, 10);
+        assertThatThrownBy(() -> unreachable.hit("k", 3, WINDOW)).isInstanceOf(RateLimitUnavailableException.class);
     }
 
     private static void runConcurrently(int threads, int callsPerThread, Callable<Void> call) throws Exception {
