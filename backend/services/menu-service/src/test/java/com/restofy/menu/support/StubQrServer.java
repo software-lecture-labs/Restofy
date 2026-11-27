@@ -104,21 +104,26 @@ public final class StubQrServer implements AutoCloseable {
         byte[] body = exchange.getRequestBody().readNBytes(1025);
         Map<String, List<String>> headers = new ConcurrentHashMap<>();
         exchange.getRequestHeaders().forEach((name, values) -> headers.put(name.toLowerCase(java.util.Locale.ROOT), List.copyOf(values)));
-        int status;
+        Reply reply;
         try {
-            status = serve(exchange, headers, body);
+            reply = serve(exchange, headers, body);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            status = 500;
+            reply = new Reply(500, null, "", Map.of());
         }
-        // Recorded before the answer is sent, so a test that has the answer also has the record.
+        // Recorded BEFORE the answer is sent: the client can have the answer (and a test can read the record) only after this
+        // line, so a test never races the server thread.
         received.add(new Received(exchange.getRequestMethod(), exchange.getRequestURI().getRawPath()
                 + (exchange.getRequestURI().getRawQuery() == null ? "" : "?" + exchange.getRequestURI().getRawQuery()),
-                Collections.unmodifiableMap(headers), new String(body, StandardCharsets.UTF_8), status));
+                Collections.unmodifiableMap(headers), new String(body, StandardCharsets.UTF_8), reply.status()));
+        send(exchange, reply);
         exchange.close();
     }
 
-    private int serve(HttpExchange exchange, Map<String, List<String>> headers, byte[] body) throws IOException, InterruptedException {
+    /** What the stand-in will answer, decided before anything is sent. */
+    private record Reply(int status, String contentType, String body, Map<String, String> headers) { }
+
+    private Reply serve(HttpExchange exchange, Map<String, List<String>> headers, byte[] body) throws IOException, InterruptedException {
         if (!"POST".equals(exchange.getRequestMethod()) || !PATH.equals(exchange.getRequestURI().getRawPath())) {
             return reply(exchange, 403, "application/problem+json", "{\"status\":403,\"title\":\"Forbidden\"}");
         }
@@ -149,14 +154,12 @@ public final class StubQrServer implements AutoCloseable {
             return reply(exchange, 200, "application/json", "{\"restaurantId\":\"" + UUID.randomUUID() + "\",\"state\":\"ACTIVE\"}");
         }
         if (answer instanceof Answer.Raw raw) {
-            if (raw.status() == 302) {
-                exchange.getResponseHeaders().add("Location", origin() + "/elsewhere");
-            }
-            return reply(exchange, raw.status(), raw.contentType(), raw.body());
+            Map<String, String> extra = raw.status() == 302 ? Map.of("Location", origin() + "/elsewhere") : Map.of();
+            return new Reply(raw.status(), raw.contentType(), raw.body(), extra);
         }
         UUID restaurant = ((Answer.Active) answer).restaurantId();
-        exchange.getResponseHeaders().add("Cache-Control", "no-store");
-        return reply(exchange, 200, "application/json", "{\"restaurantId\":\"" + restaurant + "\",\"state\":\"ACTIVE\"}");
+        return new Reply(200, "application/json", "{\"restaurantId\":\"" + restaurant + "\",\"state\":\"ACTIVE\"}",
+                Map.of("Cache-Control", "no-store"));
     }
 
     private Claims authenticate(String header) {
@@ -195,15 +198,19 @@ public final class StubQrServer implements AutoCloseable {
         }
     }
 
-    private static int reply(HttpExchange exchange, int status, String contentType, String body) throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        if (contentType != null) {
-            exchange.getResponseHeaders().add("Content-Type", contentType);
+    private static Reply reply(HttpExchange exchange, int status, String contentType, String body) {
+        return new Reply(status, contentType, body, Map.of());
+    }
+
+    private static void send(HttpExchange exchange, Reply reply) throws IOException {
+        byte[] bytes = reply.body().getBytes(StandardCharsets.UTF_8);
+        if (reply.contentType() != null) {
+            exchange.getResponseHeaders().add("Content-Type", reply.contentType());
         }
-        exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+        reply.headers().forEach((name, value) -> exchange.getResponseHeaders().add(name, value));
+        exchange.sendResponseHeaders(reply.status(), bytes.length == 0 ? -1 : bytes.length);
         if (bytes.length > 0) {
             exchange.getResponseBody().write(bytes);
         }
-        return status;
     }
 }
