@@ -111,39 +111,4 @@ class OrderEventRedeliveryTests {
 		assertEquals(1, storedOrders());
 	}
 
-	/**
-	 * The full cancellation in the form agreed for it (reason codes only, an empty list when there is none; Order does
-	 * not send it yet). Kitchen cannot apply it in any state: it answers 422 every time and changes nothing.
-	 */
-	@ParameterizedTest
-	@CsvSource(delimiter = '|', value = {
-			"WAITING   | []",
-			"WAITING   | [{\"code\":\"CHANGED_MIND\"}]",
-			"PREPARING | []",
-			"PREPARING | [{\"code\":\"CHANGED_MIND\"},{\"code\":\"WAIT_TOO_LONG\"}]",
-			"READY     | []",
-			"READY     | [{\"code\":\"CHANGED_MIND\"}]" })
-	void aFinalFullCancellationIsNotConfirmedInAnyStateAndChangesNothing(String state, String reasons) throws Exception {
-		send(bytes(accepted(RESTAURANT, orderId, eventId, 0, "not"))).andExpect(status().isNoContent());
-		if (!"WAITING".equals(state)) {
-			preparation.startPreparation(RESTAURANT, UUID.randomUUID(), UUID.randomUUID(), orderId);
-		}
-		if ("READY".equals(state)) {
-			preparation.markReady(RESTAURANT, UUID.randomUUID(), UUID.randomUUID(), orderId);
-		}
-		Map<String, Object> before = everything();
-		assertEquals(state, before.get("status"));
-		byte[] cancellation = bytes("""
-				{"eventId":"%s","eventType":"OrderCancelled","schemaVersion":1,"occurredAt":"2026-11-26T09:20:00Z",\
-				"restaurantId":"%s","orderId":"%s","orderVersion":3,"cancellationId":"%s","scope":"FULL",\
-				"kitchenConfirmationRequired":false,"items":[],"decidedAt":"2026-11-26T09:20:00Z","reasons":%s}"""
-				.formatted(UUID.randomUUID(), RESTAURANT, orderId, UUID.randomUUID(), reasons));
-
-		for (int attempt = 0; attempt < 2; attempt++) {
-			send(cancellation).andExpect(status().isUnprocessableContent())
-					.andExpect(jsonPath("$.code").value("UNSUPPORTED_EVENT_TYPE"));
-		}
-
-		assertEquals(before, everything());
-	}
 }

@@ -164,10 +164,10 @@ class OrderEventApiTests {
 		assertEquals(0, orderCount());
 	}
 
+	/** A partial cancellation's meaning for the kitchen is the open decision D-02: refused, never confirmed. */
 	@ParameterizedTest
-	@ValueSource(strings = { "OrderCancellationRequested", "OrderCancelled", "OrderItemsCancelled",
-			"OrderCancellationRejected" })
-	void cancellationEventsAreNeverConfirmedAndChangeNothing(String type) throws Exception {
+	@ValueSource(strings = { "OrderItemsCancelled" })
+	void aPartialCancellationIsNeverConfirmedAndChangesNothing(String type) throws Exception {
 		send(original()).andExpect(status().isNoContent());
 		String before = stored();
 		long inbox = count("inbox_events");

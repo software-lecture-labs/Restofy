@@ -1,7 +1,9 @@
 package com.restofy.kitchen.application.service;
 
 import com.restofy.kitchen.application.contract.OrderAcceptedMessage;
+import com.restofy.kitchen.application.contract.OrderCancellationEventMessage;
 import com.restofy.kitchen.application.mapper.OrderAcceptedMessageReader;
+import com.restofy.kitchen.application.mapper.OrderCancellationEventReader;
 import com.restofy.kitchen.domain.exception.InvalidOrderMessageException;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenOrderRepository;
 import org.springframework.stereotype.Service;
@@ -20,14 +22,14 @@ import java.util.UUID;
 
 /**
  * Takes the body of one authenticated Order event. The caller has already proved that these bytes were signed for
- * {@code restaurantId}; here the content must belong to that restaurant, whatever its type. Only "order accepted" is
- * applied. The cancellation events are recognised so that they are refused as unsupported and never look delivered.
+ * {@code restaurantId}; here the content must belong to that restaurant, whatever its type. "Order accepted" and the
+ * cancellation events are applied; a partial cancellation ({@code OrderItemsCancelled}) is recognised and refused as
+ * unsupported (D-02), so that it never looks delivered.
  */
 @Service
 public class OrderEventReceiver {
 
-	private static final Set<String> UNSUPPORTED_TYPES = Set.of("OrderCancellationRequested", "OrderCancelled",
-			"OrderItemsCancelled", "OrderCancellationRejected");
+	private static final Set<String> UNSUPPORTED_TYPES = Set.of(OrderCancellationEventMessage.ITEMS_CANCELLED);
 
 	/** Only for looking at restaurant and type; the typed contract is read by the strict message reader. */
 	private final JsonMapper envelope = JsonMapper.builder()
@@ -38,12 +40,17 @@ public class OrderEventReceiver {
 	private final OrderAcceptedMessageReader reader;
 	private final AcceptedOrderIngestService ingest;
 	private final KitchenOrderRepository orders;
+	private final OrderCancellationEventReader cancellationReader;
+	private final OrderCancellationEventService cancellations;
 
 	public OrderEventReceiver(OrderAcceptedMessageReader reader, AcceptedOrderIngestService ingest,
-			KitchenOrderRepository orders) {
+			KitchenOrderRepository orders, OrderCancellationEventReader cancellationReader,
+			OrderCancellationEventService cancellations) {
 		this.reader = reader;
 		this.ingest = ingest;
 		this.orders = orders;
+		this.cancellationReader = cancellationReader;
+		this.cancellations = cancellations;
 	}
 
 	/** Returns after the storing transaction has committed. */
@@ -56,6 +63,11 @@ public class OrderEventReceiver {
 		String type = text(root, "eventType");
 		if (UNSUPPORTED_TYPES.contains(type)) {
 			return OrderEventResult.UNSUPPORTED_EVENT_TYPE;
+		}
+		if (OrderCancellationEventMessage.TYPES.contains(type)) {
+			OrderCancellationEventMessage event = cancellationReader.read(payload);
+			// The same check on the object that is actually applied.
+			return restaurantId.equals(event.restaurantId()) ? cancellations.apply(event) : OrderEventResult.RESTAURANT_MISMATCH;
 		}
 		if (!OrderAcceptedMessage.TYPE.equals(type)) {
 			throw new InvalidOrderMessageException(List.of("eventType is not a known Order event"));

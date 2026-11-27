@@ -14,4 +14,7 @@ public interface KitchenStatusHistoryRepository extends JpaRepository<KitchenSta
 
 	/** The change a command id has already caused in this restaurant, if any (tenant scoped). */
 	Optional<KitchenStatusHistory> findByRestaurantIdAndCommandId(UUID restaurantId, UUID commandId);
+
+	/** Has this order already changed because of this event of another service? */
+	boolean existsByRestaurantIdAndKitchenOrderIdAndSourceEventId(UUID restaurantId, UUID kitchenOrderId, UUID sourceEventId);
 }

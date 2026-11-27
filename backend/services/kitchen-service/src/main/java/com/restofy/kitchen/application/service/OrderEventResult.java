@@ -14,6 +14,10 @@ public enum OrderEventResult {
 	NEWER_VERSION_NOT_APPLIED,
 	/** A known Order event type that Kitchen cannot apply yet. */
 	UNSUPPORTED_EVENT_TYPE,
+	/** The order is not (yet) known to this restaurant's kitchen; nothing was changed. */
+	UNKNOWN_ORDER,
+	/** The decision cannot be applied to the kitchen order as it is now (open decision D-02); someone has to reconcile it. */
+	NEEDS_RECONCILIATION,
 	/** The content belongs to a restaurant other than the one the credential was signed for. */
 	RESTAURANT_MISMATCH
 }
