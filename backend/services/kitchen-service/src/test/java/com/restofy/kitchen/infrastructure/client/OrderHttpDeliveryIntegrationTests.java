@@ -15,8 +15,6 @@ import com.restofy.kitchen.support.OrderStubServer.Received;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,6 +22,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,6 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static com.restofy.kitchen.support.OrderMessages.simple;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -310,43 +312,80 @@ class OrderHttpDeliveryIntegrationTests {
 		assertEquals(order.received().get(0).body(), order.received().get(2).body());
 	}
 
-	@ParameterizedTest
-	@ValueSource(strings = {"APPLIED", "REJECTED"})
-	void theAnswerToACancellationRequestAcknowledgesItAndCancelsNothingInKitchen(String outcome) {
+	/**
+	 * The Order service cancels as soon as it receives a Kitchen request, and Kitchen cannot apply that answer yet. So a
+	 * request is never sent: it stays PENDING with no attempt used, and it does not hold up the other deliveries.
+	 */
+	@Test
+	void aCancellationRequestIsHeldAndNeverSentWhileItsAnswerCannotBeApplied() {
 		Ticket ticket = accepted();
-		UUID requestId = requestCancellation(ticket);
-		UUID id = deliveryId(ticket, CANCELLATION_EVENT);
+		requestCancellation(ticket);
+		UUID held = deliveryId(ticket, CANCELLATION_EVENT);
+		start(ticket);
 		Map<String, Object> before = business(ticket);
-		order.answerAlways(Answer.of(200, "{\"outcome\":\"" + outcome + "\",\"duplicate\":false,\"orderId\":\""
-				+ ticket.orderId() + "\",\"cancellationId\":\"" + UUID.randomUUID() + "\",\"scope\":\"FULL\",\"orderVersion\":7,"
-				+ "\"decidedAt\":\"" + Instant.now() + "\"}"));
 
-		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, sink()));
+		assertEquals(Optional.empty(), delivery.attempt(held, sink()));
+		assertEquals(1, delivery.deliverDue(sink(), 1), "the held one does not take the only slot of the batch");
 
-		Received sent = order.received().getFirst();
-		assertEquals("/api/v1/internal/order-events/kitchen-cancellation-request", sent.path());
-		assertEquals(eventId(id), sent.eventId());
-		assertEquals("KITCHEN_ERROR", sent.json().get("reasonCodes").get(0).stringValue());
-		assertTrue(!sent.body().contains("iç not") && !sent.body().contains(requestId.toString()));
+		assertEquals(List.of("/api/v1/internal/order-events/kitchen"), order.received().stream().map(Received::path).toList());
+		assertRow(held, "PENDING", 0, null);
+		assertTrue(((Timestamp) row(held).get("next_attempt_at")).toInstant().isBefore(Instant.now()), "not even claimed");
 		assertEquals(before, business(ticket));
-		assertEquals("WAITING", business(ticket).get("status"));
 		assertEquals("REQUESTED:-", business(ticket).get("requests"));
 	}
 
+	/** Another sink (here the test fake used for the port contract) still gets cancellation requests: the hold is the HTTP sink's. */
 	@Test
-	void aCancellationRequestKeepsItsEventIdOverRetries() {
+	void theHoldBelongsToTheHttpSinkOnly() {
 		Ticket ticket = accepted();
 		requestCancellation(ticket);
 		UUID id = deliveryId(ticket, CANCELLATION_EVENT);
-		order.answerAlways(Answer.lost());
-		delivery.attempt(id, sink());
-		makeDue(id);
+
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, (OrderEventSink) message -> OrderEventSink.Result.delivered()));
+	}
+
+	/** Operator requeue script (ops/requeue-order-delivery.sql) with the psql variables bound as parameters. */
+	private List<Map<String, Object>> requeue(UUID restaurant, UUID eventId) throws Exception {
+		String script = Files.readString(Path.of("ops", "requeue-order-delivery.sql"), StandardCharsets.UTF_8);
+		String sql = script.lines().filter(line -> !line.startsWith("--")).collect(Collectors.joining("\n"))
+				.replace(":'restaurant_id'", "?").replace(":'event_id'", "?").strip();
+		if (sql.endsWith(";")) {
+			sql = sql.substring(0, sql.length() - 1);
+		}
+		return jdbc.queryForList(sql, restaurant.toString(), eventId.toString());
+	}
+
+	@Test
+	void aFailedDeliveryCanBeRequeuedWithItsEventAndBodyAndIsThenDelivered() throws Exception {
+		Ticket ticket = accepted();
+		start(ticket);
+		UUID id = deliveryId(ticket, PREPARING_EVENT);
+		UUID event = UUID.fromString(eventId(id));
+		order.answerAlways(Answer.of(500, OrderStubServer.error("INTERNAL_ERROR")));
+		for (int attempt = 1; attempt <= 8; attempt++) {
+			makeDue(id);
+			delivery.attempt(id, sink());
+		}
+		assertRow(id, "FAILED", 8, "MAX_ATTEMPTS_EXCEEDED");
+		Map<String, Object> before = business(ticket);
+
+		assertTrue(requeue(UUID.randomUUID(), event).isEmpty(), "another restaurant's id matches nothing");
+		List<Map<String, Object>> requeued = requeue(ticket.restaurant(), event);
+
+		assertEquals(1, requeued.size());
+		assertEquals(8, requeued.getFirst().get("previous_attempt_count"));
+		assertEquals("MAX_ATTEMPTS_EXCEEDED", requeued.getFirst().get("previous_error_code"));
+		assertNotNull(requeued.getFirst().get("requeued_by"));
+		assertRow(id, "PENDING", 0, null);
+		assertTrue(requeue(ticket.restaurant(), event).isEmpty(), "only a FAILED delivery is requeued");
+
 		order.answerWith(OrderStubServer::acknowledge);
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED), delivery.attempt(id, sink()));
 
-		delivery.attempt(id, sink());
-
-		assertRow(id, "DELIVERED", 2, null);
-		assertEquals(order.received().get(0).body(), order.received().get(1).body());
+		assertRow(id, "DELIVERED", 1, null);
+		assertEquals(1, order.received().stream().map(Received::body).distinct().count(), "the same event and body every time");
+		assertEquals(before, business(ticket));
+		assertTrue(requeue(ticket.restaurant(), event).isEmpty(), "a delivered event is never requeued");
 	}
 
 	@Test
@@ -364,8 +403,9 @@ class OrderHttpDeliveryIntegrationTests {
 		assertRow(deliveryId(other, PREPARING_EVENT), "DELIVERED", 1, null);
 	}
 
+	/** A stored event never changes: it is marked FAILED once instead of being tried (and logged) every run. */
 	@Test
-	void aStoredEventThatCannotBeReadDoesNotStopTheOthers() {
+	void aStoredEventThatCannotBeReadFailsOnceAndDoesNotStopTheOthers() {
 		Ticket broken = accepted();
 		UUID brokenEvent = UUID.randomUUID();
 		UUID brokenDelivery = UUID.randomUUID();
@@ -379,14 +419,13 @@ class OrderHttpDeliveryIntegrationTests {
 				""", brokenDelivery, broken.restaurant(), brokenEvent);
 		Ticket healthy = accepted();
 		start(healthy);
-		try {
-			assertEquals(1, delivery.deliverDue(sink(), 20));
 
-			assertRow(deliveryId(healthy, PREPARING_EVENT), "DELIVERED", 1, null);
-			assertRow(brokenDelivery, "PENDING", 0, null);
-		} finally {
-			jdbc.update("UPDATE outbox_deliveries SET next_attempt_at = now() + interval '1 day' WHERE id = ?", brokenDelivery);
-		}
+		assertEquals(1, delivery.deliverDue(sink(), 20));
+
+		assertRow(deliveryId(healthy, PREPARING_EVENT), "DELIVERED", 1, null);
+		assertRow(brokenDelivery, "FAILED", 1, OutboxDeliveryService.UNREADABLE_EVENT);
+		assertEquals(1, order.received().size(), "the unreadable event is never sent");
+		assertEquals(0, delivery.deliverDue(sink(), 20));
 	}
 
 	@Test

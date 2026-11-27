@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +27,13 @@ public interface OutboxDeliveryRepository extends JpaRepository<OutboxDelivery, 
 	@Query("select d.id from OutboxDelivery d where d.status = com.restofy.kitchen.domain.enums.DeliveryStatus.PENDING "
 			+ "and d.destination = :destination and d.nextAttemptAt <= :now order by d.nextAttemptAt, d.id")
 	List<UUID> findDueIds(@Param("now") Instant now, @Param("destination") String destination, Pageable limit);
+
+	/** Same as {@link #findDueIds}, leaving out the deliveries of events of the given (non-empty) types. */
+	@Query("select d.id from OutboxDelivery d where d.status = com.restofy.kitchen.domain.enums.DeliveryStatus.PENDING "
+			+ "and d.destination = :destination and d.nextAttemptAt <= :now and not exists (select 1 from OutboxEvent e "
+			+ "where e.id = d.eventId and e.eventType in :held) order by d.nextAttemptAt, d.id")
+	List<UUID> findDueIdsExcept(@Param("now") Instant now, @Param("destination") String destination,
+			@Param("held") Collection<String> held, Pageable limit);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@QueryHints(@QueryHint(name = RowLocks.TIMEOUT_HINT, value = RowLocks.TIMEOUT_MILLIS))

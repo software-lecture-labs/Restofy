@@ -3,6 +3,8 @@ package com.restofy.kitchen.application.port;
 import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.domain.enums.DeliveryOutcome;
 
+import java.util.Set;
+
 /**
  * Boundary towards ONE other service that receives Kitchen's outbox events. A sink is bound to one destination, and the
  * delivery of an event to that destination is tracked on its own: another destination being down, slow or final changes
@@ -25,6 +27,14 @@ public interface EventSink {
 
 	/** The destination this sink serves; the delivery service never hands it a delivery meant for another one. */
 	String destination();
+
+	/**
+	 * Event types this sink must not be given yet. Their deliveries are not selected and not claimed: they stay PENDING,
+	 * use no attempt and do not take the place of other deliveries.
+	 */
+	default Set<String> heldEventTypes() {
+		return Set.of();
+	}
 
 	/** Result of one attempt; {@code errorCode} is a short, safe code (never a message, address or token). */
 	record Result(DeliveryOutcome outcome, String errorCode) {

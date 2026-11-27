@@ -35,9 +35,17 @@ import java.util.regex.Pattern;
  *
  * <p><b>An acknowledgement is not a business decision.</b> For a cancellation request the body also says whether the
  * Order service cancelled ({@code APPLIED}) or refused ({@code REJECTED}). Both mean the request arrived and was
- * handled, so both acknowledge the delivery. Kitchen does not apply that decision here (or anywhere yet).
+ * handled, so both acknowledge the delivery.
+ *
+ * <p><b>Cancellation requests are held.</b> The Order service decides a Kitchen request at once, and that answer is the
+ * only place the decision ever appears. Kitchen cannot apply it yet, so sending a request would cancel the order at the
+ * Order service while it stays active in the kitchen. Until the answer is validated and applied, this sink is never
+ * given a {@code KitchenCancellationRequested}: those deliveries stay PENDING (see {@link #heldEventTypes()}).
  */
 public class HttpOrderEventSink implements OrderEventSink {
+
+	/** Event types that are not sent; see the class comment. */
+	static final Set<String> HELD = Set.of(KitchenCancellationRequestedMessage.TYPE);
 
 	static final String STATUS_PATH = "/api/v1/internal/order-events/kitchen";
 	static final String CANCELLATION_REQUEST_PATH = "/api/v1/internal/order-events/kitchen-cancellation-request";
@@ -79,6 +87,11 @@ public class HttpOrderEventSink implements OrderEventSink {
 		this.client = client;
 		this.json = json;
 		this.credentials = credentials;
+	}
+
+	@Override
+	public Set<String> heldEventTypes() {
+		return HELD;
 	}
 
 	@Override

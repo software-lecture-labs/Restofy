@@ -17,8 +17,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -36,6 +38,8 @@ public class OutboxDeliveryService {
 	/** How long a claimed delivery stays invisible to other workers; after that it is due again (crashed worker). */
 	public static final Duration LEASE = Duration.ofSeconds(60);
 	private static final int MAX_ERROR_CODE = 80;
+	/** Code of a delivery whose stored event is of an unknown type or has an unreadable payload. */
+	public static final String UNREADABLE_EVENT = "UNREADABLE_EVENT";
 
 	private final OutboxDeliveryRepository deliveries;
 	private final OutboxEventRepository events;
@@ -63,12 +67,16 @@ public class OutboxDeliveryService {
 	}
 
 	/**
-	 * Attempts every delivery to the sink's destination that is due now, oldest first, at most {@code limit}. Returns the
-	 * attempts made. A delivery that cannot be processed here (unreadable event, lock or database problem) is left as it
-	 * is and does not stop the others.
+	 * Attempts every delivery to the sink's destination that is due now, oldest first, at most {@code limit}; deliveries
+	 * of the sink's held event types are left out. Returns the attempts made. A delivery that fails here for a lock or
+	 * database problem is left as it is and does not stop the others.
 	 */
 	public int deliverDue(EventSink sink, int limit) {
-		List<UUID> due = deliveries.findDueIds(clock.instant(), sink.destination(), PageRequest.of(0, limit));
+		Set<String> held = sink.heldEventTypes();
+		Instant now = clock.instant();
+		PageRequest page = PageRequest.of(0, limit);
+		List<UUID> due = held.isEmpty() ? deliveries.findDueIds(now, sink.destination(), page)
+				: deliveries.findDueIdsExcept(now, sink.destination(), held, page);
 		int attempts = 0;
 		for (UUID id : due) {
 			try {
@@ -84,11 +92,13 @@ public class OutboxDeliveryService {
 	}
 
 	/**
-	 * One attempt for one delivery. Empty if the delivery is not due, already final, or claimed by another worker
-	 * (the sink is not called). Otherwise returns the delivery's status after the result was recorded.
+	 * One attempt for one delivery. Empty if the delivery is not due, already final, claimed by another worker, or of an
+	 * event type the sink holds (the sink is not called and no attempt is counted). A stored event that cannot be read
+	 * is never sent: its delivery is marked FAILED ({@value #UNREADABLE_EVENT}) and the result is empty as well.
+	 * Otherwise returns the delivery's status after the result was recorded.
 	 */
 	public Optional<DeliveryStatus> attempt(UUID deliveryId, EventSink sink) {
-		Optional<OutboundMessage> message = tx.execute(status -> claim(deliveryId, sink.destination()));
+		Optional<OutboundMessage> message = tx.execute(status -> claim(deliveryId, sink));
 		if (message.isEmpty()) {
 			return Optional.empty();
 		}
@@ -97,13 +107,27 @@ public class OutboxDeliveryService {
 	}
 
 	/** A delivery is only ever handed to the sink of its own destination; for any other sink it is as if it were not there. */
-	private Optional<OutboundMessage> claim(UUID deliveryId, String destination) {
-		Optional<OutboxDelivery> found = deliveries.findForUpdate(deliveryId);
-		if (found.isEmpty() || !destination.equals(found.get().getDestination()) || !found.get().claim(clock.instant(), LEASE)) {
+	private Optional<OutboundMessage> claim(UUID deliveryId, EventSink sink) {
+		Instant now = clock.instant();
+		OutboxDelivery delivery = deliveries.findForUpdate(deliveryId).orElse(null);
+		if (delivery == null || !sink.destination().equals(delivery.getDestination()) || !delivery.isDue(now)) {
 			return Optional.empty();
 		}
-		OutboxEvent event = events.findById(found.get().getEventId()).orElseThrow();
-		return Optional.of(recorder.toMessage(event));
+		OutboxEvent event = events.findById(delivery.getEventId()).orElseThrow();
+		if (sink.heldEventTypes().contains(event.getEventType())) {
+			return Optional.empty();
+		}
+		OutboundMessage message;
+		try {
+			message = recorder.toMessage(event);
+		} catch (IllegalStateException e) {
+			// A stored event never changes, so trying again cannot help; FAILED makes it visible and requeueable.
+			delivery.recordAttempt(DeliveryOutcome.PERMANENT_FAILURE, UNREADABLE_EVENT, now);
+			log.error("Outbox delivery {} -> FAILED: stored event {} cannot be read", deliveryId, event.getId());
+			return Optional.empty();
+		}
+		delivery.claim(now, LEASE);
+		return Optional.of(message);
 	}
 
 	/** An exception, a missing or an inconsistent result is an unknown outcome: retry, never success. */
