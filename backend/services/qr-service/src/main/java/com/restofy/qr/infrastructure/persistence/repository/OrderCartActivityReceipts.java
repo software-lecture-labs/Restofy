@@ -8,6 +8,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HexFormat;
 
 @Repository
@@ -32,6 +35,20 @@ public class OrderCartActivityReceipts {
                 .param("eventId", event.eventId()).query(String.class).single();
         if (!digest.equals(stored)) { throw new TableSessionConflictException(); }
         return false;
+    }
+
+    /**
+     * Deletes up to {@code limit} receipts accepted before {@code cutoff}, oldest first. Rows another run has locked are
+     * skipped, so concurrent runs are safe and a second run simply finds nothing left.
+     *
+     * @return the number of deleted receipts
+     */
+    public int purgeReceivedBefore(Instant cutoff, int limit) {
+        return jdbc.sql("""
+                DELETE FROM order_cart_activity_receipts WHERE event_id IN (
+                    SELECT event_id FROM order_cart_activity_receipts WHERE received_at < :cutoff
+                    ORDER BY received_at LIMIT :limit FOR UPDATE SKIP LOCKED)
+                """).param("cutoff", OffsetDateTime.ofInstant(cutoff, ZoneOffset.UTC)).param("limit", limit).update();
     }
 
     private String digest(OrderCartActivity event) {

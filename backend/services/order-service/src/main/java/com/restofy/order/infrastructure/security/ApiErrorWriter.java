@@ -18,6 +18,8 @@ import java.nio.charset.StandardCharsets;
 public class ApiErrorWriter {
     static final String GUEST_SCHEME = "GuestSession";
     static final String STAFF_SCHEME = "Staff";
+    /** Staff authenticated by the Auth Service access cookie (order-auth profile). */
+    static final String STAFF_SESSION_SCHEME = "StaffSession";
     static final String SERVICE_SCHEME = "Service";
 
     private final JsonMapper jsonMapper;

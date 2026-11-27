@@ -35,7 +35,7 @@ public class GuestCookies {
 
     /**
      * New guest: HttpOnly credential plus the CSRF proof. The proof is returned for the response body because the
-     * frontend page cannot read a cookie set by the API host or scoped to Path=/api/v1.
+     * frontend page cannot read a cookie scoped to Path=/api/v1: the page itself lives under other paths.
      */
     public String issue(HttpServletResponse response, String guestToken) {
         String csrf = newCsrf();

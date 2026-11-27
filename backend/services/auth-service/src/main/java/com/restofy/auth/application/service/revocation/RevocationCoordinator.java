@@ -44,7 +44,7 @@ public class RevocationCoordinator {
             transactions.recordAcknowledgement(id, receipt);
             stage = "FINALIZE";
             transactions.finalizeOperation(id);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException _) {
             log.warn("Q5 operation pending operation={} stage={}", id, stage);
             // PREPARE/ACK survives. Never imply completion or undo a possibly committed QR fence.
             throw pending();

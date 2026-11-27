@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
-@Profile("(dev | test) & !prod")
+@Profile("(dev | test) & !prod & !order-auth")
 public class InMemoryAuthContextAdapter implements AuthContextPort {
 
     private final Map<String, StaffActor> staff = new ConcurrentHashMap<>();

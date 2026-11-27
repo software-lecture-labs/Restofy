@@ -31,3 +31,18 @@ Araç **yeni kurulum** içindir; anahtar rotasyonu yapmaz. Mevcut MFA anahtarın
 kayıtlı sırları okunamaz hâle getirebilir. Var olan sırları koruyun; yalnız ihtiyaç duyulan
 alanları kendi Git dışı ENV dosyanıza güvenli biçimde aktarın. Paylaşılan restoran UUID'si,
 bootstrap parolaları ve SMTP ayarları üretilmez; mevcut kurulum kararlarına göre ayrıca belirlenir.
+
+## Gateway adresi (AUTH_TRUSTED_PROXY_CIDRS)
+
+Auth, istemci adresini yalnız güvenilen Gateway'den gelen `X-Forwarded-For` ile okur. Liste boşsa
+başlık yok sayılır ve herkes Gateway adresi olarak görünür; rate limit bu yüzden tek kovaya düşer. Girişteki
+adres başına toplam bütçe (100/15 dk) bu durumda herkesi birlikte kilitleyeceği için uygulanmaz.
+
+Docker Compose'ta ek ayar gerekmez: `restofy_network` sabit `10.213.0.0/24` subnet'ini kullanır,
+Gateway'in adresi `10.213.0.10`'dur ve `AUTH_TRUSTED_PROXY_CIDRS` varsayılan olarak `10.213.0.10/32`'dir.
+
+- ENV dosyanızda eski bir `AUTH_TRUSTED_PROXY_CIDRS=...` satırı varsa varsayılanı ezer; silin.
+- Ağ tanımı değiştiği için ilk seferde bir kez `docker compose down` (**`-v` olmadan**, veriler kalır) ve
+  ardından `docker compose up -d` gerekir; Docker ağı yeni subnet'le yeniden oluşturur.
+- Yalnız Gateway'in tek adresi yazılmalıdır, tüm Docker ağı değil: ağdaki her container güvenilir olurdu.
+  `0.0.0.0/0` ve `::/0` Auth tarafından reddedilir. PROD'da da sabit bir Gateway adresi kullanın.

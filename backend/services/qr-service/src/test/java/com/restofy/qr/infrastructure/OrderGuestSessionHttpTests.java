@@ -29,6 +29,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -91,6 +92,23 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         jdbc.update("UPDATE table_sessions SET status='CLOSING', closing_at=now() WHERE id=?", guest.sessionId());
         assertState(guest, "CLOSED");
         assertThat(call(POST, VALIDATE, body).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void everyGuestRefusalCarriesTheSameStableCodeAndKeepsItsDetail() throws Exception {
+        var closed = fixture(TENANT, 120);
+        jdbc.update("UPDATE table_sessions SET status='CLOSING', closing_at=now() WHERE id=?", closed.sessionId());
+        var refusals = List.of(
+                call(POST, VALIDATE, tokenBody("a".repeat(43))),
+                call(POST, VALIDATE, tokenBody(fixture(UUID.randomUUID(), 120).token())),
+                call(POST, VALIDATE, tokenBody(closed.token())),
+                call(GET, statePath(closed.sessionId(), UUID.randomUUID()), EMPTY));
+        for (var refusal : refusals) {
+            assertThat(refusal.statusCode()).isEqualTo(404);
+            var problem = json.readTree(refusal.body());
+            assertThat(problem.get("code").asString()).isEqualTo("GUEST_SESSION_UNAVAILABLE");
+            assertThat(problem.get("detail").asString()).isEqualTo("Guest session is unavailable.");
+        }
     }
 
     @Test
@@ -166,6 +184,11 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         assertThat(call(POST, ACTIVITY, body).statusCode()).isEqualTo(204);
         assertThat(guestVersion(guest.guestId())).isEqualTo(revision);
         assertThat(receipts(event.eventId())).isEqualTo(1);
+        // The receipt remembers when QR first accepted the event; a replay never moves that time.
+        var firstReceived = receivedAt(event.eventId());
+        assertThat(firstReceived).isNotNull();
+        assertThat(call(POST, ACTIVITY, body).statusCode()).isEqualTo(204);
+        assertThat(receivedAt(event.eventId())).isEqualTo(firstReceived);
         var changed = body.replace("ITEM_ADDED", "ITEM_REMOVED");
         assertThat(call(POST, ACTIVITY, changed).statusCode()).isEqualTo(409);
         assertThat(call(POST, ACTIVITY, json.writeValueAsString(activity(guest, occurredAt.minusSeconds(1)))).statusCode())
@@ -249,6 +272,10 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
 
     private int receipts(UUID id) {
         return jdbc.queryForObject("SELECT count(*) FROM order_cart_activity_receipts WHERE event_id=?", Integer.class, id);
+    }
+
+    private Timestamp receivedAt(UUID id) {
+        return jdbc.queryForObject("SELECT received_at FROM order_cart_activity_receipts WHERE event_id=?", Timestamp.class, id);
     }
 
     private void assertState(Guest guest, String expected) throws Exception {

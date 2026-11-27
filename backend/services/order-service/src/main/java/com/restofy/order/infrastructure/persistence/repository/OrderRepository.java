@@ -1,6 +1,7 @@
 package com.restofy.order.infrastructure.persistence.repository;
 
 import com.restofy.order.domain.entity.Order;
+import com.restofy.order.domain.enums.FulfillmentStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,6 +23,24 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
 
         Long getUnits();
     }
+
+    /** Orders of one fulfillment-status set per table session, as counted by {@link #countBySession}. */
+    interface SessionOrderCount {
+        UUID getTableSessionId();
+        Long getOrderCount();
+    }
+
+    /**
+     * Orders per table session of ONE restaurant whose fulfillment status is one of the given ones, for many sessions in
+     * one query (uses ix_orders_table_session). The restaurant is part of the predicate, so a session id of another
+     * restaurant counts nothing.
+     */
+    @Query("select o.tableSessionId as tableSessionId, count(o) as orderCount from Order o"
+            + " where o.restaurantId = :restaurantId and o.tableSessionId in :tableSessionIds"
+            + " and o.fulfillmentStatus in :statuses group by o.tableSessionId")
+    List<SessionOrderCount> countBySession(@Param("restaurantId") UUID restaurantId,
+                                           @Param("tableSessionIds") Collection<UUID> tableSessionIds,
+                                           @Param("statuses") Collection<FulfillmentStatus> statuses);
 
     @Query("select i.order.id as orderId, sum(i.orderedQuantity - i.cancelledQuantity) as units from OrderItem i"
             + " where i.order.id in :orderIds group by i.order.id")

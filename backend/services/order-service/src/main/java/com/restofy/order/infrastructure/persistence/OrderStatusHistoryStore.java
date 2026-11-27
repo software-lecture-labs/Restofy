@@ -2,13 +2,17 @@ package com.restofy.order.infrastructure.persistence;
 
 import com.restofy.order.domain.history.ChangeActor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -31,9 +35,11 @@ public class OrderStatusHistoryStore {
     }
 
     private final JdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate namedJdbc;
 
     public OrderStatusHistoryStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+        this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -60,5 +66,25 @@ public class OrderStatusHistoryStore {
                 rs.getString("to_status"), ChangeActor.Type.valueOf(rs.getString("actor_type")),
                 rs.getString("actor_id"), rs.getString("actor_role"), rs.getString("source"), rs.getString("reason"),
                 rs.getTimestamp("occurred_at").toInstant()), restaurantId, orderId);
+    }
+
+    /** Gets the original SERVED transition for the requested orders in one tenant-scoped read. */
+    public Map<UUID, Instant> servedTimes(UUID restaurantId, Collection<UUID> orderIds) {
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return namedJdbc.query("""
+                SELECT order_id, MIN(occurred_at) AS served_at
+                FROM order_status_history
+                WHERE restaurant_id = :restaurantId AND order_id IN (:orderIds)
+                  AND state_axis = 'FULFILLMENT' AND to_status = 'SERVED'
+                GROUP BY order_id
+                """, Map.of("restaurantId", restaurantId, "orderIds", orderIds), rs -> {
+            Map<UUID, Instant> result = new HashMap<>();
+            while (rs.next()) {
+                result.put(rs.getObject("order_id", UUID.class), rs.getTimestamp("served_at").toInstant());
+            }
+            return result;
+        });
     }
 }

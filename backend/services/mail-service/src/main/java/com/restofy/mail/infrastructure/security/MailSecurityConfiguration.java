@@ -23,7 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration(proxyBeanMethods = false)
 public class MailSecurityConfiguration {
-    public static final String JOB_PATH = "/internal/api/v1/mail/password-reset-jobs";
+    public static final String JOB_PATH = "/internal/api/v1/mail/password-reset-jobs"; // NOSONAR java:S1075 route
     private static final String BEARER_PREFIX = "Bearer ";
 
     @Bean
@@ -35,7 +35,8 @@ public class MailSecurityConfiguration {
 
     @Bean
     SecurityFilterChain mailSecurityFilterChain(HttpSecurity http, MailServiceTokens tokens) {
-        return http.csrf(csrf -> csrf.ignoringRequestMatchers(JOB_PATH))
+        // CSRF is skipped only for the service-to-service job path: no session or cookie, every call needs a service token.
+        return http.csrf(csrf -> csrf.ignoringRequestMatchers(JOB_PATH)) // NOSONAR java:S4502
                 .addFilterBefore(new ServiceFilter(tokens), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/liveness",

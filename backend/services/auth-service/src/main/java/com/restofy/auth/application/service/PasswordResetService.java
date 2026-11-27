@@ -132,7 +132,7 @@ public class PasswordResetService {
         if (passwords.matches(password, user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         }
-        sessions.revokeForPasswordReset(user.getId(), request.id());
+        sessions.revokeForPasswordReset(user.getId());
         try {
         user.changePassword(passwords.hash(password), clock.instant());
         users.flush();

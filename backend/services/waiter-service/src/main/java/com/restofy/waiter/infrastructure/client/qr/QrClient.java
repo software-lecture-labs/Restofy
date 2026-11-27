@@ -194,7 +194,8 @@ public class QrClient {
      */
     private static boolean isUnavailableGuest(RestClientResponseException refusal) {
         if (refusal.getStatusCode().value() != HttpStatus.NOT_FOUND.value()) return false;
-        MediaType type = refusal.getResponseHeaders() == null ? null : refusal.getResponseHeaders().getContentType();
+        HttpHeaders headers = refusal.getResponseHeaders();
+        MediaType type = headers == null ? null : headers.getContentType();
         if (type == null || !MediaType.APPLICATION_PROBLEM_JSON.isCompatibleWith(type)) return false;
         try {
             JsonNode problem = REJECTION_JSON.readTree(refusal.getResponseBodyAsString());

@@ -57,15 +57,16 @@ public class StaffClosureService {
 
     @Transactional(propagation = Propagation.NEVER)
     public StaffClosureResponse status(UUID restaurantId, UUID tableId, UUID sessionId, UUID commandId, Origin origin) {
-        Staff actor = actor(origin);
-        if (!actor.restaurantId().equals(restaurantId)) { throw new AccessDeniedException("Staff closure context does not match."); }
-        var command = transitions.findCommand(actor.restaurantId(), commandId)
+        // A Waiter status read is read-only and carries the service credential alone: its tenant comes from that credential.
+        UUID tenant = origin == Origin.WAITER_SERVICE ? waiterAccess.requireServiceRestaurant() : actor(origin).restaurantId();
+        if (!tenant.equals(restaurantId)) { throw new AccessDeniedException("Staff closure context does not match."); }
+        var command = transitions.findCommand(tenant, commandId)
                 .orElseThrow(() -> new StaffClosureException(Code.COMMAND_NOT_FOUND));
         if (command.initiatedBy() == null || command.initiatedBy().origin() != origin
                 || !command.snapshot().tableId().equals(tableId) || !command.snapshot().sessionId().equals(sessionId)) {
             throw new StaffClosureException(Code.COMMAND_NOT_FOUND);
         }
-        return views.response(actor.restaurantId(), tableId, sessionId, commandId, false);
+        return views.response(tenant, tableId, sessionId, commandId, false);
     }
 
     private Staff actor(Origin origin) {

@@ -39,20 +39,20 @@ describe("role switcher", () => {
   ] as const)("%s moves from %s to %s", (key, from, to) => {
     const onChange = vi.fn();
     renderWithIntl(<RoleSwitcher value={from} onChange={onChange} />);
-    fireEvent.keyDown(screen.getByRole("tablist"), { key });
+    fireEvent.keyDown(screen.getByRole("tab", { selected: true }), { key });
     expect(onChange).toHaveBeenCalledWith(to);
   });
 
   it("ignores other keys", () => {
     const onChange = vi.fn();
     renderWithIntl(<RoleSwitcher value="ADMIN" onChange={onChange} />);
-    fireEvent.keyDown(screen.getByRole("tablist"), { key: "a" });
+    fireEvent.keyDown(screen.getByRole("tab", { selected: true }), { key: "a" });
     expect(onChange).not.toHaveBeenCalled();
   });
 
   it("moves focus to the newly selected tab", () => {
     renderWithIntl(<RoleSwitcher value="ADMIN" onChange={vi.fn()} />);
-    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("tab", { selected: true }), { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Garson" })).toHaveFocus();
   });
 });

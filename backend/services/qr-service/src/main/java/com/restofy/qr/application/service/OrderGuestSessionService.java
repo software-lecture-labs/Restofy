@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -39,9 +40,9 @@ public class OrderGuestSessionService {
     @Transactional(propagation = Propagation.NEVER)
     public StateResponse state(UUID restaurantId, UUID sessionId, UUID guestId) {
         var local = transaction.execute(status -> state(restaurantId, sessionId, guestId, null));
-        if (local != null) { return local; }
+        if (local.isPresent()) { return local.get(); }
         var evidence = protection.inspect(restaurantId, sessionId);
-        return transaction.execute(status -> state(restaurantId, sessionId, guestId, evidence));
+        return transaction.execute(status -> state(restaurantId, sessionId, guestId, evidence)).orElseThrow();
     }
 
     @Transactional(propagation = Propagation.NEVER)
@@ -52,12 +53,12 @@ public class OrderGuestSessionService {
         transaction.execute(status -> recordCartActivity(restaurantId, event, evidence));
     }
 
-    /** Null evidence means Order was not asked: returns null, writing nothing, when local timers cannot decide. */
-    private StateResponse state(UUID restaurantId, UUID sessionId, UUID guestId, OrderSessionState evidence) {
+    /** Null evidence means Order was not asked: returns empty, writing nothing, when local timers cannot decide. */
+    private Optional<StateResponse> state(UUID restaurantId, UUID sessionId, UUID guestId, OrderSessionState evidence) {
         var locked = lockGuest(restaurantId, sessionId, guestId);
-        if (evidence == null && OrderGuestSessionState.needsOrder(locked)) { return null; }
-        return new StateResponse(OrderGuestSessionState.assess(locked, orUnknown(evidence, restaurantId, sessionId), protection)
-                .name(), locked.parent().checkedAt());
+        if (evidence == null && OrderGuestSessionState.needsOrder(locked)) { return Optional.empty(); }
+        return Optional.of(new StateResponse(OrderGuestSessionState.assess(locked, orUnknown(evidence, restaurantId, sessionId), protection)
+                .name(), locked.parent().checkedAt()));
     }
 
     /** Same contract as {@link #state}: false, before the receipt is written, when Order must be asked first. */

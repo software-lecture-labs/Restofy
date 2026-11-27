@@ -55,7 +55,7 @@ public class GuestSessionActivityController {
             description = "HTTP stays closed until the rate-limit change. Requires the HttpOnly guest cookie; Origin is " +
                     "optional (browsers omit it on same-origin GET) but must be allowed when present. The guest is " +
                     "verified against the server. The frontend cannot read the CSRF cookie " +
-                    "(API host, Path=/api/v1), so the value is returned here and sent back as X-Guest-CSRF. Does not " +
+                    "because its Path=/api/v1 does not cover the page paths, so the value is returned here and sent back as X-Guest-CSRF. Does not " +
                     "renew any idle window. An unusable guest gets the generic 404 and its cookies are cleared.")
     public ResponseEntity<GuestCsrfResponse> csrf(HttpServletRequest request, HttpServletResponse response) {
         try {
