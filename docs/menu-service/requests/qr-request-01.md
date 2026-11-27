@@ -8,7 +8,7 @@
 | **Talep eden** | Menu Service (Merve) |
 | **İlgili servis ve ekip** | QR Service (Alper). Madde 4 servis kimliği olduğu için Auth (Kerem); madde 6 restoran kaydı olduğu için Admin (Umut) |
 | **Bağlı PDA görevi** | MENU-INT-04 — Public Menu restoran doğrulama entegrasyonu |
-| **Durum** | **Karar bekliyor.** Menu'da QR doğrulamasına hazır altyapı var ([ADR-MENU-008](../../decisions/ADR-MENU-008-public-menu-guest-oturum-baglami.md)) ama QR'a gerçek bağlantı yok; üretimde her müşteri isteği hâlâ 404 döner. MENU-INT-04 **KISMİ** |
+| **Durum** | **QR yanıtladı (PR #65, `dev`'de); Menu tarafındaki gerçek istemci MENU-INT-04 ile eklendi** ([ADR-MENU-008](../../decisions/ADR-MENU-008-public-menu-guest-oturum-baglami.md)). Üretimde bağlantı, Menu'nun kendi anahtarı tanımlanana kadar **kapalıdır** (her müşteri isteği 404); ENV ve Compose bağlantısı ayrıca onay bekliyor |
 
 Bu belge bir taleptir. QR, Admin ve Auth kodunda değişiklik içermez. Aynı PR'da Menu'da yalnız karardan bağımsız altyapı vardır (ADR-MENU-008); QR çağrısı, servis kimliği ve QR'sız menü eklenmemiştir. Etiketler: **[DOĞRULANDI]** koddan veya belgeden okunan gerçek, **[ÖNERİ]** Menu'nun teklifi (onaylı değil), **[AÇIK]** karar bekleyen konu.
 
@@ -176,3 +176,24 @@ Hiçbirinde menü verisi dönmez. Doğrulama reddi olan 404 senaryolarında ayn�
 - QR'ın müşteri yolları kapalıdır; ortak ortamda uçtan uca deneme yapılamaz.
 - Çok restoranlı çalışma için restoran kaydı yoktur.
 - Menu'nun doğrulayıcı portu ve fail-closed altyapısı hazırdır (ADR-MENU-008). QR'a gerçek istemci kararlardan sonra yazılır; ADR-MENU-001 o zaman güncellenir.
+
+## 11. QR yanıtı ve MENU-INT-04 sonucu (27 Kasım 2026)
+
+Kaynak: Alper'in PR #55 yorumları, PR #65 (`dev`, `68059b3`), `docs/qr/entegrasyon-rehberi.md` "Menu guest doğrulaması" ve QR kodu
+(`MenuCallerFilter`, `MenuGuestSessionController`). Kerem (Auth) PR #65'te "itirazım yok" yazdı; **D-09'un son kararı hocadadır**.
+
+| # | Soru (9. bölüm) | Yanıt ve Menu'nun uygulaması |
+|---|---|---|
+| 1 | Model | Guest çerezi + iç doğrulama (A) benimsendi. Menu çerezi **yalnız QR'a sormak için** okur |
+| 2 | Ortak uç | Menu'ya **ayrı** uç: `POST /api/v1/internal/qr/menu/guest-sessions/validate`. Order/Waiter ucu değişmedi |
+| 3 | Servis kimliği | Menu kendi RSA anahtarıyla imzalar (`iss=restofy-menu`, `sub=menu-service`, `scope=qr:menu-guest-validate`); Auth araya girmez. Menu'da uygulandı |
+| 4 | Restoran semantiği | Token-only: **`restaurant_id` claim'i yoktur** (varsa 403). QR, guest kaydının restoranını döner ve kendi `AUTH_RESTAURANT_ID` değeriyle eşleştirir. Menu yalnız bu yanıttan restoran alır |
+| 5 | Yanıt kapsamı | Dar: yalnız `restaurantId` ve `state`, `Cache-Control: no-store`. Menu fazladan alanları yok sayar |
+| 6 | Order bağımlılığı | **Var, bağımsız değil:** yerel süreler ACTIVE'i kanıtlayamazsa QR Order'a sorar; kanıt yoksa 503. Gerçek QR'da Order bağlı değilken süresi dolmuş oturum **503** verdi (Menu 503, fail-closed) |
+| 7 | Hata ve hız sınırı | 404 `GUEST_SESSION_UNAVAILABLE`; 401/403 kimlik; 429 K7 ile gelecek; 5xx/503. Menu: yalnız **kodlu 404** ret, geri kalan her şey 503. `Retry-After` kullanılmaz |
+| 8 | Zaman aşımı, yeniden deneme, önbellek | Menu: bağlantı 2 sn, okuma 3 sn, **yeniden deneme ve önbellek yok** (QR rehberiyle uyumlu) |
+| 9 | Rotate | Mevcut davranış: rotate açık oturumları kapatmaz; eski QR'dan açılmış canlı oturum menüyü görmeye devam eder |
+| 10 | Çerez tüketimi | QR rehberi (§ Çerez) Menu'nun çerezi **yalnız bu çağrı için** kullanmasını, loglamamasını, saklamamasını ve önbelleğe almamasını ister. Menu böyle yapar (testli); ADR-QR-002 §3'ün resmi onayı QR'dadır |
+| 11 | Açılış zamanı | Uç hazır. Tarayıcıdan uçtan uca akış, QR misafir yollarının K7 hız sınırıyla açılmasına bağlı |
+
+**Hâlâ açık:** (a) D-09'un hoca onayı; (b) Menu için `MENU_QR_CALLER_KEY_ID` ve `MENU_QR_CALLER_PRIVATE_KEY` ENV'lerinin onayı ve Compose'a aktarımı (Alper; bu iş ortak dosyalara dokunmadı); (c) açık anahtarın `QR_MENU_CALLER_PUBLIC_KEYS` ile QR'a verilmesi ve rotasyon süreci; (d) Gateway'in `restofy_guest` çerezini Menu'ya taşıması ve K7 hız sınırı sonrası tarayıcı E2E; (e) Menu→QR çağrısı için hız sınırı bütçesi (QR 429).

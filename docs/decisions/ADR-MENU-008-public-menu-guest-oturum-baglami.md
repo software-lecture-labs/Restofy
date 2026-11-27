@@ -1,6 +1,6 @@
 # ADR-MENU-008 — Public menü: restoranın QR guest-oturum doğrulamasından alınması (altyapı)
 
-- **Durum:** Kabul edildi (altyapı, geliştirme aşaması). **QR'a gerçek bağlantı yok**: QR sözleşmesi ve servis kimliği (D-09) onaysız; üretimde her müşteri isteği hâlâ 404
+- **Durum:** Kabul edildi. QR sözleşmesi ve Menu servis kimliği PR #65 ile `dev`'de; **Menu tarafındaki gerçek QR istemcisi MENU-INT-04 ile eklendi** (anahtar yapılandırılmadıkça kapalı, üretimde ENV ve Compose bağlantısı ayrıca onay bekliyor)
 - **Tarih:** 2026-11-25 (MENU-INT-04)
 - **Sahip:** Menu (Merve); doğrulayıcı QR (Alper), servis kimliği Auth (Kerem)
 - **İlgili kod:** `GuestToken`, `GuestSessionVerification`, `GuestSessionVerifier`, `PublicGuestScopeInterceptor`, `GuestSessionRestaurantScopeResolver`, `NotConnectedGuestSessionVerifier`, `PublicGuestCookie`, `VerifiedGuestScope`, `PublicMenuWebConfiguration`
@@ -18,7 +18,7 @@
 4. **Çerez.** Yalnız `restofy_guest` adlı **tek** ve 43 karakterlik URL-safe çerez kimlik sayılır (ADR-QR-002 K3). Hiç, biçimsiz veya aynı isimli iki çerez "kimlik yok" demektir ve QR'a sorulmaz. Kimlik (`GuestToken`) metne çevrilince kendini gizler; yanıta, URL'ye, loga ve istisna metnine girmez.
 5. **QR'a gereksiz soru yok.** Kimlik yoksa veya URL referansı kanonik UUID değilse (hiçbir zaman doğrulanmış restoranla eşleşemez) QR'a sorulmaz.
 6. **HTTP eşlemesi.** `Verified` + eşleşen URL: menü (200). `Rejected`, kimlik yok, eşleşmeyen veya biçimsiz referans: ADR-MENU-001'deki aynı 404. `Unavailable`: `503`, sabit metin, `no-store`, **hiçbir menü verisi ve önbellek yok**; 404 ile karıştırılmaz.
-7. **Üretim varsayılanı bağlı değil.** `NotConnectedGuestSessionVerifier` her kimliği `Rejected` yapar. Yani QR bağlanana kadar hiçbir şey doğrulanmaz ve eski `DenyAll` çözümleyicinin davranışı (her müşteri isteği 404) aynen sürer. `PublicGuestSessionProductionWiringTests` bunun bekçisidir: iyi biçimli çerez ve restoranın gerçek UUID'siyle bile 404.
+7. **Üretim varsayılanı bağlı değil; gerçek istemci yalnız anahtar tanımlıysa devreye girer.** `NotConnectedGuestSessionVerifier` her kimliği `Rejected` yapar. Yani QR bağlanana kadar hiçbir şey doğrulanmaz ve eski `DenyAll` çözümleyicinin davranışı (her müşteri isteği 404) aynen sürer. `PublicGuestSessionProductionWiringTests` bunun bekçisidir: iyi biçimli çerez ve restoranın gerçek UUID'siyle bile 404.
 8. **Güvenlik zinciri değişmedi.** `MenuSecurityConfiguration` (müşteri zinciri yalnız `GET`) ve yönetim uçları olduğu gibidir; interceptor yönetim uçlarına uygulanmaz ve guest çerezi yönetim yetkisi vermez.
 
 ## Seçenekler
@@ -49,3 +49,33 @@
 | QR'a gerçek istemci | **Bekliyor** (QR sözleşmesi + D-09) |
 | Müşteri endpoint'lerinin gerçek restoranla çalışması | **Bekliyor** (üretimde 404) |
 | Çerezin Gateway'den Menu'ya taşınması, ortak ortamda uçtan uca deneme | Doğrulanmadı |
+
+## MENU-INT-04 güncellemesi (27 Kasım 2026): gerçek QR istemcisi
+
+QR tarafı PR #65 ile `dev`'e girdi (Alper; Auth tarafından "itirazım yok", D-09'un son kararı hocada). Menu tarafında
+`GuestSessionVerifier` portuna gerçek HTTP istemcisi bağlandı. Önceki karar maddeleri (üç sonuç, web katmanında doğrulama,
+restoranı yalnız doğrulanmış sonucun belirlemesi, 404/503 ayrımı) **değişmedi**; yalnız doğrulayıcının gerçeği değişti.
+
+| Konu | Karar |
+|---|---|
+| Uç | `POST /api/v1/internal/qr/menu/guest-sessions/validate`, gövde `{"guestToken":"<43 karakter>"}` (QR sözleşmesi, `docs/qr/entegrasyon-rehberi.md`) |
+| Kimlik | Menu'nun **kendi** RSA anahtarıyla `Authorization: Service <JWT>`: RS256 + `kid`, `iss=restofy-menu`, `sub=menu-service`, `aud=["restofy-qr"]`, `token_type=service`, `scope=qr:menu-guest-validate`, UUID `jti`, `iat==nbf`, ömür ≤ 30 sn, `method`/`target`/`body_sha256`. **`restaurant_id` claim'i yoktur** (QR taşıyan token'ı 403 ile reddeder). `iat` saat farkına karşı 5 sn geriye alınır |
+| Gönderilmeyenler | `Cookie`, `Origin`, `Content-Encoding`, istemci başlıkları, restoran. İstek yalnız bu iki başlık ve JSON gövdeyle gider |
+| Sonuç eşlemesi | `200` + `state=ACTIVE` + gerçek restoran kimliği: `Verified`. `404` **ve** `code=GUEST_SESSION_UNAVAILABLE` (`application/problem+json`): `Rejected`. Başka her şey `Unavailable` (503): `400/401/403/429/5xx`, kodsuz `404`, yönlendirme (izlenmez), zaman aşımı, bağlantı hatası, bozuk/büyük/yanlış türde gövde. Yeniden deneme ve önbellek yok |
+| Kanal | HTTPS kaynağı; düz HTTP yalnız `localhost`/`127.0.0.1`/`[::1]` (guest token gövdede gider). Yol, sorgu, kullanıcı bilgisi, parça yok |
+| Zaman aşımı | Bağlantı 2 sn, okuma 3 sn (yapılandırma özelliği, ENV değil) |
+| Açma | `MENU_QR_CALLER_PRIVATE_KEY` boşsa bağlantı **kapalı** (her müşteri isteği 404, eski davranış). Doluysa `QR_SERVICE_URL`, `MENU_QR_CALLER_KEY_ID` ve anahtar geçerli olmalı, değilse uygulama **başlangıçta durur**; hata ayar adını söyler, değeri asla göstermez |
+| Sırlar | Guest token ve imzalı kimlik hiçbir log satırına, istisna metnine, yanıta veya URL'ye girmez; hata yalnız sınıf adıyla loglanır |
+
+**Yeni ENV (onay ve Compose bağlantısı bekliyor):** `MENU_QR_CALLER_KEY_ID` ve `MENU_QR_CALLER_PRIVATE_KEY` (Base64 PKCS#8 RSA ≥ 2048 bit);
+`QR_SERVICE_URL` mevcut değişkendir. QR'a eşleşen **açık** anahtar `QR_MENU_CALLER_PUBLIC_KEYS` ile verilir. Bu iş `.env.example`,
+`docker-compose.yml` veya ortak yapılandırmaya **dokunmadı**; Menu servisine ENV aktarımı Alper'in ortak dosyalarındadır.
+
+### Doğrulama kapsamı (abartılmadan)
+
+| Seviye | Ne yapıldı |
+|---|---|
+| Birim ve sözleşme testleri | İmzalayıcı, istemci (her yanıt ve hata yolu), yapılandırma, log sızıntısı; QR'ın `MenuCallerFilter` kurallarını kaynak koddan yeniden uygulayan **sözleşme sunucusuna** karşı. Bunlar **E2E değildir** |
+| Tam zincir testi | Çerez, interceptor, gerçek HTTP istemci, çözümleyici, PostgreSQL menü okuması; QR yerine aynı sözleşme sunucusu |
+| **Gerçek iki servis** | QR (`dev`, `qr-order-inbound` profili) ve Menu iki ayrı süreç olarak, atılabilir PostgreSQL ve üretilmiş test anahtarlarıyla yerelde çalıştırıldı; curl ile 26 çağrı (geçerli oturum, iki restoran izolasyonu, kapalı/bitmiş/süresi dolmuş/bilinmeyen oturum, sahte başlık ve parametre, QR kesintisi ve dönüşü, QR'ın tanımadığı anahtar, bağlantı kapalıyken varsayılan). Süreçler ve anahtarlar silindi |
+| Yapılmayan | Tarayıcı, Gateway ve Compose üzerinden uçtan uca akış (QR misafir yolları K7 hız sınırıyla henüz açılmadı); QR'ın Order'a sorduğu sınır durumu (Order bağlı değilken 503 gözlendi) |
