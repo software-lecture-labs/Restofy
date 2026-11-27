@@ -98,6 +98,17 @@ class CartAddRemoveApiTests extends AbstractCartApiTest {
     }
 
     @Test
+    void aKnownProductWithoutAnExactPriceCannotBeAdded() throws Exception {
+        var burger = DevFixtures.burgerSnapshot();
+        menu.put(DevFixtures.RESTAURANT_A, new ProductSnapshot(burger.productId(), burger.name(), true, true,
+                burger.currency(), null, burger.taxRateBps(), burger.options(), null));
+
+        addItem(A1, product(DevFixtures.BURGER, 1)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PRODUCT_UNAVAILABLE"));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM carts", Integer.class));
+    }
+
+    @Test
     void clientSuppliedPriceOrIdentityFieldsAreRejected() throws Exception {
         for (String extraField : List.of("\"unitPrice\": 1", "\"price\": 1", "\"restaurantId\": \"" + UUID.randomUUID() + "\"",
                 "\"guestSessionId\": \"" + UUID.randomUUID() + "\"", "\"taxRateBps\": 0")) {

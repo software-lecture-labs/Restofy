@@ -46,7 +46,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
 
     QrSessionHttpAdapter(@Value("${QR_SERVICE_URL:}") String base, OrderQrRequestSigner signer,
                          RestClient.Builder client, JsonMapper json, Clock clock) {
-        this.base = httpsOrigin(base);
+        this.base = httpsOrigin(base, "QR_SERVICE_URL", "order-qr");
         this.signer = signer;
         this.http = client.build();
         this.json = json;
@@ -156,7 +156,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
         return body.length == 0 ? request : request.contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
-    private static URI httpsOrigin(String value) {
+    static URI httpsOrigin(String value, String property, String profile) {
         try {
             URI candidate = URI.create(value);
             if ("https".equalsIgnoreCase(candidate.getScheme()) && candidate.getHost() != null
@@ -169,7 +169,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
         } catch (IllegalArgumentException _) {
             // Do not include an invalid URL that could contain credentials in a startup error.
         }
-        throw new IllegalStateException("QR_SERVICE_URL must be an HTTPS origin for order-qr");
+        throw new IllegalStateException(property + " must be an HTTPS origin for " + profile);
     }
 
     private static BusinessException unavailable() {

@@ -16,13 +16,14 @@ import java.util.UUID;
  *                     the cart reconciliation so a changed version is a changed price even if the amounts look equal
  */
 public record ProductSnapshot(UUID productId, String name, boolean published, boolean available, String currency,
-                              long basePriceGrossMinor, Integer taxRateBps, List<ProductOption> options,
+                              Long basePriceGrossMinor, Integer taxRateBps, List<ProductOption> options,
                               String priceVersion) {
 
     /** A snapshot from a catalog that does not provide a price version (the Menu Service does not yet). */
     public ProductSnapshot(UUID productId, String name, boolean published, boolean available, String currency,
                            long basePriceGrossMinor, Integer taxRateBps, List<ProductOption> options) {
-        this(productId, name, published, available, currency, basePriceGrossMinor, taxRateBps, options, null);
+        this(productId, name, published, available, currency, Long.valueOf(basePriceGrossMinor), taxRateBps,
+                options, null);
     }
 
     /** Upper bound for any single catalog amount; keeps line/total arithmetic far from long overflow. */
@@ -40,7 +41,7 @@ public record ProductSnapshot(UUID productId, String name, boolean published, bo
         if (!MoneyConverter.isCanonicalCurrency(currency)) {
             throw new IllegalArgumentException("currency must be a supported upper-case ISO 4217 code");
         }
-        if (basePriceGrossMinor < 0 || basePriceGrossMinor > MAX_AMOUNT_MINOR) {
+        if (basePriceGrossMinor != null && (basePriceGrossMinor < 0 || basePriceGrossMinor > MAX_AMOUNT_MINOR)) {
             throw new IllegalArgumentException("price must be within 0.." + MAX_AMOUNT_MINOR);
         }
         if (taxRateBps != null && (taxRateBps < 0 || taxRateBps > MoneyConverter.BPS_BASE)) {
@@ -54,7 +55,7 @@ public record ProductSnapshot(UUID productId, String name, boolean published, bo
     }
 
     public boolean sellable() {
-        return published && available;
+        return published && available && basePriceGrossMinor != null;
     }
 
     /**

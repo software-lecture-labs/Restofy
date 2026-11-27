@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
-@Profile("(dev | test) & !prod")
+@Profile("(dev | test) & !prod & !order-menu")
 public class InMemoryMenuCatalogAdapter implements MenuCatalogPort {
 
     private final Map<UUID, Map<UUID, ProductSnapshot>> catalogByRestaurant = new ConcurrentHashMap<>();
