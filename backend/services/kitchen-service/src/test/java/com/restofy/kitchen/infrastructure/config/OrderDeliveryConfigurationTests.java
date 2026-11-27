@@ -2,6 +2,7 @@ package com.restofy.kitchen.infrastructure.config;
 
 import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
+import com.restofy.kitchen.infrastructure.client.OrderRequestSigner;
 import com.restofy.kitchen.infrastructure.client.OrderServiceCredentials;
 import com.restofy.kitchen.infrastructure.messaging.OrderDeliveryDispatcher;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,14 +29,31 @@ import static org.mockito.Mockito.mock;
 /** The Order delivery exists only with its profile, and the profile starts only with a safe, complete configuration. */
 class OrderDeliveryConfigurationTests {
 
+	/** A signing key made for this test run only. */
+	private static final String SIGNING_KEY = generatedKey();
+
 	private final ApplicationContextRunner application = new ApplicationContextRunner()
 			.withUserConfiguration(OrderDeliveryConfiguration.class)
 			.withBean(JsonMapper.class, () -> JsonMapper.builder().build())
+			.withBean(Clock.class, Clock::systemUTC)
 			.withBean(OutboxDeliveryService.class, () -> mock(OutboxDeliveryService.class))
 			.withPropertyValues("ORDER_SERVICE_URL=https://order.internal.example", "restofy.rest-client.connect-timeout-ms=3000",
 					"restofy.rest-client.read-timeout-ms=5000");
 
 	private final ApplicationContextRunner enabled = application.withPropertyValues("spring.profiles.active=kitchen-order");
+
+	private final ApplicationContextRunner signing = enabled.withPropertyValues("KITCHEN_ORDER_SIGNING_KEY_ID=kitchen-test",
+			"KITCHEN_ORDER_SIGNING_PRIVATE_KEY=" + SIGNING_KEY);
+
+	private static String generatedKey() {
+		try {
+			KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+			generator.initialize(2048);
+			return Base64.getEncoder().encodeToString(generator.generateKeyPair().getPrivate().getEncoded());
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
+	}
 
 	private static String reason(Throwable failure) {
 		Throwable cause = failure;
@@ -42,33 +64,36 @@ class OrderDeliveryConfigurationTests {
 	}
 
 	@Test
-	void withoutTheProfileNothingCanSend() {
-		application.withBean(OrderServiceCredentials.class, () -> (restaurant, path, body) -> "x").run(context -> {
+	void withoutTheProfileNothingCanSendOrSign() {
+		application.run(context -> {
 			assertTrue(context.getBeansOfType(OrderEventSink.class).isEmpty());
 			assertTrue(context.getBeansOfType(OrderDeliveryDispatcher.class).isEmpty());
+			assertTrue(context.getBeansOfType(OrderServiceCredentials.class).isEmpty());
 		});
 	}
 
 	@Test
-	void theProfileRefusesToStartBecauseKitchenHasNoServiceIdentityYet() {
+	void theProfileRefusesToStartWithoutKitchensSigningKey() {
 		enabled.run(context -> {
 			assertNotNull(context.getStartupFailure());
-			assertTrue(reason(context.getStartupFailure()).contains("OrderServiceCredentials"));
+			assertTrue(reason(context.getStartupFailure()).startsWith("KITCHEN_ORDER_SIGNING_KEY_ID"));
 		});
+		enabled.withPropertyValues("KITCHEN_ORDER_SIGNING_KEY_ID=kitchen-test").run(context ->
+				assertTrue(reason(context.getStartupFailure()).startsWith("KITCHEN_ORDER_SIGNING_PRIVATE_KEY")));
 	}
 
 	@Test
-	void withACredentialProviderTheSinkAndTheDispatcherExist() {
-		enabled.withBean(OrderServiceCredentials.class, () -> (restaurant, path, body) -> "x").run(context -> {
+	void withTheSigningKeyTheSignerTheSinkAndTheDispatcherExist() {
+		signing.run(context -> {
 			assertEquals(1, context.getBeansOfType(OrderEventSink.class).size());
 			assertEquals(1, context.getBeansOfType(OrderDeliveryDispatcher.class).size());
+			assertTrue(context.getBean(OrderServiceCredentials.class) instanceof OrderRequestSigner);
 		});
 	}
 
 	@Test
 	void theLocalComposeAddressInPlainHttpIsRefused() {
-		enabled.withBean(OrderServiceCredentials.class, () -> (restaurant, path, body) -> "x")
-				.withPropertyValues("ORDER_SERVICE_URL=http://order-service:8080")
+		signing.withPropertyValues("ORDER_SERVICE_URL=http://order-service:8080")
 				.run(context -> assertTrue(reason(context.getStartupFailure()).contains("HTTPS")));
 	}
 

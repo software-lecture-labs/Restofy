@@ -3,9 +3,9 @@ package com.restofy.kitchen.infrastructure.config;
 import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
 import com.restofy.kitchen.infrastructure.client.HttpOrderEventSink;
+import com.restofy.kitchen.infrastructure.client.OrderRequestSigner;
 import com.restofy.kitchen.infrastructure.client.OrderServiceCredentials;
 import com.restofy.kitchen.infrastructure.messaging.OrderDeliveryDispatcher;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,19 +18,26 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Set;
 
 /**
  * Switches on the delivery of Kitchen's events to the Order service, only with the {@code kitchen-order} profile. Without
  * the profile nothing is sent and the outbox simply keeps the events. With it, start-up fails unless the address is
- * safe, the timeouts fit inside the delivery lease and an {@link OrderServiceCredentials} exists. There is no production
- * implementation of the latter yet (D-09), so the profile cannot be enabled in a real environment today.
+ * safe, the timeouts fit inside the delivery lease and Kitchen's signing key is configured. The Order service on
+ * {@code dev} cannot verify that signature yet (PR #47), so a real environment still cannot use the profile.
  */
 @Configuration(proxyBeanMethods = false)
 @Profile(OrderDeliveryConfiguration.PROFILE)
 @EnableScheduling
 public class OrderDeliveryConfiguration {
+
+	@Bean
+	OrderServiceCredentials orderRequestSigner(Clock clock, @Value("${KITCHEN_ORDER_SIGNING_KEY_ID:}") String keyId,
+			@Value("${KITCHEN_ORDER_SIGNING_PRIVATE_KEY:}") String privateKey) {
+		return new OrderRequestSigner(clock, keyId, privateKey);
+	}
 
 	public static final String PROFILE = "kitchen-order";
 
@@ -50,15 +57,11 @@ public class OrderDeliveryConfiguration {
 	OrderEventSink httpOrderEventSink(HttpClient orderHttpClient, @Value("${ORDER_SERVICE_URL:}") String orderServiceUrl,
 			@Value("${restofy.rest-client.connect-timeout-ms}") long connectTimeoutMs,
 			@Value("${restofy.rest-client.read-timeout-ms}") long readTimeoutMs, JsonMapper json,
-			ObjectProvider<OrderServiceCredentials> credentials) {
+			OrderServiceCredentials orderRequestSigner) {
 		URI origin = orderOrigin(orderServiceUrl);
 		checkTimeouts(connectTimeoutMs, readTimeoutMs);
-		OrderServiceCredentials provider = credentials.getIfAvailable();
-		if (provider == null) {
-			throw new IllegalStateException("The " + PROFILE + " profile needs an OrderServiceCredentials implementation."
-					+ " None exists yet (Kitchen's service identity towards the Order service is not decided, D-09).");
-		}
-		return new HttpOrderEventSink(orderClient(orderHttpClient, origin, Duration.ofMillis(readTimeoutMs)), json, provider);
+		return new HttpOrderEventSink(orderClient(orderHttpClient, origin, Duration.ofMillis(readTimeoutMs)), json,
+				orderRequestSigner);
 	}
 
 	@Bean

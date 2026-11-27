@@ -2,23 +2,28 @@ package com.restofy.kitchen.infrastructure.messaging;
 
 import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
-import com.restofy.kitchen.infrastructure.client.OrderServiceCredentials;
 import com.restofy.kitchen.support.OrderStubServer;
 import com.restofy.kitchen.support.OrderStubServer.Answer;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
@@ -28,30 +33,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The scheduled delivery as the {@code kitchen-order} profile wires it: nobody calls the delivery service here. The
- * credential provider exists only in this test, and the address is a stub on the loopback interface. The context is
- * discarded afterwards so that its scheduler cannot send other tests' events.
+ * The scheduled delivery exactly as the {@code kitchen-order} profile wires it, real signer included: nobody calls the
+ * delivery service here. The signing key is generated for this run, and the address is a stub on the loopback
+ * interface. The context is discarded afterwards so that its scheduler cannot send other tests' events.
  */
 @SpringBootTest(properties = "restofy.kitchen.order-delivery.interval=PT0.2S")
 @ActiveProfiles({"test", "kitchen-order"}) // "test" is the Maven test run's profile: it points at the test database
-@Import(OrderDeliveryDispatcherTests.TestCredentials.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OrderDeliveryDispatcherTests {
 
 	private static final OrderStubServer ORDER = new OrderStubServer();
+	private static final KeyPair KEYS = generateKeys();
 
-	@TestConfiguration(proxyBeanMethods = false)
-	static class TestCredentials {
-
-		@Bean
-		OrderServiceCredentials testOrderCredentials() {
-			return (restaurantId, path, body) -> "test-credential";
+	private static KeyPair generateKeys() {
+		try {
+			KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+			generator.initialize(2048);
+			return generator.generateKeyPair();
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
 		}
 	}
 
 	@DynamicPropertySource
-	static void orderAddress(DynamicPropertyRegistry registry) {
+	static void orderAddressAndSigningKey(DynamicPropertyRegistry registry) {
 		registry.add("ORDER_SERVICE_URL", ORDER::url);
+		registry.add("KITCHEN_ORDER_SIGNING_KEY_ID", () -> "kitchen-test");
+		registry.add("KITCHEN_ORDER_SIGNING_PRIVATE_KEY", () -> Base64.getEncoder().encodeToString(KEYS.getPrivate().getEncoded()));
 	}
 
 	@AfterAll
@@ -82,7 +90,7 @@ class OrderDeliveryDispatcherTests {
 	}
 
 	@Test
-	void aCommandSucceedsWhileOrderFailsAndTheSchedulerDeliversOnceOrderAnswers() {
+	void aCommandSucceedsWhileOrderFailsAndTheSchedulerDeliversOnceOrderAnswers() throws Exception {
 		ORDER.answerAlways(Answer.of(503, OrderStubServer.error("DEPENDENCY_UNAVAILABLE")));
 		UUID restaurant = UUID.randomUUID();
 		UUID orderId = UUID.randomUUID();
@@ -100,5 +108,18 @@ class OrderDeliveryDispatcherTests {
 		var sent = ORDER.receivedFor(orderId);
 		assertTrue(sent.size() >= 2);
 		assertEquals(1, sent.stream().map(OrderStubServer.Received::body).distinct().count());
+		// Every attempt carries its own fresh token, signed for exactly this restaurant, path and body.
+		assertEquals(sent.size(), sent.stream().map(r -> r.header("Authorization")).distinct().count());
+		for (OrderStubServer.Received request : sent) {
+			Claims claims = Jwts.parser().verifyWith(KEYS.getPublic()).build()
+					.parseSignedClaims(request.header("Authorization").substring("Service ".length())).getPayload();
+			assertEquals(restaurant.toString(), claims.get("restaurant_id", String.class));
+			assertEquals(request.path(), claims.get("target", String.class));
+			assertEquals(sha256(request.body()), claims.get("body_sha256", String.class));
+		}
+	}
+
+	private static String sha256(String body) throws NoSuchAlgorithmException {
+		return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body.getBytes(StandardCharsets.UTF_8)));
 	}
 }
