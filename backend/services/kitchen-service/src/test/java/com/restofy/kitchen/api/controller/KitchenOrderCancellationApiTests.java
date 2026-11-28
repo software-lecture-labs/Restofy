@@ -6,6 +6,7 @@ import com.restofy.kitchen.application.service.AcceptedOrderIngestService;
 import com.restofy.kitchen.application.service.KitchenPreparationService;
 import com.restofy.kitchen.application.service.OrderCancellationConfirmationService;
 import com.restofy.kitchen.domain.enums.ConfirmationRequestOutcome;
+import com.restofy.kitchen.domain.enums.OrderOutcome;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -200,6 +202,44 @@ class KitchenOrderCancellationApiTests {
 				.andExpect(jsonPath("$[0].scope").value("FULL"));
 		mvc.perform(get(path(asked)).with(kitchen(UUID.randomUUID()))).andExpect(status().isNotFound());
 		assertEquals(0, answerEvents(asked).size());
+	}
+
+	/** The 409 answers the kitchen screen has to tell apart, and the Order service's word next to the kitchen's answer. */
+	@Test
+	void readyWaitsForTheOrderServiceAndTheListShowsItsWordNextToTheAnswer() throws Exception {
+		Asked asked = asked();
+		answer(asked, UUID.randomUUID(), UUID.randomUUID(), "APPROVED").andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.orderOutcome").value((Object) null));
+		MockHttpServletRequestBuilder ready = patch("/api/v1/kitchen/orders/" + asked.orderId() + "/mark-ready")
+				.header(KEY, UUID.randomUUID().toString()).with(kitchen(asked.restaurant())).with(csrf());
+
+		mvc.perform(ready).andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ORDER_CANCELLATION_UNDECIDED"))
+				.andExpect(jsonPath("$.retryable").value(true));
+
+		confirmations.recordOrderOutcome(asked.restaurant(), asked.orderId(), asked.cancellationId(), OrderOutcome.REJECTED);
+		mvc.perform(ready).andExpect(status().isOk());
+		mvc.perform(get(path(asked)).with(admin(asked.restaurant())))
+				.andExpect(jsonPath("$[0].status").value("APPROVED"))
+				.andExpect(jsonPath("$[0].orderOutcome").value("REJECTED"))
+				.andExpect(jsonPath("$[0].orderDecidedAt").value((Object) null))
+				.andExpect(jsonPath("$[0].orderRejectionCode").value((Object) null));
+	}
+
+	@Test
+	void anApprovalOfAReadyOrderAndAnAnswerToADecidedRequestAreConflicts() throws Exception {
+		Asked ready = asked();
+		preparation.markReady(ready.restaurant(), UUID.randomUUID(), UUID.randomUUID(), ready.orderId());
+		answer(ready, UUID.randomUUID(), UUID.randomUUID(), "APPROVED").andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ORDER_STATE_CONFLICT"));
+		assertEquals(0, answerEvents(ready).size());
+
+		Asked decided = asked();
+		confirmations.recordOrderOutcome(decided.restaurant(), decided.orderId(), decided.cancellationId(), OrderOutcome.SUPERSEDED);
+		answer(decided, UUID.randomUUID(), UUID.randomUUID(), "REJECTED").andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ORDER_CANCELLATION_CLOSED"))
+				.andExpect(jsonPath("$.retryable").value(false));
+		assertEquals(0, answerEvents(decided).size());
 	}
 
 	@Test

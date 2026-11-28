@@ -70,9 +70,16 @@ class HttpOrderEventSinkTests {
 		httpClient.close();
 	}
 
+	/** What the sink asked to record as the Order service's final word, and whether the recording is accepted. */
+	private final List<String> recorded = new ArrayList<>();
+	private boolean recordable = true;
+
 	private HttpOrderEventSink sink(OrderServiceCredentials provider) {
 		return new HttpOrderEventSink(OrderDeliveryConfiguration.orderClient(httpClient, URI.create(order.url()), READ_TIMEOUT),
-				JSON, provider);
+				JSON, provider, (restaurant, orderOfAnswer, cancellation, outcome) -> {
+					recorded.add(restaurant + ":" + orderOfAnswer + ":" + cancellation + ":" + outcome);
+					return recordable;
+				});
 	}
 
 	private EventSink.Result deliver(OutboundMessage message) {
@@ -104,8 +111,40 @@ class HttpOrderEventSinkTests {
 	}
 
 	private String decisionAck(String outcome, Object cancellation) {
+		return decisionAck(outcome, cancellation, "APPLIED");
+	}
+
+	private String decisionAck(String outcome, Object cancellation, String cancellationStatus) {
 		return "{\"outcome\":\"" + outcome + "\",\"duplicate\":false,\"orderId\":\"" + orderId + "\",\"cancellationId\":\""
-				+ cancellation + "\",\"cancellationStatus\":\"APPLIED\"}";
+				+ cancellation + "\",\"cancellationStatus\":\"" + cancellationStatus + "\"}";
+	}
+
+	/** The kitchen agreed; what the Order service did with the cancellation is its own fact and is recorded as such. */
+	@ParameterizedTest
+	@ValueSource(strings = {"APPLIED", "REJECTED"})
+	void theOrderServicesFinalWordIsRecordedBeforeTheAnswerCountsAsDelivered(String status) {
+		order.answerAlways(Answer.of(200, decisionAck("APPLIED", cancellationId, status)));
+
+		assertEquals(DeliveryOutcome.DELIVERED, deliver(decided("APPROVED", null)).outcome());
+
+		assertEquals(List.of(restaurantId + ":" + orderId + ":" + cancellationId + ":" + status), recorded);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"REQUESTED", "DONE", ""})
+	void anAnswerWithoutAFinalWordIsNotAnAcknowledgement(String status) {
+		order.answerAlways(Answer.of(200, decisionAck("APPLIED", cancellationId, status)));
+
+		assertEquals(EventSink.Result.retry("HTTP_200_INVALID_ACK"), deliver(decided("APPROVED", null)));
+		assertTrue(recorded.isEmpty());
+	}
+
+	@Test
+	void aFinalWordThatContradictsWhatKitchenHasIsNeverADelivery() {
+		recordable = false;
+		order.answerAlways(Answer.of(200, decisionAck("APPLIED", cancellationId, "REJECTED")));
+
+		assertEquals(EventSink.Result.permanentFailure("DECISION_CONFLICT"), deliver(decided("APPROVED", null)));
 	}
 
 	@Test

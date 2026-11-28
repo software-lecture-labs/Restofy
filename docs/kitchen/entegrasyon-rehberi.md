@@ -131,6 +131,19 @@ Başlıklar: `Authorization: Service <token>`, `Content-Type: application/json`,
 2. **Görüntüleme:** `GET /api/v1/kitchen/orders/{orderId}/order-cancellations` siparişin isteklerini en yeniden eskiye listeler: kapsam (`FULL`/`PARTIAL`), istenen kalem ve adetler, durum ve cevap.
 3. **Cevap:** `POST /api/v1/kitchen/orders/{orderId}/order-cancellations/{cancellationId}/answer` ile `{"decision":"APPROVED"}` veya `{"decision":"REJECTED"}` gönderilir; `Idempotency-Key` zorunlu. İlk cevap `202`, aynı cevabın tekrarı `200` döner. Cevap ve `KitchenCancellationDecided` olayı aynı transaction'da yazılır.
 4. **Kalıcılık:** İstenen alanlar değişmez, cevap kesindir, satır silinmez (veritabanı tetikleyicileri). Mutfak siparişinin durumu değişmez.
+5. **Mutfağın cevabı ile Order'ın nihai sonucu ayrıdır:**
+   - `status` mutfağın cevabıdır.
+   - `orderOutcome` Order'ın ne yaptığıdır: `APPLIED`, `REJECTED` (mutfak onaylasa da olabilir) veya `SUPERSEDED` (cevaptan önce sipariş başka bir kararla iptal edildi). Karar verilene kadar `null`.
+   - Cevap tesliminin yanıtındaki `cancellationStatus` bu alana yazılır; ancak ondan sonra teslimat `DELIVERED` olur. Kayıttakiyle çelişen bir yanıt `FAILED` (`DECISION_CONFLICT`) olur; `APPLIED`/`REJECTED` dışındaki bir değer onay sayılmaz.
+   - `orderDecidedAt` ve `orderRejectionCode` yalnız Order'ın olayından gelir; boş kalabilir.
+   - Bir kez yazılan sonuç ve cevap değişmez (veritabanı tetikleyicisi).
+6. **Cevap koşulları:**
+   - `APPROVED` yalnız mutfak siparişi `WAITING` veya `PREPARING` iken kabul edilir; `READY` veya `CANCELLED` siparişte `409 ORDER_STATE_CONFLICT`. `REJECTED` her zaman verilebilir.
+   - Order'ın karara bağladığı (`orderOutcome` dolu) istek cevaplanamaz: `409 ORDER_CANCELLATION_CLOSED`.
+7. **"Hazır" koruması:** Tüm sipariş (`FULL`) için verilen onay Order'da sonuçlanmadan (`orderOutcome` boş) ya da Order iptali uygulamışken (`APPLIED`) `mark-ready` `409 ORDER_CANCELLATION_UNDECIDED` döner (`retryable: true`). Order reddedince ("`REJECTED`") aynı komut çalışır.
+   - Order cevabı kesin olarak hiç kabul etmediyse (`FAILED` ve kesin ret kodu ya da `UNREADABLE_EVENT`) koruma kalkar. Order'da istek açık kalır; neden giderilince teslimat yeniden sıraya alınır.
+   - Denemeler tükendiyse (`MAX_ATTEMPTS_EXCEEDED`) sonuç bilinmez ve koruma sürer; teslimat yeniden sıraya alınmalıdır (§7).
+   - Kısmi (`PARTIAL`) onay ve cevaplanmamış istek "Hazır"ı engellemez; cevaplanmamış istek için engel ürün kararıdır.
 
 Kısmi (`PARTIAL`) bir isteğe verilen cevap da yalnız bir cevaptır. Kısmi iptalin mutfak ekranına yansıması D-02'ye bağlıdır ve bu işte yapılmadı.
 

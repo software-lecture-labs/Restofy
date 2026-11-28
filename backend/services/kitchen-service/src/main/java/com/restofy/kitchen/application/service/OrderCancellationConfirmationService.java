@@ -8,9 +8,12 @@ import com.restofy.kitchen.domain.enums.ConfirmationRequestOutcome;
 import com.restofy.kitchen.domain.enums.ConfirmationStatus;
 import com.restofy.kitchen.domain.enums.KitchenOrderStatus;
 import com.restofy.kitchen.domain.enums.OrderDecision;
+import com.restofy.kitchen.domain.enums.OrderOutcome;
 import com.restofy.kitchen.domain.exception.CancellationAlreadyAnsweredException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
+import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
+import com.restofy.kitchen.domain.exception.OrderCancellationClosedException;
 import com.restofy.kitchen.domain.exception.OrderCancellationNotFoundException;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenOrderRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.OrderCancellationConfirmationRepository;
@@ -101,8 +104,8 @@ public class OrderCancellationConfirmationService {
 			log.warn("Order cancellation request refused: a line is not part of this order, eventId={}", message.eventId());
 			return ConfirmationRequestOutcome.INVALID;
 		}
-		if (confirmations.existsByRestaurantIdAndOrderIdAndStatus(message.restaurantId(), message.orderId(),
-				ConfirmationStatus.AWAITING_KITCHEN)) {
+		if (confirmations.existsByRestaurantIdAndOrderIdAndStatusAndOrderOutcomeIsNull(message.restaurantId(),
+				message.orderId(), ConfirmationStatus.AWAITING_KITCHEN)) {
 			return conflict("another request of this order still waits for the kitchen", message);
 		}
 		confirmations.saveAndFlush(OrderCancellationConfirmation.awaiting(request, clock.instant()));
@@ -114,7 +117,9 @@ public class OrderCancellationConfirmationService {
 	/**
 	 * A kitchen staff member answers. KITCHEN role only (checked by the security chain); restaurant and user come from
 	 * the verified principal. The same Idempotency-Key with the same answer is a repeat (no second event); with anything
-	 * else it is a conflict. An answered request cannot be answered again. The kitchen order is not changed.
+	 * else it is a conflict. A request that was answered, or that the Order service has already decided, cannot be
+	 * answered again. APPROVED is only possible while the kitchen order can still be cancelled (WAITING or PREPARING);
+	 * a refusal is always possible. The kitchen order is not changed.
 	 */
 	@Transactional
 	public Answered answer(UUID restaurantId, UUID actorUserId, UUID commandId, UUID orderId, UUID cancellationId,
@@ -132,12 +137,42 @@ public class OrderCancellationConfirmationService {
 		if (confirmation.getStatus() != ConfirmationStatus.AWAITING_KITCHEN) {
 			throw new CancellationAlreadyAnsweredException();
 		}
+		if (confirmation.getOrderOutcome() != null) {
+			throw new OrderCancellationClosedException();
+		}
+		if (decision == OrderDecision.APPROVED && !order.canBeCancelledByDecision()) {
+			throw new InvalidKitchenTransitionException(order.getStatus(), KitchenOrderStatus.CANCELLED);
+		}
 		confirmation.answer(decision, commandId, actorUserId, clock.instant());
 		save(confirmation);
 		events.recordCancellationDecided(confirmation, order, commandId);
 		log.info("Order cancellation request ANSWERED {}: restaurantId={} orderId={} cancellationId={} actor={}", decision,
 				restaurantId, orderId, cancellationId, actorUserId);
 		return new Answered(confirmation, true);
+	}
+
+	/**
+	 * Records the Order service's final word as its answer to the kitchen's decision states it. The kitchen order is not
+	 * changed: only the Order service's cancellation event does that.
+	 *
+	 * @return false when there is no such request or another outcome is already recorded; nothing is changed then
+	 */
+	@Transactional
+	public boolean recordOrderOutcome(UUID restaurantId, UUID orderId, UUID cancellationId, OrderOutcome outcome) {
+		if (orders.findForUpdate(restaurantId, orderId).isEmpty()) {
+			return false;
+		}
+		OrderCancellationConfirmation confirmation = confirmations.findByRestaurantIdAndCancellationId(restaurantId, cancellationId)
+				.filter(c -> c.getOrderId().equals(orderId)).orElse(null);
+		if (confirmation == null || !confirmation.recordOrderOutcome(outcome, clock.instant())) {
+			log.warn("Order's outcome {} does not fit the stored request: restaurantId={} orderId={} cancellationId={}", outcome,
+					restaurantId, orderId, cancellationId);
+			return false;
+		}
+		confirmations.saveAndFlush(confirmation);
+		log.info("Order cancellation outcome {}: restaurantId={} orderId={} cancellationId={} kitchenAnswer={}", outcome,
+				restaurantId, orderId, cancellationId, confirmation.getStatus());
+		return true;
 	}
 
 	/** The order's requests from the Order service, newest first. 404 for an unknown order and another restaurant's alike. */

@@ -6,6 +6,8 @@ import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedExceptio
 import com.restofy.kitchen.domain.exception.OrderCancellationNotFoundException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
+import com.restofy.kitchen.domain.exception.OrderCancellationClosedException;
+import com.restofy.kitchen.domain.exception.OrderCancellationUndecidedException;
 import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import com.restofy.kitchen.infrastructure.config.MenuIntegrationConfiguration;
@@ -38,6 +40,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public static final String ORDER_BUSY = "ORDER_BUSY";
 	public static final String CANCELLATION_ALREADY_REQUESTED = "CANCELLATION_ALREADY_REQUESTED";
 	public static final String CANCELLATION_ALREADY_ANSWERED = "CANCELLATION_ALREADY_ANSWERED";
+	public static final String ORDER_CANCELLATION_CLOSED = "ORDER_CANCELLATION_CLOSED";
+	public static final String ORDER_CANCELLATION_UNDECIDED = "ORDER_CANCELLATION_UNDECIDED";
 	public static final String INVALID_STOCK_REFERENCE = "INVALID_STOCK_REFERENCE";
 	public static final String AVAILABILITY_CONFLICT = "AVAILABILITY_CONFLICT";
 	public static final String MENU_UNAVAILABLE = "MENU_UNAVAILABLE";
@@ -99,6 +103,24 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 		problem.setProperty(CODE, CANCELLATION_ALREADY_ANSWERED);
 		problem.setProperty(RETRYABLE, false);
+		return problem;
+	}
+
+	/** The Order service has already decided this request. Nothing was changed. */
+	@ExceptionHandler(OrderCancellationClosedException.class)
+	ProblemDetail orderCancellationClosed(OrderCancellationClosedException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+		problem.setProperty(CODE, ORDER_CANCELLATION_CLOSED);
+		problem.setProperty(RETRYABLE, false);
+		return problem;
+	}
+
+	/** The order cannot become READY while its cancellation is open; the same command works once it is decided. */
+	@ExceptionHandler(OrderCancellationUndecidedException.class)
+	ProblemDetail orderCancellationUndecided(OrderCancellationUndecidedException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+		problem.setProperty(CODE, ORDER_CANCELLATION_UNDECIDED);
+		problem.setProperty(RETRYABLE, true);
 		return problem;
 	}
 
