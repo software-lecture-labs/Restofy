@@ -284,7 +284,7 @@ public class OrderCheckoutService {
                 "CHECKOUT", null, null, now, correlationId));
 
         UUID eventId = UUID.randomUUID();
-        OrderPlacedEvent event = orderMapper.toPlacedEvent(order, eventId, correlationId, now);
+        OrderPlacedEvent event = orderMapper.toPlacedEvent(order, eventId, correlationId, now, guest.tableNumber());
         outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), "ORDER", order.getId(),
                 order.getVersion(), event.eventType(), event.schemaVersion(), correlationId, event, now),
                 List.of(EventDestination.KITCHEN,

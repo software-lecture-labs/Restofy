@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const KEY = 'QR_PAYLOAD_ENCRYPTION_KEY';
+// Not a secret: the fixed API Gateway address in docker-compose.yml, trusted for X-Forwarded-For (ADR-QR-002 K7).
+const PROXY = 'QR_TRUSTED_PROXY_CIDRS';
+const PROXY_DEFAULT = '10.213.0.10/32';
 const MARKER = '# RESTOFY-ACTIVE-PROFILE=';
 const USAGE = 'Usage: node ops/qr/qr-key.mjs init|check dev|prod\n'
   + '       node ops/qr/qr-key.mjs order-init <key-id>';
@@ -52,11 +55,11 @@ function validKey(value) {
   finally { bytes.fill(0); }
 }
 
-function replaceKey(text, index, value) {
+function replaceSetting(text, name, index, value) {
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
-  if (index < 0) return text + (text && !text.endsWith('\n') ? eol : '') + `${KEY}=${value}${eol}`;
+  if (index < 0) return text + (text && !text.endsWith('\n') ? eol : '') + `${name}=${value}${eol}`;
   const lines = text.split(/\r?\n/);
-  lines[index] = `${KEY}=${value}`;
+  lines[index] = `${name}=${value}`;
   return lines.join(eol);
 }
 
@@ -127,6 +130,7 @@ function operate(root, command, profile, log) {
     fail('QR_KEY_PROFILE_MISMATCH', `${name} must declare APP_ENV=${profile}.`);
   }
   const entry = setting(original, KEY);
+  const proxy = setting(original, PROXY);
   if (entry.value && !validKey(entry.value)) {
     fail('QR_KEY_INVALID', `${KEY} must be canonical Base64 for exactly 32 bytes. The existing value was not replaced.`);
   }
@@ -140,8 +144,11 @@ function operate(root, command, profile, log) {
   }
   const generated = !entry.value;
   const value = entry.value || randomBytes(32).toString('base64');
-  const updated = generated ? replaceKey(original, entry.index, value) : original;
-  if (generated) writeFile(root, name, original, updated);
+  let updated = generated ? replaceSetting(original, KEY, entry.index, value) : original;
+  // Only a missing line is added; an existing value, even an intentionally blank one, is kept.
+  const proxyAdded = proxy.index < 0;
+  if (proxyAdded) updated = replaceSetting(updated, PROXY, -1, PROXY_DEFAULT);
+  if (updated !== original) writeFile(root, name, original, updated);
   let state = active.state;
   if (active.selected || active.state === 'missing') {
     const eol = updated.includes('\r\n') ? '\r\n' : '\n';
@@ -150,8 +157,9 @@ function operate(root, command, profile, log) {
     state = 'synchronized';
   }
   log(`[OK] ${name}: QR key ${generated ? 'created' : 'preserved'}; key not displayed. Active ENV: ${state}.`);
+  if (proxyAdded) log(`[OK] ${name}: ${PROXY}=${PROXY_DEFAULT} added (compose Gateway address).`);
   if (state === 'other-profile') log(`[INFO] .env was not switched. Select ${profile} explicitly with ops/env when needed.`);
-  return { generated, active: state };
+  return { generated, proxyAdded, active: state };
 }
 
 export function runQrKey({ root = ROOT, args = process.argv.slice(2), environment = process.env, log = console.log } = {}) {

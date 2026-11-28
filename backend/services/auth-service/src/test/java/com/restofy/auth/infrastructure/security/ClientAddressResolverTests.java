@@ -109,11 +109,12 @@ class ClientAddressResolverTests {
 
     @Test
     void containerHeaderRewritingIsRefusedBecauseItWouldReplaceTheSocketPeer() {
-        assertThatThrownBy(() -> new ClientAddressResolver(
-                new MockEnvironment().withProperty("server.forward-headers-strategy", "NATIVE")))
+        var nativeForwarding = new MockEnvironment().withProperty("server.forward-headers-strategy", "NATIVE");
+        assertThatThrownBy(() -> new ClientAddressResolver(nativeForwarding))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> new ClientAddressResolver(
-                new MockEnvironment().withProperty("server.tomcat.remoteip.remote-ip-header", "x-forwarded-for")))
+        var remoteIpHeader = new MockEnvironment()
+                .withProperty("server.tomcat.remoteip.remote-ip-header", "x-forwarded-for");
+        assertThatThrownBy(() -> new ClientAddressResolver(remoteIpHeader))
                 .isInstanceOf(IllegalStateException.class);
     }
 }

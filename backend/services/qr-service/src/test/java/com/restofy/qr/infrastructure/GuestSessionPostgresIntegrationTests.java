@@ -51,6 +51,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Autowired GuestSessionActivityService activity;
     @Autowired GuestTokenCodec tokens;
     @Autowired com.restofy.qr.infrastructure.security.guest.GuestCookies cookies;
+    @Autowired com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits limits;
     @Autowired QrCodeCreationService creation;
     @Autowired TableManagementService tables;
     @Autowired GuestSessionRepository guests;
@@ -83,6 +84,21 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
 
     private int count(UUID tableId) {
         return jdbc.queryForObject("select count(*) from guest_sessions g join table_sessions s on s.id=g.table_session_id where s.table_id=?", Integer.class, tableId);
+    }
+
+    @Test
+    void aFullTableSessionRejectsTheNextGuestWith429AndKeepsNoTraceOfTheScan() {
+        var code = create("1");
+        for (int guest = 0; guest < com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits.ACTIVE_GUESTS_PER_SESSION; guest++) {
+            opening.open(code.qrToken());
+        }
+        Integer scans = jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId());
+        assertThatThrownBy(() -> opening.open(code.qrToken()))
+                .isInstanceOfSatisfying(com.restofy.qr.domain.exception.RateLimitExceededException.class,
+                        limited -> assertThat(limited.retryAfterSeconds()).isEqualTo(60));
+        assertThat(count(code.tableId())).isEqualTo(20);
+        assertThat(jdbc.queryForObject("select count(*) from qr_scan_events where table_id=?", Integer.class, code.tableId()))
+                .isEqualTo(scans);
     }
 
     private GuestSessionValidationService.ValidatedGuestContext validate(OpenedGuestSessionResponse opened) {
@@ -148,7 +164,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
 
     @Test
     void csrfReadReturnsTheBrowserValueForAUsableGuestAndClearsCookiesOtherwise() throws Exception {
-        var guestApi = MockMvcBuilders.standaloneSetup(new GuestSessionActivityController(activity, validation, cookies))
+        var guestApi = MockMvcBuilders.standaloneSetup(new GuestSessionActivityController(activity, validation, cookies, limits))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
         var opened = opening.open(create("1").qrToken());
@@ -321,7 +337,7 @@ class GuestSessionPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Test
     void databaseEnforcesDigestUniquenessAndTheCompositeTenantParentKey() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("128");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("129");
         var opened = opening.open(create("1").qrToken());
         var guest = opened.guestSession();
         var duplicate = new GuestSession(guest.restaurantId(), guest.tableSessionId(), tokens.digest(opened.guestToken()), guest.joinedAt());

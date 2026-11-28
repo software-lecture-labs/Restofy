@@ -46,6 +46,10 @@ uygulamış bir veritabanı sonradan gelen V124'ü reddederdi. V124 hiçbir orta
 uygulanmadan bırakıldı ve yeniden kullanılmayacak. Güncel QR zinciri
 V21,V22,V26–V30,V121–V123,V125–V128.
 
+26 Kasım 2026: ADR-QR-002 K7 (QR hız sınırları) için Alper, V129'u `rate_limits`
+(HMAC'li kova anahtarı, sayaç, pencere sonu; yalnız QR'ın kendi veritabanında) olarak
+onayladı. Güncel QR zinciri V21,V22,V26–V30,V121–V123,V125–V129; V130 boş.
+
 11 Kasım 2026: Order sorumlusu Hamza, Order <-> Kitchen entegrasyon kararını (iptal nedeni
 kataloğuna CUSTOMER_REQUEST ve order_cancellations.decided_order_version: kararın sipariş
 sürümü, bir kez yazılır) V50 olarak ekledi. dev'de paylaşılmış V47 DEĞİŞTİRİLMEDİ; checksum'ı

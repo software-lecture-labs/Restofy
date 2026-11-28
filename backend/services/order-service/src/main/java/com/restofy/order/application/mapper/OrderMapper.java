@@ -66,7 +66,8 @@ public class OrderMapper {
                 order.getPlacedAt(), order.getUpdatedAt(), order.getVersion(), servedAt);
     }
 
-    public OrderPlacedEvent toPlacedEvent(Order order, UUID eventId, String correlationId, Instant occurredAt) {
+    public OrderPlacedEvent toPlacedEvent(Order order, UUID eventId, String correlationId, Instant occurredAt,
+                                          String tableNumber) {
         List<OrderPlacedEvent.Item> items = order.getItems().stream().sorted(ITEM_ORDER)
                 .map(item -> new OrderPlacedEvent.Item(item.getId(), item.getProductId(),
                         item.getProductNameSnapshot(), item.getOrderedQuantity(), item.getNote(),
@@ -80,7 +81,8 @@ public class OrderMapper {
                 correlationId, order.getRestaurantId(), order.getTableId(), order.getTableSessionId(),
                 order.getGuestSessionId(), order.getId(), order.getOrderNo(), order.getFulfillmentStatus().name(),
                 order.getCurrency(), new OrderPlacedEvent.Amounts(order.getInitialNetMinor(),
-                order.getInitialVatMinor(), order.getInitialGrossMinor()), order.getNote(), order.getPlacedAt(), items);
+                order.getInitialVatMinor(), order.getInitialGrossMinor()), order.getNote(), order.getPlacedAt(),
+                items, tableNumber);
     }
 
     private static long activeGross(Order order) {

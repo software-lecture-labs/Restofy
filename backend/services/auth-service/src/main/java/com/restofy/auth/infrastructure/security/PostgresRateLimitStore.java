@@ -148,7 +148,7 @@ public class PostgresRateLimitStore implements RateLimitStore {
     public void purgeExpired() {
         try {
             jdbc.update("DELETE FROM rate_limits WHERE expires_at <= ?", Timestamp.from(clock.instant()));
-        } catch (DataAccessException failure) {
+        } catch (DataAccessException _) {
             // Counters still work without the cleanup; the next run tries again.
         }
     }

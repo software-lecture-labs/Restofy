@@ -38,8 +38,8 @@ public class GuestSessionContextReader {
     public Identity locate(String token) {
         String digest;
         try { digest = tokens.digest(token); }
-        catch (IllegalArgumentException _) { throw new InvalidGuestSessionException(); }
-        var location = guests.locateByDigest(digest).orElseThrow(InvalidGuestSessionException::new);
+        catch (IllegalArgumentException _) { throw InvalidGuestSessionException.unknown(); }
+        var location = guests.locateByDigest(digest).orElseThrow(InvalidGuestSessionException::unknown);
         return new Identity(location.getRestaurantId(), location.getTableSessionId(), location.getId());
     }
 
@@ -48,6 +48,7 @@ public class GuestSessionContextReader {
         String digest;
         try { digest = tokens.digest(token); }
         catch (IllegalArgumentException _) { throw new InvalidGuestSessionException(); }
+        // locate() already found this credential; a miss here is a race with cleanup, not a guess.
         var location = guests.locateByDigest(digest).orElseThrow(InvalidGuestSessionException::new);
         if (!location.getRestaurantId().equals(restaurantId) || !location.getTableSessionId().equals(tableSessionId)
                 || !location.getId().equals(guestSessionId)) { throw new InvalidGuestSessionException(); }

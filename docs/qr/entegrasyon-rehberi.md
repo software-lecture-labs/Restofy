@@ -15,7 +15,7 @@ QR masa, QR kimliği ve main/guest oturumlarının sahibidir. Sipariş kabulü/i
 
 **IMPLEMENTED:** QR tarafındaki A koordinatörü, kısa yerel transaction'lar, değişmez işlem/sonuç kaydı, bounded retry işi, yeni V29/V30 ve PostgreSQL testleri. Eski `OrderAdmissionService`, `OrderBusinessOutcomeService` ve sipariş/finans tabloları kaldırıldı. Personel kapanış komutu 31 Ekim K11 kararıyla güvenli Order protokolüne bağlı biçimde geri eklendi.
 
-**NOT IMPLEMENTED:** Gerçek Auth üyelik/rol ve servis kimliği adaptörleri; Order → Payment sorgusu ve gerçek QR/Order transport'u; frontend aktivitesi/guest taşıması, rate limit ve downstream bildirimleri; K12 yönetici force-rotate/kurtarma API'si ve paneli. Order PR #13 fd4e7a9'da gate, order-state, izin yenileme/geri çekme ve K13 sapma kaydı vardır; QR yerel sonuç işlemesi buna uyarlandı, gerçek bağlantı/E2E yoktur.
+**NOT IMPLEMENTED:** Gerçek Auth üyelik/rol ve servis kimliği adaptörleri; Order → Payment sorgusu ve gerçek QR/Order transport'u; frontend aktivitesi/guest taşıması ve downstream bildirimleri; K12 yönetici force-rotate/kurtarma API'si ve paneli. Order PR #13 fd4e7a9'da gate, order-state, izin yenileme/geri çekme ve K13 sapma kaydı vardır; QR yerel sonuç işlemesi buna uyarlandı, gerçek bağlantı/E2E yoktur.
 
 **NOT VERIFIED:** Gerçek Auth → Gateway → QR → Order → Payment başarı/yarış E2E, çoklu gerçek Order instance gate'i, gerçek ödeme ve mobil kamera. Testlerde PostgreSQL/Flyway gerçektir; Order otoritesi test double'ıdır.
 
@@ -25,7 +25,7 @@ Normatif kaynaklar: [güvenlik](../SECURITY.md), [gereksinimler](../requirements
 
 ## 2. Gerçek HTTP envanteri
 
-Önek **`/api/v1/qr`**; aşağıdaki yollar buna göredir. Gateway'de bu önek için Web MVC route mevcut, path korunur. Route varlığı authentication/authorization veya iş akışının açık olduğu anlamına gelmez. Personel izin matrisi Auth ekibiyle kesinleşecek; “yönetim” burada mevcut kapalı `TableManagementAccess` sınırını ifade eder. Hiçbir iş endpoint'i şu anda public değildir.
+Önek **`/api/v1/qr`**; aşağıdaki yollar buna göredir. Gateway'de bu önek için Web MVC route mevcut, path korunur. Route varlığı authentication/authorization veya iş akışının açık olduğu anlamına gelmez. Personel izin matrisi Auth ekibiyle kesinleşecek; “yönetim” burada mevcut kapalı `TableManagementAccess` sınırını ifade eder. Müşteri uçları (`POST /validate`, `POST /table-sessions/open`, `POST /guest-sessions/activity`, `GET /guest-sessions/csrf`) ADR-QR-002 K3–K7 kanıtları ve hız sınırlarıyla açıktır (26 Kasım 2026); diğer iş endpoint'leri personel/servis kimliği ister.
 
 | Method | Yol | Tasarlanan kapsam / istek | Uygulanan başarı sözleşmesi |
 |---|---|---|---|
@@ -141,7 +141,11 @@ Ham guest tokenı yalnız yeni guest yanıtında döner; DB'de SHA-256 digest bu
 
 ### Hata sözleşmesi
 
-ProblemDetail `status/detail/title` temel sözleşmesi; iç SQL/token/stack trace açılmaz. 400 validation/parse; 401 doğrulanmış kimlik yok; 403 yetki/CSRF; 404 yok/yabancı tenant/uygunsuz QR veya guest; 409 duplicate/stale version/uygunsuz lifecycle/FK veya kapanış koşulu; 503 yapılandırılmamış QR görsel adresi veya eksik gerçek kapanış kanıtı. Genel beklenmeyen hata güvenli 500'dür. Şu an canlı business yazmaları CSRF'siz 403, protected GET'ler anonim 401; varsayılan ADMIN/WAITER rolü de izin sağlamaz. 429 bu serviste uygulanmış kabul edilmez; erişim açılmadan rate limit tasarlanmalıdır.
+ProblemDetail `status/detail/title` temel sözleşmesi; iç SQL/token/stack trace açılmaz. 400 validation/parse; 401 doğrulanmış kimlik yok; 403 yetki/CSRF; 404 yok/yabancı tenant/uygunsuz QR veya guest; 409 duplicate/stale version/uygunsuz lifecycle/FK veya kapanış koşulu; 503 yapılandırılmamış QR görsel adresi veya eksik gerçek kapanış kanıtı. Genel beklenmeyen hata güvenli 500'dür. Şu an canlı business yazmaları CSRF'siz 403, protected GET'ler anonim 401; varsayılan ADMIN/WAITER rolü de izin sağlamaz. 429 + `Retry-After` hız sınırı aşımıdır; sayaç deposu kullanılamazsa 503 döner (fail closed).
+
+### Hız sınırları (ADR-QR-002 K7)
+
+Sayılar ve tasarım [ADR-QR-002 K7 uygulama notu](../decisions/ADR-QR-002-security.md)'ndadır. Özet: validate QR başına 60/dk; open masa başına 20/10 dk; ana oturumda en çok 20 aktif guest; activity ve csrf doğrulanmış guest başına 30/dk; personel restoran + kullanıcı başına okuma 300/dk, yazma 60/dk. İstemci `429` aldığında `Retry-After` saniyesi kadar beklemeli, otomatik sıkı yeniden deneme yapmamalıdır. Adres başına yalnız başarısız denemeler sayılır: bulunamayan QR kodu veya guest credential'ı; validate 30/dk, open 10/10 dk, activity + csrf ortak 30/dk. Aynı restoran Wi-Fi'sindeki gerçek müşteriler bu bütçeyi harcamaz. Bütçe dolsa da istek aranır: geçerli QR ve guest normal yanıt, kullanılamaz olan `404` alır; yalnız bilinmeyen credential `429` alır, böylece aynı ağdaki biri yeni müşterileri bekletemez. Adres başına limitler yalnız `QR_TRUSTED_PROXY_CIDRS` Gateway'i içerdiğinde çalışır; compose varsayılanı `10.213.0.10/32`. Sayaçlar QR veritabanındaki `rate_limits` tablosundadır (V129). Gateway'de henüz genel limit yoktur; bütün servisler tamamlandıktan sonra eklenecek.
 
 ## 4. Durumlar, süreler ve veri sahipliği
 
@@ -281,7 +285,7 @@ Order PR #13'ün incelenen `fd4e7a9` sürümünde V48 kalıcı işlem/gate, prep
 1. Gerçek Auth personel/servis güvenini küçük PR'larla kurun; önce ortak rol/tenant matrisi ve negatif testler.
 2. Mevcut Order gate ve sürümlü wire sözleşmesini gerçek Payment sorgusuyla tamamlayın. İncelenen Order zinciri V41–V49 kullanıyor; sonraki numara için güncel geçmiş ve ekip aralığı esas alınır.
 3. QR'ın kapalı `OrderSessionAccess` sınırını gerçek adaptörle değiştirin; read authority ile mutation permit'i karıştırmayın.
-4. Gerçek token doğrulama ve foreground aktivite taşımasını kurun; müşteri taramaları açılmadan rate limit'i ekleyin.
+4. Gerçek token doğrulama ve foreground aktivite taşımasını kurun; müşteri tarama limitleri QR'da uygulandı (K7); Gateway arkasındaki gerçek istemci adresiyle doğrulayın.
 5. Checkout-kapanış yarışları, kayıp ACK/restart, Order/Payment kesintisi, tenant/guest sahipliği ve SQL rollback için ortak E2E çalıştırın.
 6. Gerçek kimlikli HTTP ve mobil akış doğrulandıktan sonra endpoint gruplarını açın. Tek bir `permitAll` değişikliği entegrasyon değildir.
 
@@ -360,7 +364,7 @@ Bu bölüm QR-INT-02 için güncel HTTP sözleşmesidir. ADR-QR-001 K5/K6/K8 uyg
 
 ### Guest doğrulama ve checkout
 
-**POST `/api/v1/internal/qr/guest-sessions/validate`**, JSON `{ "guestToken": "<43 karakter URL-safe opak token>" }`. Başarılı `200` yanıtı `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId`, `state: "ACTIVE"`, `checkedAt` taşır. QR bağlamı token özetinden ve kayıtlarından çözer. Başka restoranın, bilinmeyen, kapalı veya kesin süresi dolmuş guest'in tokenı için aynı 404 döner. Bu 404 sabit `code: "GUEST_SESSION_UNAVAILABLE"` alanı taşır; `detail` metni değişmez ve neden ayırt edilmez. Yapısal doğrulama hatası 400. Süre sınırında güncel Order korumasına ihtiyaç var ve kaynak belirsizse 503.
+**POST `/api/v1/internal/qr/guest-sessions/validate`**, JSON `{ "guestToken": "<43 karakter URL-safe opak token>" }`. Başarılı `200` yanıtı `restaurantId`, `tableId`, `tableSessionId`, `guestSessionId`, `state: "ACTIVE"`, `checkedAt` taşır. Çağıran **Order** ise yanıtta ayrıca `tableNumber` (personelin verdiği masa numarası, en çok 40 karakter, her zaman dolu) bulunur. Bu değer doğrulamayla aynı masa kaydından ve aynı anda okunur; Order bunu siparişin masa numarası snapshot'ı olarak saklar, masa sonradan yeniden numaralandırılsa da sipariş ilk numarayı korur. **Waiter**'ın yanıtı değişmez ve `tableNumber` içermez; Waiter masa numarasını masa listesi ucundan okur. QR bağlamı token özetinden ve kayıtlarından çözer. Başka restoranın, bilinmeyen, kapalı veya kesin süresi dolmuş guest'in tokenı için aynı 404 döner. Bu 404 sabit `code: "GUEST_SESSION_UNAVAILABLE"` alanı taşır; `detail` metni değişmez ve neden ayırt edilmez. Yapısal doğrulama hatası 400. Süre sınırında güncel Order korumasına ihtiyaç var ve kaynak belirsizse 503.
 
 **GET `/api/v1/internal/qr/table-sessions/{sessionId}/guests/{guestId}/state`**. `200` yanıtı `{ "state": "ACTIVE|EXPIRED|CLOSED", "checkedAt": "<UTC instant>" }`. `CLOSING` ve kullanıma kapalı masa `CLOSED`, kesin süre dolumu `EXPIRED` olarak eşlenir. Bilinmeyen veya yabancı scope aynı `code: "GUEST_SESSION_UNAVAILABLE"` ile 404, süre sınırında eksik Order kanıtı 503. Her iki uç `Cache-Control: no-store` döner ve aktiviteyi yenilemez. Order yalnız `ACTIVE` sonucunda kendi checkout/kapanış gate'ine devam eder. QR yanıtı tekrar kullanılabilir kabul izni vermez.
 
@@ -373,10 +377,10 @@ Menu, müşteri menüsünde hangi restoranın gösterileceğini istemci girdisin
 - **Kimlik.** Menu kendi RSA anahtarıyla imzalar; Order/Waiter anahtarı kullanılmaz. `Authorization: Service <JWT>`, `alg=RS256`, `kid=<yapılandırılmış-id>`, `iss=restofy-menu`, `sub=menu-service`, `aud=["restofy-qr"]`, `token_type=service`, `scope=qr:menu-guest-validate`. `jti`, `iat=nbf`, en çok 30 sn süre, `method`/`target`/`body_sha256` bağı Order'daki kurallarla aynıdır. **`restaurant_id` claim'i gönderilmez**: Menu restoranı bilmeden sorar; claim varsa 403. Açık anahtar `QR_MENU_CALLER_PUBLIC_KEYS` ile (`kid` → Base64 SPKI DER RSA, en az 2048 bit) verilir. Boşsa Menu güvenilmez ve 401 alır. Gövde sınırı 1 KiB.
 - **Yanıt.** `200` yalnız `{ "restaurantId": "<UUID>", "state": "ACTIVE" }`, `Cache-Control: no-store`. Masa, oturum ve guest kimlikleri dönmez. `restaurantId`, guest kaydının restoranıdır; QR'ın `AUTH_RESTAURANT_ID` değeriyle eşleşmeyen guest reddedilir.
 - **Doğrulama kuralı.** Order'la aynı mantık kullanılır: önce yerel süreler bakılır; yerel süreler ACTIVE'i kanıtlayamazsa Order'a sorulur. Sipariş verebilen guest menüyü de görür. Doğrulama salt okunurdur, oturum aktivitesini **yenilemez**. Menüde gezinirken oturumu canlı tutmak frontend'in işidir: gerçek menü/sepet hareketinde `POST /api/v1/qr/guest-sessions/activity` çağrılır.
-- **Hatalar.** Bilinmeyen, kapalı, süresi dolmuş veya başka restoranın guest'i: `404` + `code: "GUEST_SESSION_UNAVAILABLE"` (ProblemDetail). Yapısal hata 400, aşırı gövde 413. Kimlik/imza hatası, `Cookie`/`Origin`/`Content-Encoding` başlığı 401; yanlış scope, `restaurant_id` claim'i, hedef veya gövde bağı 403. Süre sınırında Order kanıtı alınamazsa 503. 429, K7 hız sınırıyla gelecek. Menu tarafında 404 dışındaki her sonuç (401/403/429/5xx/zaman aşımı/bozuk yanıt) 503'tür; yeniden deneme ve önbellek yoktur.
+- **Hatalar.** Bilinmeyen, kapalı, süresi dolmuş veya başka restoranın guest'i: `404` + `code: "GUEST_SESSION_UNAVAILABLE"` (ProblemDetail). Yapısal hata 400, aşırı gövde 413. Kimlik/imza hatası, `Cookie`/`Origin`/`Content-Encoding` başlığı 401; yanlış scope, `restaurant_id` claim'i, hedef veya gövde bağı 403. Süre sınırında Order kanıtı alınamazsa 503. K7 hız sınırları iç servis uçlarını kapsamaz; bu uç şu an 429 üretmez. Menu tarafında 404 dışındaki her sonuç (401/403/429/5xx/zaman aşımı/bozuk yanıt) 503'tür; yeniden deneme ve önbellek yoktur.
 - **Ayrım.** Order ve Waiter kimlikleri bu uçta 401 alır; Menu kimliği Order/Waiter uçlarında 401 alır. Menu öneki altındaki başka yol 403'tür.
 - **Çerez.** Menu çerezi yalnız bu çağrı için kullanır; loglamaz, saklamaz, önbelleğe almaz (ADR-QR-002 §3). Rotate açık oturumları kapatmaz (mevcut davranış); eski QR'dan açılmış canlı oturum menüyü görmeye devam eder.
-- **Açılış.** Uç bu PR ile hazırdır. Tarayıcıdan uçtan uca akış, QR'ın misafir yollarının K7 hız sınırıyla açılmasına bağlıdır.
+- **Açılış.** Uç bu PR ile hazırdır. QR'ın misafir yolları K7 ile açıldı; tarayıcıdan uçtan uca akış Menu istemcisine bağlıdır.
 
 ### Sepet aktivitesi teslimi
 

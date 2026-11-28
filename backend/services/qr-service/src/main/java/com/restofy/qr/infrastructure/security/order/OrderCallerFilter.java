@@ -1,5 +1,6 @@
 package com.restofy.qr.infrastructure.security.order;
 
+import com.restofy.qr.api.controller.OrderGuestSessionController;
 import com.restofy.qr.infrastructure.security.JwtDates;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -33,7 +34,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 final class OrderCallerFilter extends OncePerRequestFilter {
-    static final String AUTHORITY = "ORDER_QR_GUEST_SESSION";
+    static final String AUTHORITY = OrderGuestSessionController.ORDER_CALLER;
     static final String VERIFIED = OrderCallerFilter.class.getName() + ".verified";
     private static final String SCHEME = "Service ";
     private static final int MAX_CREDENTIAL_LENGTH = 4096;

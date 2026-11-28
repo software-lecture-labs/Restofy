@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/qr/table-sessions")
-@Tag(name = "Table sessions", description = "HTTP access remains fail closed. Browser/Auth integration is pending.")
+@Tag(name = "Table sessions", description = "Public guest route behind the Gateway, rate limited per table and active guests per session; unknown QR codes cost a per-address failure budget.")
 public class TableSessionController {
     private final GuestSessionOpeningService service;
     private final GuestCookies cookies;
@@ -33,8 +33,8 @@ public class TableSessionController {
                     "guests. Admission and verified business/financial outcomes determine main and owner idle " +
                     "protection; response orderProtected flags distinguish it from baseline idle timestamps. Complete " +
                     "safe cancellation coverage can restart idle windows. COMPLETED does not close the table; " +
-                    "terminal/closing main is never revived. HTTP stays closed; real Order/Payment/Auth/browser " +
-                    "integration is pending.")
+                    "terminal/closing main is never revived. Too many opens or a full session (20 active guests): 429 + " +
+                    "Retry-After; limits unavailable: 503. Real Order/Payment integration is pending.")
     public ResponseEntity<GuestSessionOpenedResponse> open(@Valid @RequestBody ValidateQrCodeRequest request,
                                                            HttpServletResponse response) {
         var result = service.open(request.qrToken());

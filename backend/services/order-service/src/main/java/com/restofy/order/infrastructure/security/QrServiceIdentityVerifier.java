@@ -92,7 +92,7 @@ public class QrServiceIdentityVerifier implements ServiceIdentityPort {
                 return Optional.empty();
             }
             return Optional.of(new ServiceActor(ServiceName.QR,
-                    new ServiceActor.QrRequest(restaurant, method, target, bodyDigest)));
+                    new ServiceActor.SignedRequest(restaurant, method, target, bodyDigest)));
         } catch (JwtException | IllegalArgumentException _) {
             return Optional.empty();
         }
@@ -112,7 +112,7 @@ public class QrServiceIdentityVerifier implements ServiceIdentityPort {
                 && expiration.isAfter(issuedAt) && !expiration.isAfter(issuedAt.plusSeconds(TTL_SECONDS));
     }
 
-    private static UUID uuid(String value) {
+    static UUID uuid(String value) {
         if (value == null) {
             throw new IllegalArgumentException("Missing UUID");
         }
