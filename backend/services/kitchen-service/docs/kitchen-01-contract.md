@@ -1,5 +1,7 @@
 # Kitchen Service — KITCHEN-01 Tasarım ve Sözleşme Taslağı
 
+> **Güncelleme (KITCHEN-INT-01, 26 Kasım 2026):** Kimlik doğrulama artık uygulanmıştır. Bu belgedeki "kimlik doğrulayan bileşen yok", "CSRF Spring varsayılanında" ve D-09 personel oturumu ifadeleri tarihseldir; güncel davranış için [entegrasyon rehberi](../../../../docs/kitchen/entegrasyon-rehberi.md) geçerlidir. Servis kimliği hâlâ uygulanmamıştır.
+
 Durum: **Faz 1 / KITCHEN-01 çalışma notu.** Burada yazan sözleşmeler *önerilen ve ekipçe teyit edilecek* sözleşmelerdir; Order, Auth veya Gateway tarafında uygulanmış sayılmaz.
 
 ## 1. Doğrulanmış repo gerçekleri (1.1.1)

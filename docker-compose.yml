@@ -207,6 +207,7 @@ services:
     environment:
       <<: *database-env
       DB_KITCHEN_NAME: ${DB_KITCHEN_NAME:?}
+      KITCHEN_AUTH_STAFF_PUBLIC_KEY: ${KITCHEN_AUTH_STAFF_PUBLIC_KEY:-}
     ports:
       - "127.0.0.1:${KITCHEN_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 
