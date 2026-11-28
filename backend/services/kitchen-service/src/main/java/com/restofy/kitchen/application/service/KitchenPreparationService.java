@@ -8,6 +8,7 @@ import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import com.restofy.kitchen.domain.exception.OrderCancellationUndecidedException;
+import com.restofy.kitchen.infrastructure.persistence.repository.CancellationRequestRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenOrderRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenStatusHistoryRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.OrderCancellationConfirmationRepository;
@@ -44,16 +45,18 @@ public class KitchenPreparationService {
 	private final KitchenOrderQueryService views;
 	private final KitchenEventRecorder events;
 	private final OrderCancellationConfirmationRepository confirmations;
+	private final CancellationRequestRepository requests;
 	private final Clock clock;
 
 	public KitchenPreparationService(KitchenOrderRepository orders, KitchenStatusHistoryRepository history,
 			KitchenOrderQueryService views, KitchenEventRecorder events,
-			OrderCancellationConfirmationRepository confirmations, Clock clock) {
+			OrderCancellationConfirmationRepository confirmations, CancellationRequestRepository requests, Clock clock) {
 		this.orders = orders;
 		this.history = history;
 		this.views = views;
 		this.events = events;
 		this.confirmations = confirmations;
+		this.requests = requests;
 		this.clock = clock;
 	}
 
@@ -70,8 +73,9 @@ public class KitchenPreparationService {
 	/**
 	 * PREPARING -> READY, same rules as the start: one transaction, row lock, and a repeat is a 200 only when it is
 	 * the same command (id, actor, order, target) and the order is still READY. WAITING -> READY does not exist.
-	 * Refused while a cancellation of the whole order is open between the kitchen and the Order service
-	 * ({@link OrderCancellationUndecidedException}); the same command can be sent again once it is decided.
+	 * Refused while a cancellation of the whole order is open between the kitchen and the Order service: the kitchen's own
+	 * undecided request, or its agreement to an Order request ({@link OrderCancellationUndecidedException}). The same
+	 * command can be sent again once it is decided.
 	 */
 	@Transactional
 	public KitchenOrderDetailResponse markReady(UUID restaurantId, UUID actorUserId, UUID commandId, UUID orderId) {
@@ -85,7 +89,7 @@ public class KitchenPreparationService {
 
 	/** Read under the order's row lock, so no answer or decision can slip in between this check and the transition. */
 	private boolean hasUndecidedCancellation(UUID restaurantId, UUID orderId) {
-		return confirmations.hasAgreedFullCancellation(restaurantId, orderId);
+		return requests.hasOpenRequest(restaurantId, orderId) || confirmations.hasAgreedFullCancellation(restaurantId, orderId);
 	}
 
 	/** Runs one command; {@code transition} applies the domain move and returns the instant it wrote. */

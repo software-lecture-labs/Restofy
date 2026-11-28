@@ -93,8 +93,9 @@ public class OutboxDeliveryService {
 
 	/**
 	 * One attempt for one delivery. Empty if the delivery is not due, already final, claimed by another worker, of an
-	 * event type the sink holds, or an Order READY still waiting for its PREPARING to be delivered (the sink is not
-	 * called and no attempt is counted). A stored event that cannot be read is never sent: its delivery is marked FAILED
+	 * event type the sink holds, or one that still has to wait (an Order READY for its PREPARING to be delivered, the
+	 * kitchen's own cancellation request for the outcome of an open Order request): the sink is not called and no attempt
+	 * is counted. A stored event that cannot be read is never sent: its delivery is marked FAILED
 	 * ({@value #UNREADABLE_EVENT}) and the result is empty as well. Otherwise returns the delivery's status after the
 	 * result was recorded.
 	 */
@@ -112,7 +113,7 @@ public class OutboxDeliveryService {
 		Instant now = clock.instant();
 		OutboxDelivery delivery = deliveries.findForUpdate(deliveryId).orElse(null);
 		if (delivery == null || !sink.destination().equals(delivery.getDestination()) || !delivery.isDue(now)
-				|| deliveries.isWaitingForPreparing(deliveryId)) {
+				|| deliveries.isWaiting(deliveryId)) {
 			return Optional.empty();
 		}
 		OutboxEvent event = events.findById(delivery.getEventId()).orElseThrow();

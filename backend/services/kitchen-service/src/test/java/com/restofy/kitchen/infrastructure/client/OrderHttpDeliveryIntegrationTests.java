@@ -9,10 +9,12 @@ import com.restofy.kitchen.application.contract.OrderCancellationRequestedMessag
 import com.restofy.kitchen.application.service.OrderCancellationConfirmationService;
 import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
+import com.restofy.kitchen.domain.entity.CancellationRequest;
 import com.restofy.kitchen.domain.enums.CancellationReason;
 import com.restofy.kitchen.domain.enums.DeliveryStatus;
 import com.restofy.kitchen.domain.enums.OrderDecision;
 import com.restofy.kitchen.infrastructure.config.OrderDeliveryConfiguration;
+import com.restofy.kitchen.infrastructure.persistence.repository.CancellationRequestRepository;
 import com.restofy.kitchen.support.OrderStubServer;
 import com.restofy.kitchen.support.OrderStubServer.Answer;
 import com.restofy.kitchen.support.OrderStubServer.Received;
@@ -74,6 +76,8 @@ class OrderHttpDeliveryIntegrationTests {
 	@Autowired
 	private OrderDecisionService decisions;
 	@Autowired
+	private CancellationRequestRepository requestRows;
+	@Autowired
 	private JsonMapper json;
 	@Autowired
 	private JdbcTemplate jdbc;
@@ -102,7 +106,9 @@ class OrderHttpDeliveryIntegrationTests {
 		return new HttpOrderEventSink(
 				OrderDeliveryConfiguration.orderClient(httpClient, URI.create(url), Duration.ofSeconds(3)), json,
 				(restaurantId, path, body) -> "test-credential",
-				decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision), confirmations::recordOrderOutcome);
+				decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision), confirmations::recordOrderOutcome,
+				(restaurantId, requestId) -> requestRows.findByRestaurantIdAndId(restaurantId, requestId)
+						.map(CancellationRequest::getStatus));
 	}
 
 	/** The Order service's answer to Kitchen's own request, with the first decision's values. */

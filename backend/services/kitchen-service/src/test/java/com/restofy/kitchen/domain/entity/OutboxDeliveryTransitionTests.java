@@ -68,6 +68,28 @@ class OutboxDeliveryTransitionTests {
 		assertEquals("REJECTED", failed.getLastErrorCode());
 	}
 
+	/** Waiting is not failing: however long it lasts no attempt is used, and it can still be delivered or fail normally. */
+	@Test
+	void aWaitingDeliveryUsesNoAttemptHoweverLongItWaits() {
+		OutboxDelivery delivery = delivery();
+		Instant now = T0;
+
+		for (int round = 0; round < 100; round++) {
+			delivery.recordAttempt(DeliveryOutcome.WAITING, "NOT_YET", now);
+			assertEquals(DeliveryStatus.PENDING, delivery.getStatus());
+			assertEquals(0, delivery.getAttemptCount());
+			assertEquals(now.plusSeconds(15), delivery.getNextAttemptAt());
+			assertEquals("NOT_YET", delivery.getLastErrorCode());
+			assertFalse(delivery.isDue(now.plusSeconds(14)));
+			now = delivery.getNextAttemptAt();
+		}
+		delivery.recordAttempt(DeliveryOutcome.DELIVERED, null, now);
+
+		assertEquals(DeliveryStatus.DELIVERED, delivery.getStatus());
+		assertEquals(1, delivery.getAttemptCount());
+		assertNull(delivery.getLastErrorCode());
+	}
+
 	@Test
 	void anUnknownResultIsRetriedWithADoublingDelayCappedAtOneHour() {
 		OutboxDelivery delivery = delivery();

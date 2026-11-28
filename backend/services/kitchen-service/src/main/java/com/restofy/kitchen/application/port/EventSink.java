@@ -17,6 +17,8 @@ import java.util.Set;
  *       a runtime exception counts as the same): the outcome is unknown, so the same event id is sent again.</li>
  *   <li>Only a definite, non-repairable rejection (e.g. the target says the contract is unsupported) is
  *       {@code PERMANENT_FAILURE}.</li>
+ *   <li>A definite answer that the event cannot be accepted YET, because something else has to happen first, is
+ *       {@code WAITING}: it uses no attempt, so it can never run out while it waits.</li>
  *   <li>The receiver must treat the event id idempotently: delivery is at-least-once, never exactly-once.</li>
  *   <li>The adapter does not retry on its own and holds no database lock while it works.</li>
  * </ul>
@@ -45,6 +47,10 @@ public interface EventSink {
 
 		public static Result retry(String errorCode) {
 			return new Result(DeliveryOutcome.RETRYABLE_FAILURE, errorCode);
+		}
+
+		public static Result waiting(String errorCode) {
+			return new Result(DeliveryOutcome.WAITING, errorCode);
 		}
 
 		public static Result permanentFailure(String errorCode) {

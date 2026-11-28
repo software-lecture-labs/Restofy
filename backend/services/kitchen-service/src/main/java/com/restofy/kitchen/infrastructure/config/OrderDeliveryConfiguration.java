@@ -4,10 +4,12 @@ import com.restofy.kitchen.application.port.OrderEventSink;
 import com.restofy.kitchen.application.service.OrderCancellationConfirmationService;
 import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.service.OutboxDeliveryService;
+import com.restofy.kitchen.domain.entity.CancellationRequest;
 import com.restofy.kitchen.infrastructure.client.HttpOrderEventSink;
 import com.restofy.kitchen.infrastructure.client.OrderRequestSigner;
 import com.restofy.kitchen.infrastructure.client.OrderServiceCredentials;
 import com.restofy.kitchen.infrastructure.messaging.OrderDeliveryDispatcher;
+import com.restofy.kitchen.infrastructure.persistence.repository.CancellationRequestRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -60,13 +62,15 @@ public class OrderDeliveryConfiguration {
 			@Value("${restofy.rest-client.connect-timeout-ms}") long connectTimeoutMs,
 			@Value("${restofy.rest-client.read-timeout-ms}") long readTimeoutMs, JsonMapper json,
 			OrderServiceCredentials orderRequestSigner, OrderDecisionService decisions,
-			OrderCancellationConfirmationService confirmations) {
+			OrderCancellationConfirmationService confirmations, CancellationRequestRepository requests) {
 		URI origin = orderOrigin(orderServiceUrl);
 		checkTimeouts(connectTimeoutMs, readTimeoutMs);
 		// The answer arrives on the TLS connection to the configured Order address: the Order service is the sender.
 		return new HttpOrderEventSink(orderClient(orderHttpClient, origin, Duration.ofMillis(readTimeoutMs)), json,
 				orderRequestSigner, decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision),
-				confirmations::recordOrderOutcome);
+				confirmations::recordOrderOutcome,
+				(restaurantId, requestId) -> requests.findByRestaurantIdAndId(restaurantId, requestId)
+						.map(CancellationRequest::getStatus));
 	}
 
 	@Bean

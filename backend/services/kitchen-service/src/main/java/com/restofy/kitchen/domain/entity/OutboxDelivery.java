@@ -34,6 +34,8 @@ public class OutboxDelivery implements Persistable<UUID> {
 
 	public static final int MAX_ATTEMPTS = 8;
 	static final Duration BASE_DELAY = Duration.ofSeconds(5);
+	/** How long a delivery that has to wait for something else stays away before it asks again. */
+	static final Duration WAITING_DELAY = Duration.ofSeconds(15);
 	static final Duration MAX_DELAY = Duration.ofHours(1);
 	/** Doubling stops here so the shift can never overflow, long before MAX_DELAY is the real limit. */
 	private static final int MAX_BACKOFF_DOUBLINGS = 20;
@@ -113,8 +115,13 @@ public class OutboxDelivery implements Persistable<UUID> {
 		if (status != DeliveryStatus.PENDING) {
 			return;
 		}
-		attemptCount++;
 		lastAttemptAt = now;
+		if (outcome == DeliveryOutcome.WAITING) {
+			lastErrorCode = errorCode;
+			nextAttemptAt = now.plus(WAITING_DELAY);
+			return;
+		}
+		attemptCount++;
 		switch (outcome) {
 			case DELIVERED -> {
 				status = DeliveryStatus.DELIVERED;
@@ -123,6 +130,7 @@ public class OutboxDelivery implements Persistable<UUID> {
 				lastErrorCode = null;
 			}
 			case PERMANENT_FAILURE -> fail(errorCode);
+			case WAITING -> throw new IllegalStateException("handled before an attempt is counted");
 			case RETRYABLE_FAILURE -> {
 				if (attemptCount >= MAX_ATTEMPTS) {
 					fail(MAX_ATTEMPTS_EXCEEDED);

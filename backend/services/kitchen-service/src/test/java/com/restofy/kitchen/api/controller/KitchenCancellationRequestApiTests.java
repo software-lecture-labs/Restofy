@@ -364,6 +364,25 @@ class KitchenCancellationRequestApiTests {
 		assertEquals(2, events(restaurant), "each request has its own event");
 	}
 
+	/** Order would apply the open request: the order must not become READY meanwhile, and the repeat stays a repeat. */
+	@Test
+	void anUndecidedRequestHoldsReadyAndItsRepeatStillAnswers200() throws Exception {
+		UUID restaurant = UUID.randomUUID();
+		UUID actor = UUID.randomUUID();
+		UUID orderId = preparingOrder(restaurant, actor);
+		UUID key = UUID.randomUUID();
+		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isAccepted());
+
+		mvc.perform(patch("/api/v1/kitchen/orders/" + orderId + "/mark-ready").header(KEY, UUID.randomUUID().toString())
+						.with(kitchen(restaurant, actor)).with(csrf()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ORDER_CANCELLATION_UNDECIDED"))
+				.andExpect(jsonPath("$.retryable").value(true));
+
+		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REQUESTED"));
+		assertEquals("PREPARING", orderState(restaurant, orderId).get("status"));
+		assertEquals(0L, ((Number) orderState(restaurant, orderId).get("ready_events")).longValue(), "no READY event was recorded");
+	}
+
 	@Test
 	void aRepeatStillAnswers200EvenIfTheOrderMovedOnButANewRequestDoesNot() throws Exception {
 		UUID restaurant = UUID.randomUUID();
@@ -371,12 +390,14 @@ class KitchenCancellationRequestApiTests {
 		UUID orderId = preparingOrder(restaurant, actor);
 		UUID key = UUID.randomUUID();
 		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isAccepted());
+		// The Order service refused it (written by hand: the decision itself is tested elsewhere), so the order moves on.
+		jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ?", restaurant);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
 
-		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REQUESTED"));
+		send(restaurant, actor, orderId, key, body("KITCHEN_ERROR", null)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REJECTED"));
 		send(restaurant, actor, orderId, UUID.randomUUID(), body("KITCHEN_ERROR", null)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("ORDER_STATE_CONFLICT"));
-		assertEquals("READY", orderState(restaurant, orderId).get("status"), "the request did not stop the order from becoming ready");
+		assertEquals("READY", orderState(restaurant, orderId).get("status"));
 	}
 
 	// ---- security and tenant -------------------------------------------------------------------------------------
@@ -466,12 +487,14 @@ class KitchenCancellationRequestApiTests {
 				: patch("/api/v1/kitchen/orders/" + orderId + "/mark-ready").header(KEY, UUID.randomUUID().toString())
 						.with(kitchen(restaurant, actor)).with(csrf()));
 
-		// Whichever came first: mark-ready always succeeds (a request does not block it); the request is accepted only if it won.
+		// Whichever came first wins: either the request is stored and holds READY, or the order is READY and cannot be asked.
 		Map<String, Object> state = orderState(restaurant, orderId);
-		assertEquals("READY", state.get("status"));
-		assertEquals(1L, ((Number) state.get("ready_events")).longValue(), "exactly one ready event");
-		assertTrue(statuses.contains(200), "mark-ready succeeded: " + statuses);
-		assertEquals(statuses.contains(202) ? 1 : 0, requests(restaurant));
+		boolean asked = statuses.contains(202);
+		assertEquals(asked, !statuses.contains(200), "exactly one of them succeeded: " + statuses);
+		assertTrue(statuses.contains(409), "the other was refused: " + statuses);
+		assertEquals(asked ? "PREPARING" : "READY", state.get("status"));
+		assertEquals(asked ? 0L : 1L, ((Number) state.get("ready_events")).longValue());
+		assertEquals(asked ? 1 : 0, requests(restaurant));
 		assertEquals(requests(restaurant), events(restaurant));
 	}
 }

@@ -9,6 +9,7 @@ import com.restofy.kitchen.application.contract.KitchenOrderReadyMessage;
 import com.restofy.kitchen.application.contract.KitchenPreparationStartedMessage;
 import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.application.port.EventSink;
+import com.restofy.kitchen.domain.enums.CancellationRequestStatus;
 import com.restofy.kitchen.domain.enums.DeliveryOutcome;
 import com.restofy.kitchen.infrastructure.config.OrderDeliveryConfiguration;
 import com.restofy.kitchen.support.OrderStubServer;
@@ -30,6 +31,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -81,6 +83,8 @@ class HttpOrderEventSinkTests {
 	/** What the sink asked to record as the Order service's final word, and whether the recording is accepted. */
 	private final List<String> finalWords = new ArrayList<>();
 	private boolean recordable = true;
+	/** What the kitchen has stored for its own request; {@code null} = no such request. */
+	private CancellationRequestStatus requestStatus = CancellationRequestStatus.REQUESTED;
 
 	private HttpOrderEventSink sink(OrderServiceCredentials provider) {
 		return new HttpOrderEventSink(OrderDeliveryConfiguration.orderClient(httpClient, URI.create(order.url()), READ_TIMEOUT),
@@ -90,7 +94,7 @@ class HttpOrderEventSinkTests {
 				}, (restaurant, orderOfAnswer, cancellation, outcome) -> {
 					finalWords.add(restaurant + ":" + orderOfAnswer + ":" + cancellation + ":" + outcome);
 					return recordable;
-				});
+				}, (restaurant, requestId) -> Optional.ofNullable(requestStatus));
 	}
 
 	private static final Instant DECIDED = Instant.parse("2026-11-27T10:16:00.654321Z");
@@ -388,12 +392,71 @@ class HttpOrderEventSinkTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"CANCELLED", "REQUEST_REJECTED", "STALE", "ALREADY_DECIDED", "NEEDS_RECONCILIATION"})
-	void everyRecordedOutcomeCompletesTheDelivery(String outcome) {
+	@CsvSource({"CANCELLED, APPLIED", "REQUEST_REJECTED, REJECTED"})
+	void anAppliedDecisionCompletesTheDelivery(String outcome, String answer) {
 		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.valueOf(outcome), true);
-		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+		order.answerAlways(Answer.of(200, receipt(answer)));
 
 		assertEquals(EventSink.Result.delivered(), deliver(cancellation("KITCHEN_ERROR")));
+	}
+
+	/** The decision reached Kitchen and is on record, but the kitchen's order and request do not show it. */
+	@ParameterizedTest
+	@ValueSource(strings = {"STALE", "NEEDS_RECONCILIATION"})
+	void aReceivedButUnappliedDecisionIsNeverADelivery(String outcome) {
+		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.valueOf(outcome), false);
+		order.answerAlways(Answer.of(200, receipt("APPLIED")));
+
+		assertEquals(EventSink.Result.permanentFailure("DECISION_" + outcome), deliver(cancellation("KITCHEN_ERROR")));
+	}
+
+	@ParameterizedTest
+	@CsvSource({"APPLIED, APPROVED, true", "REJECTED, REJECTED, true", "APPLIED, REJECTED, false", "REJECTED, APPROVED, false",
+			"APPLIED, REQUESTED, false"})
+	void anAlreadyDecidedRequestIsADeliveryOnlyIfItWasDecidedTheSame(String answer, String stored, boolean agrees) {
+		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.ALREADY_DECIDED, false);
+		requestStatus = CancellationRequestStatus.valueOf(stored);
+		order.answerAlways(Answer.of(200, receipt(answer)));
+
+		assertEquals(agrees ? EventSink.Result.delivered() : EventSink.Result.permanentFailure("DECISION_CONFLICT"),
+				deliver(cancellation("KITCHEN_ERROR")));
+	}
+
+	/** The Order service waits for the kitchen's answer to its own request: nothing failed, nothing was decided. */
+	@Test
+	void aRequestBehindAnOpenOrderRequestWaits() {
+		order.answerAlways(Answer.of(409, OrderStubServer.error("CANCELLATION_ALREADY_PENDING")));
+
+		assertEquals(EventSink.Result.waiting("HTTP_409_CANCELLATION_ALREADY_PENDING"), deliver(cancellation("KITCHEN_ERROR")));
+		assertTrue(recorded.isEmpty());
+	}
+
+	/** Until the cancellation itself has arrived, the open request waits; afterwards the same answer completes it. */
+	@ParameterizedTest
+	@CsvSource({"REQUESTED, WAITING", "REJECTED, DELIVERED", "APPROVED, DELIVERED"})
+	void anAlreadyCancelledOrderCompletesTheRequestOnlyOnceTheKitchenHasClosedIt(String stored, String expected) {
+		requestStatus = CancellationRequestStatus.valueOf(stored);
+		order.answerAlways(Answer.of(409, OrderStubServer.error("ORDER_ALREADY_CANCELLED")));
+
+		assertEquals(DeliveryOutcome.valueOf(expected), deliver(cancellation("KITCHEN_ERROR")).outcome());
+		assertTrue(recorded.isEmpty(), "no decision is made up from an error answer");
+	}
+
+	@Test
+	void anAlreadyCancelledAnswerForARequestKitchenDoesNotHaveIsVisible() {
+		requestStatus = null;
+		order.answerAlways(Answer.of(409, OrderStubServer.error("ORDER_ALREADY_CANCELLED")));
+
+		assertEquals(EventSink.Result.permanentFailure("REQUEST_UNKNOWN"), deliver(cancellation("KITCHEN_ERROR")));
+	}
+
+	/** Only the kitchen's own request waits on these codes; for any other event they are unknown answers. */
+	@ParameterizedTest
+	@ValueSource(strings = {"CANCELLATION_ALREADY_PENDING", "ORDER_ALREADY_CANCELLED"})
+	void aStatusReportDoesNotWaitOnTheRequestCodes(String code) {
+		order.answerAlways(Answer.of(409, OrderStubServer.error(code)));
+
+		assertEquals(EventSink.Result.retry("HTTP_409_" + code), deliver(preparing()));
 	}
 
 	@Test
@@ -402,7 +465,7 @@ class HttpOrderEventSinkTests {
 				OrderDeliveryConfiguration.orderClient(httpClient, URI.create(order.url()), READ_TIMEOUT), JSON, credentials,
 				decision -> {
 					throw new IllegalStateException("database down");
-				}, (restaurant, orderOfAnswer, cancellation, outcome) -> true);
+				}, (restaurant, orderOfAnswer, cancellation, outcome) -> true, (restaurant, requestId) -> Optional.empty());
 		order.answerAlways(Answer.of(200, receipt("APPLIED")));
 		KitchenCancellationRequestedMessage message = cancellation("KITCHEN_ERROR");
 
@@ -464,7 +527,7 @@ class HttpOrderEventSinkTests {
 
 	@ParameterizedTest
 	@CsvSource({"400,INVALID_REQUEST", "415,UNSUPPORTED_MEDIA_TYPE", "422,VALIDATION_ERROR", "422,UNKNOWN_ORDER_ITEM",
-			"422,CANCEL_QUANTITY_EXCEEDED", "409,IDEMPOTENCY_CONFLICT", "409,ORDER_ALREADY_CANCELLED"})
+			"422,CANCEL_QUANTITY_EXCEEDED", "409,IDEMPOTENCY_CONFLICT"})
 	void aDefiniteRefusalOfThisRequestIsNotRetried(int status, String code) {
 		order.answerAlways(Answer.of(status, OrderStubServer.error(code)));
 

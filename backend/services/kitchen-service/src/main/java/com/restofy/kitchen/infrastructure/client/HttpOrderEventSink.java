@@ -9,6 +9,8 @@ import com.restofy.kitchen.application.contract.OrderCancellationReceipt;
 import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.port.OrderEventSink;
+import com.restofy.kitchen.domain.enums.CancellationRequestStatus;
+import com.restofy.kitchen.domain.enums.OrderDecision;
 import com.restofy.kitchen.domain.enums.OrderOutcome;
 import com.restofy.kitchen.infrastructure.config.CorrelationIdFilter;
 import org.slf4j.Logger;
@@ -40,12 +42,18 @@ import java.util.regex.Pattern;
  * endpoint defines. Anything else that is not a definite refusal of this request is an unknown result and is retried
  * with the same event id and the same body.
  *
+ * <p><b>The kitchen's own request may have to wait.</b> Two answers to it are neither success nor failure and use no
+ * attempt: {@code 409 CANCELLATION_ALREADY_PENDING} (the Order service waits for the kitchen's answer to its own
+ * request) and {@code 409 ORDER_ALREADY_CANCELLED} while the kitchen has not yet received that cancellation. Once the
+ * cancellation has arrived and closed the request, the same answer completes the delivery.
+ *
  * <p><b>An acknowledgement is not a business decision.</b> For Kitchen's own cancellation request the Order service
  * decides at once ({@code APPLIED} = cancelled, {@code REJECTED} = not cancelled), and this answer is the only place the
  * decision ever appears: no later event about Kitchen's own request comes. So the answer is first checked against the
  * request that was sent ({@code OrderCancellationReceipt}) and recorded as the Order service's decision
- * ({@link OrderDecisionRecorder}); only then is the delivery DELIVERED. An answer that cannot be recorded leaves the
- * delivery retried (unknown) or FAILED (cannot ever be recorded), never DELIVERED.
+ * ({@link OrderDecisionRecorder}); only then, and only if the kitchen's records then agree with it, is the delivery
+ * DELIVERED. An answer that cannot be recorded, or that the kitchen records but cannot apply (a cancelled order that is
+ * already READY here, an outdated version), leaves the delivery retried (unknown) or FAILED, never DELIVERED.
  *
  * <p><b>The kitchen's answer.</b> {@code outcome} only says the answer arrived. What the Order service did with the
  * cancellation is {@code cancellationStatus}: it can be {@code REJECTED} although the kitchen agreed. It is recorded
@@ -73,8 +81,9 @@ public class HttpOrderEventSink implements OrderEventSink {
 			"REJECTED", OrderOutcome.REJECTED);
 	/** The answers that say this very request can never be accepted: status and the Order service's error code. */
 	private static final Set<String> DEFINITE_REFUSALS = Set.of("400_INVALID_REQUEST", "415_UNSUPPORTED_MEDIA_TYPE",
-			"422_VALIDATION_ERROR", "422_UNKNOWN_ORDER_ITEM", "422_CANCEL_QUANTITY_EXCEEDED", "409_IDEMPOTENCY_CONFLICT",
-			"409_ORDER_ALREADY_CANCELLED");
+			"422_VALIDATION_ERROR", "422_UNKNOWN_ORDER_ITEM", "422_CANCEL_QUANTITY_EXCEEDED", "409_IDEMPOTENCY_CONFLICT");
+	private static final String REQUEST_ALREADY_PENDING = "409_CANCELLATION_ALREADY_PENDING";
+	private static final String ORDER_ALREADY_CANCELLED = "409_ORDER_ALREADY_CANCELLED";
 	private static final Pattern ERROR_CODE = Pattern.compile("[A-Z_]{1,50}");
 
 	private static final Logger log = LoggerFactory.getLogger(HttpOrderEventSink.class);
@@ -116,15 +125,17 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private final OrderServiceCredentials credentials;
 	private final OrderDecisionRecorder decisions;
 	private final OrderOutcomeRecorder outcomes;
+	private final KitchenRequestStates requestStates;
 
 	/** {@code client} must already point at the Order service and have its timeouts set. */
 	public HttpOrderEventSink(RestClient client, JsonMapper json, OrderServiceCredentials credentials,
-			OrderDecisionRecorder decisions, OrderOutcomeRecorder outcomes) {
+			OrderDecisionRecorder decisions, OrderOutcomeRecorder outcomes, KitchenRequestStates requestStates) {
 		this.client = client;
 		this.json = json;
 		this.credentials = credentials;
 		this.decisions = decisions;
 		this.outcomes = outcomes;
+		this.requestStates = requestStates;
 	}
 
 	@Override
@@ -244,10 +255,36 @@ public class HttpOrderEventSink implements OrderEventSink {
 		}
 		String code = text(reply.body(), "code");
 		String detail = ERROR_CODE.matcher(code).matches() ? reply.status() + "_" + code : String.valueOf(reply.status());
+		if (call.message() instanceof KitchenCancellationRequestedMessage requested) {
+			if (REQUEST_ALREADY_PENDING.equals(detail)) {
+				return Result.waiting("HTTP_" + detail);
+			}
+			if (ORDER_ALREADY_CANCELLED.equals(detail)) {
+				return alreadyCancelled(requested);
+			}
+		}
 		if (DEFINITE_REFUSALS.contains(detail)) {
 			return refused(call.message(), "HTTP_" + detail);
 		}
 		return Result.retry("HTTP_" + detail);
+	}
+
+	/**
+	 * The Order service never handled this request (it looks up an earlier answer first) and never will: the order is
+	 * cancelled. While the request is still open here, the cancellation is on its way and will close it; asking again
+	 * later keeps this visible without ever giving up.
+	 */
+	private Result alreadyCancelled(KitchenCancellationRequestedMessage requested) {
+		CancellationRequestStatus status = requestStates.statusOf(requested.restaurantId(), requested.requestId()).orElse(null);
+		if (status == null) {
+			return refused(requested, "REQUEST_UNKNOWN");
+		}
+		if (status == CancellationRequestStatus.REQUESTED) {
+			return Result.waiting("HTTP_" + ORDER_ALREADY_CANCELLED);
+		}
+		log.info("Order says the order is already cancelled and the kitchen request is {}: restaurantId={} orderId={} requestId={}",
+				status, requested.restaurantId(), requested.orderId(), requested.requestId());
+		return Result.delivered();
 	}
 
 	/**
@@ -270,13 +307,36 @@ public class HttpOrderEventSink implements OrderEventSink {
 			return refused(requested, "DECISION_" + reading.verdict());
 		}
 		OrderDecisionService.DecisionResult result = decisions.apply(reading.decision());
-		if (result == null || result.outcome() == null || !result.outcome().isRecorded()) {
-			return refused(requested, "DECISION_" + (result == null || result.outcome() == null ? "NOT_RECORDED" : result.outcome()));
+		String notApplied = whyNotApplied(requested, reading.decision().decision(), result);
+		if (notApplied != null) {
+			return refused(requested, notApplied);
 		}
 		log.info("Order decided the kitchen's cancellation request: {} -> kitchen {} (repeat={}): restaurantId={} orderId={} requestId={}",
 				receipt.outcome(), result.outcome(), result.duplicate(), requested.restaurantId(), requested.orderId(),
 				requested.requestId());
 		return Result.delivered();
+	}
+
+	/**
+	 * Receiving the Order service's decision is not applying it. {@code null} only when the kitchen's records now agree
+	 * with the decision; otherwise the code under which the delivery stays visible as FAILED.
+	 */
+	private String whyNotApplied(KitchenCancellationRequestedMessage requested, OrderDecision decision,
+			OrderDecisionService.DecisionResult result) {
+		if (result == null || result.outcome() == null) {
+			return "DECISION_NOT_RECORDED";
+		}
+		return switch (result.outcome()) {
+			case CANCELLED, REQUEST_REJECTED -> null;
+			// Another Order event decided the request first: fine only if it decided the same.
+			case ALREADY_DECIDED -> {
+				CancellationRequestStatus expected = decision == OrderDecision.APPROVED ? CancellationRequestStatus.APPROVED
+						: CancellationRequestStatus.REJECTED;
+				yield requestStates.statusOf(requested.restaurantId(), requested.requestId()).filter(expected::equals).isPresent()
+						? null : "DECISION_CONFLICT";
+			}
+			case STALE, NEEDS_RECONCILIATION, UNKNOWN, INVALID, SOURCE_NOT_TRUSTED -> "DECISION_" + result.outcome();
+		};
 	}
 
 	/** DELIVERED only once the Order service's final word is stored next to the kitchen's answer. */

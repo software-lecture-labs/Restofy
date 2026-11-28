@@ -145,25 +145,26 @@ class KitchenOrderCancellationFlowTests {
 				.andExpect(jsonPath("$.length()").value(2));
 	}
 
+	/** The kitchen cannot finish an order it has asked to cancel, so the approval always finds it still PREPARING. */
 	@Test
-	void anApprovalThatArrivesAfterTheOrderBecameReadyForcesNothing() throws Exception {
+	void anOrderAskedToBeCancelledDoesNotBecomeReadyAndTheApprovalCancelsIt() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		UUID orderId = order(restaurant);
 		mvc.perform(patch("/api/v1/kitchen/orders/" + orderId + "/start-preparation").header(KEY, UUID.randomUUID().toString())
 				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isOk());
 		UUID requestId = askedRequestId(restaurant, orderId, "OTHER");
 		mvc.perform(patch("/api/v1/kitchen/orders/" + orderId + "/mark-ready").header(KEY, UUID.randomUUID().toString())
-				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isOk());
+				.with(kitchen(restaurant)).with(csrf())).andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ORDER_CANCELLATION_UNDECIDED"));
 
-		assertEquals(DecisionOutcome.NEEDS_RECONCILIATION,
+		assertEquals(DecisionOutcome.CANCELLED,
 				decisions.apply(SOURCE_ORDER, approved(restaurant, orderId, requestId, 5).message()).outcome());
 
-		detail(restaurant, orderId).andExpect(jsonPath("$.status").value("READY")).andExpect(jsonPath("$.cancelledAt").value((Object) null));
-		assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'",
-				Integer.class, restaurant),
-				"the ready event is neither undone nor duplicated");
+		detail(restaurant, orderId).andExpect(jsonPath("$.status").value("CANCELLED"));
+		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'",
+				Integer.class, restaurant), "no READY ever reaches the Order service for a cancelled order");
 		mvc.perform(get("/api/v1/kitchen/orders/" + orderId + "/cancellation-requests").with(kitchen(restaurant)))
-				.andExpect(jsonPath("$[0].status").value("REQUESTED"));
+				.andExpect(jsonPath("$[0].status").value("APPROVED"));
 	}
 
 	@Test

@@ -7,6 +7,7 @@ import com.restofy.kitchen.application.service.OutboxDeliveryService;
 import com.restofy.kitchen.infrastructure.client.OrderRequestSigner;
 import com.restofy.kitchen.infrastructure.client.OrderServiceCredentials;
 import com.restofy.kitchen.infrastructure.messaging.OrderDeliveryDispatcher;
+import com.restofy.kitchen.infrastructure.persistence.repository.CancellationRequestRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -40,6 +41,7 @@ class OrderDeliveryConfigurationTests {
 			.withBean(Clock.class, Clock::systemUTC)
 			.withBean(OutboxDeliveryService.class, () -> mock(OutboxDeliveryService.class))
 			.withBean(OrderDecisionService.class, () -> mock(OrderDecisionService.class))
+			.withBean(CancellationRequestRepository.class, () -> mock(CancellationRequestRepository.class))
 			.withBean(OrderCancellationConfirmationService.class, () -> mock(OrderCancellationConfirmationService.class))
 			.withPropertyValues("ORDER_SERVICE_URL=https://order.internal.example", "restofy.rest-client.connect-timeout-ms=3000",
 					"restofy.rest-client.read-timeout-ms=5000");
