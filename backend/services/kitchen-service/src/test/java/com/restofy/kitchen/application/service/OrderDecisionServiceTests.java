@@ -188,6 +188,11 @@ class OrderDecisionServiceTests {
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		UUID requestId = cancellations.request(restaurant, actor, UUID.randomUUID(), orderId,
 				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
+		// The only way left to READY with an open request: its delivery was given up as never accepted, and the request is
+		// then sent again and approved after all.
+		jdbc.update("UPDATE outbox_deliveries SET status = 'FAILED', next_attempt_at = NULL, last_error_code = 'HTTP_422_VALIDATION_ERROR'"
+				+ " WHERE restaurant_id = ? AND destination = 'ORDER' AND event_id IN"
+				+ " (SELECT id FROM outbox_events WHERE event_type = 'KitchenCancellationRequested')", restaurant);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
 		Asked a = new Asked(restaurant, orderId, requestId, actor);
 		Map<String, Object> before = order(a);
@@ -292,6 +297,18 @@ class OrderDecisionServiceTests {
 		assertEquals(0, inbox(a.restaurant()) + inbox(other.restaurant()));
 	}
 
+	/** The Order service's clock may run a little behind Kitchen's: a decision made at once still counts. */
+	@Test
+	void aDecisionStampedSlightlyBeforeTheKitchenReceivedTheOrderIsStillApplied() {
+		Asked a = asked();
+		Instant receivedAt = ((Timestamp) jdbc.queryForObject("SELECT received_at FROM kitchen_orders WHERE order_id = ?", Timestamp.class,
+				a.orderId())).toInstant();
+
+		assertEquals(DecisionOutcome.CANCELLED, apply(approve(a, 2).at(receivedAt.minusSeconds(90))).outcome());
+
+		assertEquals("CANCELLED", order(a).get("status"));
+	}
+
 	@Test
 	void malformedUnsupportedOrImplausibleDecisionsAreRefusedWithoutAnyTrace() {
 		Asked a = asked();
@@ -301,7 +318,7 @@ class OrderDecisionServiceTests {
 		for (Draft draft : List.of(
 				approve(a, 2).schema(2), approve(a, 2).type("OrderCancellationRejected"), approve(a, 2).version(-1),
 				approve(a, 2).reason("lower case"), approve(a, 2).eventId(null), approve(a, 2).at(null),
-				approve(a, 2).at(receivedAt.minusSeconds(60)), approve(a, 2).at(Instant.now().plus(1, ChronoUnit.HOURS)))) {
+				approve(a, 2).at(receivedAt.minus(6, ChronoUnit.MINUTES)), approve(a, 2).at(Instant.now().plus(1, ChronoUnit.HOURS)))) {
 			assertEquals(DecisionOutcome.INVALID, apply(draft).outcome());
 		}
 		assertEquals(DecisionOutcome.INVALID, decisions.apply(SOURCE_ORDER, null).outcome());

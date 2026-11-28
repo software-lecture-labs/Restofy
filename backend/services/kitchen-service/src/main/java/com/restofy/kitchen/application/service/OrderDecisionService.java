@@ -55,14 +55,16 @@ public class OrderDecisionService {
 	private final CancellationRequestRepository requests;
 	private final KitchenStatusHistoryRepository history;
 	private final InboxEventRepository inbox;
+	private final OrderCancellationClosure closure;
 	private final Clock clock;
 
 	public OrderDecisionService(KitchenOrderRepository orders, CancellationRequestRepository requests,
-			KitchenStatusHistoryRepository history, InboxEventRepository inbox, Clock clock) {
+			KitchenStatusHistoryRepository history, InboxEventRepository inbox, OrderCancellationClosure closure, Clock clock) {
 		this.orders = orders;
 		this.requests = requests;
 		this.history = history;
 		this.inbox = inbox;
+		this.closure = closure;
 		this.clock = clock;
 	}
 
@@ -101,8 +103,10 @@ public class OrderDecisionService {
 			return refuse(DecisionOutcome.UNKNOWN);
 		}
 		Instant now = clock.instant();
+		// The decision's time is the Order service's clock, the receipt time Kitchen's: the same tolerance both ways.
+		Instant earliestPlausible = order.getReceivedAt().minus(OrderCancellationDecisionMessage.MAX_CLOCK_SKEW);
 		Instant latestPlausible = now.plus(OrderCancellationDecisionMessage.MAX_CLOCK_SKEW);
-		if (message.decidedAt().isBefore(order.getReceivedAt()) || message.decidedAt().isAfter(latestPlausible)) {
+		if (message.decidedAt().isBefore(earliestPlausible) || message.decidedAt().isAfter(latestPlausible)) {
 			log.warn("Order decision refused: implausible time, eventId={}", message.eventId());
 			return refuse(DecisionOutcome.INVALID);
 		}
@@ -141,6 +145,7 @@ public class OrderDecisionService {
 				order.getCancelledAt()));
 		request.approve(decision);
 		requests.saveAndFlush(request);
+		closure.cancelledByKitchenRequest(order);
 		return DecisionOutcome.CANCELLED;
 	}
 
