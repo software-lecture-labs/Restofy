@@ -6,7 +6,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -14,7 +13,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import com.restofy.auth.infrastructure.config.AuthSettings;
-import com.restofy.auth.infrastructure.config.EnvironmentPolicy;
+import com.restofy.auth.infrastructure.config.InternalHttpPolicy;
 import io.jsonwebtoken.Jwts;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -56,20 +55,16 @@ public class MailClient {
         this.settings = settings;
         this.environment = environment;
         this.clock = clock;
-        URI base = URI.create(environment.getRequiredProperty("auth.reset.mail-url"));
-        boolean development = EnvironmentPolicy.isDevelopment(environment);
-        if (base.getHost() == null || base.getUserInfo() != null || base.getQuery() != null
-                || base.getFragment() != null || !Set.of("http", "https").contains(base.getScheme())
-                || (!development && !"https".equals(base.getScheme()))) {
-            throw new IllegalStateException("Invalid Mail service address");
-        }
+        URI base = InternalHttpPolicy.serviceAddress(environment, "auth.reset.mail-url", "Mail service");
         int connect = environment.getProperty("REST_CLIENT_CONNECT_TIMEOUT_MS", Integer.class,
                 DEFAULT_CONNECT_TIMEOUT_MS);
         int read = environment.getProperty("REST_CLIENT_READ_TIMEOUT_MS", Integer.class, DEFAULT_READ_TIMEOUT_MS);
         if (connect <= 0 || read <= 0) {
             throw new IllegalStateException("Invalid Mail client timeout");
         }
-        http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(connect)).build();
+        // Redirects are never followed: a 3xx must not move the signed command to another address (ADR-ORTAK-001).
+        http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(connect))
+                .followRedirects(HttpClient.Redirect.NEVER).build();
         var factory = new JdkClientHttpRequestFactory(http);
         factory.setReadTimeout(read);
         client = RestClient.builder().baseUrl(base.toString()).requestFactory(factory).build();

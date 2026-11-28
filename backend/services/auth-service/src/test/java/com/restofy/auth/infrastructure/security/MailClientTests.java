@@ -18,7 +18,8 @@ import static org.mockito.Mockito.*;
 
 class MailClientTests {
     private MockEnvironment environment(String url) throws Exception {
-        var env=new MockEnvironment().withProperty("auth.reset.mail-url",url).withProperty("REST_CLIENT_READ_TIMEOUT_MS","150");
+        var env=new MockEnvironment().withProperty("auth.reset.mail-url",url).withProperty("REST_CLIENT_READ_TIMEOUT_MS","150")
+                .withProperty("auth.internal-http-allowed","true").withProperty("auth.bootstrap.environment","test");
         env.setActiveProfiles("test");
         var props=new Properties(); try(var stream=new ClassPathResource("mail-service-contract.properties").getInputStream()) {props.load(stream);}
         props.forEach((key,value)->env.withProperty(key.toString(),value.toString()));
@@ -71,6 +72,28 @@ class MailClientTests {
             org.awaitility.Awaitility.await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(2))
                     .untilAsserted(() -> assertThat(requests).hasValue(1));
         }finally{server.stop(0);}
+    }
+    // ADR-ORTAK-001 test 8: an HTTP address that answers with a redirect does not move the signed command elsewhere.
+    @Test void redirectsAreNeverFollowed() throws Exception {
+        var keys=AuthSessionTestSupport.generateKeys();var settings=mock(AuthSettings.class);
+        when(settings.privateKey()).thenReturn((java.security.interfaces.RSAPrivateCrtKey)keys.getPrivate());when(settings.issuer()).thenReturn("restofy-auth");
+        AtomicInteger redirected=new AtomicInteger(); AtomicInteger elsewhere=new AtomicInteger();
+        HttpServer target=HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        target.createContext("/",exchange->{elsewhere.incrementAndGet();exchange.sendResponseHeaders(202,-1);exchange.close();});target.start();
+        HttpServer server=HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/internal/api/v1/mail/password-reset-jobs",exchange->{redirected.incrementAndGet();
+            exchange.getResponseHeaders().add("Location","http://127.0.0.1:"+target.getAddress().getPort()+"/stolen");
+            exchange.sendResponseHeaders(307,-1);exchange.close();});server.start();
+        try(var client=new ClientResource(new MailClient(settings,environment("http://127.0.0.1:"+server.getAddress().getPort()),Clock.systemUTC()))) {
+            TransactionSynchronizationManager.initSynchronization();
+            try {
+                client.value.afterCommit(new MailClient.Message(UUID.randomUUID(),"ADMIN_PASSWORD_RESET","admin@example.test","tr","123456",Instant.now().plusSeconds(900),Instant.now().plusSeconds(10)));
+                for(var callback:TransactionSynchronizationManager.getSynchronizations()) {callback.afterCommit();}
+            }finally{TransactionSynchronizationManager.clearSynchronization();}
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).until(()->redirected.get()==1);
+            org.awaitility.Awaitility.await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(elsewhere).hasValue(0));
+        }finally{server.stop(0);target.stop(0);}
     }
     private record ClientResource(MailClient value) implements AutoCloseable { @Override public void close(){value.close();} }
 }

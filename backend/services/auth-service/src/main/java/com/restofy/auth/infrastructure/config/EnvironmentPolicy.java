@@ -8,8 +8,8 @@ import org.springframework.core.env.Environment;
 /**
  * The single place that decides whether the service runs in a local development setting.
  *
- * <p>Relaxations that must never reach production (plain-HTTP Mail address, development users, disabling ADMIN MFA)
- * all depend on this decision. An architecture test makes sure no other class reads the active profiles directly.
+ * <p>Relaxations that must never reach production (development users, disabling ADMIN MFA, HTTP browser origins on
+ * localhost) depend on this decision. Plain HTTP between services follows {@link InternalHttpPolicy} instead. An architecture test makes sure no other class reads the active profiles directly.
  */
 public final class EnvironmentPolicy {
     private static final Set<String> DEVELOPMENT_PROFILES = Set.of("dev", "local", "test");
