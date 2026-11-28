@@ -1,6 +1,7 @@
 package com.restofy.kitchen.application.service;
 
 import com.restofy.kitchen.api.dto.request.RequestOrderCancellationRequest;
+import com.restofy.kitchen.application.contract.KitchenCancellationRequestedMessage;
 import com.restofy.kitchen.domain.entity.CancellationRequest;
 import com.restofy.kitchen.domain.entity.KitchenOrder;
 import com.restofy.kitchen.domain.enums.CancellationReason;
@@ -9,6 +10,7 @@ import com.restofy.kitchen.domain.enums.KitchenOrderStatus;
 import com.restofy.kitchen.domain.exception.CancellationAlreadyRequestedException;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
+import com.restofy.kitchen.domain.exception.InvalidReasonTextException;
 import com.restofy.kitchen.domain.exception.InvalidStockReferenceException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
 import com.restofy.kitchen.infrastructure.persistence.repository.CancellationRequestRepository;
@@ -20,6 +22,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -62,6 +65,7 @@ public class CancellationRequestService {
 	@Transactional
 	public Requested request(UUID restaurantId, UUID actorUserId, UUID commandId, UUID orderId, RequestOrderCancellationRequest body) {
 		checkStockReferenceShape(body);
+		checkExplanationOfOther(body);
 		// Locks the order row: preparation commands and other cancellation requests for it are serialized.
 		KitchenOrder order = orders.findForUpdate(restaurantId, orderId).orElseThrow(KitchenOrderNotFoundException::new);
 
@@ -101,6 +105,25 @@ public class CancellationRequestService {
 	public List<CancellationRequest> history(UUID restaurantId, UUID orderId) {
 		orders.findByRestaurantIdAndOrderId(restaurantId, orderId).orElseThrow(KitchenOrderNotFoundException::new);
 		return requests.findByRestaurantIdAndOrderIdOrderByRequestedAtDescIdDesc(restaurantId, orderId);
+	}
+
+	/**
+	 * OTHER needs an explanation of 1 to 300 characters, because the Order service refuses it otherwise. The text arrives
+	 * already stripped. Refused besides: text made of spaces only (non-breaking ones too), control characters including
+	 * the ones above ASCII, and an unpaired surrogate, which would be stored as another character. Other reasons keep
+	 * their own rules. No database access.
+	 */
+	private static void checkExplanationOfOther(RequestOrderCancellationRequest body) {
+		if (body.reasonCode() != CancellationReason.OTHER) {
+			return;
+		}
+		String text = body.reasonText();
+		if (text == null || text.length() > KitchenCancellationRequestedMessage.MAX_REASON_TEXT_LENGTH
+				|| text.codePoints().allMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c))
+				|| text.codePoints().anyMatch(Character::isISOControl)
+				|| !StandardCharsets.UTF_8.newEncoder().canEncode(text)) {
+			throw new InvalidReasonTextException();
+		}
 	}
 
 	/**

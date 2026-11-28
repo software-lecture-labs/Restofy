@@ -1,5 +1,6 @@
 package com.restofy.kitchen.api.controller;
 
+import com.restofy.kitchen.infrastructure.security.OrderEventSecurityConfiguration;
 import com.restofy.kitchen.support.StaffTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +42,12 @@ class KitchenEndpointAccessMatrixTests extends StaffCookieTestBase {
 			"GET /api/v1/kitchen/reports/daily",
 			"GET /api/v1/kitchen/waste",
 			"POST /api/v1/kitchen/waste");
+
+	/**
+	 * The one route no staff role belongs to: Order's service identity has its own chain. How it behaves with a staff
+	 * session is in {@code KitchenStaffAndOrderChainsTests}.
+	 */
+	private static final String ORDER_EVENTS = "POST " + OrderEventSecurityConfiguration.PATH;
 
 	@Autowired
 	@Qualifier("requestMappingHandlerMapping")
@@ -85,7 +92,10 @@ class KitchenEndpointAccessMatrixTests extends StaffCookieTestBase {
 
 	@Test
 	void everyRegisteredKitchenRouteIsCoveredByThisMatrix() {
-		assertEquals(new TreeSet<>(EXPECTED), registered());
+		Set<String> decided = new TreeSet<>(EXPECTED);
+		decided.add(ORDER_EVENTS);
+
+		assertEquals(decided, registered());
 	}
 
 	@Test

@@ -40,8 +40,9 @@ import java.time.Clock;
  * public key nothing authenticates and every staff request is 401. Form login, HTTP basic and the generated default
  * user are intentionally absent.
  *
- * <p>No service-to-service identity is accepted: Kitchen exposes no internal endpoint, and a service credential
- * grants no staff permission.
+ * <p>This chain accepts no service-to-service identity, and a service credential grants no staff permission. The one
+ * internal path, for Order's events, is not handled here: it has its own, earlier chain
+ * ({@link OrderEventSecurityConfiguration}), which accepts only Order's signed service identity and no staff cookie.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(KitchenAuthProperties.class)

@@ -57,6 +57,16 @@ class NotificationDeliveryTests {
 	private record Ready(UUID restaurant, UUID orderId, UUID eventId, UUID orderDelivery, UUID notificationDelivery) {
 	}
 
+	/** The Order service refuses READY before PREPARING, so Kitchen hands READY over only after PREPARING arrived. */
+	private void deliverPreparing(UUID restaurant) {
+		UUID preparing = jdbc.queryForObject("""
+				SELECT d.id FROM outbox_deliveries d JOIN outbox_events e ON e.id = d.event_id
+				WHERE d.restaurant_id = ? AND d.destination = 'ORDER' AND e.event_type = 'KitchenPreparationStarted'
+				""", UUID.class, restaurant);
+		assertEquals(Optional.of(DeliveryStatus.DELIVERED),
+				delivery.attempt(preparing, (OrderEventSink) message -> OrderEventSink.Result.delivered()));
+	}
+
 	private Ready readyOrder() {
 		UUID restaurant = UUID.randomUUID();
 		UUID actor = UUID.randomUUID();
@@ -64,6 +74,7 @@ class NotificationDeliveryTests {
 		ingest.ingest(simple(restaurant, orderId));
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
+		deliverPreparing(restaurant);
 		UUID eventId = jdbc.queryForObject(
 				"SELECT id FROM outbox_events WHERE restaurant_id = ? AND event_type = 'KitchenOrderReady'", UUID.class, restaurant);
 		return new Ready(restaurant, orderId, eventId, deliveryOf(restaurant, "ORDER"), deliveryOf(restaurant, "NOTIFICATION"));
@@ -192,7 +203,7 @@ class NotificationDeliveryTests {
 		UUID orderId = UUID.randomUUID();
 		ingest.ingest(simple(restaurant, orderId));
 		UUID requestId = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 		assertEquals(DecisionOutcome.CANCELLED, decisions.apply(SOURCE_ORDER, approved(restaurant, orderId, requestId, 2).message()).outcome());
 
 		assertEquals("CANCELLED", jdbc.queryForObject("SELECT status FROM kitchen_orders WHERE restaurant_id = ?", String.class, restaurant));
@@ -205,7 +216,7 @@ class NotificationDeliveryTests {
 		UUID orderId = UUID.randomUUID();
 		ingest.ingest(simple(restaurant, orderId));
 		UUID requestId = cancellations.request(restaurant, UUID.randomUUID(), UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 
 		assertEquals(List.of("ORDER"),
 				jdbc.queryForList("SELECT destination FROM outbox_deliveries WHERE restaurant_id = ?", String.class, restaurant));

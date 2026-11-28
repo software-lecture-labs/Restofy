@@ -187,7 +187,7 @@ class OrderDecisionServiceTests {
 		ingest.ingest(simple(restaurant, orderId));
 		preparation.startPreparation(restaurant, actor, UUID.randomUUID(), orderId);
 		UUID requestId = cancellations.request(restaurant, actor, UUID.randomUUID(), orderId,
-				new RequestOrderCancellationRequest(CancellationReason.OTHER, null)).request().getId();
+				new RequestOrderCancellationRequest(CancellationReason.OTHER, "açıklama")).request().getId();
 		preparation.markReady(restaurant, actor, UUID.randomUUID(), orderId);
 		Asked a = new Asked(restaurant, orderId, requestId, actor);
 		Map<String, Object> before = order(a);

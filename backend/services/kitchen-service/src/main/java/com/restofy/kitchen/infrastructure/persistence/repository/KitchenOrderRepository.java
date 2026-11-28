@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,6 +20,19 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, UUID
 
 	/** Lookups are tenant scoped; there is deliberately no lookup by order id alone. */
 	Optional<KitchenOrder> findByRestaurantIdAndOrderId(UUID restaurantId, UUID orderId);
+
+	/**
+	 * Whether an accepted-order event id has been stored at all. The one deliberate lookup across restaurants: the id
+	 * is unique in the whole table, and only yes or no is returned, never another restaurant's data.
+	 */
+	boolean existsBySourceEventId(UUID sourceEventId);
+
+	/** Whether one of these line ids is already stored for some order of the restaurant. */
+	@Query("SELECT count(i) > 0 FROM KitchenOrderItem i WHERE i.restaurantId = :restaurantId AND i.orderItemId IN :lineIds")
+	boolean existsLineId(@Param("restaurantId") UUID restaurantId, @Param("lineIds") Collection<UUID> lineIds);
+
+	/** Whether this restaurant's order was stored from exactly this event. */
+	boolean existsByRestaurantIdAndOrderIdAndSourceEventId(UUID restaurantId, UUID orderId, UUID sourceEventId);
 
 	/** Day report: one row per CURRENT status of the orders received in [from, to): {status, number of orders}. */
 	@Query("""

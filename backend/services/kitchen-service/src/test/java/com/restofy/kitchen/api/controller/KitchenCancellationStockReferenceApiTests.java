@@ -57,8 +57,8 @@ class KitchenCancellationStockReferenceApiTests {
 		UUID lineOne = UUID.randomUUID();
 		UUID lineTwo = UUID.randomUUID();
 		UUID lineThree = UUID.randomUUID();
-		ingest.ingest(new OrderAcceptedMessage(UUID.randomUUID(), 1, Instant.now(), "corr", restaurant, orderId, 1L, "A-1", UUID.randomUUID(),
-				"T1",
+		ingest.ingest(new OrderAcceptedMessage(UUID.randomUUID(), OrderAcceptedMessage.TYPE, 1, Instant.now(), "corr", restaurant, orderId, 1L, "A-1", UUID.randomUUID(),
+				UUID.randomUUID(), "T1",
 				List.of(new OrderAcceptedMessage.Item(lineOne, burger, "Burger", 2, null, List.of()),
 						new OrderAcceptedMessage.Item(lineTwo, burger, "Burger", 1, "az pişmiş", List.of()),
 						new OrderAcceptedMessage.Item(lineThree, ayran, "Ayran", 3, null, List.of()))));
@@ -199,8 +199,8 @@ class KitchenCancellationStockReferenceApiTests {
 			send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(),
 					"{\"reasonCode\":\"" + reason + "\",\"orderItemId\":\"" + order.burgerLine() + "\"}").andExpect(status().isBadRequest());
 			// Without a reference those reasons are fine.
-			send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"" + reason + "\"}")
-					.andExpect(status().isAccepted());
+			send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(),
+					"{\"reasonCode\":\"" + reason + "\",\"reasonText\":\"açıklama\"}").andExpect(status().isAccepted());
 			jdbc.update("UPDATE cancellation_requests SET status = 'REJECTED', decided_at = now() WHERE restaurant_id = ? AND status = "
 					+ "'REQUESTED'", restaurant);
 		}
@@ -265,7 +265,8 @@ class KitchenCancellationStockReferenceApiTests {
 	void theHistoryIsTenantScopedAndReadableByAdminButNotByAnonymousUsers() throws Exception {
 		UUID restaurant = UUID.randomUUID();
 		Received order = receive(restaurant);
-		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"OTHER\"}").andExpect(status().isAccepted());
+		send(restaurant, UUID.randomUUID(), order.orderId(), UUID.randomUUID(), "{\"reasonCode\":\"KITCHEN_ERROR\"}")
+				.andExpect(status().isAccepted());
 		String path = "/api/v1/kitchen/orders/" + order.orderId() + "/cancellation-requests";
 
 		mvc.perform(get(path).with(admin(restaurant))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
