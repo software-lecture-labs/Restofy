@@ -155,7 +155,7 @@ Her `PREPARING → READY` geçişi, **aynı transaction'da** tam bir olay üreti
 | Olay sözleşmesi (§6.2) | **CONTRACT READY** — Order ekibinin onayı bekliyor |
 | Olayın yerel, dayanıklı kaydı (READY ile aynı transaction) | **LOCAL EVENT PERSISTED** — uygulanır ve testlidir |
 | `OrderEventSink` portu + teslimat durum makinesi | **PORT READY** — sahte hedefle testli |
-| Order'a gerçek iletim (zamanlayıcı, HTTP/broker adaptörü, hedef adres, servis kimliği) | **BLOCKED / DELIVERY NOT VERIFIED** — D-10 ve Order sözleşmesi gelmeden kurulmaz |
+| Order'a iletim (zamanlayıcı, HTTP adaptörü, imza) | KITCHEN-INT-03 ile eklendi, yerel HTTP test sunucusuyla testli. Order'ın Kitchen doğrulayıcısı `dev`'de olmadığı için kullanılamaz; **gerçek Order ile doğrulanmadı**. Güncel durum: [entegrasyon rehberi](../../../../docs/kitchen/entegrasyon-rehberi.md) |
 
 ### 6.4 Order ekibiyle teyit edilecekler
 1. Taşıma: iç HTTP + outbox mu, broker mu (D-10). 2. Hedef endpoint/yol/yöntem ve servisler arası kimlik doğrulama. 3. `KitchenOrderReady` alanları ve `eventId` ile idempotent tüketim. 4. Order'ın READY bildirimini sipariş durumuna nasıl yansıttığı (Kitchen'dan bağımsız). 5. Sıra boşluğunda veya kayıp olayda Order'ın Kitchen'dan güncel durumu nasıl alacağı (örn. salt okunur servis çağrısı; bugün yoktur).
@@ -169,7 +169,7 @@ Her `PREPARING → READY` geçişi, **aynı transaction'da** tam bir olay üreti
 
 ### 6.6 `OrderEventSink` portu ve teslimat davranışı (sahte hedefle testli)
 
-`OrderEventSink` (port) için **üretim uygulaması yoktur**; `OutboxDeliveryService` kimse tarafından zamanlanmaz veya çağrılmaz. Port sözleşmesi ve kurallar testlerle sabittir:
+`OrderEventSink` portunun HTTP uygulaması, imzalayıcısı ve zamanlayıcısı yalnız `kitchen-order` profiliyle oluşur ([entegrasyon rehberi](../../../../docs/kitchen/entegrasyon-rehberi.md)). Profil yokken `OutboxDeliveryService` çağrılmaz. Port sözleşmesi ve kurallar testlerle sabittir:
 
 | Durum | Sonuç |
 |---|---|
