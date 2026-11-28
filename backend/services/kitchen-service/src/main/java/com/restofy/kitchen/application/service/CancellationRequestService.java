@@ -90,7 +90,8 @@ public class CancellationRequestService {
 		}
 		// The Order service refuses a Kitchen request (409 CANCELLATION_ALREADY_PENDING) while its own request waits for the
 		// kitchen's answer: answer that one instead of creating a request that can only fail.
-		if (confirmations.existsByRestaurantIdAndOrderIdAndStatus(restaurantId, orderId, ConfirmationStatus.AWAITING_KITCHEN)) {
+		if (confirmations.existsByRestaurantIdAndOrderIdAndStatusAndOrderOutcomeIsNull(restaurantId, orderId,
+				ConfirmationStatus.AWAITING_KITCHEN)) {
 			throw new OrderCancellationAwaitingAnswerException();
 		}
 

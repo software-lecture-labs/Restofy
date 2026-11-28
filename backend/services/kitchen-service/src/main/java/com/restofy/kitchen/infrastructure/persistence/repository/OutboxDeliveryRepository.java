@@ -34,6 +34,15 @@ public interface OutboxDeliveryRepository extends JpaRepository<OutboxDelivery, 
 			+ "and earlier.destination = d.destination "
 			+ "and earlier.status <> com.restofy.kitchen.domain.enums.DeliveryStatus.DELIVERED))";
 
+	/**
+	 * True for a delivery {@code d} that ended without the Order service ever accepting it: it refused this very request
+	 * for good, or the stored event could not be sent at all. Every other ending is delivered or of UNKNOWN result:
+	 * running out of attempts, and a reused event id, whose first content the Order service may have handled.
+	 */
+	String NEVER_ACCEPTED = "(d.destination = 'ORDER' and d.status = com.restofy.kitchen.domain.enums.DeliveryStatus.FAILED "
+			+ "and ((d.lastErrorCode like 'HTTP_4%' and d.lastErrorCode <> 'HTTP_409_IDEMPOTENCY_CONFLICT') "
+			+ "or d.lastErrorCode in ('UNREADABLE_EVENT', 'REASON_TEXT_MISSING', 'UNMAPPED_REASON')))";
+
 	List<OutboxDelivery> findByRestaurantIdAndEventId(UUID restaurantId, UUID eventId);
 
 	/**

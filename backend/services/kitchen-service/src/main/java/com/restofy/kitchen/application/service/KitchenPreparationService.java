@@ -7,8 +7,10 @@ import com.restofy.kitchen.domain.enums.KitchenOrderStatus;
 import com.restofy.kitchen.domain.exception.CommandIdConflictException;
 import com.restofy.kitchen.domain.exception.InvalidKitchenTransitionException;
 import com.restofy.kitchen.domain.exception.KitchenOrderNotFoundException;
+import com.restofy.kitchen.domain.exception.OrderCancellationUndecidedException;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenOrderRepository;
 import com.restofy.kitchen.infrastructure.persistence.repository.KitchenStatusHistoryRepository;
+import com.restofy.kitchen.infrastructure.persistence.repository.OrderCancellationConfirmationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.NestedExceptionUtils;
@@ -41,14 +43,17 @@ public class KitchenPreparationService {
 	private final KitchenStatusHistoryRepository history;
 	private final KitchenOrderQueryService views;
 	private final KitchenEventRecorder events;
+	private final OrderCancellationConfirmationRepository confirmations;
 	private final Clock clock;
 
 	public KitchenPreparationService(KitchenOrderRepository orders, KitchenStatusHistoryRepository history,
-			KitchenOrderQueryService views, KitchenEventRecorder events, Clock clock) {
+			KitchenOrderQueryService views, KitchenEventRecorder events,
+			OrderCancellationConfirmationRepository confirmations, Clock clock) {
 		this.orders = orders;
 		this.history = history;
 		this.views = views;
 		this.events = events;
+		this.confirmations = confirmations;
 		this.clock = clock;
 	}
 
@@ -65,11 +70,22 @@ public class KitchenPreparationService {
 	/**
 	 * PREPARING -> READY, same rules as the start: one transaction, row lock, and a repeat is a 200 only when it is
 	 * the same command (id, actor, order, target) and the order is still READY. WAITING -> READY does not exist.
+	 * Refused while a cancellation of the whole order is open between the kitchen and the Order service
+	 * ({@link OrderCancellationUndecidedException}); the same command can be sent again once it is decided.
 	 */
 	@Transactional
 	public KitchenOrderDetailResponse markReady(UUID restaurantId, UUID actorUserId, UUID commandId, UUID orderId) {
-		return execute("Mark ready", restaurantId, actorUserId, commandId, orderId, KitchenOrderStatus.READY,
-				order -> order.markReady(clock.instant()));
+		return execute("Mark ready", restaurantId, actorUserId, commandId, orderId, KitchenOrderStatus.READY, order -> {
+			if (order.getStatus() == KitchenOrderStatus.PREPARING && hasUndecidedCancellation(restaurantId, orderId)) {
+				throw new OrderCancellationUndecidedException();
+			}
+			return order.markReady(clock.instant());
+		});
+	}
+
+	/** Read under the order's row lock, so no answer or decision can slip in between this check and the transition. */
+	private boolean hasUndecidedCancellation(UUID restaurantId, UUID orderId) {
+		return confirmations.hasAgreedFullCancellation(restaurantId, orderId);
 	}
 
 	/** Runs one command; {@code transition} applies the domain move and returns the instant it wrote. */

@@ -2,6 +2,7 @@ package com.restofy.kitchen.domain.entity;
 
 import com.restofy.kitchen.domain.enums.ConfirmationStatus;
 import com.restofy.kitchen.domain.enums.OrderDecision;
+import com.restofy.kitchen.domain.enums.OrderOutcome;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -26,7 +27,8 @@ import java.util.UUID;
 /**
  * The Order service asks whether an order in preparation may be cancelled; the kitchen answers once. This is neither a
  * cancellation nor Kitchen's own request: the kitchen order keeps its status, and the Order service decides after the
- * answer. What was asked never changes, and an answer is final (the database enforces both).
+ * answer. The kitchen's answer ({@code status}) and the Order service's final word ({@code orderOutcome}) are kept
+ * apart. What was asked never changes, and the answer and the outcome are each final (the database enforces it).
  */
 @Entity
 @Table(name = "order_cancellation_confirmations")
@@ -85,6 +87,22 @@ public class OrderCancellationConfirmation implements Persistable<UUID> {
 	@Column(name = "rejection_code", length = 40)
 	private String rejectionCode;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "order_outcome", length = 20)
+	private OrderOutcome orderOutcome;
+
+	@Column(name = "order_outcome_at")
+	private Instant orderOutcomeAt;
+
+	@Column(name = "order_decided_at")
+	private Instant orderDecidedAt;
+
+	@Column(name = "order_rejection_code", length = 60)
+	private String orderRejectionCode;
+
+	@Column(name = "order_decision_event_id")
+	private UUID orderDecisionEventId;
+
 	@Version
 	private Long version;
 
@@ -94,6 +112,10 @@ public class OrderCancellationConfirmation implements Persistable<UUID> {
 	/** What the Order service asked; {@code items} is its JSON form. */
 	public record Request(UUID restaurantId, UUID orderId, UUID cancellationId, UUID eventId, String scope, String items,
 			Instant requestedAt) {
+	}
+
+	/** What an Order event says about its decision; {@code rejectionCode} only with a refusal. */
+	public record OrderEventDecision(UUID eventId, Instant decidedAt, String rejectionCode) {
 	}
 
 	public static OrderCancellationConfirmation awaiting(Request request, Instant now) {
@@ -113,8 +135,8 @@ public class OrderCancellationConfirmation implements Persistable<UUID> {
 
 	/** The kitchen's one answer. A refusal carries {@link #KITCHEN_DECLINED}. */
 	public void answer(OrderDecision decision, UUID commandId, UUID userId, Instant now) {
-		if (status != ConfirmationStatus.AWAITING_KITCHEN) {
-			throw new IllegalStateException("An answered confirmation request is final");
+		if (status != ConfirmationStatus.AWAITING_KITCHEN || orderOutcome != null) {
+			throw new IllegalStateException("An answered or decided confirmation request is final");
 		}
 		boolean approved = decision == OrderDecision.APPROVED;
 		status = approved ? ConfirmationStatus.APPROVED : ConfirmationStatus.REJECTED;
@@ -122,6 +144,39 @@ public class OrderCancellationConfirmation implements Persistable<UUID> {
 		answerCommandId = commandId;
 		answeredByUserId = userId;
 		answeredAt = now.truncatedTo(ChronoUnit.MICROS);
+	}
+
+	/**
+	 * The Order service's final word, written once.
+	 *
+	 * @return false when another outcome is already recorded; nothing is changed then
+	 */
+	public boolean recordOrderOutcome(OrderOutcome outcome, Instant now) {
+		if (orderOutcome == null) {
+			orderOutcome = outcome;
+			orderOutcomeAt = now.truncatedTo(ChronoUnit.MICROS);
+			return true;
+		}
+		return orderOutcome == outcome;
+	}
+
+	/**
+	 * The same word as an Order event carries it, which also names the event, the Order service's time and its code.
+	 * These details are written once and may follow an outcome learnt from the Order service's answer to the kitchen.
+	 *
+	 * @return false when it contradicts the recorded outcome or another event already carried the decision
+	 */
+	public boolean recordOrderDecision(OrderOutcome outcome, OrderEventDecision decision, Instant now) {
+		if (!recordOrderOutcome(outcome, now)) {
+			return false;
+		}
+		if (orderDecisionEventId == null) {
+			orderDecisionEventId = decision.eventId();
+			orderDecidedAt = decision.decidedAt().truncatedTo(ChronoUnit.MICROS);
+			orderRejectionCode = outcome == OrderOutcome.REJECTED ? decision.rejectionCode() : null;
+			return true;
+		}
+		return orderDecisionEventId.equals(decision.eventId());
 	}
 
 	/** Is this exactly what the same event asked before (a redelivery)? */

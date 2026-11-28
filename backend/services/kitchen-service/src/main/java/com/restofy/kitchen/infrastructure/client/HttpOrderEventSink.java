@@ -9,6 +9,7 @@ import com.restofy.kitchen.application.contract.OrderCancellationReceipt;
 import com.restofy.kitchen.application.contract.OutboundMessage;
 import com.restofy.kitchen.application.service.OrderDecisionService;
 import com.restofy.kitchen.application.port.OrderEventSink;
+import com.restofy.kitchen.domain.enums.OrderOutcome;
 import com.restofy.kitchen.infrastructure.config.CorrelationIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,7 @@ import java.io.InputStream;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -44,6 +46,11 @@ import java.util.regex.Pattern;
  * request that was sent ({@code OrderCancellationReceipt}) and recorded as the Order service's decision
  * ({@link OrderDecisionRecorder}); only then is the delivery DELIVERED. An answer that cannot be recorded leaves the
  * delivery retried (unknown) or FAILED (cannot ever be recorded), never DELIVERED.
+ *
+ * <p><b>The kitchen's answer.</b> {@code outcome} only says the answer arrived. What the Order service did with the
+ * cancellation is {@code cancellationStatus}: it can be {@code REJECTED} although the kitchen agreed. It is recorded
+ * ({@link OrderOutcomeRecorder}) before the delivery counts; one that cannot be recorded because it contradicts what is
+ * stored leaves the delivery FAILED, never DELIVERED. The kitchen order is never changed from this answer.
  */
 public class HttpOrderEventSink implements OrderEventSink {
 
@@ -61,6 +68,9 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private static final Set<String> STATUS_OUTCOMES = Set.of(APPLIED, IGNORED_STALE, "IGNORED_ORDER_CLOSED");
 	private static final Set<String> CANCELLATION_OUTCOMES = Set.of(APPLIED, "REJECTED");
 	private static final Set<String> DECISION_OUTCOMES = Set.of(APPLIED, IGNORED_STALE);
+	/** What the Order service can have done with a cancellation once it has handled the kitchen's answer. */
+	private static final Map<String, OrderOutcome> FINAL_STATUSES = Map.of(APPLIED, OrderOutcome.APPLIED,
+			"REJECTED", OrderOutcome.REJECTED);
 	/** The answers that say this very request can never be accepted: status and the Order service's error code. */
 	private static final Set<String> DEFINITE_REFUSALS = Set.of("400_INVALID_REQUEST", "415_UNSUPPORTED_MEDIA_TYPE",
 			"422_VALIDATION_ERROR", "422_UNKNOWN_ORDER_ITEM", "422_CANCEL_QUANTITY_EXCEEDED", "409_IDEMPOTENCY_CONFLICT",
@@ -105,14 +115,16 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private final JsonMapper json;
 	private final OrderServiceCredentials credentials;
 	private final OrderDecisionRecorder decisions;
+	private final OrderOutcomeRecorder outcomes;
 
 	/** {@code client} must already point at the Order service and have its timeouts set. */
 	public HttpOrderEventSink(RestClient client, JsonMapper json, OrderServiceCredentials credentials,
-			OrderDecisionRecorder decisions) {
+			OrderDecisionRecorder decisions, OrderOutcomeRecorder outcomes) {
 		this.client = client;
 		this.json = json;
 		this.credentials = credentials;
 		this.decisions = decisions;
+		this.outcomes = outcomes;
 	}
 
 	@Override
@@ -224,6 +236,9 @@ public class HttpOrderEventSink implements OrderEventSink {
 			if (call.message() instanceof KitchenCancellationRequestedMessage requested) {
 				return recordDecision(requested, reply.body());
 			}
+			if (call.message() instanceof KitchenCancellationDecidedMessage decided) {
+				return recordOutcome(decided, outcome, reply.body());
+			}
 			acknowledged(call, outcome);
 			return Result.delivered();
 		}
@@ -264,15 +279,24 @@ public class HttpOrderEventSink implements OrderEventSink {
 		return Result.delivered();
 	}
 
-	private static void acknowledged(Call call, String outcome) {
-		if (call.message() instanceof KitchenCancellationDecidedMessage decided) {
-			// The Order service's final word on the cancellation comes later as its own event; the kitchen order is unchanged.
-			log.info("Order received the kitchen's {} answer with outcome {}: restaurantId={} orderId={} cancellationId={}",
-					decided.payload().decision(), outcome, decided.restaurantId(), decided.orderId(),
-					decided.payload().cancellationId());
-		} else {
-			log.debug("Order acknowledged eventId={} with outcome {}", call.message().eventId(), outcome);
+	/** DELIVERED only once the Order service's final word is stored next to the kitchen's answer. */
+	private Result recordOutcome(KitchenCancellationDecidedMessage decided, String outcome, JsonNode body) {
+		OrderOutcome finalWord = FINAL_STATUSES.get(text(body, "cancellationStatus"));
+		if (finalWord == null) {
+			return Result.retry("HTTP_200_INVALID_ACK");
 		}
+		var payload = decided.payload();
+		if (!outcomes.record(decided.restaurantId(), payload.orderId(), payload.cancellationId(), finalWord)) {
+			return refused(decided, "DECISION_CONFLICT");
+		}
+		log.info("Order received the kitchen's {} answer (outcome {}) and says the cancellation is {}: restaurantId={} orderId={} cancellationId={}",
+				payload.decision(), outcome, finalWord, decided.restaurantId(), payload.orderId(), payload.cancellationId());
+		return Result.delivered();
+	}
+
+	/** A status report has no business decision in its answer; the two cancellation calls are recorded above. */
+	private static void acknowledged(Call call, String outcome) {
+		log.debug("Order acknowledged eventId={} with outcome {}", call.message().eventId(), outcome);
 	}
 
 	private static Result refused(OutboundMessage message, String code) {

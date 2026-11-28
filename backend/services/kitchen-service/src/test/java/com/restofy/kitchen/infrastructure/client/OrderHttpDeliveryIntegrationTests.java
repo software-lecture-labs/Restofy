@@ -102,7 +102,7 @@ class OrderHttpDeliveryIntegrationTests {
 		return new HttpOrderEventSink(
 				OrderDeliveryConfiguration.orderClient(httpClient, URI.create(url), Duration.ofSeconds(3)), json,
 				(restaurantId, path, body) -> "test-credential",
-				decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision));
+				decision -> decisions.apply(OrderDecisionService.SOURCE_ORDER, decision), confirmations::recordOrderOutcome);
 	}
 
 	/** The Order service's answer to Kitchen's own request, with the first decision's values. */
@@ -440,6 +440,8 @@ class OrderHttpDeliveryIntegrationTests {
 		assertRow(answer, "DELIVERED", 2, null);
 		assertEquals(before, business(ticket));
 		assertEquals("PREPARING", business(ticket).get("status"), "only the Order service's final decision may cancel");
+		assertEquals("APPROVED:APPLIED", jdbc.queryForObject("SELECT status || ':' || order_outcome FROM order_cancellation_confirmations"
+				+ " WHERE restaurant_id = ?", String.class, ticket.restaurant()), "the answer and Order's word are separate facts");
 	}
 
 

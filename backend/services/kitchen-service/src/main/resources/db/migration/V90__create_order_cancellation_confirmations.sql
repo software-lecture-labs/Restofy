@@ -3,8 +3,10 @@
 --
 -- A row is NOT a cancellation and not Kitchen's own request (that is cancellation_requests): the Order service asks
 -- whether an order in preparation may be cancelled, a kitchen staff member answers once, and the Order service decides.
--- The kitchen order's preparation status is never changed here. What was asked never changes, an answer is final, and a
--- row is never deleted. order_id / cancellation_id / request_event_id are the Order service's ids (logical references).
+-- The staff answer (status and answer_*) and the Order service's final word (order_*) are separate facts: an agreed
+-- cancellation can still be refused by the Order service. The kitchen order's preparation status is never changed here.
+-- What was asked never changes, the answer and the outcome are each written once, and a row is never deleted.
+-- order_id / cancellation_id / request_event_id are the Order service's ids (logical references).
 
 CREATE TABLE order_cancellation_confirmations (
     id                   uuid         NOT NULL,
@@ -21,6 +23,14 @@ CREATE TABLE order_cancellation_confirmations (
     answered_by_user_id  uuid,
     answered_at          timestamptz,
     rejection_code       varchar(40),
+    -- The Order service's final word. APPLIED: it cancelled; REJECTED: it refused (also when the kitchen had agreed);
+    -- SUPERSEDED: the order was cancelled by another decision before the kitchen answered. NULL while undecided.
+    order_outcome            varchar(20),
+    order_outcome_at         timestamptz,   -- Kitchen's time of learning it
+    -- Only an Order event carries these, so they can follow the outcome learnt from Order's answer to the kitchen.
+    order_decided_at         timestamptz,   -- the Order service's time of the decision
+    order_rejection_code     varchar(60),   -- the Order service's own code for a refusal
+    order_decision_event_id  uuid,          -- the Order event that carried the decision
     version              bigint       NOT NULL DEFAULT 0,
     CONSTRAINT pk_order_cancellation_confirmations PRIMARY KEY (id),
     CONSTRAINT uq_order_cancellation_confirmations_cancellation UNIQUE (restaurant_id, cancellation_id),
@@ -37,12 +47,20 @@ CREATE TABLE order_cancellation_confirmations (
         AND (answered_at IS NULL) = (answer_command_id IS NULL)
         AND (answered_at IS NULL) = (answered_by_user_id IS NULL)
     ),
-    CONSTRAINT ck_order_cancellation_confirmations_rejection CHECK ((status = 'REJECTED') = (rejection_code IS NOT NULL))
+    CONSTRAINT ck_order_cancellation_confirmations_rejection CHECK ((status = 'REJECTED') = (rejection_code IS NOT NULL)),
+    CONSTRAINT ck_order_cancellation_confirmations_outcome CHECK (order_outcome IN ('APPLIED', 'REJECTED', 'SUPERSEDED')),
+    CONSTRAINT ck_order_cancellation_confirmations_outcome_time CHECK ((order_outcome IS NULL) = (order_outcome_at IS NULL)),
+    CONSTRAINT ck_order_cancellation_confirmations_decision CHECK (
+        (order_decision_event_id IS NULL) = (order_decided_at IS NULL)
+        AND (order_decision_event_id IS NULL OR order_outcome IS NOT NULL)
+        AND (order_rejection_code IS NULL OR (order_outcome = 'REJECTED' AND order_decision_event_id IS NOT NULL))
+    )
 );
 
--- At most ONE request per order waits for the kitchen (the Order service keeps one open cancellation per order).
+-- At most ONE request per order waits for the kitchen (the Order service keeps one open cancellation per order). A request
+-- the Order service has already decided no longer waits, even if nobody answered it.
 CREATE UNIQUE INDEX uq_order_cancellation_confirmations_waiting ON order_cancellation_confirmations (restaurant_id, order_id)
-    WHERE status = 'AWAITING_KITCHEN';
+    WHERE status = 'AWAITING_KITCHEN' AND order_outcome IS NULL;
 
 CREATE FUNCTION guard_order_cancellation_confirmation_update() RETURNS trigger
     LANGUAGE plpgsql AS $$
@@ -58,8 +76,26 @@ BEGIN
         OR NEW.received_at IS DISTINCT FROM OLD.received_at THEN
         RAISE EXCEPTION 'what the Order service asked is immutable' USING ERRCODE = '23000';
     END IF;
-    IF OLD.status <> 'AWAITING_KITCHEN' THEN
+    IF OLD.status <> 'AWAITING_KITCHEN' AND (NEW.status IS DISTINCT FROM OLD.status
+        OR NEW.answer_command_id IS DISTINCT FROM OLD.answer_command_id
+        OR NEW.answered_by_user_id IS DISTINCT FROM OLD.answered_by_user_id
+        OR NEW.answered_at IS DISTINCT FROM OLD.answered_at
+        OR NEW.rejection_code IS DISTINCT FROM OLD.rejection_code) THEN
         RAISE EXCEPTION 'an answered confirmation request is final' USING ERRCODE = '23000';
+    END IF;
+    IF OLD.order_outcome IS NOT NULL THEN
+        IF NEW.status IS DISTINCT FROM OLD.status THEN
+            RAISE EXCEPTION 'a request the Order service has decided cannot be answered' USING ERRCODE = '23000';
+        END IF;
+        IF NEW.order_outcome IS DISTINCT FROM OLD.order_outcome
+            OR NEW.order_outcome_at IS DISTINCT FROM OLD.order_outcome_at THEN
+            RAISE EXCEPTION 'the Order service''s outcome is final' USING ERRCODE = '23000';
+        END IF;
+    END IF;
+    IF OLD.order_decision_event_id IS NOT NULL AND (NEW.order_decision_event_id IS DISTINCT FROM OLD.order_decision_event_id
+        OR NEW.order_decided_at IS DISTINCT FROM OLD.order_decided_at
+        OR NEW.order_rejection_code IS DISTINCT FROM OLD.order_rejection_code) THEN
+        RAISE EXCEPTION 'the Order service''s decision is final' USING ERRCODE = '23000';
     END IF;
     RETURN NEW;
 END;
