@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.restofy.auth.support.DurablePostgreSQLProvider;
 import com.restofy.auth.support.MutableAuthClock;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
+import org.testcontainers.containers.JdbcDatabaseContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -26,8 +28,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The counters against a real PostgreSQL: atomicity, sharing between instances and the table-full rules. */
 class PostgresRateLimitStoreTests {
-    private static final String URL = "jdbc:tc:q5postgresql:17-alpine:///restofy_ratelimit_test";
     private static final long WINDOW = 900;
+    /**
+     * Started here rather than through a {@code jdbc:tc:} URL. Flyway needs a second pooled connection, and opening it
+     * through the shared Testcontainers JDBC driver can wait behind other test pools in the same JVM until it times out.
+     */
+    private static JdbcDatabaseContainer<?> postgres;
     private static HikariDataSource pool;
     private static JdbcTemplate jdbc;
     private static PasswordResetCodes codes;
@@ -37,6 +43,8 @@ class PostgresRateLimitStoreTests {
 
     @BeforeAll
     static void database() throws Exception {
+        postgres = new DurablePostgreSQLProvider().newInstance("17-alpine");
+        postgres.start();
         pool = newPool();
         jdbc = new JdbcTemplate(pool);
         // The whole chain, not V8 alone: later migrations change the table's indexes (V9 replaced the eviction index).
@@ -52,6 +60,7 @@ class PostgresRateLimitStoreTests {
     @AfterAll
     static void closeDatabase() {
         pool.close();
+        postgres.stop();
     }
 
     @BeforeEach
@@ -66,8 +75,9 @@ class PostgresRateLimitStoreTests {
 
     private static HikariDataSource newPool() {
         HikariDataSource created = new HikariDataSource();
-        created.setJdbcUrl(URL);
-        created.setDriverClassName("org.testcontainers.jdbc.ContainerDatabaseDriver");
+        created.setJdbcUrl(postgres.getJdbcUrl());
+        created.setUsername(postgres.getUsername());
+        created.setPassword(postgres.getPassword());
         created.setMaximumPoolSize(20);
         return created;
     }
