@@ -239,6 +239,8 @@ services:
       <<: *database-env
       DB_MENU_NAME: ${DB_MENU_NAME:?}
       MENU_IMAGE_ALLOWED_ORIGINS: ${MENU_IMAGE_ALLOWED_ORIGINS:-}
+      # Auth staff JWT verification (ADR-MENU-005): public key only. Empty = staff authentication off (every management request is 401).
+      MENU_AUTH_STAFF_PUBLIC_KEY: ${MENU_AUTH_STAFF_PUBLIC_KEY:-}
     ports:
       - "127.0.0.1:${MENU_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 

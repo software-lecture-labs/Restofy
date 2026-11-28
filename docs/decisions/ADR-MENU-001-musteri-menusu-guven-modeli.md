@@ -22,7 +22,8 @@ söylediği değerden **doğrulamadan** öğrenemez.
    vardır.
 3. `SecurityFilterChain` ikiye ayrıldı: `GET /api/v1/menu/public/**` açık (oturumsuz, çerezsiz), o yolda diğer metotlar reddedilir.
    Geri kalan her şey Spring Boot'un önceki varsayılanıyla aynıdır (kimlik zorunlu, CSRF açık, yalnız `health` açık). Bu davranış
-   `MenuSecurityChainApiTests` ile kilitlidir.
+   `MenuSecurityChainApiTests` ile kilitlidir. *(Güncelleme, MENU-INT-01: bu "geri kalan" artık iki zincirdir; personel kimliği, CSRF/Origin
+   kanıtı ve form/Basic girişin kaldırılması [ADR-MENU-005](ADR-MENU-005-auth-personel-kimligi.md)'tedir. Müşteri zinciri değişmedi.)*
 4. Müşterinin gördüğü küme tek yerde tanımlıdır: `ProductEligibility.isListedPublicly()` = ürün aktif, yayınlı, kategori zinciri
    aktif ve **availability kaydı var**. Aynı koşullar SQL'de (`FROM_LISTED`) sayfalamadan önce uygulanır; liste, toplam ve tek ürün
    sorgusu aynı parçayı paylaşır. 80 durum kombinasyonu hem SQL'den hem Java kuralından geçirilerek ikisinin ayrışmadığı testle

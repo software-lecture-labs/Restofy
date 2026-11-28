@@ -1,9 +1,9 @@
 package com.restofy.menu.api;
 
+import com.restofy.menu.support.StaffRequests;
 import com.restofy.menu.support.TestActorConfiguration;
 import com.restofy.menu.support.TestActorProvider;
 import com.restofy.menu.support.TestPublicScopeConfiguration;
-import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,13 +23,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The two security chains: only {@code GET /api/v1/menu/public/**} is open; every other path keeps exactly what
- * Spring Boot's default gave it before the public menu existed (authentication required, CSRF enforced, health
- * open). The ADMIN endpoints' own 401 / 403 ordering is covered by the existing fail-closed and
+ * The three security chains: only {@code GET /api/v1/menu/public/**} is open; every other management path needs
+ * authentication and keeps CSRF enforcement (the proof of Auth's cookie contract, see StaffAuthCookieApiTests); every
+ * path outside Menu's API is refused and only health is open. Neither the public nor the default chain offers a form
+ * or Basic login. The ADMIN endpoints' own 401 / 403 ordering is covered by the existing fail-closed and
  * authorization-before-validation suites, which run on this same configuration.
  */
 @SpringBootTest
@@ -89,7 +89,7 @@ class MenuSecurityChainApiTests {
     @Test
     void theAdminEndpointsStillNeedAnAuthenticatedRequestAndKeepCsrf() throws Exception {
         String body = "{\"name\":\"X\"}";
-        mvc.perform(post("/api/v1/menu/products").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+        mvc.perform(post("/api/v1/menu/products").with(StaffRequests.csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/menu/products").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/menu/products").with(user("staff")).contentType(MediaType.APPLICATION_JSON).content(body))
@@ -123,8 +123,14 @@ class MenuSecurityChainApiTests {
     }
 
     @Test
-    void theUnauthorizedAnswerStillAsksForBasicCredentialsAsBefore() throws Exception {
-        mvc.perform(get("/api/v1/menu/products")).andExpect(status().isUnauthorized())
-                .andExpect(header().string("WWW-Authenticate", Matchers.startsWith("Basic")));
+    void theUnauthorizedAnswerNoLongerOffersAnyLoginOfItsOwn() throws Exception {
+        for (String path : new String[] {"/api/v1/menu/products", "/api/v1/menu/categories", "/actuator/info", "/nothing"}) {
+            var response = mvc.perform(get(path)).andExpect(status().isUnauthorized()).andReturn().getResponse();
+            assertNull(response.getHeader("WWW-Authenticate"), path);
+            assertNull(response.getHeader("Set-Cookie"), path);
+        }
+        mvc.perform(get("/login")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/menu/products").header("Authorization", "Basic dXNlcjpwYXNzd29yZA=="))
+                .andExpect(status().isUnauthorized());
     }
 }
