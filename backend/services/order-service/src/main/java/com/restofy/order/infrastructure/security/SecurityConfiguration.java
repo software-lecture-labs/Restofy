@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -20,6 +21,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -39,6 +41,7 @@ import java.io.IOException;
  * headers and their own filter.
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(OrderRateLimitProperties.class)
 public class SecurityConfiguration {
     private static final String ORDERS = "/api/v1/orders";
     private static final String ORDER = ORDERS + "/*";
@@ -65,7 +68,7 @@ public class SecurityConfiguration {
                                     ObjectProvider<KitchenServiceIdentityVerifier> kitchenIdentity,
                                     WaiterSignatureVerifier waiterSignatures,
                                     @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment,
-                                    Clock clock) {
+                                    Clock clock, OrderRateLimitProperties rateLimits, OrderRateLimitStore rateLimitStore) {
         boolean authEnabled = environment.matchesProfiles("order-auth");
         if (authEnabled && environment.matchesProfiles("dev", "test", "local")) {
             throw new IllegalStateException("order-auth cannot use development or test profiles");
@@ -134,6 +137,7 @@ public class SecurityConfiguration {
                         AuthorizationHeaderFilter.class)
                 .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors, kitchenIdentity.getIfAvailable()),
                         AnonymousAuthenticationFilter.class)
+                .addFilterAfter(new OrderRateLimitFilter(rateLimits, rateLimitStore, errors), AuthorizationFilter.class)
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->
                                 requireAuthentication(request, response, errors, authEnabled))

@@ -60,6 +60,7 @@ abstract class AbstractCartApiTest {
         qr.reset();
         menu.reset();
         auth.reset();
+        jdbc.update("DELETE FROM order_rate_limits");
         // append-only table: rows cannot be DELETEd, TRUNCATE is the test-only way to clear it
         jdbc.execute("TRUNCATE order_status_history");
         jdbc.execute("TRUNCATE payment_reconciliation_cases, payment_captures");

@@ -70,3 +70,8 @@ V132        - ORDER-SERVICE (EK SÜRÜM) - HAMZA
 
 23 Kasım 2026: V132, WAITER-03 servis edildi komutunun ilk sonucunu kalıcı olarak
 saklamak için Order'a ayrıldı. Order zinciri V41–V50 ve V131–V132.
+
+V133        - ORDER-SERVICE (EK SÜRÜM) - HAMZA
+
+28 Kasım 2026: V133, ORDER-INT-07 için Order veritabanında paylaşılan hız sınırı
+sayaçlarına ayrıldı. Order zinciri V41–V50 ve V131–V133.
