@@ -4,7 +4,7 @@
 - **Tarih:** 2026-10-20 (güncelleme: 2026-11-26, #60 incelemesi)
 - **Sahip:** Auth (Kerem Kalyoncu)
 - **İlgili kod:** `RateLimitStore`, `PostgresRateLimitStore`, `LoginRateLimiter`, `MfaPeerLimiter`,
-  `PasswordResetLimiter`, `ClientAddressResolver`, Gateway `ClientAddressHeaderFilter`
+  `PasswordResetLimiter`, `StaffAdministrationLimiter`, `ClientAddressResolver`, Gateway `ClientAddressHeaderFilter`
 
 ## Bağlam
 
@@ -23,6 +23,7 @@ toplam bütçe eklendi.
 | `LoginRateLimiter` | adres (100/15 dk, yalnız istemci adresi biliniyorsa), hesap+adres (10/15 dk), hesap (50/15 dk) | Penceresi en erken kapanan kilitsiz kova silinir (`EVICT_OLDEST`) |
 | `MfaPeerLimiter` | adres (30/dk) | `EVICT_OLDEST` |
 | `PasswordResetLimiter` | adres, istek, bekleme, saatlik, günlük, yanlış faktör, kod tahmini | `EVICT_OLDEST` (önceden `REJECT`, aşağıya bkz.) |
+| `StaffAdministrationLimiter` | işlemi yapan ADMIN (30 personel değişikliği/15 dk; liste okuma sayılmaz, AUTH-05) | `EVICT_OLDEST` |
 | MFA hesap kilidi (`StaffMfa`) | PostgreSQL satırı | Bu karardan bağımsız, hesap 5 dk kilitlenir |
 
 Depo şunları sağlar:

@@ -109,8 +109,11 @@ public class GuestSessionValidationService {
                 || !guest.isUsableAt(now, guestHeld || protection.guestCancellationWindow(prepared.state(), main, guest, now))) {
             throw new InvalidGuestSessionException();
         }
-        return new ValidatedGuestContext(identity.restaurantId(), table.getId(), main.getId(), guest.getId(), now);
+        return new ValidatedGuestContext(identity.restaurantId(), table.getId(), table.getTableNumber(), main.getId(),
+                guest.getId(), now);
     }
 
-    public record ValidatedGuestContext(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId, Instant checkedAt) { }
+    /** {@code tableNumber} is the staff-given number at validation time, read from the same locked table row. */
+    public record ValidatedGuestContext(UUID restaurantId, UUID tableId, String tableNumber, UUID tableSessionId,
+                                        UUID guestSessionId, Instant checkedAt) { }
 }

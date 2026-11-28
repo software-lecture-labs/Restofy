@@ -80,6 +80,8 @@ class OrderGuestSessionHttpTests extends Q5TestSecuritySupport {
         var context = json.readTree(verified.body());
         assertThat(context.get("restaurantId").asString()).isEqualTo(TENANT.toString());
         assertThat(context.get("tableId").asString()).isEqualTo(guest.tableId().toString());
+        // Order snapshots the staff-given table number at validation time.
+        assertThat(context.get("tableNumber").asString()).isEqualTo(guest.tableId().toString());
         assertThat(context.get("tableSessionId").asString()).isEqualTo(guest.sessionId().toString());
         assertThat(context.get("guestSessionId").asString()).isEqualTo(guest.guestId().toString());
         assertThat(context.get("state").asString()).isEqualTo("ACTIVE");

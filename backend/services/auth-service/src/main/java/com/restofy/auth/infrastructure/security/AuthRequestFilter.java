@@ -3,6 +3,7 @@ package com.restofy.auth.infrastructure.security;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import com.restofy.auth.api.exception.AuthProblems;
 import com.restofy.auth.application.service.StaffSessionService;
@@ -18,6 +19,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 public class AuthRequestFilter extends OncePerRequestFilter {
+    private static final String STAFF_DIRECTORY = "/api/v1/auth/staff";
+    /** Mirrors the {@code /api/v1/auth/staff/*}{@code /role|deactivate} matchers: exactly one path segment. */
+    private static final Pattern STAFF_CHANGE = Pattern.compile("/api/v1/auth/staff/[^/]+/(?:role|deactivate)");
     private final AuthSettings settings;
     private final StaffJwtTokens jwt;
     private final StaffSessionService sessions;
@@ -40,12 +44,7 @@ public class AuthRequestFilter extends OncePerRequestFilter {
                 return;
             }
             String path = request.getRequestURI().substring(request.getContextPath().length());
-            boolean session = "GET".equals(request.getMethod()) && "/api/v1/auth/session".equals(path);
-            boolean activity = "POST".equals(request.getMethod()) && "/api/v1/auth/activity".equals(path);
-            boolean mfa = "POST".equals(request.getMethod()) && Set.of("/api/v1/auth/mfa/enroll",
-                    "/api/v1/auth/mfa/enroll/confirm", "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover",
-                    "/api/v1/auth/mfa/recovery-codes/regenerate").contains(path);
-            if (session || activity || mfa) {
+            if (requiresSession(request.getMethod(), path)) {
                 authenticate(request);
             }
             chain.doFilter(request, response);
@@ -55,6 +54,17 @@ public class AuthRequestFilter extends OncePerRequestFilter {
             if (unavailable.getStatusCode().value()!=503) throw unavailable;
             AuthProblems.write(response,HttpServletResponse.SC_SERVICE_UNAVAILABLE);
         }
+    }
+
+    private static boolean requiresSession(String method, String path) {
+        boolean session = "GET".equals(method) && "/api/v1/auth/session".equals(path);
+        boolean activity = "POST".equals(method) && "/api/v1/auth/activity".equals(path);
+        boolean mfa = "POST".equals(method) && Set.of("/api/v1/auth/mfa/enroll",
+                "/api/v1/auth/mfa/enroll/confirm", "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover",
+                "/api/v1/auth/mfa/recovery-codes/regenerate").contains(path);
+        boolean staff = (("GET".equals(method) || "POST".equals(method)) && STAFF_DIRECTORY.equals(path))
+                || ("POST".equals(method) && STAFF_CHANGE.matcher(path).matches());
+        return session || activity || mfa || staff;
     }
 
     private void authenticate(HttpServletRequest request) {
