@@ -16,11 +16,13 @@ import com.restofy.menu.domain.exception.ProductOptionNotFoundException;
 import com.restofy.menu.domain.exception.ProductOptionVersionConflictException;
 import com.restofy.menu.domain.exception.ProductVersionConflictException;
 import com.restofy.menu.domain.exception.PublicMenuNotFoundException;
+import com.restofy.menu.domain.exception.PublicMenuUnavailableException;
 import com.restofy.menu.domain.exception.UnauthenticatedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -65,6 +67,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             PublicMenuNotFoundException.class})
     ProblemDetail notFound(RuntimeException e) {
         return problem(HttpStatus.NOT_FOUND, "Not found", e.getMessage());
+    }
+
+    /** The restaurant could not be verified (QR gave no usable answer): nothing is served and the answer is never cached. */
+    @ExceptionHandler(PublicMenuUnavailableException.class)
+    ResponseEntity<ProblemDetail> menuUnavailable(PublicMenuUnavailableException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).cacheControl(CacheControl.noStore())
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable", e.getMessage()));
     }
 
     @ExceptionHandler({DuplicateCategoryNameException.class, CategoryVersionConflictException.class,

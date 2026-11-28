@@ -239,6 +239,9 @@ services:
       <<: *database-env
       DB_MENU_NAME: ${DB_MENU_NAME:?}
       MENU_IMAGE_ALLOWED_ORIGINS: ${MENU_IMAGE_ALLOWED_ORIGINS:-}
+      # Menu -> QR guest-session check (ADR-MENU-008). QR_SERVICE_URL comes from the shared runtime env. Empty key = connection off.
+      MENU_QR_CALLER_KEY_ID: ${MENU_QR_CALLER_KEY_ID:-}
+      MENU_QR_CALLER_PRIVATE_KEY: ${MENU_QR_CALLER_PRIVATE_KEY:-}
     ports:
       - "127.0.0.1:${MENU_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 

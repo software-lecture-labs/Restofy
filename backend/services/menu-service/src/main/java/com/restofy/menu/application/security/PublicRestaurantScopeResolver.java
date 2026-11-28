@@ -9,8 +9,11 @@ import java.util.UUID;
  * exists yet). The reference is client input and proves nothing by itself, so an implementation must verify it
  * and answer empty for anything it cannot vouch for, never guess.
  *
- * <p>The production implementation is fail-closed (always empty) until a real resolver is connected. Resolving a
- * restaurant grants read access to its public menu only: never an order, a table session or any staff authority.
+ * <p>The production implementation ({@code GuestSessionRestaurantScopeResolver}) trusts only a restaurant that QR's
+ * guest-session verification ({@link GuestSessionVerifier}) vouched for in the web layer of the same request, and only if
+ * the URL names that restaurant. The verifier is not connected to QR yet, so in production nothing is verified and every
+ * reference is empty (fail-closed). Resolving a restaurant grants read access to its public menu only: never an order, a
+ * table session or any staff authority.
  */
 public interface PublicRestaurantScopeResolver {
 
