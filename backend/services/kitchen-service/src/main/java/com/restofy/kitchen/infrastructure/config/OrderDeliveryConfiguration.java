@@ -28,9 +28,9 @@ import java.util.Set;
 
 /**
  * Switches on the delivery of Kitchen's events to the Order service, only with the {@code kitchen-order} profile. Without
- * the profile nothing is sent and the outbox simply keeps the events. With it, start-up fails unless the address is
- * safe, the timeouts fit inside the delivery lease and Kitchen's signing key is configured. The Order service on
- * {@code dev} cannot verify that signature yet (PR #47), so a real environment still cannot use the profile.
+ * the profile nothing is sent and the outbox simply keeps the events; an undecided cancellation then keeps holding
+ * READY, because the queued event would still reach the Order service once sending is switched on. With it, start-up
+ * fails unless the address is safe, the timeouts fit inside the delivery lease and Kitchen's signing key is configured.
  */
 @Configuration(proxyBeanMethods = false)
 @Profile(OrderDeliveryConfiguration.PROFILE)

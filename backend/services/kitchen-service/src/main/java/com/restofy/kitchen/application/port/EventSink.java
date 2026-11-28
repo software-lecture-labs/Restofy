@@ -8,9 +8,9 @@ import java.util.Set;
 /**
  * Boundary towards ONE other service that receives Kitchen's outbox events. A sink is bound to one destination, and the
  * delivery of an event to that destination is tracked on its own: another destination being down, slow or final changes
- * nothing here. The Order destination has an HTTP implementation ({@code HttpOrderEventSink}); it cannot run in a real
- * environment yet because Kitchen's service identity is not decided (D-09). Notification has no implementation. Every
- * adapter must honour this contract, which the delivery tests pin down:
+ * nothing here. The Order destination has an HTTP implementation ({@code HttpOrderEventSink}), switched on by the
+ * {@code kitchen-order} profile. Notification has no implementation. Every adapter must honour this contract, which the
+ * delivery tests pin down:
  * <ul>
  *   <li>Return {@link DeliveryOutcome#DELIVERED} only for a positive acknowledgement of THIS event id.</li>
  *   <li>A timeout, connection problem, 5xx, throttling or any unknown result is {@code RETRYABLE_FAILURE} (throwing

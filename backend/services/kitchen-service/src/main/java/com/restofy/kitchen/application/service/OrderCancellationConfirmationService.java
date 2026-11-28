@@ -68,9 +68,9 @@ public class OrderCancellationConfirmationService {
 	}
 
 	/**
-	 * Stores the Order service's request so that the kitchen can answer it. Only an AUTHENTICATED receiver may call this
-	 * (none exists yet: the Order service's events have no endpoint in Kitchen on {@code dev}). Nothing is stored unless
-	 * the outcome is {@link ConfirmationRequestOutcome#REGISTERED}; a refused request can be sent again unchanged.
+	 * Stores the Order service's request so that the kitchen can answer it. Only the AUTHENTICATED receiver of the Order
+	 * service's events may call this. Nothing is stored unless the outcome is
+	 * {@link ConfirmationRequestOutcome#REGISTERED}; a refused request can be sent again unchanged.
 	 */
 	@Transactional
 	public ConfirmationRequestOutcome register(OrderCancellationRequestedMessage message) {

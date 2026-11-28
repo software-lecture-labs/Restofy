@@ -23,12 +23,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Applies the Order service's decision on a cancellation request. This is the ONLY way a kitchen order becomes CANCELLED:
- * Kitchen never cancels on its own, and a request, an acknowledgement of one or a missing answer cancel nothing.
+ * Applies the Order service's decision on the kitchen's own cancellation request. Together with the Order service's
+ * cancellation event ({@code OrderCancellationEventService}) this is how a kitchen order becomes CANCELLED: Kitchen never
+ * cancels on its own, and a request, an acknowledgement of one or a missing answer cancel nothing.
  *
- * <p>There is NO production way in: no endpoint and no listener exist, because the sender's verified identity (D-09) and
- * the transport (D-10) are undecided. A future adapter must authenticate the Order service and then call
- * {@link #apply} with that verified sender; here only tests do. The sender is never read from the message.
+ * <p>The only production way in is the Order service's answer to that request, read by the HTTP sender from the
+ * authenticated connection to the configured Order address; no endpoint and no listener accept a decision. The caller
+ * names the verified sender; it is never read from the message.
  *
  * <p>One local transaction (the order row is locked first) holds the inbox row, the request, and for an approval the order,
  * its status history and its version, so nothing is ever half applied and the same event can never be applied twice.

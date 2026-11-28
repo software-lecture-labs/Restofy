@@ -73,7 +73,8 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private static final String APPLIED = "APPLIED";
 	private static final String OTHER = "OTHER";
 	private static final String IGNORED_STALE = "IGNORED_STALE";
-	private static final Set<String> STATUS_OUTCOMES = Set.of(APPLIED, IGNORED_STALE, "IGNORED_ORDER_CLOSED");
+	private static final String IGNORED_ORDER_CLOSED = "IGNORED_ORDER_CLOSED";
+	private static final Set<String> STATUS_OUTCOMES = Set.of(APPLIED, IGNORED_STALE, IGNORED_ORDER_CLOSED);
 	private static final Set<String> CANCELLATION_OUTCOMES = Set.of(APPLIED, "REJECTED");
 	private static final Set<String> DECISION_OUTCOMES = Set.of(APPLIED, IGNORED_STALE);
 	/** What the Order service can have done with a cancellation once it has handled the kitchen's answer. */
@@ -354,9 +355,18 @@ public class HttpOrderEventSink implements OrderEventSink {
 		return Result.delivered();
 	}
 
-	/** A status report has no business decision in its answer; the two cancellation calls are recorded above. */
+	/**
+	 * A status report has no business decision in its answer; the two cancellation calls are recorded above. Delivered
+	 * is not applied here either: for a cancelled order the Order service acknowledges and ignores the status, which is
+	 * worth seeing because the kitchen may be working on an order that no longer exists there.
+	 */
 	private static void acknowledged(Call call, String outcome) {
-		log.debug("Order acknowledged eventId={} with outcome {}", call.message().eventId(), outcome);
+		if (IGNORED_ORDER_CLOSED.equals(outcome)) {
+			log.warn("Order received the status but did not apply it, its order is cancelled: eventId={} restaurantId={} orderId={}",
+					call.message().eventId(), call.message().restaurantId(), call.orderId());
+		} else {
+			log.debug("Order acknowledged eventId={} with outcome {}", call.message().eventId(), outcome);
+		}
 	}
 
 	private static Result refused(OutboundMessage message, String code) {
