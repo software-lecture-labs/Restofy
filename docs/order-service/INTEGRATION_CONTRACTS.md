@@ -332,6 +332,14 @@ Order, V41–V50 zincirini ve onaylı V131 ek sürümünü kullanır. V50, payla
 
 `ProblemDetail` benzeri tek gövde: `code`, `message`, isteğe bağlı `details`; yığın izi, SQL, jeton veya kişisel veri içermez. Başlıca kodlar: `401 UNAUTHENTICATED`, `403 ACCESS_DENIED`, `404 ORDER_NOT_FOUND / CLOSURE_NOT_FOUND`, `409 PRICE_CHANGED / TABLE_SESSION_NOT_ACTIVE / TABLE_SESSION_CLOSING / IDEMPOTENCY_CONFLICT / INVALID_STATUS_TRANSITION / PAYMENT_MISMATCH / CANCELLATION_NOT_ALLOWED / CLOSURE_IN_PROGRESS`, `422 VALIDATION_ERROR`, `503 DEPENDENCY_UNAVAILABLE`. Tam liste `ErrorCode` içindedir.
 
+### ORDER-INT-07 — İstek hız sınırları
+
+- Kimlik doğrulama ve HTTP yetkilendirmesinden sonra sepet okumaları, sepet değişiklikleri, checkout, sipariş okumaları ve filtreler, iptal istekleri ve personelin durum güncellemeleri sayılır. Guest kotası restoran ve guest oturumu, personel kotası restoran ve kullanıcı bazındadır.
+- QR sipariş durumu okuması, Kitchen hazırlık ve iptal uçları, Waiter tarafından delege edilen aramalar ve servis edildi komutu ayrı kotalara sahiptir. İmzalı servis çağrılarında kota doğrulanmış servis ve restoran bazındadır. Waiter kimliği doğrulanmış personelin restoran kapsamını kullanır.
+- QR kapanış hazırlığı, işlem durumu ve teyit/abort uçları, ödeme olay alıcısı ve Waiter komut sonucu sorgusu sayaç kullanmaz. Çağrılarda mevcut kimlik ve yetki kontrolleri geçerlidir.
+- Sınır aşıldığında `429 RATE_LIMIT_EXCEEDED` ve saniye cinsinden `Retry-After` döner. Kota deposuna erişilemezse limitli uçlar `503 DEPENDENCY_UNAVAILABLE` döndürür. Sayaç trafiği, iş veritabanı havuzundan ayrı ve en fazla üç bağlantı kullanan bir havuz üzerinden çalışır.
+- Kota değerleri `restofy.order.rate-limit.limits.*` ile, pencere `restofy.order.rate-limit.window-seconds` ile ayarlanır. Varsayılan pencere 60 saniyedir. Aynı veritabanına bağlı Order instance'ları aynı ayarları kullanmalıdır. V133 sayaçları Order veritabanında tutar. Sayaç anahtarlarında token veya ham kimlik saklanmaz. Süresi dolan kayıtlar temizlenir.
+
 ## 9. Açık işler
 
 - Ortak tarayıcı akışı, QR entegrasyon ve guest-cookie dallarının birleşmesine ve QR rate limit kapısına bağlı. Tarayıcı sayfası `/api/v1` dışında çalışıyorsa bu path'e bağlı CSRF cookie'si sayfanın JavaScript'inden okunamaz. QR, Gateway ve frontend için ortak çözüm ayrıca kararlaştırılacak.
