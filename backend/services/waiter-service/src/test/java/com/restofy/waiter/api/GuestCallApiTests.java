@@ -152,6 +152,28 @@ class GuestCallApiTests extends ApiTestBase {
         assertNothingWritten();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            // QR with PR #44: the fixed code, with the old detail text, with another detail, and alone.
+            "{\"status\":404,\"detail\":\"Guest session is unavailable.\",\"code\":\"GUEST_SESSION_UNAVAILABLE\"}",
+            "{\"status\":404,\"detail\":\"Something else.\",\"code\":\"GUEST_SESSION_UNAVAILABLE\"}",
+            "{\"status\":404,\"code\":\"GUEST_SESSION_UNAVAILABLE\"}"})
+    void qrsFixedGuestRefusalCodeIsAnUnknownGuest(String body) throws Exception {
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE, request -> Response.problem(404, body));
+        raiseCall(guest, "WAITER").andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
+        assertNothingWritten();
+    }
+
+    @Test
+    void aDifferentCodeWithoutQrsGuestDetailIsNotMistakenForAnUnknownGuest() throws Exception {
+        STUB.override("POST", FakeBackends.GUEST_VALIDATE,
+                request -> Response.problem(404, "{\"status\":404,\"code\":\"TABLE_NOT_FOUND\"}"));
+        raiseCall(guest, "WAITER").andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("DEPENDENCY_BAD_RESPONSE"));
+        assertNothingWritten();
+    }
+
     @Test
     void credentialUnknownToQrIsRejectedWithoutSayingWhy() throws Exception {
         mockMvc.perform(post("/api/v1/waiters/calls").with(guestBrowser(randomProof()))

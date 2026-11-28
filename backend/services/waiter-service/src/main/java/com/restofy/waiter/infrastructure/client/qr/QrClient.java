@@ -7,10 +7,13 @@ import com.restofy.waiter.domain.exception.DependencyFailure;
 import com.restofy.waiter.domain.exception.SnapshotLimitExceededException;
 import com.restofy.waiter.infrastructure.client.DownstreamCalls;
 import com.restofy.waiter.infrastructure.config.ServiceUrlProperties;
+import com.restofy.waiter.infrastructure.security.StaffAccessToken;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.StreamingHttpOutputMessage;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -33,14 +36,13 @@ import java.util.UUID;
  * through the Gateway. Besides the reads it carries the two table commands, closing a main session and marking a
  * table cleaned: QR alone decides them, and nothing here sends a command again on its own.
  *
- * <p>Every call uses the shared {@code /api/v1/internal} prefix. Only the close command and its status follow a
- * contract QR has implemented: ADR-QR-001 K11 (reviewed at QR commit 1f98fbb). QR keeps those endpoints closed until
- * the Waiter service identity and the staff delegation are verified; Waiter sends neither yet, so QR answers 401
- * today. The guest verification uses QR's shared QR-INT-02 endpoint ({@link #GUEST_VALIDATE}); QR accepts only
- * Order's service identity there today, so it also answers 401 to Waiter until a Waiter identity is agreed. The table
- * reads and the cleaning command are Waiter's DRAFT paths under the same prefix: QR has no internal counterpart for
- * them yet, and moving them onto QR's staff endpoints would change their identity and idempotency semantics, so they
- * wait for a shared contract.
+ * <p>Every call uses the shared {@code /api/v1/internal} prefix and carries Waiter's own service identity
+ * ({@link WaiterQrRequestSigner}), one scope per route family: {@code qr:guest-validate} (QR PR #41),
+ * {@code qr:table-read}, {@code qr:session-close} and {@code qr:table-clean} (QR PR #51). The close and clean
+ * POST routes also need the staff member's access token in {@code X-Restofy-Staff-Delegation}
+ * ({@link StaffAccessToken}), bound to the credential by digest. While no service key is configured nothing is signed
+ * and QR answers 401. The close command follows ADR-QR-001 K11; QR PR #51 implements the table reads and the cleaning
+ * command with the same paths and payloads Waiter already used. Not verified against a running QR yet.
  *
  * <p>QR's answers are read with unknown fields ignored, so an additive field of QR does not turn into an unknown
  * outcome; identifiers, enum values, states and the cross-checks below are still enforced. Incoming requests of
@@ -59,10 +61,23 @@ public class QrClient {
     static final String GUEST_VALIDATE = "/api/v1/internal/qr/guest-sessions/validate";
     /** The detail QR puts in every guest refusal, so that it can be told apart from a missing route. */
     static final String UNAVAILABLE_GUEST = "Guest session is unavailable.";
+    /** The one fixed code QR (PR #44) puts in every guest refusal; it does not say why the guest is unavailable. */
+    static final String GUEST_SESSION_UNAVAILABLE = "GUEST_SESSION_UNAVAILABLE";
+
+    @SuppressWarnings("java:S1075") // The path belongs to QR's wire contract; only the base URL is configurable.
+    private static final String TABLES = "/api/v1/internal/tables";
+    private static final byte[] NO_BODY = new byte[0];
+    /** The header QR reads the delegated staff token from on the close and clean routes (QR PR #51). */
+    static final String STAFF_TOKEN_HEADER = "X-Restofy-Staff-Delegation";
 
     private final RestClient client;
+    private final JsonMapper requests;
+    private final WaiterQrRequestSigner signer;
 
-    public QrClient(RestClient.Builder builder, ServiceUrlProperties urls, JsonMapper json) {
+    public QrClient(RestClient.Builder builder, ServiceUrlProperties urls, JsonMapper json,
+                    WaiterQrRequestSigner signer) {
+        this.requests = json;
+        this.signer = signer;
         JsonMapper answers = json.rebuild().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
         this.client = builder.clone().baseUrl(urls.qrUrl().toString())
                 .configureMessageConverters(converters -> converters.withJsonConverter(
@@ -77,12 +92,9 @@ public class QrClient {
         int page = 0;
         while (true) {
             int requested = page;
-            QrTablePageDto result = DownstreamCalls.execute(DEPENDENCY, () -> client.get()
-                    .uri(uri -> uri.path("/api/v1/internal/tables")
-                            .queryParam(RESTAURANT_ID, restaurantId)
-                            .queryParam("page", requested)
-                            .queryParam("size", PAGE_SIZE)
-                            .build())
+            String target = TABLES + "?" + RESTAURANT_ID + "=" + restaurantId + "&page=" + requested + "&size=" + PAGE_SIZE;
+            QrTablePageDto result = DownstreamCalls.execute(DEPENDENCY, () -> client.get().uri(target)
+                    .headers(headers -> sign(headers, WaiterQrRequestSigner.TABLE_READ, HttpMethod.GET, target, NO_BODY, false))
                     .retrieve().body(QrTablePageDto.class));
             requireConsistentPage(result, requested);
             for (QrTableDto table : result.items()) {
@@ -111,9 +123,9 @@ public class QrClient {
     }
 
     public Optional<QrTableDto> findTable(UUID restaurantId, UUID tableId) {
-        Optional<QrTableDto> table = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
-                .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}")
-                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId))
+        String target = TABLES + "/" + tableId + "?" + RESTAURANT_ID + "=" + restaurantId;
+        Optional<QrTableDto> table = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get().uri(target)
+                .headers(headers -> sign(headers, WaiterQrRequestSigner.TABLE_READ, HttpMethod.GET, target, NO_BODY, false))
                 .retrieve().body(QrTableDto.class));
         table.ifPresent(found -> {
             requireTenant(restaurantId, found);
@@ -131,11 +143,15 @@ public class QrClient {
      * itself, not of the guest.
      */
     public Optional<QrGuestContextDto> verifyGuest(String guestToken) {
+        // The credential is bound to the digest of the exact bytes sent, so the body is serialized once, here.
+        byte[] body = requests.writeValueAsBytes(new QrGuestVerifyRequest(guestToken));
         try {
             QrGuestContextDto context = client.post()
                     .uri(GUEST_VALIDATE)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new QrGuestVerifyRequest(guestToken))
+                    .headers(headers -> sign(headers, WaiterQrRequestSigner.GUEST_VALIDATE, HttpMethod.POST,
+                            GUEST_VALIDATE, body, false))
+                    .body(raw(body))
                     .retrieve().body(QrGuestContextDto.class);
             if (context == null) throw badResponse("empty answer to the guest validation");
             return Optional.of(context);
@@ -147,7 +163,34 @@ public class QrClient {
         }
     }
 
-    /** QR's guest refusal: a 404 problem with the fixed detail of its InvalidGuestSessionException. */
+    private static String sessionPath(UUID tableId, UUID tableSessionId) {
+        return TABLES + "/" + tableId + "/sessions/" + tableSessionId;
+    }
+
+    /**
+     * Signs the request for QR: one service credential per request, bound to its method, target (with the query
+     * string, exactly as sent) and body digest. Close and clean POSTs also require the current staff access token.
+     * Result lookups use the service credential alone, including when the background reconciler calls QR.
+     */
+    private void sign(HttpHeaders headers, String scope, HttpMethod method, String target, byte[] body,
+                      boolean delegated) {
+        String staffToken = delegated ? StaffAccessToken.current().orElse(null) : null;
+        signer.authorization(scope, method, target, body, staffToken).ifPresent(credential -> {
+            headers.set(HttpHeaders.AUTHORIZATION, credential);
+            if (staffToken != null) headers.set(STAFF_TOKEN_HEADER, staffToken);
+        });
+    }
+
+    /** The exact bytes the credential is bound to; a plain byte[] body would be re-encoded by the JSON converter. */
+    private static StreamingHttpOutputMessage.Body raw(byte[] body) {
+        return out -> out.write(body);
+    }
+
+    /**
+     * QR's guest refusal: a 404 problem. QR marks it with the fixed {@code code} (PR #44). While the transition lasts,
+     * the older fixed {@code detail} of its InvalidGuestSessionException is accepted as well; drop that comparison
+     * once both environments send the code.
+     */
     private static boolean isUnavailableGuest(RestClientResponseException refusal) {
         if (refusal.getStatusCode().value() != HttpStatus.NOT_FOUND.value()) return false;
         HttpHeaders headers = refusal.getResponseHeaders();
@@ -156,7 +199,8 @@ public class QrClient {
         try {
             JsonNode problem = REJECTION_JSON.readTree(refusal.getResponseBodyAsString());
             return problem.path("status").asInt(0) == HttpStatus.NOT_FOUND.value()
-                    && UNAVAILABLE_GUEST.equals(problem.path("detail").asString(""));
+                    && (GUEST_SESSION_UNAVAILABLE.equals(problem.path("code").asString(""))
+                    || UNAVAILABLE_GUEST.equals(problem.path("detail").asString("")));
         } catch (RuntimeException _) {
             return false;
         }
@@ -187,13 +231,14 @@ public class QrClient {
      * A 401/403 is reported as a dependency rejection ({@code REJECTED}): QR did not process this request.
      */
     public QrCloseResultDto closeSession(QrCloseRequestDto command) {
+        String target = sessionPath(command.tableId(), command.tableSessionId()) + "/close";
+        byte[] payload = requests.writeValueAsBytes(command);
         try {
-            ResponseEntity<QrCloseResultDto> answer = client.post()
-                    .uri("/api/v1/internal/tables/{tableId}/sessions/{tableSessionId}/close", command.tableId(),
-                            command.tableSessionId())
+            ResponseEntity<QrCloseResultDto> answer = client.post().uri(target)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Idempotency-Key", command.commandId().toString())
-                    .body(command)
+                    .headers(headers -> sign(headers, WaiterQrRequestSigner.SESSION_CLOSE, HttpMethod.POST, target, payload, true))
+                    .body(raw(payload))
                     .retrieve().toEntity(QrCloseResultDto.class);
             QrCloseResultDto body = answer.getBody();
             if (body == null) throw badResponse("empty answer to the close command");
@@ -224,9 +269,9 @@ public class QrClient {
      * table, which may already be cleaned or serve the next visit; that says nothing against the old closure.
      */
     public Optional<QrCloseResultDto> closeStatus(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID commandId) {
-        Optional<QrCloseResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
-                .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}/sessions/{tableSessionId}/close-commands/{commandId}")
-                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId, tableSessionId, commandId))
+        String target = sessionPath(tableId, tableSessionId) + "/close-commands/" + commandId + "?" + RESTAURANT_ID + "=" + restaurantId;
+        Optional<QrCloseResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get().uri(target)
+                .headers(headers -> sign(headers, WaiterQrRequestSigner.SESSION_CLOSE, HttpMethod.GET, target, NO_BODY, false))
                 .retrieve().body(QrCloseResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
@@ -244,12 +289,14 @@ public class QrClient {
      * three kinds of outcome apply as for {@link #closeSession}.
      */
     public QrCleanResultDto markCleaned(QrCleanRequestDto command) {
+        String target = TABLES + "/" + command.tableId() + "/cleaned";
+        byte[] payload = requests.writeValueAsBytes(command);
         try {
-            QrCleanResultDto answer = client.post()
-                    .uri("/api/v1/internal/tables/{tableId}/cleaned", command.tableId())
+            QrCleanResultDto answer = client.post().uri(target)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Idempotency-Key", command.commandId().toString())
-                    .body(command)
+                    .headers(headers -> sign(headers, WaiterQrRequestSigner.TABLE_CLEAN, HttpMethod.POST, target, payload, true))
+                    .body(raw(payload))
                     .retrieve().body(QrCleanResultDto.class);
             if (answer == null) throw badResponse("empty answer to the cleaning command");
             if (!answer.commandId().equals(command.commandId())) throw badResponse("answer for another command");
@@ -266,9 +313,9 @@ public class QrClient {
 
     /** What QR recorded for a cleaning command id; empty if QR has no record of it. */
     public Optional<QrCleanResultDto> cleanStatus(UUID restaurantId, UUID tableId, UUID commandId) {
-        Optional<QrCleanResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get()
-                .uri(uri -> uri.path("/api/v1/internal/tables/{tableId}/clean-commands/{commandId}")
-                        .queryParam(RESTAURANT_ID, restaurantId).build(tableId, commandId))
+        String target = TABLES + "/" + tableId + "/clean-commands/" + commandId + "?" + RESTAURANT_ID + "=" + restaurantId;
+        Optional<QrCleanResultDto> status = DownstreamCalls.executeOptional(DEPENDENCY, () -> client.get().uri(target)
+                .headers(headers -> sign(headers, WaiterQrRequestSigner.TABLE_CLEAN, HttpMethod.GET, target, NO_BODY, false))
                 .retrieve().body(QrCleanResultDto.class));
         status.ifPresent(found -> {
             if (!found.commandId().equals(commandId)) throw badResponse("status of another command");
