@@ -8,8 +8,8 @@ import java.util.UUID;
  * Contract with the Menu Service (product/price/tax authority). Results are scoped to the given restaurant:
  * a product of another restaurant is simply absent from the result.
  *
- * <p>Prices in {@link ProductSnapshot} are tax-inclusive gross amounts in integer minor units. An
- * implementation that cannot supply that (e.g. net-priced products) must fail rather than guess.
+ * <p>Prices in {@link ProductSnapshot} are tax-inclusive gross amounts in integer minor units. A known product
+ * with no exact gross price (e.g. a net-priced product) has no base price and cannot be sold.
  */
 public interface MenuCatalogPort {
 

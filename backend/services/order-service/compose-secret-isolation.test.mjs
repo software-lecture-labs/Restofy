@@ -10,14 +10,17 @@ const keys = [
   'ORDER_QR_CALLER_KEY_ID',
   'ORDER_QR_CALLER_PRIVATE_KEY',
   'ORDER_QR_CALLER_RESTAURANT_ID',
+  'ORDER_MENU_CALLER_KEY_ID',
+  'ORDER_MENU_CALLER_PRIVATE_KEY',
+  'ORDER_MENU_CALLER_RESTAURANT_ID',
 ];
 const systemEnv = Object.fromEntries(['PATH', 'PATHEXT', 'SystemRoot', 'ComSpec', 'USERPROFILE', 'HOME',
   'APPDATA', 'LOCALAPPDATA', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'ProgramW6432', 'TEMP', 'TMP']
   .filter((key) => process.env[key] !== undefined)
   .map((key) => [key, process.env[key]]));
 
-test('rendered Compose forwards Order QR configuration only to Order', () => {
-  const fixture = Object.fromEntries(keys.map((key, index) => [key, `order-qr-fixture-${index}`]));
+test('rendered Compose forwards Order integration configuration only to Order', () => {
+  const fixture = Object.fromEntries(keys.map((key, index) => [key, `order-integration-fixture-${index}`]));
   const { services } = JSON.parse(execFileSync('docker', [
     'compose', '--env-file', '.env.example', 'config', '--format', 'json',
   ], {
