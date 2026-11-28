@@ -8,6 +8,7 @@ import com.restofy.qr.application.service.*;
 import com.restofy.qr.domain.exception.InvalidQrCodeException;
 import com.restofy.qr.infrastructure.persistence.repository.*;
 import com.restofy.qr.infrastructure.security.TableManagementAccess;
+import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -50,6 +51,7 @@ class QrValidationPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Autowired DiningTableRepository tableRepository;
     @Autowired JdbcTemplate jdbc;
     @Autowired Flyway flyway;
+    @Autowired QrRateLimits limits;
     @Autowired PlatformTransactionManager transactions;
     @Autowired RequestMappingHandlerAdapter adapter;
     // Test-only context for creating management fixtures, not for QR validation.
@@ -63,7 +65,7 @@ class QrValidationPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
         restaurant.set(UUID.randomUUID());
         when(access.requireRestaurantId()).thenAnswer(invocation -> restaurant.get());
         when(clock.instant()).thenAnswer(invocation -> Instant.now());
-        api = MockMvcBuilders.standaloneSetup(new QrValidationController(validation))
+        api = MockMvcBuilders.standaloneSetup(new QrValidationController(validation, limits))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(adapter.getMessageConverters().toArray(HttpMessageConverter[]::new)).build();
     }
@@ -196,7 +198,7 @@ class QrValidationPostgresIntegrationTests extends com.restofy.qr.support.Q5Test
     @Test
     void forwardMigrationRetainsUnboundedCodesAndChecksOptionalExpiry() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("128");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("129");
         var code = create("1");
         assertThat(codes.findById(code.id()).orElseThrow().getExpiresAt()).isNull();
         UUID id = code.id();

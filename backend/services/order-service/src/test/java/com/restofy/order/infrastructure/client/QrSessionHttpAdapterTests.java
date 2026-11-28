@@ -68,7 +68,35 @@ class QrSessionHttpAdapterTests {
         assertEquals(table, context.tableId());
         assertEquals(session, context.tableSessionId());
         assertEquals(guest, context.guestSessionId());
+        assertNull(context.tableNumber());
         peer.verify();
+    }
+
+    @Test
+    void acceptsTheTableNumberFromTheNewQrResponseAndAnExplicitNullDuringRollout() {
+        respondWithTableNumber("\"A-12\"");
+        respondWithTableNumber("null");
+
+        assertEquals("A-12", adapter.validateGuestSession(TOKEN).orElseThrow().tableNumber());
+        assertNull(adapter.validateGuestSession(TOKEN).orElseThrow().tableNumber());
+        peer.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12", "\"   \"", "\"12345678901234567890123456789012345678901\""})
+    void rejectsAnInvalidTableNumberWhenQrSuppliesOne(String tableNumberJson) {
+        respondWithTableNumber(tableNumberJson);
+        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE,
+                assertThrows(BusinessException.class, () -> adapter.validateGuestSession(TOKEN)).code());
+        peer.verify();
+    }
+
+    private void respondWithTableNumber(String tableNumberJson) {
+        UUID id = UUID.randomUUID();
+        peer.expect(requestTo(BASE + VALIDATE)).andRespond(withSuccess("""
+                {"restaurantId":"%s","tableId":"%s","tableSessionId":"%s","guestSessionId":"%s",
+                 "state":"ACTIVE","checkedAt":"2026-11-19T10:00:00Z","tableNumber":%s}
+                """.formatted(TENANT, id, id, id, tableNumberJson), MediaType.APPLICATION_JSON));
     }
 
     @Test

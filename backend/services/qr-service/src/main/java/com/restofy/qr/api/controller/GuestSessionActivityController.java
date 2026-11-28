@@ -6,6 +6,7 @@ import com.restofy.qr.application.service.GuestSessionActivityService;
 import com.restofy.qr.application.service.GuestSessionValidationService;
 import com.restofy.qr.domain.exception.InvalidGuestSessionException;
 import com.restofy.qr.infrastructure.security.guest.GuestCookies;
+import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,16 +21,27 @@ public class GuestSessionActivityController {
     private final GuestSessionValidationService validation;
     private final GuestCookies cookies;
 
+    private final QrRateLimits limits;
+
     public GuestSessionActivityController(GuestSessionActivityService service, GuestSessionValidationService validation,
-                                          GuestCookies cookies) {
+                                          GuestCookies cookies, QrRateLimits limits) {
         this.service = service;
         this.validation = validation;
         this.cookies = cookies;
+        this.limits = limits;
+    }
+
+    /** ADR-QR-002 K7: counted per guest only after the credential matched one, so a forgery never opens a bucket. */
+    private String verifiedCall(HttpServletRequest request, boolean activity) {
+        String token = cookies.guestToken(request);
+        var guest = validation.identify(token);
+        limits.guestCall(guest.restaurantId(), guest.guestId(), activity);
+        return token;
     }
 
     @PostMapping("/activity")
     @Operation(summary = "Record explicit foreground activity for a still-usable guest",
-            description = "HTTP stays closed until the rate-limit change. The guest is identified only by the HttpOnly " +
+            description = "Rate limited (429 + Retry-After; 503 if the limits are unavailable). The guest is identified only by the HttpOnly " +
                     "guest cookie, verified against the server on every use, plus the guest CSRF header and Origin; " +
                     "there is no request body. Renews only this guest and its main; reads/polling do not renew. " +
                     "Admission and verified business/financial outcomes can protect the owner and main; response flags " +
@@ -39,7 +51,7 @@ public class GuestSessionActivityController {
                     "presence or a human gesture.")
     public ResponseEntity<GuestActivityResponse> recordActivity(HttpServletRequest request, HttpServletResponse response) {
         try {
-            String token = cookies.guestToken(request);
+            String token = verifiedCall(request, true);
             var result = service.recordActivity(token);
             cookies.refresh(response, token, cookies.csrfProof(request));
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
@@ -52,14 +64,14 @@ public class GuestSessionActivityController {
 
     @GetMapping("/csrf")
     @Operation(summary = "Return the guest CSRF value again, for example after a page reload",
-            description = "HTTP stays closed until the rate-limit change. Requires the HttpOnly guest cookie; Origin is " +
+            description = "Rate limited (429 + Retry-After; 503 if the limits are unavailable). Requires the HttpOnly guest cookie; Origin is " +
                     "optional (browsers omit it on same-origin GET) but must be allowed when present. The guest is " +
                     "verified against the server. The frontend cannot read the CSRF cookie " +
                     "because its Path=/api/v1 does not cover the page paths, so the value is returned here and sent back as X-Guest-CSRF. Does not " +
                     "renew any idle window. An unusable guest gets the generic 404 and its cookies are cleared.")
     public ResponseEntity<GuestCsrfResponse> csrf(HttpServletRequest request, HttpServletResponse response) {
         try {
-            validation.validate(cookies.guestToken(request));
+            validation.validate(verifiedCall(request, false));
             return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                     .body(new GuestCsrfResponse(cookies.csrfFor(request, response)));
         } catch (InvalidGuestSessionException invalid) {

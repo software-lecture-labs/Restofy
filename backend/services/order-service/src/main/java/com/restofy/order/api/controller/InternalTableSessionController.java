@@ -159,7 +159,7 @@ public class InternalTableSessionController {
     }
 
     private static void requireRestaurant(ServiceActor service, UUID restaurantId) {
-        if (service.qrRequest() != null && !service.qrRequest().restaurantId().equals(restaurantId)) {
+        if (service.signedRequest() != null && !service.signedRequest().restaurantId().equals(restaurantId)) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "Service credential does not authorise this restaurant");
         }
     }

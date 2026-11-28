@@ -81,7 +81,7 @@ Servisler, oturumun o an hâlâ geçerli olduğunu Auth'a sormak için bu ucu ku
 
 Kurallar:
 
-- Personel çerezi (`restofy_access`) yalnız bu uca ve yalnız HTTPS ile iletilir. Başka bir servise iletilmez, loglanmaz.
+- Personel çerezi (`restofy_access`) yalnız bu uca ve HTTPS ile iletilir. Tek istisna geliştirme ve test ortamında iç ağda HTTP'dir: `INTERNAL_HTTP_ALLOWED=true`, `APP_ENV` `dev`, `local` ya da `test`, adres bir Compose servis adı ya da loopback ([ADR-ORTAK-001](../decisions/ADR-ORTAK-001-ic-agda-http.md)). Başka bir servise iletilmez, loglanmaz.
 - İstekte `Origin` başlığı gönderilmez. Gönderilirse Auth'un izinli origin listesinde olmalıdır, yoksa 403 döner.
 - Çağrı etkinlik sayılmaz, hareketsizlik süresini uzatmaz. Süreyi yalnız `POST /api/v1/auth/activity` uzatır.
 - Sonuç o isteğin ötesinde önbelleğe alınmaz. Auth cevabı `Cache-Control: no-store` ile döner.
@@ -94,7 +94,7 @@ Cevaplar:
 | 401 | Token geçersiz ya da süresi dolmuş, oturum iptal edilmiş, kullanıcı pasif veya rolü değişmiş | Reddeder |
 | Diğer her şey (403, 5xx, zaman aşımı, yönlendirme, `status` farklı) | Doğrulanamadı | İşlemi yapmaz |
 
-200 gövdesi: `status`, `role`, `idleExpiresAt`, `absoluteExpiresAt`. Tüketici rolü yine token'dan alır; Auth, token'daki rol kullanıcının güncel rolüyle uyuşmuyorsa zaten 401 döner.
+200 gövdesi: `status`, `role`, `idleExpiresAt`, `absoluteExpiresAt`, `mfaSetupRequired`. `mfaSetupRequired` yalnız `status` `MFA_PENDING` iken dolar; diğer durumlarda `null` gelir. Tüketici rolü yine token'dan alır; Auth, token'daki rol kullanıcının güncel rolüyle uyuşmuyorsa zaten 401 döner.
 
 Bu uca ileride bir hız sınırı gelirse çağıran servisin adresine göre olmaz; önceden duyurulur.
 
@@ -107,5 +107,5 @@ Bu uca ileride bir hız sınırı gelirse çağıran servisin adresine göre olm
 ## Bu sözleşmede olmayanlar
 
 - **Servis kimliği:** Auth merkezi bir servis kimliği vermez. Servisler arası çağrılarda bugünkü düzen, çağıran servisin kendi anahtarıyla imzaladığı istektir (QR→Order, Waiter→QR #41, Waiter→Order #45). Ortak sözleşme (D-09) ayrı karardır.
-- **İç ağda TLS:** Servislerin Auth'a HTTPS ile ulaşması için iç ağda TLS mi kurulacağı ortak altyapı kararıdır (#63). Auth ortak adresi ya da Compose'u tek başına değiştirmez.
+- **İç ağda TLS:** İç ağda TLS ortak altyapı kararıdır (#63); o gelene kadar geliştirme ve test ortamında iç ağda HTTP istisnası [ADR-ORTAK-001](../decisions/ADR-ORTAK-001-ic-agda-http.md)'deki kurala bağlıdır. Auth ortak adresi ya da Compose'u tek başına değiştirmez.
 - **Anlık iptal bildirimi:** Auth yalnız QR'a iptal bildirir (Q5). Diğer servisler için iptal ya `/session` ile anında ya da token ömrüyle en geç 300 sn içinde yansır.
