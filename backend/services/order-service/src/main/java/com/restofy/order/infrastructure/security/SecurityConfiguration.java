@@ -8,6 +8,7 @@ import com.restofy.order.domain.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -61,6 +62,7 @@ public class SecurityConfiguration {
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
                                     ServiceIdentityPort serviceIdentity, ApiErrorWriter errors,
+                                    ObjectProvider<KitchenServiceIdentityVerifier> kitchenIdentity,
                                     WaiterSignatureVerifier waiterSignatures,
                                     @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment,
                                     Clock clock) {
@@ -130,7 +132,7 @@ public class SecurityConfiguration {
                 .addFilterBefore(new AuthorizationHeaderFilter(errors), GuestSessionAuthenticationFilter.class)
                 .addFilterAfter(new WaiterAuthenticationFilter(waiterSignatures, authContext, errors),
                         AuthorizationHeaderFilter.class)
-                .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors),
+                .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors, kitchenIdentity.getIfAvailable()),
                         AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->

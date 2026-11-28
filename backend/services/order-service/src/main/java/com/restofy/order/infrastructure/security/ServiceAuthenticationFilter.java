@@ -30,10 +30,13 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
 
     private final ServiceIdentityPort services;
     private final ApiErrorWriter errors;
+    private final KitchenServiceIdentityVerifier kitchen;
 
-    public ServiceAuthenticationFilter(ServiceIdentityPort services, ApiErrorWriter errors) {
+    public ServiceAuthenticationFilter(ServiceIdentityPort services, ApiErrorWriter errors,
+                                       KitchenServiceIdentityVerifier kitchen) {
         this.services = services;
         this.errors = errors;
+        this.kitchen = kitchen;
     }
 
     static boolean isServiceScheme(String header) {
@@ -50,7 +53,9 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String credential = request.getHeader(HttpHeaders.AUTHORIZATION).substring(SCHEME.length()).trim();
-        int credentialLimit = services instanceof QrServiceIdentityVerifier
+        boolean kitchenRoute = kitchen != null && KitchenServiceIdentityVerifier.matches(
+                request.getMethod(), request.getRequestURI());
+        int credentialLimit = kitchenRoute || services instanceof QrServiceIdentityVerifier
                 ? QrServiceIdentityVerifier.MAX_TOKEN_LENGTH : SecurityLimits.MAX_CREDENTIAL_LENGTH;
         if (credential.isEmpty() || credential.length() > credentialLimit) {
             reject(response);
@@ -58,7 +63,7 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
         }
         Optional<ServiceActor> actor;
         try {
-            actor = services.resolveService(credential);
+            actor = kitchenRoute ? kitchen.resolve(credential) : services.resolveService(credential);
         } catch (BusinessException unavailable) {
             errors.write(response, unavailable.code(), unavailable.getMessage());
             return;
@@ -72,8 +77,12 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
             reject(response);
             return;
         }
-        if (actor.get().qrRequest() != null) {
-            request = verifyQrRequest(request, response, actor.get().qrRequest());
+        if (actor.get().signedRequest() != null) {
+            if (kitchenRoute && !request.isSecure()) {
+                errors.write(response, ErrorCode.ACCESS_DENIED, "Kitchen requests require HTTPS");
+                return;
+            }
+            request = verifySignedRequest(request, response, actor.get().signedRequest());
             if (request == null) {
                 return;
             }
@@ -82,8 +91,8 @@ public class ServiceAuthenticationFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    private HttpServletRequest verifyQrRequest(HttpServletRequest request, HttpServletResponse response,
-                                               ServiceActor.QrRequest signed) throws IOException {
+    private HttpServletRequest verifySignedRequest(HttpServletRequest request, HttpServletResponse response,
+                                                   ServiceActor.SignedRequest signed) throws IOException {
         String query = request.getQueryString();
         String target = request.getRequestURI() + (query == null ? "" : "?" + query);
         if (!request.getMethod().equals(signed.method()) || !target.equals(signed.target())

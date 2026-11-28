@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { runQrKey } from './qr-key.mjs';
 
 const KEY = 'QR_PAYLOAD_ENCRYPTION_KEY';
+const PROXY = 'QR_TRUSTED_PROXY_CIDRS';
 const VALID = Buffer.alloc(32, 7).toString('base64');
 const MARKER = '# RESTOFY-ACTIVE-PROFILE=';
 
@@ -87,8 +88,32 @@ test('a selected synchronized profile is updated together with .env and keeps CR
 test('a missing key line is appended without joining the previous line', t => {
   const f = fixture(t, 'APP_ENV=dev\nPOSTGRES_PASSWORD=fixture-private-password');
   assert.equal(f.run(['init', 'dev']), 0);
-  assert.match(f.read('.env.dev'), /fixture-private-password\nQR_PAYLOAD_ENCRYPTION_KEY=.+\n$/);
+  assert.match(f.read('.env.dev'), /fixture-private-password\nQR_PAYLOAD_ENCRYPTION_KEY=.+\nQR_TRUSTED_PROXY_CIDRS=10\.213\.0\.10\/32\n$/);
 });
+
+test('init adds the compose Gateway proxy address once and check never adds it', t => {
+  const f = fixture(t, `APP_ENV=dev\n${KEY}=${VALID}\n`);
+  assert.equal(f.run(['check', 'dev']), 0);
+  assert.equal(f.read('.env.dev'), `APP_ENV=dev\n${KEY}=${VALID}\n`);
+  assert.equal(f.run(['init', 'dev']), 0);
+  const profile = f.read('.env.dev');
+  assert.equal(profile, `APP_ENV=dev\n${KEY}=${VALID}\n${PROXY}=10.213.0.10/32\n`);
+  assert.equal(f.read('.env'), MARKER + 'dev\n' + profile);
+  assert.match(f.output.join('\n'), /QR_TRUSTED_PROXY_CIDRS=10\.213\.0\.10\/32 added/);
+  assert.ok(!f.output.join('\n').includes(VALID));
+  assert.equal(f.run(['init', 'dev']), 0);
+  assert.equal(f.read('.env.dev'), profile);
+});
+
+for (const existing of [`${PROXY}=192.0.2.4/32`, `${PROXY}=`, `export ${PROXY}="10.0.0.0/8"`]) {
+  test('an existing proxy setting, even a blank one, is kept as written', t => {
+    const original = `APP_ENV=dev\n${KEY}=${VALID}\n${existing}\n`;
+    const f = fixture(t, original);
+    assert.equal(f.run(['init', 'dev']), 0);
+    assert.equal(f.read('.env.dev'), original);
+    assert.doesNotMatch(f.output.join('\n'), /added/);
+  });
+}
 
 test('a different active profile is never changed or used as a source key', t => {
   const f = fixture(t);
@@ -149,7 +174,7 @@ test('duplicate key definitions are rejected without changing either value', t =
 });
 
 test('quoted existing keys and inline comments are recognized without rewriting them', t => {
-  const f = fixture(t, `APP_ENV='dev' # profile\nexport ${KEY}="${VALID}" # private\n`);
+  const f = fixture(t, `APP_ENV='dev' # profile\nexport ${KEY}="${VALID}" # private\n${PROXY}=10.213.0.10/32 # gateway\n`);
   const original = f.read('.env.dev');
   assert.equal(f.run(['init', 'dev']), 0);
   assert.equal(f.read('.env.dev'), original);

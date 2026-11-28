@@ -34,6 +34,15 @@ public class GuestSessionValidationService {
         return resolve(token);
     }
 
+    /**
+     * Which guest the credential belongs to, without checking that it is still usable (one HMAC and an indexed
+     * lookup). An unknown credential throws {@link InvalidGuestSessionException#unknown()}.
+     */
+    @Transactional(propagation = Propagation.NEVER)
+    public GuestSessionContextReader.Identity identify(String token) {
+        return contexts.locate(token);
+    }
+
     private Prepared resolve(String token) {
         var identity = contexts.locate(token);
         return new Prepared(identity, protection.inspect(identity.restaurantId(), identity.sessionId()));

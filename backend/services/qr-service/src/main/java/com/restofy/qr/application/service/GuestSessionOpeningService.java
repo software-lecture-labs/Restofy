@@ -5,9 +5,11 @@ import com.restofy.qr.api.dto.response.OpenedGuestSessionResponse;
 import com.restofy.qr.domain.entity.GuestSession;
 import com.restofy.qr.domain.entity.QrScanEvent;
 import com.restofy.qr.domain.OrderSessionState;
+import com.restofy.qr.domain.exception.RateLimitExceededException;
 import com.restofy.qr.infrastructure.persistence.repository.GuestSessionRepository;
 import com.restofy.qr.infrastructure.persistence.repository.QrScanEventRepository;
 import com.restofy.qr.infrastructure.security.GuestTokenCodec;
+import com.restofy.qr.infrastructure.security.ratelimit.QrRateLimits;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -21,12 +23,14 @@ public class GuestSessionOpeningService {
     private final GuestSessionRepository guests;
     private final GuestTokenCodec tokens;
     private final QrScanEventRepository scans;
+    private final QrRateLimits limits;
     private final TransactionTemplate writes;
     private final TransactionTemplate mandatory;
 
     public GuestSessionOpeningService(TableSessionOpeningService mainSessions, GuestSessionRepository guests,
-                                      GuestTokenCodec tokens, QrScanEventRepository scans, PlatformTransactionManager manager) {
-        this.mainSessions = mainSessions; this.guests = guests; this.tokens = tokens; this.scans = scans;
+                                      GuestTokenCodec tokens, QrScanEventRepository scans, QrRateLimits limits,
+                                      PlatformTransactionManager manager) {
+        this.mainSessions = mainSessions; this.guests = guests; this.tokens = tokens; this.scans = scans; this.limits = limits;
         writes = new TransactionTemplate(manager);
         mandatory = new TransactionTemplate(manager);
         mandatory.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
@@ -47,6 +51,11 @@ public class GuestSessionOpeningService {
         var opened = mainSessions.openLocked(qrToken, state);
         var main = opened.session();
         var joinedAt = opened.checkedAt();
+        // K7, under the table lock taken by openLocked: the capacity count is exact and a rejection rolls the scan back.
+        if (!opened.created() && guests.countActive(main.restaurantId(), main.id(), joinedAt) >= QrRateLimits.ACTIVE_GUESTS_PER_SESSION) {
+            throw new RateLimitExceededException(QrRateLimits.CAPACITY_RETRY_SECONDS);
+        }
+        limits.guestCreatedAt(main.restaurantId(), main.tableId());
         String token = tokens.generateToken();
         var guest = guests.saveAndFlush(new GuestSession(main.restaurantId(), main.id(), tokens.digest(token), joinedAt));
         scans.saveAndFlush(new QrScanEvent(main.restaurantId(), main.tableId(), opened.qrCodeId(), main.id(), guest.getId(), joinedAt));
