@@ -12,7 +12,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Component
 public class MfaAuditLogger {
     public enum Event {
-        ENROLL_STARTED, ENROLL_CONFIRMED, VERIFIED, RECOVERED, CODES_REGENERATED,
+        ENROLL_STARTED, ENROLL_CONFIRMED, VERIFIED, RECOVERED, CODES_REGENERATED, STEP_UP_VERIFIED,
         VERIFICATION_FAILED, LOCKED, CIPHER_FAILED
     }
     private static final Logger LOG = LoggerFactory.getLogger(MfaAuditLogger.class);
