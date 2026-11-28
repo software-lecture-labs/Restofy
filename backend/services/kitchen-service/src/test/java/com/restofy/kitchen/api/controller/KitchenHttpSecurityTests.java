@@ -1,5 +1,7 @@
 package com.restofy.kitchen.api.controller;
 
+import com.restofy.kitchen.support.KitchenTestAuth;
+import com.restofy.kitchen.support.StaffTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -100,6 +102,27 @@ class KitchenHttpSecurityTests {
 		assertEquals(401, basic.statusCode());
 		HttpResponse<String> bearer = get("/api/v1/kitchen/orders", "Authorization", "Bearer not-a-real-token");
 		assertEquals(401, bearer.statusCode());
+	}
+
+	/** This context has no Auth public key, so staff authentication is off: even a well-signed cookie is refused. */
+	@Test
+	void withoutTheAuthPublicKeyNoCookieAuthenticates() throws Exception {
+		String token = StaffTokens.access("KITCHEN", UUID.randomUUID(), UUID.randomUUID());
+
+		assertEquals(401, get("/api/v1/kitchen/orders", "Cookie", "restofy_access=" + token).statusCode());
+	}
+
+	/** On a real server a refusal must keep its status: no error dispatch may turn the 403 into something else. */
+	@Test
+	void aMutationWithoutCsrfProofIs403AndWithAProofButNoIdentityIs401() throws Exception {
+		for (String method : List.of("POST", "PUT", "PATCH", "DELETE")) {
+			HttpResponse<String> refused = send(method, "/api/v1/kitchen/waste");
+			assertEquals(403, refused.statusCode(), method);
+			assertTrue(refused.body().isEmpty(), refused.body());
+			assertEquals(401, send(method, "/api/v1/kitchen/waste", "Origin", KitchenTestAuth.ORIGIN,
+					"X-CSRF-TOKEN", KitchenTestAuth.CSRF_PROOF,
+					"Cookie", "restofy_csrf=" + KitchenTestAuth.CSRF_PROOF).statusCode(), method);
+		}
 	}
 
 	@Test

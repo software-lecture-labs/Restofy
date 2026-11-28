@@ -3,18 +3,50 @@ package com.restofy.kitchen.support;
 import com.restofy.kitchen.infrastructure.security.KitchenAuthentication;
 import com.restofy.kitchen.infrastructure.security.KitchenPrincipal;
 import com.restofy.kitchen.infrastructure.security.StaffRole;
+import jakarta.servlet.http.Cookie;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import java.util.Arrays;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
- * TEST-ONLY identity fixture. Production has no component that creates a {@link KitchenAuthentication} until the
- * Auth contract exists; this must never move to src/main.
+ * TEST-ONLY identity fixture for the business tests. It skips the cookie and Auth steps (those are tested with signed
+ * tokens by the security tests); production creates a {@link KitchenAuthentication} only from a verified access
+ * cookie. This must never move to src/main.
  */
 public final class KitchenTestAuth {
 
+	/** Must be in {@code restofy.auth.allowed-origins} of the Kitchen test profile. */
+	public static final String ORIGIN = "http://localhost:5000";
+	/** A proof in Auth's {@code expiry.nonce.signature} shape that does not expire during a test run. */
+	public static final String CSRF_PROOF = "4102444800." + "n".repeat(43) + "." + "s".repeat(43);
+
 	private KitchenTestAuth() {
+	}
+
+	/**
+	 * What a legitimate browser sends with a mutation: an allowed Origin and Auth's CSRF cookie echoed in the header.
+	 * The application's real CSRF protection checks it; nothing is swapped out or disabled for tests.
+	 */
+	public static RequestPostProcessor csrf() {
+		// Replaces rather than appends: some tests reuse one request builder, and a browser sends each of these once.
+		return request -> {
+			replaceHeader(request, "Origin", ORIGIN);
+			replaceHeader(request, "X-CSRF-TOKEN", CSRF_PROOF);
+			Cookie[] present = request.getCookies() == null ? new Cookie[0] : request.getCookies();
+			request.setCookies(Stream.concat(
+					Arrays.stream(present).filter(cookie -> !"restofy_csrf".equals(cookie.getName())),
+					Stream.of(new Cookie("restofy_csrf", CSRF_PROOF))).toArray(Cookie[]::new));
+			return request;
+		};
+	}
+
+	private static void replaceHeader(MockHttpServletRequest request, String name, String value) {
+		request.removeHeader(name);
+		request.addHeader(name, value);
 	}
 
 	public static RequestPostProcessor kitchen(UUID restaurantId) {
