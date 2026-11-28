@@ -187,8 +187,9 @@ uygular; bu README herhangi bir DB'ye migration uygulanmış olduğu iddiası de
 | POST `/api/v1/auth/login` | Anonim + CSRF + izinli Origin | `email,password,deviceLabel?` / session özeti |
 | POST `/api/v1/auth/refresh` | Refresh cookie + CSRF + Origin | Gövde yok / session özeti |
 | POST `/api/v1/auth/logout` | Kendi credential'ı + CSRF + Origin | Gövde yok / 204; idempotent |
-| GET `/api/v1/auth/session` | Tam veya MFA_PENDING session | Session özeti |
+| GET `/api/v1/auth/session` | Tam, MFA_PENDING veya PASSWORD_PENDING session | Session özeti |
 | POST `/api/v1/auth/activity` | Tam session + CSRF + Origin | Gövde yok / 204 |
+| POST `/api/v1/auth/password/change` | Tam veya PASSWORD_PENDING session + CSRF + Origin | `currentPassword,newPassword,locale?` / session özeti (AUTH-06) |
 
 Session özeti yalnız `status,role,idleExpiresAt,absoluteExpiresAt` içerir.
 Kimlik tokenları JSON gövdesinde dönmez. Doğrulama 400, geçersiz kimlik 401, CSRF/yetki
@@ -197,7 +198,8 @@ Hatalar hassas veri içermeyen `application/problem+json`; cevaplar `no-store` k
 
 Access JWT tek aktif RSA anahtarıyla RS256 imzalanır; `kid` ve anahtar halkası yoktur.
 Claim'ler: `sub,iss,aud,iat,nbf,exp,jti,role,sid,token_type,auth_state,restaurant_id`.
-Normal audience `restofy-staff-api`, pending audience `restofy-auth-mfa`.
+Normal audience `restofy-staff-api`, MFA pending audience `restofy-auth-mfa`, parola pending
+audience `restofy-auth-password` (`token_type=password_change`). Pending token'lar yalnız Auth içindir.
 JJWT 0.13.0 builder/parser Clock sözleşmesi `java.util.Date` gerektirir. Zaman hesabı ve
 karşılaştırmalar `Instant` ve enjekte `Clock` ile yapılır; `Date` yalnız kütüphane
 sınırındaki dönüşümlerde kullanılır. Sonar'ın dosya düzeyindeki S2143 bulgusu bu zorunlu
@@ -393,8 +395,9 @@ kullanıcı başlıkları dikkate alınmaz. Migration ve yeni ENV yoktur.
 | POST `/api/v1/auth/staff` | `email,password,role` (ADMIN için ek `confirmation`) | 201 personel | 400, 401 `STEP_UP_REJECTED`, 409, 429 |
 | POST `/api/v1/auth/staff/{id}/role` | `role,version,operationId` (ADMIN için ek `confirmation`) | 200 uygulandı, 202 QR onayı bekliyor | 400, 401 `STEP_UP_REJECTED`, 404, 409, 429, 503 |
 | POST `/api/v1/auth/staff/{id}/deactivate` | `version,operationId` | 200 uygulandı, 202 QR onayı bekliyor | 400, 404, 409, 429, 503 |
+| POST `/api/v1/auth/staff/{id}/password` | `password,version` | 200 personel (AUTH-06 geçici parola) | 400, 404, 409, 429, 503 |
 
-Personel cevabı: `id,email,role,active,version,createdAt,pendingChange`; parola ya da hash hiçbir
+Personel cevabı: `id,email,role,active,version,createdAt,pendingChange,passwordChangeRequired`; parola ya da hash hiçbir
 cevapta yoktur. Bütün uçlarda `reason` taşımayan 401 oturum yok/geçersiz, 403 rol, eksik MFA, CSRF veya
 Origin demektir. Liste e-postaya göre sıralıdır.
 
@@ -406,6 +409,7 @@ Origin demektir. Liste e-postaya göre sıralıdır.
 | `SELF_CHANGE` | 409 | ADMIN kendi rolünü değiştiremez, kendini pasifleştiremez |
 | `STALE_VERSION` | 409 | Kişi bu arada değişti; listeyi yeniden yükle |
 | `NOT_ACTIVE` | 409 | Kişi zaten pasif |
+| `ADMINISTRATOR_TARGET` | 409 | ADMIN'e geçici parola verilemez; ADMIN kendi parolasını değiştirir ya da sıfırlar |
 | `NO_CHANGE` | 409 | Kişi zaten bu rolde |
 | `TRANSITION_PENDING` | 409 | Kişinin önceki değişikliği QR onayını bekliyor; bitmesini bekle |
 | `LAST_ADMINISTRATOR` | 409 | Aktif ADMIN kalmaz (bugünkü akışta oluşmaz, ek savunma) |
@@ -426,11 +430,10 @@ yüzünden kapalı) de aynı istekle güvenle tekrar denenir.
   yeni bir kod gerekir. Zaten kayıtlı bir ADMIN yükseltmesinin aynı `operationId` ile tekrarı yeni bir şey
   yaratmadığı için ek doğrulama istemez. Rol düşürme ve pasifleştirme yetki vermez, ek doğrulama istemez.
 - **İlk parola:** ADMIN belirler; AUTH-01 parola kuralı geçerlidir. ADMIN rolündeki personel ilk
-  girişte MFA kurar (`mfaSetupRequired=true`; kurulana kadar personel uçları 403). **Bilinen sınır:**
-  şifre sıfırlama (AUTH-04) yalnız ADMIN içindir; WAITER ve KITCHEN, ADMIN'in verdiği parolayı bugün
-  değiştiremez, yani ADMIN bu parolayı bilir. Kendi parolasını değiştirme ayrı bir uç gerektirir ve ayrı
-  PR'dadır. Bekleyen bir ADMIN sıfırlaması, kişi pasifleşir ya da ADMIN olmaktan çıkarsa tamamlanamaz
-  (onay adımı aktif ADMIN arar).
+  girişte MFA kurar (`mfaSetupRequired=true`; kurulana kadar personel uçları 403). Yeni personel ilk
+  girişte kendi parolasını seçer (AUTH-06, `passwordChangeRequired=true`); böylece ADMIN'in bildiği
+  parola kullanılabilir bir oturum açmaz. Bekleyen bir ADMIN sıfırlaması, kişi pasifleşir ya da ADMIN
+  olmaktan çıkarsa tamamlanamaz (onay adımı aktif ADMIN arar).
 - **Rol değişikliği ve pasifleştirme** Q5 `ACK_REQUIRED` işlemidir. Auth işlemi kaydeder; QR kişinin
   oturumlarını kapattığını onaylayınca rol ya da aktiflik yazılır ve oturumlar iptal edilir. Oturumu
   olmayan kişide değişiklik hemen uygulanır (200). QR'a ulaşılamazsa cevap 202 ve
@@ -466,5 +469,37 @@ yüzünden kapalı) de aynı istekle güvenle tekrar denenir.
 - **Diğer servisler:** değişiklik `/session` kullanan servislere anında, yalnız yerel token doğrulayanlara
   en geç 300 sn içinde yansır (`docs/auth-service/staff-contract.md`).
 
-Kapsam dışı, ayrı PR: e-posta değiştirme, yeniden aktifleştirme, personelin MFA'sını sıfırlama,
-personelin kendi parolasını değiştirmesi ve ön yüz ekranı.
+Kapsam dışı, ayrı PR: e-posta değiştirme, yeniden aktifleştirme, personelin MFA'sını sıfırlama ve
+personel yönetimi ön yüz ekranı.
+
+## AUTH-06 parola değiştirme ve geçici parola
+
+Migration `V9`: `staff_users.password_change_required` (varsayılan `false`), `user_sessions.auth_state`
+kısıtına `PASSWORD_PENDING`, ve `rate_limits` tahliye indeksinin taradığı sıraya göre yeniden kurulması.
+Yeni ENV yoktur.
+
+- **Kendi parolası:** her rol `POST /api/v1/auth/password/change` ile mevcut parolasını ve yeni parolasını
+  gönderir. AUTH-01 parola kuralı geçerlidir. Başarılıysa kişinin **diğer** oturumları kapanır (Q5
+  `LOCAL_FIRST`), bu oturum açık kalır, çerezleri değişmez. Kişiye `PASSWORD_CHANGED` e-postası gider
+  (commit sonrası, en iyi çaba; gönderilemezse yalnız WARN loglanır).
+- **Retler** 400 ve `reason` taşır: `CURRENT_PASSWORD_REJECTED` (mevcut parola yanlış),
+  `WEAK_PASSWORD` (kurala uymuyor), `SAME_PASSWORD` (yeni parola eskisiyle aynı). Oturum başına 15 dakikada
+  5 deneme, başarılılar dahil (`PasswordChangeLimiter`, ortak `rate_limits` tablosu); aşılınca 429 ve `Retry-After`.
+  Oturum başına olması bilinçlidir: yeni oturum açmak parolayı bilmeyi gerektirir, ve geçici parola eski
+  oturumları kapattığı için kişi yeni girişte kilitli kalmaz.
+- **Zorunlu değiştirme (`PASSWORD_PENDING`):** ADMIN'in oluşturduğu personel ve geçici parola verilen
+  personel, girişte tam oturum yerine 600 sn'lik `PASSWORD_PENDING` oturumu alır. Bu oturum yalnız
+  `restofy_mfa` çerezini (`Path=/api/v1/auth`) taşır; yalnız `/session`, `/password/change` ve `/logout`
+  kullanılabilir, diğer uçlar 401/403 döner. Token'ı access çerezine konursa reddedilir. Parola
+  değiştirilince oturum `AUTHENTICATED` olur ve access/refresh çerezleri bu cevapta yazılır. ADMIN'de
+  sıra MFA → parola: MFA tamamlanınca durum `PASSWORD_PENDING` olur.
+- **Geçici parola:** ADMIN, aktif WAITER veya KITCHEN personele `POST /api/v1/auth/staff/{id}/password`
+  ile geçici parola verir (`version` listede görülen değerdir). Kişinin bütün oturumları aynı
+  transaction'da kapanır (Q5 `LOCAL_FIRST`, `ALL`) ve sonraki girişte parola değiştirmesi zorunludur.
+  Cevap doğrudan 200'dür; aynı isteğin tekrarı `STALE_VERSION` alır. ADMIN hedef `ADMINISTRATOR_TARGET`,
+  kendisi `SELF_CHANGE`, pasif kişi `NOT_ACTIVE`, bekleyen değişiklik `TRANSITION_PENDING` alır. Limit
+  ve kilit AUTH-05 ile ortaktır.
+- **Denetim:** `staff_event=TEMPORARY_PASSWORD_ASSIGNED actor_id= target_id=` ve
+  `password_event=CHANGED user_id= required=` commit sonrası yazılır; parola ve e-posta yazılmaz.
+- **Sınır:** tam oturumda parola değiştirmek bu oturumun token'larını yenilemez; mevcut access token
+  süresi dolana kadar geçerlidir (oturum başına tek canlı refresh token kuralı korunur).

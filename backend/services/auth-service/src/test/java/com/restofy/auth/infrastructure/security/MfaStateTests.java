@@ -22,7 +22,7 @@ class MfaStateTests {
         UserSession session = new UserSession(new StaffUser("admin@example.com", HASH, StaffRole.ADMIN), created, 604800, "test");
         UUID original = session.getId();
         Instant promoted = created.plusSeconds(299);
-        session.completeMfa(promoted, 604800);
+        session.completeMfa(promoted, 604800, false);
         assertThat(session.getId()).isEqualTo(original);
         assertThat(session.getAuthState()).isEqualTo(SessionAuthState.AUTHENTICATED);
         assertThat(session.getAbsoluteExpiresAt()).isEqualTo(created.plusSeconds(604800));
@@ -30,7 +30,7 @@ class MfaStateTests {
         assertThat(session.idleExpiresAt()).isEqualTo(promoted.plusSeconds(900));
         assertThat(session.isUsable(promoted.plusSeconds(899))).isTrue();
         assertThat(session.isUsable(promoted.plusSeconds(900))).isFalse();
-        assertThatThrownBy(() -> session.completeMfa(promoted, 604800)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> session.completeMfa(promoted, 604800, false)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -39,12 +39,12 @@ class MfaStateTests {
         UserSession expired = new UserSession(new StaffUser("admin@example.com", HASH, StaffRole.ADMIN), created, 604800, null);
         Instant expiredAt = created.plusSeconds(300);
         Instant afterCreation = created.plusSeconds(1);
-        assertThatThrownBy(() -> expired.completeMfa(expiredAt, 604800)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> expired.completeMfa(expiredAt, 604800, false)).isInstanceOf(IllegalStateException.class);
         expired.revoke(created);
-        assertThatThrownBy(() -> expired.completeMfa(afterCreation, 604800)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> expired.completeMfa(afterCreation, 604800, false)).isInstanceOf(IllegalStateException.class);
         for (StaffRole role : new StaffRole[]{StaffRole.WAITER, StaffRole.KITCHEN}) {
             UserSession session = new UserSession(new StaffUser("staff@example.com", HASH, role), created, 604800, null);
-            assertThatThrownBy(() -> session.completeMfa(afterCreation, 604800)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> session.completeMfa(afterCreation, 604800, false)).isInstanceOf(IllegalStateException.class);
         }
     }
 

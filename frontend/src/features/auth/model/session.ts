@@ -1,7 +1,10 @@
 import type { StaffRole } from "../config/staff-roles";
 
-/** What the Auth service answers for a session: MFA_PENDING means the second factor is still missing. */
-export type SessionStatus = "AUTHENTICATED" | "MFA_PENDING";
+/**
+ * What the Auth service answers for a session: MFA_PENDING means the second factor is still missing,
+ * PASSWORD_PENDING that the person must choose their own password before the session can be used.
+ */
+export type SessionStatus = "AUTHENTICATED" | "MFA_PENDING" | "PASSWORD_PENDING";
 
 export type StaffSession = {
   status: SessionStatus;

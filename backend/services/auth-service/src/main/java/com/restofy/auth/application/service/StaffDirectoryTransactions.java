@@ -46,7 +46,7 @@ public class StaffDirectoryTransactions {
     static final int MAX_PAGE = 10_000;
     private static final String COMPLETED = "COMPLETED";
     private static final String MEMBERS = """
-            SELECT u.id, u.email_normalized, u.role, u.is_active, u.version, u.created_at,
+            SELECT u.id, u.email_normalized, u.role, u.is_active, u.version, u.created_at, u.password_change_required,
                    EXISTS(SELECT 1 FROM staff_revocation_operations o WHERE o.user_id = u.id
                           AND o.completion_policy = 'ACK_REQUIRED' AND o.status <> 'COMPLETED') AS pending
             FROM staff_users u
@@ -83,7 +83,10 @@ public class StaffDirectoryTransactions {
         return new StaffMember.Page(hasNext ? rows.subList(0, size) : rows, page, size, hasNext);
     }
 
-    /** The caller has already validated the address and hashed the password, so no hashing runs under a lock. */
+    /**
+     * The caller has already validated the address and hashed the password, so no hashing runs under a lock. The
+     * ADMIN chose the password, so the member must replace it at the first sign-in.
+     */
     public StaffMember create(Identity actor, String normalizedEmail, String passwordHash, StaffRole role) {
         requireAdministrator(actor);
         if (users.findByEmailNormalized(normalizedEmail).isPresent()) {
@@ -91,13 +94,51 @@ public class StaffDirectoryTransactions {
         }
         StaffUser user;
         try {
-            user = users.saveAndFlush(new StaffUser(normalizedEmail, passwordHash, role));
+            StaffUser created = new StaffUser(normalizedEmail, passwordHash, role);
+            created.requirePasswordChange();
+            user = users.saveAndFlush(created);
         } catch (DataIntegrityViolationException _) {
             // A concurrent request created the same address first.
             throw new StaffChangeRefusedException(Reason.EMAIL_TAKEN);
         }
         audit.created(actor.userId(), user.getId(), role);
         return member(user.getId());
+    }
+
+    /**
+     * Gives a WAITER or KITCHEN member a password the ADMIN chose (hashed by the caller), ends all of the member's
+     * sessions and makes the member replace the password at the next sign-in.
+     *
+     * <p>Unlike a role change this is not an ACK_REQUIRED operation: that kind completes only while the member's
+     * version is unchanged, and writing the password changes it. It follows the e-mail reset instead: the sessions
+     * are revoked locally at once and QR is told afterwards (LOCAL_FIRST), in the same transaction as the new password.
+     * An ADMIN is never a target: ADMINs reset their own password with the e-mail code and their second factor.
+     */
+    public StaffMember assignTemporaryPassword(Identity actor, UUID targetId, String passwordHash,
+            long expectedVersion) {
+        if (!AdvisoryLocks.tryAcquireForTransaction(jdbc, AdvisoryLocks.STAFF_ADMINISTRATION)) {
+            throw new StaffChangeRefusedException(Reason.BUSY);
+        }
+        requireAdministrator(actor);
+        if (targetId.equals(actor.userId())) {
+            throw new StaffChangeRefusedException(Reason.SELF_CHANGE);
+        }
+        Target current = target(targetId);
+        if (current.version() != expectedVersion) {
+            throw new StaffChangeRefusedException(Reason.STALE_VERSION);
+        }
+        if (!current.active()) {
+            throw new StaffChangeRefusedException(Reason.NOT_ACTIVE);
+        }
+        if (current.role() == StaffRole.ADMIN) {
+            throw new StaffChangeRefusedException(Reason.ADMINISTRATOR_TARGET);
+        }
+        if (transitionPending(targetId)) {
+            throw new StaffChangeRefusedException(Reason.TRANSITION_PENDING);
+        }
+        sessions.assignTemporaryPassword(targetId, expectedVersion, passwordHash);
+        audit.temporaryPasswordAssigned(actor.userId(), targetId);
+        return member(targetId);
     }
 
     /**
@@ -163,14 +204,18 @@ public class StaffDirectoryTransactions {
         return new Outcome(member(targetId), COMPLETED.equals(status));
     }
 
-    private void requireAllowedChange(UUID targetId, Action action, StaffRole newRole, long expectedVersion) {
+    private Target target(UUID targetId) {
         var target = jdbc.query("SELECT role, is_active, version FROM staff_users WHERE id = ?",
                 (rs, row) -> new Target(StaffRole.valueOf(rs.getString("role")), rs.getBoolean("is_active"),
                         rs.getLong("version")), targetId);
         if (target.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        Target current = target.getFirst();
+        return target.getFirst();
+    }
+
+    private void requireAllowedChange(UUID targetId, Action action, StaffRole newRole, long expectedVersion) {
+        Target current = target(targetId);
         if (current.version() != expectedVersion) {
             throw new StaffChangeRefusedException(Reason.STALE_VERSION);
         }
@@ -237,7 +282,8 @@ public class StaffDirectoryTransactions {
     private static StaffMember member(ResultSet rs, int row) throws SQLException {
         return new StaffMember(rs.getObject("id", UUID.class), rs.getString("email_normalized"),
                 StaffRole.valueOf(rs.getString("role")), rs.getBoolean("is_active"), rs.getLong("version"),
-                rs.getTimestamp("created_at").toInstant(), rs.getBoolean("pending"));
+                rs.getTimestamp("created_at").toInstant(), rs.getBoolean("pending"),
+                rs.getBoolean("password_change_required"));
     }
 
     public record Prepared(UUID operationId, boolean completed) { }

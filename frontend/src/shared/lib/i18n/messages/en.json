@@ -36,7 +36,9 @@
         "invalidInput": "Check your details and try again.",
         "tooManyAttempts": "Too many attempts. Wait a little and try again.",
         "wrongRole": "This account is not for the role you picked. Pick the right role and try again.",
-        "unavailable": "Sign-in is not available right now. Try again shortly."
+        "unavailable": "Sign-in is not available right now. Try again shortly.",
+        "passwordRejected": "The current password is wrong or the new one does not meet the rules.",
+        "expired": "Time ran out. Sign in again."
       },
       "forgot": "Forgot my password"
     },
@@ -118,6 +120,31 @@
         "expired": "The request has expired. Start over.",
         "tooManyAttempts": "Too many attempts. Wait a little and try again.",
         "unavailable": "This is not possible right now. Try again shortly."
+      }
+    },
+    "passwordChange": {
+      "heading": "Choose your own password",
+      "hint": "Your account was opened with a temporary password. To continue, choose a new password only you know; it must be at least 12 characters.",
+      "current": "Current password",
+      "password": "New password",
+      "confirmation": "New password (again)",
+      "submit": "Save password",
+      "homeHeading": "Password",
+      "homeHint": "Changing your password signs you out on your other devices.",
+      "open": "Change your password",
+      "cancel": "Cancel",
+      "done": "Your password was updated. Your sessions on other devices were ended.",
+      "errors": {
+        "currentRequired": "Enter your current password.",
+        "passwordRequired": "Enter a new password.",
+        "passwordShort": "The password must be at least 12 characters.",
+        "passwordSame": "The new password must differ from the current one.",
+        "passwordMismatch": "The passwords do not match."
+      },
+      "problems": {
+        "rejected": "The current password is wrong or the new one does not meet the rules.",
+        "tooManyAttempts": "Too many attempts. Wait a moment and try again.",
+        "unavailable": "The password cannot be changed right now. Try again shortly."
       }
     },
     "home": {

@@ -43,12 +43,21 @@ public class UserSession {
         id = UUID.randomUUID();
         staffUserId = user.getId();
         roleSnapshot = user.getRole();
-        authState = mfaRequired && roleSnapshot == StaffRole.ADMIN
-                ? SessionAuthState.MFA_PENDING : SessionAuthState.AUTHENTICATED;
+        // MFA comes first: the password is replaced only after the second factor has been proven.
+        if (mfaRequired && roleSnapshot == StaffRole.ADMIN) {
+            authState = SessionAuthState.MFA_PENDING;
+        } else if (user.isPasswordChangeRequired()) {
+            authState = SessionAuthState.PASSWORD_PENDING;
+        } else {
+            authState = SessionAuthState.AUTHENTICATED;
+        }
         createdAt = now;
         lastActivityAt = now;
-        absoluteExpiresAt = authState == SessionAuthState.MFA_PENDING
-                ? now.plus(SessionPolicy.MFA_PENDING_TTL) : now.plusSeconds(lifetime);
+        absoluteExpiresAt = switch (authState) {
+            case MFA_PENDING -> now.plus(SessionPolicy.MFA_PENDING_TTL);
+            case PASSWORD_PENDING -> now.plus(SessionPolicy.PASSWORD_PENDING_TTL);
+            case AUTHENTICATED -> now.plusSeconds(lifetime);
+        };
         this.deviceLabel = deviceLabel;
     }
 
@@ -73,9 +82,28 @@ public class UserSession {
         }
     }
 
-    public void completeMfa(Instant now, long lifetime) {
+    /**
+     * Passing MFA makes the session usable, unless the password was set by an ADMIN: then the session moves on to
+     * {@link SessionAuthState#PASSWORD_PENDING} with a fresh short deadline.
+     */
+    public void completeMfa(Instant now, long lifetime, boolean passwordChangeRequired) {
         if (roleSnapshot != StaffRole.ADMIN || authState != SessionAuthState.MFA_PENDING || !isUsable(now)) {
             throw new IllegalStateException("Invalid MFA session transition");
+        }
+        if (passwordChangeRequired) {
+            authState = SessionAuthState.PASSWORD_PENDING;
+            absoluteExpiresAt = now.plus(SessionPolicy.PASSWORD_PENDING_TTL);
+        } else {
+            authState = SessionAuthState.AUTHENTICATED;
+            absoluteExpiresAt = createdAt.plusSeconds(lifetime);
+        }
+        lastActivityAt = now;
+    }
+
+    /** The member replaced an ADMIN-set password; the session gets its normal lifetime from its creation. */
+    public void completePasswordChange(Instant now, long lifetime) {
+        if (authState != SessionAuthState.PASSWORD_PENDING || !isUsable(now)) {
+            throw new IllegalStateException("Invalid password session transition");
         }
         authState = SessionAuthState.AUTHENTICATED;
         absoluteExpiresAt = createdAt.plusSeconds(lifetime);

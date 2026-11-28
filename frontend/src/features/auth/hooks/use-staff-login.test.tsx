@@ -10,10 +10,12 @@ const api = vi.hoisted(() => ({
   startMfaEnrollment: vi.fn(),
   confirmMfaEnrollment: vi.fn(),
   recoverWithCode: vi.fn(),
+  changePassword: vi.fn(),
   logout: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
+vi.mock("next-intl", () => ({ useLocale: () => "tr" }));
 vi.mock("../api/auth-api", () => api);
 
 import type { StaffRole } from "../config/staff-roles";
@@ -251,5 +253,62 @@ describe("useStaffLogin", () => {
 
     expect(api.logout).toHaveBeenCalled();
     expect(result.current).toMatchObject({ step: "credentials", problem: null, enrollment: null });
+  });
+
+  it("asks a person with an admin-chosen password for their own before entering", async () => {
+    api.login.mockResolvedValue(session({ role: "WAITER", status: "PASSWORD_PENDING" }));
+    api.changePassword.mockResolvedValue(session({ role: "WAITER" }));
+    const { result } = setup("WAITER");
+    await act(() => result.current.submitCredentials(credentials));
+
+    expect(result.current.step).toBe("passwordChange");
+    expect(replace).not.toHaveBeenCalled();
+
+    await act(() => result.current.submitPasswordChange("Temporary-pass-0042", "Chosen-by-member-0042"));
+
+    expect(api.changePassword).toHaveBeenCalledWith("Temporary-pass-0042", "Chosen-by-member-0042", "tr");
+    expect(replace).toHaveBeenCalledWith("/");
+  });
+
+  it("names a refused password and stays on the step", async () => {
+    api.login.mockResolvedValue(session({ role: "WAITER", status: "PASSWORD_PENDING" }));
+    api.changePassword.mockRejectedValue(new ApiError(400));
+    const { result } = setup("WAITER");
+    await act(() => result.current.submitCredentials(credentials));
+
+    await act(() => result.current.submitPasswordChange("wrong-current-pw", "Chosen-by-member-0042"));
+
+    expect(result.current).toMatchObject({ step: "passwordChange", problem: "passwordRejected" });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("starts over when the short pending session has run out", async () => {
+    api.login.mockResolvedValue(session({ role: "KITCHEN", status: "PASSWORD_PENDING" }));
+    api.changePassword.mockRejectedValue(new ApiError(401));
+    const { result } = setup("KITCHEN");
+    await act(() => result.current.submitCredentials(credentials));
+
+    await act(() => result.current.submitPasswordChange("Temporary-pass-0042", "Chosen-by-member-0042"));
+
+    expect(api.logout).toHaveBeenCalled();
+    expect(result.current).toMatchObject({ step: "credentials", problem: "expired" });
+  });
+
+  it("lets a new admin choose a password after storing the recovery codes", async () => {
+    api.login.mockResolvedValue(session({ status: "MFA_PENDING" }));
+    api.getSession.mockResolvedValue(session({ status: "MFA_PENDING", mfaSetupRequired: true }));
+    api.startMfaEnrollment.mockResolvedValue(enrollment);
+    api.confirmMfaEnrollment.mockResolvedValue({
+      session: session({ status: "PASSWORD_PENDING" }),
+      recoveryCodes: ["aaaa-bbbb-cccc-dddd-eeee"],
+    });
+    const { result } = setup();
+    await act(() => result.current.submitCredentials(credentials));
+    await act(() => result.current.confirmEnrollment("654321"));
+
+    act(() => result.current.finish());
+
+    expect(result.current.step).toBe("passwordChange");
+    expect(replace).not.toHaveBeenCalled();
   });
 });

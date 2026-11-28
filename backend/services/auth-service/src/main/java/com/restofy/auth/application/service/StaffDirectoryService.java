@@ -66,6 +66,17 @@ public class StaffDirectoryService {
         return change(actor, targetId, operationId, Action.DISABLE, null, version);
     }
 
+    /** The password is hashed here, before the transaction, like a new member's initial password. */
+    public StaffMember assignTemporaryPassword(Identity actor, UUID targetId, String password, long version) {
+        String hash;
+        try {
+            hash = passwords.hash(password);
+        } catch (IllegalArgumentException _) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        return transactions.assignTemporaryPassword(actor, targetId, hash, version);
+    }
+
     /**
      * The step-up runs in its own transaction before the change: it locks the caller's records itself, so running it
      * inside the change's transaction would wait on that transaction's own locks.

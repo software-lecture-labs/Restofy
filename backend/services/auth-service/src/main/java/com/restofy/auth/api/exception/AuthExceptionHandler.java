@@ -3,6 +3,7 @@ package com.restofy.auth.api.exception;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
+import com.restofy.auth.application.service.PasswordChangeRefusedException;
 import com.restofy.auth.application.service.StaffChangeRefusedException;
 import com.restofy.auth.application.service.StepUpRejectedException;
 import com.restofy.auth.infrastructure.security.LoginRateLimiter.LoginLimitException;
@@ -53,6 +54,13 @@ public class AuthExceptionHandler {
             response.header("Retry-After", Long.toString(StaffChangeRefusedException.BUSY_RETRY_AFTER_SECONDS));
         }
         return response.body(problem);
+    }
+
+    @ExceptionHandler(PasswordChangeRefusedException.class)
+    ResponseEntity<ProblemDetail> passwordChangeRefused(PasswordChangeRefusedException refusal) {
+        ProblemDetail problem = AuthProblems.detail(HttpStatus.BAD_REQUEST);
+        problem.setProperty("reason", refusal.reason().name());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).header(HttpHeaders.CACHE_CONTROL, NO_STORE).body(problem);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

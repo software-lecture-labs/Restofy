@@ -20,6 +20,7 @@ public class AuthCookies {
     private static final String AUTH_PATH = API_PATH + "/auth";
     public static final String ACCESS = "restofy_access";
     public static final String REFRESH = "restofy_refresh";
+    /** The pending cookie: an MFA or password-change token. It is scoped to Auth, so no other service receives it. */
     public static final String MFA = "restofy_mfa";
     public static final String CSRF = "restofy_csrf";
     private final AuthSettings settings;
@@ -33,7 +34,7 @@ public class AuthCookies {
     public void writeGrant(HttpServletResponse response, Grant grant) {
         clear(response);
         long remaining = Math.max(0, Duration.between(clock.instant(), grant.session().getAbsoluteExpiresAt()).toSeconds());
-        if (grant.session().getAuthState() == SessionAuthState.MFA_PENDING) {
+        if (grant.session().getAuthState() != SessionAuthState.AUTHENTICATED) {
             write(response, MFA, grant.access(), AUTH_PATH, true, remaining);
         } else {
             write(response, ACCESS, grant.access(), API_PATH, true, Math.min(settings.accessTtl(), remaining));

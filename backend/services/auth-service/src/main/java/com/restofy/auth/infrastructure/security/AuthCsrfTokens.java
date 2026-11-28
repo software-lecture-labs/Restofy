@@ -12,6 +12,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.restofy.auth.application.service.StaffSessionService;
+import com.restofy.auth.domain.enums.SessionAuthState;
 import com.restofy.auth.infrastructure.config.AuthSettings;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -85,6 +86,12 @@ public class AuthCsrfTokens implements CsrfTokenRepository {
         String refresh = AuthCookies.read(request, AuthCookies.REFRESH);
         String pending = AuthCookies.read(request, AuthCookies.MFA);
         return binding(refresh, pending);
+    }
+
+    /** The binding for the cookies {@link AuthCookies#writeGrant} sets for this grant. */
+    public static String binding(StaffSessionService.Grant grant) {
+        boolean usable = grant.session().getAuthState() == SessionAuthState.AUTHENTICATED;
+        return binding(grant.refresh(), usable ? null : grant.access());
     }
 
     public static String binding(String refresh, String pending) {

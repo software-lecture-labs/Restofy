@@ -74,6 +74,7 @@ public class StaffMfaController {
 
     private void write(Grant grant, HttpServletRequest request, HttpServletResponse response) {
         cookies.writeGrant(response, grant);
-        csrf.saveToken(csrf.create(AuthCsrfTokens.binding(grant.refresh(), null)), request, response);
+        // After MFA the session may still need a password change, in which case it carries a pending token.
+        csrf.saveToken(csrf.create(AuthCsrfTokens.binding(grant)), request, response);
     }
 }

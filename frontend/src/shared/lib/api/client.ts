@@ -32,7 +32,13 @@ type RequestOptions = {
 const CSRF_PATH = "/api/v1/auth/csrf";
 
 /** The Auth service issues a fresh CSRF token whenever the session changes, so the cached one is dropped then. */
-const CSRF_ROTATING_PATHS = ["/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/mfa/"];
+const CSRF_ROTATING_PATHS = [
+  "/api/v1/auth/login",
+  "/api/v1/auth/refresh",
+  "/api/v1/auth/logout",
+  "/api/v1/auth/mfa/",
+  "/api/v1/auth/password/change",
+];
 
 let csrfToken: Promise<string> | null = null;
 

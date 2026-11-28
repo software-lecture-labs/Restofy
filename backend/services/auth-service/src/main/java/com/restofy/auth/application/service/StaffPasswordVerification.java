@@ -39,6 +39,18 @@ public class StaffPasswordVerification {
         return new PasswordProof(verified.getId(), verified.getRole(), verified.getVersion());
     }
 
+    /** Password proof for a signed-in account, found by id; the same constant-time check as {@link #verify}. */
+    @Transactional(readOnly = true, noRollbackFor = BadCredentialsException.class)
+    public PasswordProof verifyAccount(UUID staffUserId, String password) {
+        Optional<StaffUser> user = users.findById(staffUserId);
+        boolean matched = passwords.matches(password, user.map(StaffUser::getPasswordHash).orElse(null));
+        if (user.isEmpty() || !matched || !user.get().isActive()) {
+            throw new BadCredentialsException("Invalid credentials");
+        }
+        StaffUser verified = user.get();
+        return new PasswordProof(verified.getId(), verified.getRole(), verified.getVersion());
+    }
+
     public record PasswordProof(UUID staffUserId, StaffRole role, long version) {
     }
 }

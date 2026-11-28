@@ -38,6 +38,9 @@ public class StaffUser {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
     private Instant passwordChangedAt;
+    /** The password was set by an ADMIN; the member must choose their own before the session becomes usable. */
+    @Column(name = "password_change_required", nullable = false)
+    private boolean passwordChangeRequired;
     @Version
     private long version;
 
@@ -59,7 +62,24 @@ public class StaffUser {
         active = false;
     }
 
+    /** A password the member chose (self-service change or e-mail reset). It clears any pending requirement. */
     public void changePassword(String hash, Instant now) {
+        setPassword(hash, now);
+        passwordChangeRequired = false;
+    }
+
+    /** A password an ADMIN chose: the member must replace it at the next sign-in. */
+    public void assignTemporaryPassword(String hash, Instant now) {
+        setPassword(hash, now);
+        passwordChangeRequired = true;
+    }
+
+    /** A new account's initial password was chosen by an ADMIN, so it too must be replaced at the first sign-in. */
+    public void requirePasswordChange() {
+        passwordChangeRequired = true;
+    }
+
+    private void setPassword(String hash, Instant now) {
         if (hash == null || !hash.matches("\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}")) {
             throw new IllegalArgumentException("Invalid staff password hash");
         }

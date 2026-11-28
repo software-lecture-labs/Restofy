@@ -6,6 +6,7 @@ import com.restofy.auth.api.dto.request.AdministratorConfirmation;
 import com.restofy.auth.api.dto.request.ChangeStaffRoleRequest;
 import com.restofy.auth.api.dto.request.CreateStaffRequest;
 import com.restofy.auth.api.dto.request.DeactivateStaffRequest;
+import com.restofy.auth.api.dto.request.TemporaryPasswordRequest;
 import com.restofy.auth.api.dto.response.StaffMemberResponse;
 import com.restofy.auth.api.dto.response.StaffPageResponse;
 import com.restofy.auth.application.service.StaffDirectoryService;
@@ -77,6 +78,17 @@ public class StaffDirectoryController {
             @PathVariable UUID id, @Valid @RequestBody DeactivateStaffRequest body) {
         limiter.check(actor.userId());
         return respond(directory.deactivate(actor, id, body.operationId(), body.version()));
+    }
+
+    /**
+     * Gives a WAITER or KITCHEN member a temporary password. The member's sessions end at once and the member must
+     * choose a new password at the next sign-in. Answers 200; a repeat with the old version gets 409 STALE_VERSION.
+     */
+    @PostMapping("/{id}/password")
+    public StaffMemberResponse assignTemporaryPassword(@AuthenticationPrincipal Identity actor, @PathVariable UUID id,
+            @Valid @RequestBody TemporaryPasswordRequest body) {
+        limiter.check(actor.userId());
+        return StaffMemberResponse.from(directory.assignTemporaryPassword(actor, id, body.password(), body.version()));
     }
 
     private StepUp stepUp(AdministratorConfirmation confirmation, HttpServletRequest request) {

@@ -8,6 +8,7 @@ import { ApiError } from "@/shared/lib/api";
 import * as authApi from "../api/auth-api";
 import type { StaffSession } from "../model/session";
 import { AuthShell } from "./auth-shell";
+import { PasswordChangeSection } from "./password-change-section";
 import { RecoveryRenewal } from "./recovery-renewal";
 
 const LOGIN_PATH = "/login";
@@ -99,6 +100,7 @@ export function StaffHome() {
               </div>
             </dl>
             <p className="text-sm text-fg-muted">{t("next")}</p>
+            <PasswordChangeSection onSignedOut={() => router.replace(LOGIN_PATH)} />
             {state.session.role === "ADMIN" ? <RecoveryRenewal onSignedOut={() => router.replace(LOGIN_PATH)} /> : null}
           </>
         ) : null}

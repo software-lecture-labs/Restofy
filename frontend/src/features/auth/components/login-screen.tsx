@@ -9,15 +9,17 @@ import { AuthShell } from "./auth-shell";
 import { LoginForm } from "./login-form";
 import { MfaForm } from "./mfa-form";
 import { MfaSetup } from "./mfa-setup";
+import { PasswordChangeForm } from "./password-change-form";
 import { RecoveryCodes } from "./recovery-codes";
 import { RoleIcon } from "./role-icon";
 import { ROLE_PANEL_ID, RoleSwitcher, roleTabId } from "./role-switcher";
 
-/** Heading and hint (keys under auth.mfa) of each step that comes after the credentials. */
-const MFA_COPY = {
-  mfa: { heading: "heading", hint: undefined as undefined },
-  mfaSetup: { heading: "setupHeading", hint: "setupHint" },
-  recoveryCodes: { heading: "recoveryCodesHeading", hint: "recoveryCodesHint" },
+/** Heading and hint of each step that comes after the credentials: keys under auth.mfa or auth.passwordChange. */
+const STEP_COPY = {
+  mfa: { heading: "mfa.heading", hint: undefined as undefined },
+  mfaSetup: { heading: "mfa.setupHeading", hint: "mfa.setupHint" },
+  recoveryCodes: { heading: "mfa.recoveryCodesHeading", hint: "mfa.recoveryCodesHint" },
+  passwordChange: { heading: "passwordChange.heading", hint: "passwordChange.hint" },
 } as const;
 
 type Selection = { role: StaffRole; direction?: "next" | "prev" };
@@ -28,6 +30,7 @@ type Selection = { role: StaffRole; direction?: "next" | "prev" };
  */
 export function LoginScreen() {
   const t = useTranslations("auth.login");
+  const tAuth = useTranslations("auth");
   const tMfa = useTranslations("auth.mfa");
   const [selection, setSelection] = useState<Selection>({ role: defaultStaffRole });
 
@@ -48,7 +51,7 @@ export function LoginScreen() {
   const login = useStaffLogin(role);
   const problem = login.problem ? t(`problems.${login.problem}`) : undefined;
   // The "mfa" step has no hint here: its form shows one per code kind.
-  const hintKey = login.step === "credentials" ? undefined : MFA_COPY[login.step].hint;
+  const hintKey = login.step === "credentials" ? undefined : STEP_COPY[login.step].hint;
 
   return (
     <AuthShell>
@@ -90,10 +93,10 @@ export function LoginScreen() {
             <div className="flex flex-col gap-6">
               <div>
                 <h1 className="text-xl font-semibold tracking-tight text-fg">
-                  {tMfa(MFA_COPY[login.step].heading)}
+                  {tAuth(STEP_COPY[login.step].heading)}
                 </h1>
                 {hintKey ? (
-                  <p className="mt-1 text-sm leading-relaxed text-fg-muted">{tMfa(hintKey)}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-fg-muted">{tAuth(hintKey)}</p>
                 ) : null}
               </div>
               {login.step === "mfa" ? (
@@ -116,6 +119,15 @@ export function LoginScreen() {
               ) : null}
               {login.step === "recoveryCodes" ? (
                 <RecoveryCodes codes={login.recoveryCodes} onDone={login.finish} />
+              ) : null}
+              {login.step === "passwordChange" ? (
+                <PasswordChangeForm
+                  onSubmit={login.submitPasswordChange}
+                  onCancel={login.restart}
+                  cancelLabel={tMfa("back")}
+                  pending={login.pending}
+                  problem={problem}
+                />
               ) : null}
             </div>
           )}

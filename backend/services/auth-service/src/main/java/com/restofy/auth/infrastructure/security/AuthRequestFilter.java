@@ -20,8 +20,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 public class AuthRequestFilter extends OncePerRequestFilter {
     private static final String STAFF_DIRECTORY = "/api/v1/auth/staff";
-    /** Mirrors the {@code /api/v1/auth/staff/*}{@code /role|deactivate} matchers: exactly one path segment. */
-    private static final Pattern STAFF_CHANGE = Pattern.compile("/api/v1/auth/staff/[^/]+/(?:role|deactivate)");
+    /** Mirrors the {@code /api/v1/auth/staff/*}{@code /role|deactivate|password} matchers: exactly one path segment. */
+    private static final Pattern STAFF_CHANGE = Pattern.compile("/api/v1/auth/staff/[^/]+/(?:role|deactivate|password)");
     private final AuthSettings settings;
     private final StaffJwtTokens jwt;
     private final StaffSessionService sessions;
@@ -59,12 +59,13 @@ public class AuthRequestFilter extends OncePerRequestFilter {
     private static boolean requiresSession(String method, String path) {
         boolean session = "GET".equals(method) && "/api/v1/auth/session".equals(path);
         boolean activity = "POST".equals(method) && "/api/v1/auth/activity".equals(path);
+        boolean password = "POST".equals(method) && "/api/v1/auth/password/change".equals(path);
         boolean mfa = "POST".equals(method) && Set.of("/api/v1/auth/mfa/enroll",
                 "/api/v1/auth/mfa/enroll/confirm", "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover",
                 "/api/v1/auth/mfa/recovery-codes/regenerate").contains(path);
         boolean staff = (("GET".equals(method) || "POST".equals(method)) && STAFF_DIRECTORY.equals(path))
                 || ("POST".equals(method) && STAFF_CHANGE.matcher(path).matches());
-        return session || activity || mfa || staff;
+        return session || activity || password || mfa || staff;
     }
 
     private void authenticate(HttpServletRequest request) {
@@ -75,7 +76,8 @@ public class AuthRequestFilter extends OncePerRequestFilter {
         }
         var identity = jwt.verify(access == null ? pending : access, access == null);
         sessions.authenticate(identity);
-        var authorities = access == null ? List.of(new SimpleGrantedAuthority("MFA_PENDING"))
+        // A pending session gets only its state as authority: no role, so no role-guarded endpoint accepts it.
+        var authorities = access == null ? List.of(new SimpleGrantedAuthority(identity.state().name()))
                 : List.of(new SimpleGrantedAuthority("STAFF_SESSION"), new SimpleGrantedAuthority("ROLE_" + identity.role().name()));
         SecurityContextHolder.getContext().setAuthentication(
                 UsernamePasswordAuthenticationToken.authenticated(identity, null, authorities));
