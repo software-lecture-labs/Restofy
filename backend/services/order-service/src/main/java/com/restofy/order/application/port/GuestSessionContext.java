@@ -8,9 +8,14 @@ import java.util.UUID;
  * {@link QrSessionPort}; none of them is ever read from a request body, query or caller-supplied header.
  */
 public record GuestSessionContext(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
-                                  SessionState state) {
+                                  SessionState state, String tableNumber) {
 
     public enum SessionState { ACTIVE, EXPIRED, CLOSED }
+
+    public GuestSessionContext(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
+                               SessionState state) {
+        this(restaurantId, tableId, tableSessionId, guestSessionId, state, null);
+    }
 
     public GuestSessionContext {
         Objects.requireNonNull(restaurantId, "restaurantId");

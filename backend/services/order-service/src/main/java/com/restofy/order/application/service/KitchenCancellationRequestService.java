@@ -18,7 +18,7 @@ import com.restofy.order.domain.exception.BusinessException;
 import com.restofy.order.domain.exception.ErrorCode;
 import com.restofy.order.domain.history.ChangeActor;
 import com.restofy.order.infrastructure.config.CorrelationIdFilter;
-import com.restofy.order.infrastructure.config.IdempotencyProperties;
+import com.restofy.order.infrastructure.config.MessagingRetentionProperties;
 import com.restofy.order.infrastructure.persistence.CancellationStore;
 import com.restofy.order.infrastructure.persistence.CancellationStore.ItemRow;
 import com.restofy.order.infrastructure.persistence.CancellationStore.ReasonRow;
@@ -85,13 +85,13 @@ public class KitchenCancellationRequestService {
     private final CancellationEventPublisher events;
     private final InboxStore inbox;
     private final IdempotencyStore idempotency;
-    private final IdempotencyProperties retention;
+    private final MessagingRetentionProperties retention;
     private final Clock clock;
 
     public KitchenCancellationRequestService(OrderRepository orders, CancellationStore cancellations,
                                              CancellationApplier applier, CancellationEventPublisher events,
                                              InboxStore inbox, IdempotencyStore idempotency,
-                                             IdempotencyProperties retention, Clock clock) {
+                                             MessagingRetentionProperties retention, Clock clock) {
         this.orders = orders;
         this.cancellations = cancellations;
         this.applier = applier;
@@ -104,7 +104,7 @@ public class KitchenCancellationRequestService {
 
     @Transactional
     public KitchenCancellationRequestResponse request(ServiceActor service, KitchenCancellationRequest request) {
-        if (service.name() != ServiceName.KITCHEN) {
+        if (!service.isKitchenFor(request.restaurantId())) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "Only the Kitchen service may ask for this cancellation");
         }
         boolean cancelAll = Boolean.TRUE.equals(request.cancelAll());
@@ -131,7 +131,7 @@ public class KitchenCancellationRequestService {
         Instant now = receivedAt;
         UUID cancellationId = UUID.randomUUID();
         if (!idempotency.tryClaim(order.getRestaurantId(), SCOPE, OPERATION, key,
-                new IdempotencyStore.Record(digest, cancellationId, OK), now, now.plus(retention.cancellationRetention()))) {
+                new IdempotencyStore.Record(digest, cancellationId, OK), now, now.plus(retention.inboxRetention()))) {
             IdempotencyStore.Record winner = idempotency.find(order.getRestaurantId(), SCOPE, OPERATION, key)
                     .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT,
                             "The request conflicts with the current state, please retry"));
@@ -210,11 +210,12 @@ public class KitchenCancellationRequestService {
         return response(true, order, row, cancellations.findDecidedOrderVersion(row.id()));
     }
 
-    /** The idempotency record is gone (72 h) but the inbox still remembers the event: nothing is done a second time. */
+    /** Older idempotency records could expire before the inbox. The event is still never applied a second time. */
     private KitchenCancellationRequestResponse forgottenDuplicate(Order order, InboxStore.Processed processed) {
-        if (!processed.orderId().equals(order.getId())) {
+        if (!processed.orderId().equals(order.getId())
+                || !(EVENT_TYPE_APPLIED.equals(processed.eventType()) || EVENT_TYPE_REJECTED.equals(processed.eventType()))) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
-                    "This event id was already used for a different order");
+                    "This event id was already used for a different Kitchen event");
         }
         String outcome = EVENT_TYPE_REJECTED.equals(processed.eventType())
                 ? CancellationStatus.REJECTED.name() : CancellationStatus.APPLIED.name();
