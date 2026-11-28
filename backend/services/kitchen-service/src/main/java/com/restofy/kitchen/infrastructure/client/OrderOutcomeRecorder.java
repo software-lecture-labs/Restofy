@@ -13,5 +13,5 @@ import java.util.UUID;
 public interface OrderOutcomeRecorder {
 
 	/** @return false when it contradicts what Kitchen has recorded, or Kitchen has no such request */
-	boolean record(UUID restaurantId, UUID orderId, UUID cancellationId, OrderOutcome outcome);
+	boolean recordOutcome(UUID restaurantId, UUID orderId, UUID cancellationId, OrderOutcome outcome);
 }

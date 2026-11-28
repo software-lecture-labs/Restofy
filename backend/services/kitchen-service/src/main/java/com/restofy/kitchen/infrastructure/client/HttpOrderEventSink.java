@@ -69,6 +69,9 @@ public class HttpOrderEventSink implements OrderEventSink {
 	/** Longest answer that is read; the real ones are a few hundred bytes. */
 	static final int MAX_RESPONSE_BYTES = 16 * 1024;
 	private static final String AUTHORIZATION_SCHEME = "Service ";
+	/** Prefix of an error code that comes from the Order service's HTTP answer. */
+	private static final String HTTP = "HTTP_";
+	private static final String INVALID_ACK = "HTTP_200_INVALID_ACK";
 
 	private static final String APPLIED = "APPLIED";
 	private static final String OTHER = "OTHER";
@@ -243,7 +246,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 			String outcome = text(reply.body(), "outcome");
 			if (!call.orderId().toString().equals(text(reply.body(), "orderId")) || !call.outcomes().contains(outcome)
 					|| (call.cancellationId() != null && !call.cancellationId().toString().equals(text(reply.body(), "cancellationId")))) {
-				return Result.retry("HTTP_200_INVALID_ACK");
+				return Result.retry(INVALID_ACK);
 			}
 			if (call.message() instanceof KitchenCancellationRequestedMessage requested) {
 				return recordDecision(requested, reply.body());
@@ -254,20 +257,25 @@ public class HttpOrderEventSink implements OrderEventSink {
 			acknowledged(call, outcome);
 			return Result.delivered();
 		}
+		return judgeError(call.message(), reply);
+	}
+
+	/** Every answer that is not a {@code 200}. */
+	private Result judgeError(OutboundMessage message, Reply reply) {
 		String code = text(reply.body(), "code");
 		String detail = ERROR_CODE.matcher(code).matches() ? reply.status() + "_" + code : String.valueOf(reply.status());
-		if (call.message() instanceof KitchenCancellationRequestedMessage requested) {
+		if (message instanceof KitchenCancellationRequestedMessage requested) {
 			if (REQUEST_ALREADY_PENDING.equals(detail)) {
-				return Result.waiting("HTTP_" + detail);
+				return Result.waiting(HTTP + detail);
 			}
 			if (ORDER_ALREADY_CANCELLED.equals(detail)) {
 				return alreadyCancelled(requested);
 			}
 		}
 		if (DEFINITE_REFUSALS.contains(detail)) {
-			return refused(call.message(), "HTTP_" + detail);
+			return refused(message, HTTP + detail);
 		}
-		return Result.retry("HTTP_" + detail);
+		return Result.retry(HTTP + detail);
 	}
 
 	/**
@@ -281,7 +289,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 			return refused(requested, "REQUEST_UNKNOWN");
 		}
 		if (status == CancellationRequestStatus.REQUESTED) {
-			return Result.waiting("HTTP_" + ORDER_ALREADY_CANCELLED);
+			return Result.waiting(HTTP + ORDER_ALREADY_CANCELLED);
 		}
 		log.info("Order says the order is already cancelled and the kitchen request is {}: restaurantId={} orderId={} requestId={}",
 				status, requested.restaurantId(), requested.orderId(), requested.requestId());
@@ -299,7 +307,7 @@ public class HttpOrderEventSink implements OrderEventSink {
 			receipt = new OrderCancellationReceipt(text(body, "outcome"), uuid(body, "orderId"), uuid(body, "cancellationId"),
 					nullableText(body, "scope"), nullableText(body, "rejectionCode"), version(body), instant(body));
 		} catch (IllegalArgumentException | DateTimeParseException _) {
-			return Result.retry("HTTP_200_INVALID_ACK");
+			return Result.retry(INVALID_ACK);
 		}
 		OrderCancellationReceipt.Reading reading = receipt.readFor(requested);
 		if (reading.verdict() != OrderCancellationReceipt.Verdict.DECISION) {
@@ -344,10 +352,10 @@ public class HttpOrderEventSink implements OrderEventSink {
 	private Result recordOutcome(KitchenCancellationDecidedMessage decided, String outcome, JsonNode body) {
 		OrderOutcome finalWord = FINAL_STATUSES.get(text(body, "cancellationStatus"));
 		if (finalWord == null) {
-			return Result.retry("HTTP_200_INVALID_ACK");
+			return Result.retry(INVALID_ACK);
 		}
 		var payload = decided.payload();
-		if (!outcomes.record(decided.restaurantId(), payload.orderId(), payload.cancellationId(), finalWord)) {
+		if (!outcomes.recordOutcome(decided.restaurantId(), payload.orderId(), payload.cancellationId(), finalWord)) {
 			return refused(decided, "DECISION_CONFLICT");
 		}
 		log.info("Order received the kitchen's {} answer (outcome {}) and says the cancellation is {}: restaurantId={} orderId={} cancellationId={}",

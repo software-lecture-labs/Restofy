@@ -94,7 +94,7 @@ class HttpOrderEventSinkTests {
 				}, (restaurant, orderOfAnswer, cancellation, outcome) -> {
 					finalWords.add(restaurant + ":" + orderOfAnswer + ":" + cancellation + ":" + outcome);
 					return recordable;
-				}, (restaurant, requestId) -> Optional.ofNullable(requestStatus));
+				}, (restaurant, id) -> Optional.ofNullable(requestStatus));
 	}
 
 	private static final Instant DECIDED = Instant.parse("2026-11-27T10:16:00.654321Z");
@@ -382,9 +382,13 @@ class HttpOrderEventSinkTests {
 		assertTrue(recorded.isEmpty());
 	}
 
+	/**
+	 * Refused ({@code UNKNOWN}, {@code INVALID}, {@code SOURCE_NOT_TRUSTED}), or received and on record but not shown by
+	 * the kitchen's order and request ({@code STALE}, {@code NEEDS_RECONCILIATION}): neither is a delivery.
+	 */
 	@ParameterizedTest
-	@ValueSource(strings = {"UNKNOWN", "INVALID", "SOURCE_NOT_TRUSTED"})
-	void aDecisionKitchenRefusesToRecordFailsTheDelivery(String outcome) {
+	@ValueSource(strings = {"UNKNOWN", "INVALID", "SOURCE_NOT_TRUSTED", "STALE", "NEEDS_RECONCILIATION"})
+	void aDecisionKitchenDoesNotApplyFailsTheDelivery(String outcome) {
 		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.valueOf(outcome), false);
 		order.answerAlways(Answer.of(200, receipt("APPLIED")));
 
@@ -398,16 +402,6 @@ class HttpOrderEventSinkTests {
 		order.answerAlways(Answer.of(200, receipt(answer)));
 
 		assertEquals(EventSink.Result.delivered(), deliver(cancellation("KITCHEN_ERROR")));
-	}
-
-	/** The decision reached Kitchen and is on record, but the kitchen's order and request do not show it. */
-	@ParameterizedTest
-	@ValueSource(strings = {"STALE", "NEEDS_RECONCILIATION"})
-	void aReceivedButUnappliedDecisionIsNeverADelivery(String outcome) {
-		recording = new OrderDecisionService.DecisionResult(DecisionOutcome.valueOf(outcome), false);
-		order.answerAlways(Answer.of(200, receipt("APPLIED")));
-
-		assertEquals(EventSink.Result.permanentFailure("DECISION_" + outcome), deliver(cancellation("KITCHEN_ERROR")));
 	}
 
 	@ParameterizedTest
@@ -465,7 +459,7 @@ class HttpOrderEventSinkTests {
 				OrderDeliveryConfiguration.orderClient(httpClient, URI.create(order.url()), READ_TIMEOUT), JSON, credentials,
 				decision -> {
 					throw new IllegalStateException("database down");
-				}, (restaurant, orderOfAnswer, cancellation, outcome) -> true, (restaurant, requestId) -> Optional.empty());
+				}, (restaurant, orderOfAnswer, cancellation, outcome) -> true, (restaurant, id) -> Optional.empty());
 		order.answerAlways(Answer.of(200, receipt("APPLIED")));
 		KitchenCancellationRequestedMessage message = cancellation("KITCHEN_ERROR");
 

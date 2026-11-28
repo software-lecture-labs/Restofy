@@ -205,9 +205,10 @@ class OrderCancellationLifecycleTests {
 
 		assertThrows(DataAccessException.class,
 				() -> jdbc.update("UPDATE order_cancellation_confirmations SET order_outcome = 'APPLIED' WHERE id = ?", id));
+		UUID command = UUID.randomUUID();
+		UUID user = UUID.randomUUID();
 		assertThrows(DataAccessException.class, () -> jdbc.update("UPDATE order_cancellation_confirmations SET status = 'APPROVED',"
-				+ " answer_command_id = ?, answered_by_user_id = ?, answered_at = now() WHERE id = ?", UUID.randomUUID(),
-				UUID.randomUUID(), id));
+				+ " answer_command_id = ?, answered_by_user_id = ?, answered_at = now() WHERE id = ?", command, user, id));
 		// The details of the decision may follow once, then they are final too.
 		jdbc.update("UPDATE order_cancellation_confirmations SET order_decision_event_id = ?, order_decided_at = now(),"
 				+ " order_rejection_code = 'ORDER_CHANGED' WHERE id = ?", UUID.randomUUID(), id);
