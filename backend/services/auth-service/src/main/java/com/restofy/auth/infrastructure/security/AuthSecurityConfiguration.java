@@ -12,11 +12,14 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -48,8 +51,12 @@ public class AuthSecurityConfiguration {
         source.registerCorsConfiguration("/api/v1/auth/**", cors);
         return http
                 .cors(configuration -> configuration.configurationSource(source))
+                // Spring would clear the CSRF cookie on every request the access cookie authenticates, since no
+                // security context is stored. The token is bound to the refresh or MFA cookie, and login, refresh
+                // and MFA completion issue a new one themselves.
                 .csrf(configuration -> configuration.csrfTokenRepository(csrf)
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .addFilterBefore(new AuthRequestFilter(settings, jwt, sessions), CsrfFilter.class)
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/liveness",
@@ -63,8 +70,12 @@ public class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/enroll", "/api/v1/auth/mfa/enroll/confirm",
                                 "/api/v1/auth/mfa/verify", "/api/v1/auth/mfa/recover").hasAuthority("MFA_PENDING")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/recovery-codes/regenerate")
-                                .access(AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
-                                        AuthorityAuthorizationManager.hasRole("ADMIN")))
+                                .access(administratorSession())
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/staff")
+                                .access(administratorSession())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/staff", "/api/v1/auth/staff/*/role",
+                                "/api/v1/auth/staff/*/deactivate")
+                                .access(administratorSession())
                         .anyRequest().denyAll())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
@@ -78,5 +89,11 @@ public class AuthSecurityConfiguration {
                         .accessDeniedHandler((request, response, exception) ->
                                 AuthProblems.write(response, HttpServletResponse.SC_FORBIDDEN)))
                 .build();
+    }
+
+    /** A signed-in staff session whose role is ADMIN; both conditions are required. */
+    private static AuthorizationManager<RequestAuthorizationContext> administratorSession() {
+        return AuthorizationManagers.allOf(AuthorityAuthorizationManager.hasAuthority(STAFF_SESSION),
+                AuthorityAuthorizationManager.hasRole("ADMIN"));
     }
 }

@@ -6,8 +6,12 @@ import com.restofy.order.api.dto.request.CheckoutRequest;
 import com.restofy.order.api.dto.response.CancellationListResponse;
 import com.restofy.order.api.dto.response.CancellationResponse;
 import com.restofy.order.api.dto.request.FulfillmentStatusRequest;
+import com.restofy.order.api.dto.request.OrderSearchRequest;
+import com.restofy.order.api.dto.request.SessionSummariesRequest;
 import com.restofy.order.api.dto.response.FulfillmentStatusResponse;
+import com.restofy.order.api.dto.response.SessionSummariesResponse;
 import com.restofy.order.application.port.StaffActor;
+import com.restofy.order.domain.InputLimits;
 import com.restofy.order.application.service.OrderFulfillmentService;
 import com.restofy.order.api.dto.response.OrderDetailResponse;
 import com.restofy.order.api.dto.response.OrderHistoryResponse;
@@ -99,6 +103,53 @@ public class OrderController {
     @SecurityRequirement(name = "staff")
     public OrderDetailResponse detail(Authentication authentication, @PathVariable UUID orderId) {
         return queries.detail(RequestActor.from(authentication), orderId);
+    }
+
+    @PostMapping("/search")
+    @Operation(summary = "Search the orders of the caller's restaurant by many table sessions and statuses (staff ADMIN, WAITER)",
+            description = "The same filters, ordering and paging as GET /orders, applied to the whole data set before it is "
+                    + "paged, but with up to " + InputLimits.MAX_TABLE_SESSION_IDS + " tableSessionIds at once (they do "
+                    + "not fit a URL, hence the POST; nothing is changed) and an explicit fulfillmentStatuses set, for "
+                    + "example [READY] for a delivery queue or [READY, SERVED, COMPLETED] for a history. view and "
+                    + "fulfillmentStatuses cannot be combined (422). Without any session or table filter it lists the "
+                    + "restaurant's orders. The restaurant is the caller's own, never taken from the body (an unknown "
+                    + "body field is 400). A session of another restaurant matches nothing. Ordering is placedAt "
+                    + "(default newest first) with the order id as tie-breaker. totalItems is the filtered total. "
+                    + "KITCHEN may not call this (403).")
+    @SecurityRequirement(name = "staff")
+    @ApiResponse(responseCode = "200", description = "One page of the matching orders")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid staff credential")
+    @ApiResponse(responseCode = "403", description = "Not staff, or a role that may not search orders (KITCHEN)")
+    @ApiResponse(responseCode = "400", description = "Malformed JSON, invalid UUID or unknown body field")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR (bad list size, status name, view, page, limit or sort)")
+    public OrderListResponse search(@AuthenticationPrincipal StaffActor staff,
+                                    @Valid @RequestBody OrderSearchRequest request) {
+        return queries.search(staff, OrderListQuery.forSearch(request.tableSessionIds(), request.tableId(),
+                request.view(), request.fulfillmentStatuses(), request.paymentStatus(), request.page(),
+                request.limit(), request.sort()));
+    }
+
+    @PostMapping("/session-summaries")
+    @Operation(summary = "Count the active orders of many table sessions in one request (staff ADMIN, WAITER)",
+            description = "For a table list that must show how many orders are still open per table without one request "
+                    + "per table. The body carries 1 to " + InputLimits.MAX_TABLE_SESSION_IDS + " tableSessionIds "
+                    + "(a repeated id is counted once). The restaurant is the caller's own, taken from the verified "
+                    + "staff identity and never from the body. Active means the same fulfillment statuses as the "
+                    + "'active' view of GET /orders: RECEIVED, PREPARING, READY or SERVED; COMPLETED and CANCELLED "
+                    + "orders do not count and payment is irrelevant. Only sessions with at least one active order "
+                    + "are returned, in the order they were asked; absence means zero. A session of another "
+                    + "restaurant is absent too, indistinguishable from an empty one. KITCHEN may not call this (403). "
+                    + "It is a POST only because up to " + InputLimits.MAX_TABLE_SESSION_IDS + " ids do not fit a "
+                    + "URL; it changes nothing.")
+    @SecurityRequirement(name = "staff")
+    @ApiResponse(responseCode = "200", description = "Counts of the sessions that have active orders")
+    @ApiResponse(responseCode = "401", description = "Missing or invalid staff credential")
+    @ApiResponse(responseCode = "403", description = "Not staff, or a role that may not see order counts (KITCHEN)")
+    @ApiResponse(responseCode = "400", description = "Malformed JSON, invalid UUID or unknown body field")
+    @ApiResponse(responseCode = "422", description = "VALIDATION_ERROR (empty list, more than the limit, or a null id)")
+    public SessionSummariesResponse sessionSummaries(@AuthenticationPrincipal StaffActor staff,
+                                                     @Valid @RequestBody SessionSummariesRequest request) {
+        return queries.sessionSummaries(staff, request.tableSessionIds());
     }
 
     @GetMapping("/{orderId}/history")

@@ -29,6 +29,11 @@ x-runtime-env: &runtime-env
 
   REST_CLIENT_CONNECT_TIMEOUT_MS: ${REST_CLIENT_CONNECT_TIMEOUT_MS:-3000}
   REST_CLIENT_READ_TIMEOUT_MS: ${REST_CLIENT_READ_TIMEOUT_MS:-5000}
+  # Plain HTTP between services only for Compose service names when APP_ENV is dev, local or test and no prod
+  # profile is active; see docs/decisions/ADR-ORTAK-001-ic-agda-http.md. Production sets APP_ENV=prod and leaves
+  # INTERNAL_HTTP_ALLOWED unset.
+  INTERNAL_HTTP_ALLOWED: ${INTERNAL_HTTP_ALLOWED:-false}
+  APP_ENV: ${APP_ENV:-dev}
 
   AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:?}
   ORDER_SERVICE_URL: ${ORDER_SERVICE_URL:?}
@@ -116,6 +121,10 @@ services:
     image: restofy/api-gateway:${APP_ENV:-dev}
     environment:
       <<: *runtime-env
+    networks:
+      restofy_network:
+        # Fixed so that Auth can trust X-Forwarded-For from this one address (AUTH_TRUSTED_PROXY_CIDRS).
+        ipv4_address: 10.213.0.10
     ports:
       - "127.0.0.1:${API_GATEWAY_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 
@@ -154,6 +163,7 @@ services:
       AUTH_Q5_COMMAND_PUBLIC_KEY: ${AUTH_Q5_COMMAND_PUBLIC_KEY:-}
       AUTH_Q5_QR_GENERATION: ${AUTH_Q5_QR_GENERATION:-}
       AUTH_Q5_QR_URL: ${AUTH_Q5_QR_URL:-}
+      AUTH_TRUSTED_PROXY_CIDRS: ${AUTH_TRUSTED_PROXY_CIDRS:-10.213.0.10/32}
     ports:
       - "127.0.0.1:${AUTH_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 
@@ -176,6 +186,12 @@ services:
       ORDER_QR_CALLER_KEY_ID: ${ORDER_QR_CALLER_KEY_ID:-}
       ORDER_QR_CALLER_PRIVATE_KEY: ${ORDER_QR_CALLER_PRIVATE_KEY:-}
       ORDER_QR_CALLER_RESTAURANT_ID: ${ORDER_QR_CALLER_RESTAURANT_ID:-}
+      ORDER_KITCHEN_SERVICE_PUBLIC_KEYS: ${ORDER_KITCHEN_SERVICE_PUBLIC_KEYS:-}
+      ORDER_KITCHEN_SERVICE_RESTAURANTS: ${ORDER_KITCHEN_SERVICE_RESTAURANTS:-}
+      ORDER_KITCHEN_CALLER_KEY_ID: ${ORDER_KITCHEN_CALLER_KEY_ID:-}
+      ORDER_KITCHEN_CALLER_PRIVATE_KEY: ${ORDER_KITCHEN_CALLER_PRIVATE_KEY:-}
+      ORDER_WAITER_SERVICE_PUBLIC_KEYS: ${ORDER_WAITER_SERVICE_PUBLIC_KEYS:-}
+      ORDER_WAITER_SERVICE_RESTAURANTS: ${ORDER_WAITER_SERVICE_RESTAURANTS:-}
     ports:
       - "127.0.0.1:${ORDER_SERVICE_HOST_PORT:?}:${BACKEND_INTERNAL_PORT:-8080}"
 
@@ -245,9 +261,11 @@ services:
       QR_ORDER_SERVICE_PRIVATE_KEY: ${QR_ORDER_SERVICE_PRIVATE_KEY:-}
       QR_ORDER_CALLER_PUBLIC_KEYS: ${QR_ORDER_CALLER_PUBLIC_KEYS:-}
       QR_WAITER_CALLER_PUBLIC_KEYS: ${QR_WAITER_CALLER_PUBLIC_KEYS:-}
+      QR_MENU_CALLER_PUBLIC_KEYS: ${QR_MENU_CALLER_PUBLIC_KEYS:-}
       # Validate at QR startup so an absent QR secret does not block unrelated services.
       QR_PAYLOAD_ENCRYPTION_KEY: ${QR_PAYLOAD_ENCRYPTION_KEY:-}
       QR_PUBLIC_ENTRY_URL: ${QR_PUBLIC_ENTRY_URL:-}
+      QR_TRUSTED_PROXY_CIDRS: ${QR_TRUSTED_PROXY_CIDRS:-10.213.0.10/32}
       AUTH_RESTAURANT_ID: ${AUTH_RESTAURANT_ID:-}
       MAIL_AUTH_PUBLIC_KEY: ${MAIL_AUTH_PUBLIC_KEY:-}
       AUTH_Q5_COMMAND_PUBLIC_KEY: ${AUTH_Q5_COMMAND_PUBLIC_KEY:-}
@@ -370,3 +388,13 @@ volumes:
 networks:
   restofy_network:
     driver: bridge
+    # The subnet is fixed so that the API Gateway keeps one known address (10.213.0.10), which Auth trusts for the
+    # client address in X-Forwarded-For. 10.213.0.0/24 avoids the ranges home/office networks (192.168.x, 10.0.x)
+    # and Docker's own automatic networks (172.17-172.31) usually take. Other containers get addresses from the upper
+    # half only, so the Gateway's address is never handed out to another container. Changing this network needs one
+    # "docker compose down" (without -v) so that Docker recreates it.
+    ipam:
+      config:
+        - subnet: 10.213.0.0/24
+          ip_range: 10.213.0.128/25
+          gateway: 10.213.0.1

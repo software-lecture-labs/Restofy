@@ -1,5 +1,6 @@
 package com.restofy.auth.infrastructure.security;
 
+import com.restofy.auth.support.InMemoryRateLimitStore;
 import java.time.Instant;
 import java.util.UUID;
 import com.restofy.auth.domain.entity.StaffMfa;
@@ -75,16 +76,16 @@ class MfaStateTests {
     }
 
     @Test
-    void peerLimitExpiresAndFloodingNeverRejectsNewPeers() {
+    void peerLimitExpiresAndManyPeersAreCountedSeparately() {
         MutableAuthClock clock = new MutableAuthClock();
-        MfaPeerLimiter limiter = new MfaPeerLimiter(clock);
+        MfaPeerLimiter limiter = new MfaPeerLimiter(new InMemoryRateLimitStore(clock));
         for (int index = 0; index < MfaPeerLimiter.ATTEMPTS_PER_WINDOW; index++) { limiter.check("127.0.0.1"); }
         assertThatThrownBy(() -> limiter.check("127.0.0.1")).isInstanceOf(LoginLimitException.class);
         clock.advance(MfaPeerLimiter.WINDOW_SECONDS);
         limiter.check("127.0.0.1");
         limiter.check(null);
-        limiter.check("x".repeat(BoundedWindows.MAX_PEER_LENGTH + 1));
-        for (int index = 0; index < BoundedWindows.MAX_TRACKED_KEYS; index++) { limiter.check("test-peer-" + index); }
+        limiter.check("x".repeat(RateLimitStore.MAX_PEER_LENGTH + 1));
+        for (int index = 0; index < 1_000; index++) { limiter.check("test-peer-" + index); }
         assertThatCode(() -> limiter.check("honest-peer")).doesNotThrowAnyException();
     }
 }

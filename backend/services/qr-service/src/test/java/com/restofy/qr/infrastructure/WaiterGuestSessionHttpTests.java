@@ -85,7 +85,11 @@ class WaiterGuestSessionHttpTests extends Q5TestSecuritySupport {
         var guest = fixture(TENANT, 120);
         var verified = callAsWaiter(POST, VALIDATE, tokenBody(guest.token()));
         assertThat(verified.statusCode()).isEqualTo(200);
-        assertThat(json.readTree(verified.body()).get("guestSessionId").asString()).isEqualTo(guest.guestId().toString());
+        var context = json.readTree(verified.body());
+        assertThat(context.get("guestSessionId").asString()).isEqualTo(guest.guestId().toString());
+        // Waiter reads table numbers from the table list; its validation answer is unchanged and has no tableNumber.
+        assertThat(context.propertyNames()).containsExactlyInAnyOrder("restaurantId", "tableId", "tableSessionId",
+                "guestSessionId", "state", "checkedAt");
         var state = callAsWaiter(GET, statePath(guest.sessionId(), guest.guestId()), EMPTY);
         assertThat(state.statusCode()).isEqualTo(200);
         assertThat(json.readTree(state.body()).get("state").asString()).isEqualTo("ACTIVE");

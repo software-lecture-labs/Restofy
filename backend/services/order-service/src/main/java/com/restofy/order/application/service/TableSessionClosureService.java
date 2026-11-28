@@ -358,7 +358,7 @@ public class TableSessionClosureService {
 
     /** Until K7 has a Payment source, real QR requests cannot infer financial clearance from local projections. */
     private static void requirePaymentEvidence(ServiceActor service, List<OrderClosureFacts> facts) {
-        if (service.qrRequest() != null && !facts.isEmpty()) {
+        if (service.signedRequest() != null && !facts.isEmpty()) {
             throw new BusinessException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Authoritative Payment verification is unavailable");
         }
     }

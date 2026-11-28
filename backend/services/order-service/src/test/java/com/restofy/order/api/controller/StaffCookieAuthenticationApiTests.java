@@ -148,6 +148,25 @@ class StaffCookieAuthenticationApiTests {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/orders/search", "/api/v1/orders/session-summaries"})
+    void cookieAuthenticatedPostQueriesStillRequireCsrf(String path) throws Exception {
+        String body = "{\"tableSessionIds\":[\"" + UUID.randomUUID() + "\"]}";
+        mvc.perform(options(path).header(HttpHeaders.ORIGIN, ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, CSRF_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN));
+        mvc.perform(post(path).cookie(access()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(auth);
+
+        when(auth.resolveStaff(ACCESS)).thenReturn(Optional.of(staff(StaffRole.WAITER)));
+        mvc.perform(post(path).cookie(access(), proof()).header(HttpHeaders.ORIGIN, ORIGIN)
+                        .header(CSRF_HEADER, PROOF).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+    }
+
     @Test
     void aGuestCookieDoesNotChangeCsrfRequirementsOnAStaffOnlyWrite() throws Exception {
         when(auth.resolveStaff(ACCESS)).thenReturn(Optional.of(staff(StaffRole.WAITER)));

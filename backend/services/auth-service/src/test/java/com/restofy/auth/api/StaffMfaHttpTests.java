@@ -78,6 +78,8 @@ class StaffMfaHttpTests extends AuthSessionTestSupport {
                 .andExpect(jsonPath("$.recoveryCodes.length()").value(10))
                 .andExpect(jsonPath("$.access").doesNotExist()).andReturn();
         update(completed);
+        assertThat(jar.get(AuthCookies.CSRF)).isNotNull();
+        assertThat(jar.get(AuthCookies.CSRF).getValue()).isNotBlank().isNotEqualTo(old.get(AuthCookies.CSRF).getValue());
         assertThat(jar).containsKeys(AuthCookies.ACCESS, AuthCookies.REFRESH).doesNotContainKey(AuthCookies.MFA);
         mvc.perform(post("/api/v1/auth/activity").header("Origin", ORIGIN).cookie(cookies())
                 .header("X-CSRF-TOKEN", old.get(AuthCookies.CSRF).getValue())).andExpect(status().isForbidden());

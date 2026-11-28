@@ -119,6 +119,21 @@ class KitchenOrderEventApiTests extends AbstractOrderStatusApiTest {
     }
 
     @Test
+    void changingThePreparationStatusUnderTheSameEventIdIsAConflict() throws Exception {
+        UUID orderId = placeSaladOrder(A1);
+        UUID eventId = UUID.randomUUID();
+        kitchenEvent(service(KITCHEN_CREDENTIAL), kitchenBody(eventId, RESTAURANT, orderId, "PREPARING"))
+                .andExpect(status().isOk());
+        long version = versionOf(orderId);
+
+        kitchenEvent(service(KITCHEN_CREDENTIAL), kitchenBody(eventId, RESTAURANT, orderId, "READY"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+        assertEquals("PREPARING", fulfillmentOf(orderId));
+        assertEquals(version, versionOf(orderId));
+        assertEquals(1, inboxRows());
+    }
+
+    @Test
     void aRedeliveryIsRecognisedEvenAfterTheOrderMovedOn() throws Exception {
         UUID orderId = placeSaladOrder(A1);
         UUID eventId = UUID.randomUUID();

@@ -118,18 +118,22 @@ public class OrderFulfillmentService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unknown kitchen status",
                     Map.of(PARAMETER, "kitchenStatus", "rule", "must be one of WAITING, PREPARING, READY"));
         }
-        if (service.name() != ServiceName.KITCHEN) {
+        if (!service.isKitchenFor(event.restaurantId())) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "Only the Kitchen service may send these events");
         }
         // the order must exist in exactly the restaurant the event names; anything else looks like a missing order
         Order order = lock(event.restaurantId(), event.orderId());
+        String eventType = KITCHEN_EVENT_TYPE + ":" + target.name();
         var processed = inbox.find(InboxStore.KITCHEN, event.eventId());
         if (processed.isPresent()) {
-            if (!processed.get().orderId().equals(order.getId())) {
+            var previous = processed.get();
+            // Legacy rows stored only the event family, without the reported status.
+            if (!previous.orderId().equals(order.getId())
+                    || !(eventType.equals(previous.eventType()) || KITCHEN_EVENT_TYPE.equals(previous.eventType()))) {
                 throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
-                        "This event id was already used for a different order");
+                        "This event id was already used for a different Kitchen event");
             }
-            return new OrderEventResponse(processed.get().outcome(), true, order.getId(),
+            return new OrderEventResponse(previous.outcome(), true, order.getId(),
                     order.getFulfillmentStatus().name(), order.getPaymentStatus().name(), false);
         }
         FulfillmentStatus current = order.getFulfillmentStatus();
@@ -145,7 +149,7 @@ public class OrderFulfillmentService {
         } else {
             throw invalidTransition(current, target);
         }
-        inbox.append(InboxStore.KITCHEN, event.eventId(), order.getRestaurantId(), order.getId(), KITCHEN_EVENT_TYPE,
+        inbox.append(InboxStore.KITCHEN, event.eventId(), order.getRestaurantId(), order.getId(), eventType,
                 outcome, clock.instant().truncatedTo(ChronoUnit.MICROS));
         return new OrderEventResponse(outcome, false, order.getId(), order.getFulfillmentStatus().name(),
                 order.getPaymentStatus().name(), false);
@@ -169,6 +173,11 @@ public class OrderFulfillmentService {
         outbox.write(new OutboxEventWriter.Event(eventId, order.getRestaurantId(), "ORDER", order.getId(),
                 order.getVersion(), event.eventType(), event.schemaVersion(), correlationId, event, now),
                 destinations(target, originatedByKitchen));
+    }
+
+    /** Called under the command transaction after locking the order and verifying the delegation and the transition. */
+    void applyWaiterServe(Order order, StaffActor staff, UUID commandId) {
+        apply(order, FulfillmentStatus.SERVED, ChangeActor.staff(staff), "WAITER_SERVE_COMMAND", commandId, null, false);
     }
 
     /** Who needs to hear about a status: everyone but the Kitchen when the Kitchen itself caused it. */

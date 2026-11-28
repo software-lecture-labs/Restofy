@@ -1,23 +1,14 @@
 name: Backend verify
 
+# No path filters: a filtered workflow never reports the required "verify" check,
+# so PRs without backend changes wait forever. The changes job decides what runs.
+# push only on the main branches: feature branches are checked by their PR, and a
+# push to a PR branch would otherwise run everything twice.
 on:
   push:
-    paths:
-      - 'backend/**'
-      - 'pre-push/**'
-      - 'lib/**'
-      - 'ops/qr/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/backend-verify.yml'
+    branches: [dev, main]
   pull_request:
-    branches: [dev]
-    paths:
-      - 'backend/**'
-      - 'pre-push/**'
-      - 'lib/**'
-      - 'ops/qr/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/backend-verify.yml'
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
@@ -28,7 +19,65 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.diff.outputs.backend }}
+      frontend: ${{ steps.diff.outputs.frontend }}
+    steps:
+      - name: Checkout reviewed source with history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Plain git instead of a third-party filter action. Any doubt runs everything;
+      # if this step fails, the dependent jobs still run in full.
+      - name: Detect changed areas
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [ -z "${BASE//0/}" ] \
+            || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::notice::No reliable base commit; running every check."
+            { echo backend=true; echo frontend=true; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # --no-renames lists both sides of a move, so leaving an area also counts.
+          files="$(git diff --name-only --no-renames "$BASE" "$HEAD")"
+          printf 'Changed files:\n%s\n' "$files"
+          workflows='^\.github/workflows/'
+          # No pipe: with pipefail, grep -q exiting early broke printf's pipe on long
+          # lists and turned a match into "false" (skipped checks).
+          changed() { if grep -E "$1" >/dev/null <<<"$files"; then echo true; else echo false; fi; }
+          {
+            echo "backend=$(changed "^(backend|pre-push|lib|ops/qr)/|^docker-compose\.yml$|$workflows")"
+            echo "frontend=$(changed "^frontend/|$workflows")"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  # Runs on every PR with no dependency on changes: a secret can arrive in any path.
+  # Checks tracked filenames only (same rule as pre-push); contents are never read or printed.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the sensitive-file check
+        run: node --test pre-push/ci-secrets.test.mjs
+      - name: Fail on tracked sensitive files
+        run: node pre-push/ci-secrets.mjs
+
   qr-tools:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -39,7 +88,9 @@ jobs:
       - name: Test QR key initialization and isolated Compose interpolation
         run: node --test ops/qr/*.test.mjs
 
-  verify:
+  backend:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -65,3 +116,67 @@ jobs:
       # reports and at least 80% line coverage in every module. No frontend checks.
       - name: Run backend clean verify and coverage gate
         run: sh ./pre-push/pre-push.sh backend dev
+
+  frontend:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      # LayoutProps and route types live in .next/types, which a fresh checkout lacks.
+      - name: Generate Next.js route types
+        run: npx next typegen
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Vitest
+        run: npm test
+
+  # The only required status check. It always runs, so it never stays "waiting",
+  # and it fails when any check above failed or was cancelled. Skipped means not needed.
+  verify:
+    needs: [secrets, qr-tools, backend, frontend]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every check to pass or be skipped
+        env:
+          SECRETS: ${{ needs.secrets.result }}
+          QR_TOOLS: ${{ needs.qr-tools.result }}
+          BACKEND: ${{ needs.backend.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+        run: |
+          echo "secrets=$SECRETS qr-tools=$QR_TOOLS backend=$BACKEND frontend=$FRONTEND"
+          # secrets always runs, so skipped is not acceptable for it.
+          [ "$SECRETS" = success ] || { echo "::error::The sensitive-file check did not pass ($SECRETS)."; exit 1; }
+          for result in "$QR_TOOLS" "$BACKEND" "$FRONTEND"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::A required check did not pass ($result)."; exit 1 ;;
+            esac
+          done

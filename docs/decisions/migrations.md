@@ -46,6 +46,10 @@ uygulamış bir veritabanı sonradan gelen V124'ü reddederdi. V124 hiçbir orta
 uygulanmadan bırakıldı ve yeniden kullanılmayacak. Güncel QR zinciri
 V21,V22,V26–V30,V121–V123,V125–V128.
 
+26 Kasım 2026: ADR-QR-002 K7 (QR hız sınırları) için Alper, V129'u `rate_limits`
+(HMAC'li kova anahtarı, sayaç, pencere sonu; yalnız QR'ın kendi veritabanında) olarak
+onayladı. Güncel QR zinciri V21,V22,V26–V30,V121–V123,V125–V129; V130 boş.
+
 11 Kasım 2026: Order sorumlusu Hamza, Order <-> Kitchen entegrasyon kararını (iptal nedeni
 kataloğuna CUSTOMER_REQUEST ve order_cancellations.decided_order_version: kararın sipariş
 sürümü, bir kez yazılır) V50 olarak ekledi. dev'de paylaşılmış V47 DEĞİŞTİRİLMEDİ; checksum'ı
@@ -61,3 +65,8 @@ V131        - ORDER-SERVICE (EK SÜRÜM) - HAMZA
 18 Kasım 2026: QR-INT-02 kapsamında Alper, V123'ü Order `CartActivityRecorded`
 olaylarının QR tarafında kalıcı tekilleştirilmesi için onayladı. V122 mevcut Q5
 personel iptal korumasıdır. Güncel QR zinciri V21,V22,V26–V30,V121–V123.
+
+V132        - ORDER-SERVICE (EK SÜRÜM) - HAMZA
+
+23 Kasım 2026: V132, WAITER-03 servis edildi komutunun ilk sonucunu kalıcı olarak
+saklamak için Order'a ayrıldı. Order zinciri V41–V50 ve V131–V132.

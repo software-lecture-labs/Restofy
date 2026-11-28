@@ -82,7 +82,7 @@ public class CancellationDecisionService {
 
     @Transactional
     public CancellationDecisionResponse decide(ServiceActor service, KitchenCancellationDecisionRequest request) {
-        if (service.name() != ServiceName.KITCHEN) {
+        if (!service.isKitchenFor(request.restaurantId())) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "Only the Kitchen service may decide a cancellation");
         }
         boolean approved = "APPROVED".equals(request.decision());
@@ -100,9 +100,9 @@ public class CancellationDecisionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Order not found"));
         var processed = inbox.find(InboxStore.KITCHEN, request.eventId());
         if (processed.isPresent()) {
-            if (!processed.get().orderId().equals(order.getId())) {
+            if (!processed.get().orderId().equals(order.getId()) || !EVENT_TYPE.equals(processed.get().eventType())) {
                 throw new BusinessException(ErrorCode.IDEMPOTENCY_CONFLICT,
-                        "This event id was already used for a different order");
+                        "This event id was already used for a different Kitchen event");
             }
             Row known = cancellations.find(order.getRestaurantId(), order.getId(), request.cancellationId())
                     .orElseThrow(CancellationDecisionService::notFound);

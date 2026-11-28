@@ -23,6 +23,12 @@ public final class InputLimits {
     /** Longest status name a status request may carry (the real names are shorter; this only bounds garbage). */
     public static final int MAX_STATUS_NAME_LENGTH = 30;
 
+    /** Most table sessions one staff request may name: the order counts or the order search of a restaurant table list. */
+    public static final int MAX_TABLE_SESSION_IDS = 500;
+
+    /** A status filter lists each fulfillment status at most once, so it can never be longer than the set of statuses. */
+    public static final int MAX_FULFILLMENT_STATUSES = 6;
+
     /** An ISO 4217 alphabetic currency code has exactly three letters. */
     public static final int CURRENCY_CODE_LENGTH = 3;
 

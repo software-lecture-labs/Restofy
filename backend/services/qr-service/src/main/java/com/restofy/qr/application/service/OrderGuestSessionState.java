@@ -17,8 +17,9 @@ final class OrderGuestSessionState {
             OrderSessionState evidence, SessionOrderProtection protection) {
         if (assess(locked, evidence, protection) != State.ACTIVE) { throw new InvalidGuestSessionException(); }
         var main = locked.parent().main();
-        return new GuestSessionValidationService.ValidatedGuestContext(main.getRestaurantId(), locked.parent().table().getId(),
-                main.getId(), locked.guest().getId(), locked.parent().checkedAt());
+        var table = locked.parent().table();
+        return new GuestSessionValidationService.ValidatedGuestContext(main.getRestaurantId(), table.getId(),
+                table.getTableNumber(), main.getId(), locked.guest().getId(), locked.parent().checkedAt());
     }
 
     /** Order protection only extends idle windows, so Order is asked only when the local timers have run out. */

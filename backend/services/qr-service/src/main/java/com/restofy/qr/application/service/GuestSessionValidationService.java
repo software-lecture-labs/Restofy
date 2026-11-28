@@ -34,6 +34,15 @@ public class GuestSessionValidationService {
         return resolve(token);
     }
 
+    /**
+     * Which guest the credential belongs to, without checking that it is still usable (one HMAC and an indexed
+     * lookup). An unknown credential throws {@link InvalidGuestSessionException#unknown()}.
+     */
+    @Transactional(propagation = Propagation.NEVER)
+    public GuestSessionContextReader.Identity identify(String token) {
+        return contexts.locate(token);
+    }
+
     private Prepared resolve(String token) {
         var identity = contexts.locate(token);
         return new Prepared(identity, protection.inspect(identity.restaurantId(), identity.sessionId()));
@@ -100,8 +109,11 @@ public class GuestSessionValidationService {
                 || !guest.isUsableAt(now, guestHeld || protection.guestCancellationWindow(prepared.state(), main, guest, now))) {
             throw new InvalidGuestSessionException();
         }
-        return new ValidatedGuestContext(identity.restaurantId(), table.getId(), main.getId(), guest.getId(), now);
+        return new ValidatedGuestContext(identity.restaurantId(), table.getId(), table.getTableNumber(), main.getId(),
+                guest.getId(), now);
     }
 
-    public record ValidatedGuestContext(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId, Instant checkedAt) { }
+    /** {@code tableNumber} is the staff-given number at validation time, read from the same locked table row. */
+    public record ValidatedGuestContext(UUID restaurantId, UUID tableId, String tableNumber, UUID tableSessionId,
+                                        UUID guestSessionId, Instant checkedAt) { }
 }

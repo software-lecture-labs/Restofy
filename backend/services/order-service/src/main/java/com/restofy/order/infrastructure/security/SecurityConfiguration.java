@@ -8,6 +8,7 @@ import com.restofy.order.domain.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -55,11 +56,14 @@ public class SecurityConfiguration {
             PATHS.matcher(HttpMethod.GET, CANCELLATIONS), PATHS.matcher(HttpMethod.POST, CANCELLATIONS),
             PATHS.matcher(HttpMethod.HEAD, ORDERS), PATHS.matcher(HttpMethod.HEAD, ORDER),
             PATHS.matcher(HttpMethod.HEAD, HISTORY), PATHS.matcher(HttpMethod.HEAD, CANCELLATIONS));
-    private static final RequestMatcher STAFF_ROUTES = new OrRequestMatcher(STAFF_ONLY, STAFF_OR_GUEST);
+    private static final RequestMatcher STAFF_ROUTES = new OrRequestMatcher(STAFF_ONLY, STAFF_OR_GUEST,
+            WaiterAuthenticationFilter::isReadRoute);
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, QrSessionPort qrSessions, AuthContextPort authContext,
                                     ServiceIdentityPort serviceIdentity, ApiErrorWriter errors,
+                                    ObjectProvider<KitchenServiceIdentityVerifier> kitchenIdentity,
+                                    WaiterSignatureVerifier waiterSignatures,
                                     @Value("${CORS_ALLOWED_ORIGINS:}") String guestOrigins, Environment environment,
                                     Clock clock) {
         boolean authEnabled = environment.matchesProfiles("order-auth");
@@ -85,6 +89,9 @@ public class SecurityConfiguration {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/carts/**").hasAuthority(GuestAuthentication.ROLE)
                         .requestMatchers(HttpMethod.POST, ORDERS).hasAuthority(GuestAuthentication.ROLE)
+                        // The query service checks the role and restaurant of the authenticated staff principal.
+                        .requestMatchers(WaiterAuthenticationFilter::isReadRoute)
+                        .hasAnyAuthority(StaffAuthentication.ROLE, WaiterAuthenticationFilter.READ_AUTHORITY)
                         // Reading one order: its own guest or staff; who exactly may see which order is decided
                         // (with tenant and ownership checks) in OrderQueryService, not only here.
                         // GET and HEAD of orders, their history and cancellations, and cancelling an order (POST): its own
@@ -107,6 +114,8 @@ public class SecurityConfiguration {
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.KITCHEN))
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/order-events/payment")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.PAYMENT))
+                        .requestMatchers(WaiterAuthenticationFilter::isServeRoute)
+                        .hasAuthority(WaiterAuthenticationFilter.SERVE_AUTHORITY)
                         // Table-session closure (ADR-QR-001): only the QR Service, which owns tables and their sessions.
                         .requestMatchers(HttpMethod.POST, "/api/v1/internal/table-sessions/*/closure-preparations")
                         .hasAuthority(ServiceAuthentication.authority(ServiceName.QR))
@@ -121,7 +130,9 @@ public class SecurityConfiguration {
                 .addFilterBefore(new GuestSessionAuthenticationFilter(qrSessions, errors, guestOrigins),
                         AnonymousAuthenticationFilter.class)
                 .addFilterBefore(new AuthorizationHeaderFilter(errors), GuestSessionAuthenticationFilter.class)
-                .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors),
+                .addFilterAfter(new WaiterAuthenticationFilter(waiterSignatures, authContext, errors),
+                        AuthorizationHeaderFilter.class)
+                .addFilterBefore(new ServiceAuthenticationFilter(serviceIdentity, errors, kitchenIdentity.getIfAvailable()),
                         AnonymousAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->
@@ -150,6 +161,11 @@ public class SecurityConfiguration {
         read.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE,
                 StaffCsrfProtection.CSRF_HEADER, "Idempotency-Key"));
         read.setAllowedMethods(List.of("GET"));
+        // Match the two exact POST paths before the wildcard order detail path.
+        var queries = new CorsConfiguration(read);
+        queries.setAllowedMethods(List.of("POST"));
+        source.registerCorsConfiguration(WaiterAuthenticationFilter.SEARCH_PATH, queries);
+        source.registerCorsConfiguration(WaiterAuthenticationFilter.SUMMARIES_PATH, queries);
         for (String path : List.of(ORDERS, ORDER, HISTORY, ADMIN_REPORT)) {
             source.registerCorsConfiguration(path, read);
         }
