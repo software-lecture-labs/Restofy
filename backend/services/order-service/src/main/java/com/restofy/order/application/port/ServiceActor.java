@@ -6,11 +6,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A verified calling service. The QR lifecycle credential also binds a tenant and the exact HTTP request.
+ * A verified calling service. Signed credentials bind the tenant and the exact HTTP request.
  */
-public record ServiceActor(ServiceName name, QrRequest qrRequest) {
+public record ServiceActor(ServiceName name, SignedRequest signedRequest) {
 
-    public record QrRequest(UUID restaurantId, String method, String target, String bodyDigest) {
+    public record SignedRequest(UUID restaurantId, String method, String target, String bodyDigest) {
     }
 
     public ServiceActor(ServiceName name) {
@@ -19,5 +19,10 @@ public record ServiceActor(ServiceName name, QrRequest qrRequest) {
 
     public ServiceActor {
         Objects.requireNonNull(name, "name");
+    }
+
+    public boolean isKitchenFor(UUID restaurantId) {
+        return name == ServiceName.KITCHEN
+                && (signedRequest == null || signedRequest.restaurantId().equals(restaurantId));
     }
 }

@@ -1,0 +1,123 @@
+# ADR-ORTAK-001 — Servisler arası çağrılarda iç ağda HTTP istisnası
+
+- **Durum:** Önerildi (#63'te hocanın B kararı üzerine; ortam koşulu #69 incelemesinde profilden `APP_ENV`'e
+  çekildi)
+- **Tarih:** 2026-11-26
+- **Öneren:** Kerem Kalyoncu (Auth)
+- **İlgili:** #63, #61 (Kitchen), `OrderLifecycleClient` (QR → Order mevcut istisnası)
+
+## Bağlam
+
+Personel çerezini ya da imzalı servis isteğini başka bir servise ileten istemciler hedef adresin HTTPS olmasını şart
+koşuyor; HTTP adresle servis başlamıyor. Compose'da iç ağ için TLS yok ve `.env.example`'daki bütün iç adresler
+`http://<servis>:8080`. Bu yüzden bu entegrasyonlar Compose'da uçtan uca denenemiyor.
+
+#63'te üç seçenek konuşuldu. Hocanın kararı: **B'yi sınırlı biçimde şimdi açmak, iç ağda TLS'i (A) sonraya
+bırakmak.** QR → Order'daki dev/test istisnası tek bir ortak kurala çevrilecek; her servis sahibi kendi istemcisini
+küçük bir PR ile uyarlayacak.
+
+Bugünkü durum (`dev`):
+
+| Çağıran → hedef | Ayar | Bugün HTTP'ye izin |
+|---|---|---|
+| Order → Auth `/session` | `AUTH_SERVICE_URL` | Yok (`StaffSessionHttpAdapter`) |
+| Order → QR | `QR_SERVICE_URL` | Yok (`QrSessionHttpAdapter`) |
+| Waiter → Auth `/session` | `AUTH_SERVICE_URL` | Yok (`AuthProperties`) |
+| QR → Order | `ORDER_SERVICE_URL` | Yalnız `(dev \| test) & !prod` profilinde ve yalnız loopback (`OrderLifecycleClient`) |
+| Kitchen → Auth `/session` | `AUTH_SERVICE_URL` | Yok (#61'de `KitchenAuthProperties`; henüz `dev`'de değil) |
+| Auth → Mail | `auth.reset.mail-url` | Geliştirme profilinde her adrese (`MailClient`) |
+| Waiter → QR / Order (imzalı) | `QR_SERVICE_URL`, `ORDER_SERVICE_URL` | Her ortamda (`ServiceUrlProperties` yalnız `http(s)` biçimine bakıyor) |
+
+## Karar
+
+### Ayar
+
+`INTERNAL_HTTP_ALLOWED`, değeri `true` ya da `false`, varsayılanı `false`.
+
+- `docker-compose.yml`'deki ortak ortam bloğuna `INTERNAL_HTTP_ALLOWED: ${INTERNAL_HTTP_ALLOWED:-false}` ve
+  `APP_ENV: ${APP_ENV:-dev}` eklenir. `APP_ENV` bugüne kadar yalnız Auth ve Order'a geçiliyordu; kuralı uygulayan
+  her servisin onu görmesi gerekir. Varsayılan, imaj etiketlerinde ve Auth/Order'da zaten kullanılan `dev`.
+- Bununla QR de `APP_ENV`'i görmeye başlar. QR'ın Q5 ayarları (`Q5SecuritySettings`) geliştirme ortamında
+  (etkin profillerin hepsi ve `APP_ENV` `dev`, `local` ya da `test`) `http://localhost` origin'ine izin verir;
+  `APP_ENV` gelmediği için Compose'da `.env.example`'daki `http://localhost:5000` origin'i reddediliyordu. Artık
+  varsayılan `dev` profiliyle QR bu origin'le başlar. `QR_SPRING_PROFILES_ACTIVE=qr-order` tek başına geliştirme
+  ortamı sayılmaz ve HTTPS origin ister; bu bilinçli bir davranıştır (`docs/qr/qr-key-uretimi.md`), yerelde
+  `dev,qr-order` kullanılabilir. Q5 kodu değişmez.
+- `.env.example` (dev şablonu) `INTERNAL_HTTP_ALLOWED=false` taşır. Şablon olduğu gibi başka bir ortama
+  kopyalansa bile istisna açılmaz. Compose'da servisler arası HTTP'yi denemek isteyen kendi `.env`'ine
+  `INTERNAL_HTTP_ALLOWED=true` yazar.
+- `true` ve `false` dışındaki bir değer servisin başlamasını durdurur.
+
+### Bir servis-servis adresi ne zaman HTTP olabilir
+
+Aşağıdakilerin **hepsi** sağlanırsa:
+
+1. `INTERNAL_HTTP_ALLOWED=true`.
+2. `APP_ENV` `dev`, `local` ya da `test` (Auth'un MFA kuralındaki liste, `EnvironmentPolicy`; boş ya da başka bir
+   değer koşulu sağlamaz) **ve** etkin Spring profilleri arasında `prod` ya da `production` yoktur. Diğer profillere
+   bakılmaz.
+
+   Profil yerine `APP_ENV`'e bakılmasının nedeni: Order'ın `order-auth` ve QR'ın `qr-order` entegrasyon profilleri
+   `dev`/`test` profili olmadan açılır (`docs/order-service/INTEGRATION_CONTRACTS.md`, `docs/qr/qr-key-uretimi.md`).
+   Profil şartı tam bu entegrasyonlarda servisi durdururdu. Order (`OrderRuntimeProfiles`) ve QR
+   (`Q5SecuritySettings`) ortam ayrımını zaten `APP_ENV` ile yapıyor.
+3. Adresin host'u ya bir **Compose servis adıdır** (noktasız tek etiket, yalnız `a-z`, `0-9`, `-`, örneğin
+   `auth-service`), ya da loopback (`localhost`, `127.0.0.1`, `[::1]`). IP adresi (loopback hariç) ve noktalı alan
+   adı HTTP ile kabul edilmez.
+4. Adres yalnız origin'dir: kullanıcı bilgisi, sorgu ya da parça yoktur (bugünkü doğrulamalar aynen kalır).
+
+Biri sağlanmazsa bugünkü davranış geçerlidir: HTTP adresle servis başlamaz.
+
+### Yanlış kullanımı engelleme
+
+- `INTERNAL_HTTP_ALLOWED=true` iken `APP_ENV=prod` (ya da `production`) ise ya da `prod`/`production` profili
+  etkinse servis **başlamaz**; ayar sessizce yok sayılmaz. Prod'a yanlışlıkla taşınan bir `.env` böylece fark edilir.
+- `APP_ENV` boşsa ya da listede olmayan bir değerse istisna uygulanmaz; HTTP adres bugünkü gibi reddedilir.
+- **Prod ortamında** `APP_ENV` açıkça `prod` yazılır, `INTERNAL_HTTP_ALLOWED` hiç yazılmaz. Compose'da `APP_ENV`
+  yazılmazsa `dev` sayılır; bu, MFA kapatma ve geliştirme kullanıcıları gibi `APP_ENV`'e bağlı diğer geliştirme
+  özellikleriyle aynı risktir. İstisna yine de ayrıca `INTERNAL_HTTP_ALLOWED=true` ister; şablonda `false` olduğu
+  için şablonun kopyalanması tek başına onu açmaz. Prod kurulumunda bu iki değer kontrol edilir.
+- İstisna yalnız şemayı gevşetir. HTTPS adreslerde sertifika ve host doğrulaması kapatılmaz.
+- Bu istisnayla HTTP kullanan istemci yönlendirme izlemez. İzleseydi `http://auth-service` bir 3xx ile isteği
+  dışarıdaki bir adrese çevirebilir, çerez ya da imzalı istek açık metin oraya giderdi; (3) boşa çıkardı.
+- Bir adres bu istisnayla HTTP kabul edildiğinde servis başlarken bir kez `WARN` yazar: ayarın adını ve "iç ağda
+  açık metin" bilgisini. Adresin kendisi dışında hiçbir değer (anahtar, çerez) loglanmaz.
+
+### Kapsam
+
+- **Kapsar:** yalnız ortamdan okunan servis-servis taban adresleri (`AUTH_SERVICE_URL`, `QR_SERVICE_URL`,
+  `ORDER_SERVICE_URL`, Mail adresi ve benzerleri).
+- **Kapsamaz:** tarayıcıya dönük adresler (`CORS_ALLOWED_ORIGINS`, QR giriş adresi, Menu ürün görseli adresleri);
+  Gateway yönlendirmeleri (Gateway yalnız iletir, bugün de doğrulamıyor); Q5 istemcileri (Auth → QR iptal komutu,
+  QR'ın Q5 ayarları), onların kendi kuralı ve sözleşmesi var.
+- QR → Order'daki loopback istisnası bu kuralın alt kümesi; QR uyarlarken Compose adlarını ekler.
+
+### Her servisin küçük PR'ında beklenen testler
+
+1. Ayar kapalıyken `http://auth-service:8080` reddedilir (bugünkü davranış).
+2. Ayar açık ve `APP_ENV` `dev`, `local` ya da `test` iken `http://auth-service:8080` kabul edilir.
+3. `dev` profili yok ama `APP_ENV=dev` ve profil `order-qr` iken `http://qr-service:8080` kabul edilir.
+4. Ayar açıkken `APP_ENV=prod` ise ya da `prod` profili etkinse (`APP_ENV=dev` olsa bile) servis başlamaz.
+5. Ayar açıkken `APP_ENV` boşsa HTTP adres reddedilir (bugünkü davranış).
+6. Ayar açıkken `http://10.0.0.5:8080` ve `http://auth.example.com` reddedilir.
+7. Ayar `yes` gibi geçersiz bir değerse servis başlamaz.
+8. HTTP adres 3xx döndürürse istemci yönlendirmeyi izlemez.
+
+## Sonuçlar
+
+- Compose'da entegrasyonlar HTTP ile uçtan uca denenebilir.
+- **Kabul edilen risk:** Ayar açıkken personel çerezi ve imzalı istekler iç Docker ağında açık metin gider; ağdaki
+  bir konteyner okuyabilir. Bu yalnız geliştirme ve test ortamı için kabul edilir.
+- İç ağda TLS (A) gelince bu ayar kaldırılır ve istemcilerdeki istisna kodu silinir.
+- Waiter'ın imzalı QR/Order istemcileri bugün HTTP'yi her ortamda kabul ediyor. Bu kurala uyarlanması önerilir;
+  karar Waiter sahibinindir.
+- Auth → Mail istisnası da bu kurala çekilir (Auth'un kendi PR'ı).
+
+## Uygulama sırası
+
+1. Bu ADR, `docker-compose.yml` ve `.env.example` değişikliği (varsayılan `false`, servis davranışı değişmez).
+2. Her servis sahibi kendi istemcisini küçük bir PR ile uyarlar: Order (Hamza), Waiter (Umut), QR (Alper),
+   Kitchen (Nisa; istemci #61'de, uyarlama bu ADR birleşince ayrı PR), Auth → Mail (Kerem).
+3. Auth → Mail PR'ı yukarıdaki testlerin hepsiyle örnek uygulama olarak hazırlanır; birleşince bağlantısı buraya
+   eklenir. Diğer servisler kuralı sıfırdan yazmak yerine onu uyarlayabilir. Her servis PR'ının incelemesinde
+   bu testlerin varlığı kontrol edilir.

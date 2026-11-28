@@ -1,5 +1,6 @@
 package com.restofy.order.api.controller;
 
+import com.restofy.order.application.port.GuestSessionContext;
 import com.restofy.order.infrastructure.client.mock.DevFixtures;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -64,6 +65,7 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
         assertEquals(DevFixtures.RESTAURANT_A.toString(), event.path("restaurantId").asString());
         assertEquals(DevFixtures.TABLE_A1.toString(), event.path("tableId").asString());
         assertEquals(DevFixtures.TABLE_SESSION_A1.toString(), event.path("tableSessionId").asString());
+        assertFalse(event.has("tableNumber"));
         assertEquals(DevFixtures.GUEST_A1.toString(), event.path("guestSessionId").asString());
         assertEquals(order.path("orderId").asString(), event.path("orderId").asString());
         assertEquals(order.path("orderNo").asString(), event.path("orderNo").asString());
@@ -111,14 +113,22 @@ class OrderPlacedEventApiTests extends AbstractCartApiTest {
 
     @Test
     void replayingARequestDoesNotEmitASecondEvent() throws Exception {
+        var guest = DevFixtures.guestA1(GuestSessionContext.SessionState.ACTIVE);
+        qr.register(A1, new GuestSessionContext(guest.restaurantId(), guest.tableId(), guest.tableSessionId(),
+                guest.guestSessionId(), guest.state(), "12"));
         addItem(A1, product(DevFixtures.SALAD, 1)).andExpect(status().isOk());
         Map<String, Object> body = confirmedCheckout(A1);
         String key = newKey();
         placeOrder(A1, key, body).andExpect(status().isCreated());
+        qr.register(A1, new GuestSessionContext(guest.restaurantId(), guest.tableId(), guest.tableSessionId(),
+                guest.guestSessionId(), guest.state(), "18"));
         placeOrder(A1, key, body).andExpect(status().isCreated());
         assertEquals(1, count("outbox_events"));
         assertEquals(4, count("outbox_deliveries"));
         assertNotNull(jdbc.queryForObject("SELECT id FROM outbox_events WHERE event_type = 'OrderPlaced'", UUID.class));
+        assertEquals("12", jdbc.queryForObject("""
+                SELECT payload ->> 'tableNumber' FROM outbox_events WHERE event_type = 'OrderPlaced'
+                """, String.class));
     }
 
     @Test

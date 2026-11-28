@@ -46,7 +46,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
 
     QrSessionHttpAdapter(@Value("${QR_SERVICE_URL:}") String base, OrderQrRequestSigner signer,
                          RestClient.Builder client, JsonMapper json, Clock clock) {
-        this.base = httpsOrigin(base);
+        this.base = httpsOrigin(base, "QR_SERVICE_URL", "order-qr");
         this.signer = signer;
         this.http = client.build();
         this.json = json;
@@ -67,7 +67,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
                         throw unavailable();
                     }
                     return new GuestSessionContext(response.restaurantId(), response.tableId(), response.tableSessionId(),
-                            response.guestSessionId(), SessionState.ACTIVE);
+                            response.guestSessionId(), SessionState.ACTIVE, tableNumber(response.tableNumber()));
                 });
     }
 
@@ -127,6 +127,20 @@ public class QrSessionHttpAdapter implements QrSessionPort {
         }
     }
 
+    private static String tableNumber(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isTextual()) {
+            throw unavailable();
+        }
+        String number = node.asString();
+        if (number.isBlank() || number.length() > 40) {
+            throw unavailable();
+        }
+        return number;
+    }
+
     private static boolean invalidGuestProblem(RestClient.RequestHeadersSpec.ConvertibleClientHttpResponse response) {
         MediaType mediaType = response.getHeaders().getContentType();
         if (mediaType == null || !MediaType.APPLICATION_PROBLEM_JSON.isCompatibleWith(mediaType)) {
@@ -156,7 +170,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
         return body.length == 0 ? request : request.contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
-    private static URI httpsOrigin(String value) {
+    static URI httpsOrigin(String value, String property, String profile) {
         try {
             URI candidate = URI.create(value);
             if ("https".equalsIgnoreCase(candidate.getScheme()) && candidate.getHost() != null
@@ -169,7 +183,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
         } catch (IllegalArgumentException _) {
             // Do not include an invalid URL that could contain credentials in a startup error.
         }
-        throw new IllegalStateException("QR_SERVICE_URL must be an HTTPS origin for order-qr");
+        throw new IllegalStateException(property + " must be an HTTPS origin for " + profile);
     }
 
     private static BusinessException unavailable() {
@@ -184,7 +198,7 @@ public class QrSessionHttpAdapter implements QrSessionPort {
     }
 
     private record GuestResponse(UUID restaurantId, UUID tableId, UUID tableSessionId, UUID guestSessionId,
-                                 String state, String checkedAt) {
+                                 String state, String checkedAt, JsonNode tableNumber) {
     }
 
     private record StateResponse(String state, String checkedAt) {

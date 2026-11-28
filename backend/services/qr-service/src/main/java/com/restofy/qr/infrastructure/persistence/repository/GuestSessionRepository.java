@@ -20,6 +20,12 @@ public interface GuestSessionRepository extends JpaRepository<GuestSession, UUID
             + "and (g.expiresAt is null or g.expiresAt > :now or g.id in :protectedIds)")
     long countUsable(UUID restaurantId, UUID tableSessionId, GuestSessionStatus status, Instant now, Set<UUID> protectedIds);
 
+    /** Guests still counted against the table session capacity (ADR-QR-002 K7): active and not idle-expired. */
+    @Query("select count(g) from GuestSession g where g.restaurantId = :restaurantId and g.tableSessionId = :tableSessionId "
+            + "and g.status = com.restofy.qr.domain.enums.GuestSessionStatus.ACTIVE and g.endedAt is null "
+            + "and (g.expiresAt is null or g.expiresAt > :now)")
+    long countActive(UUID restaurantId, UUID tableSessionId, Instant now);
+
     // Only immutable IDs before locking; do not cache mutable guest/parent state here.
     @Query("select g.id as id, g.restaurantId as restaurantId, g.tableSessionId as tableSessionId from " +
             "GuestSession g where g.tokenDigest = :digest")

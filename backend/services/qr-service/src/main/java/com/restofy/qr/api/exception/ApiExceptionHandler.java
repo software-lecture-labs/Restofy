@@ -1,6 +1,8 @@
 package com.restofy.qr.api.exception;
 
 import com.restofy.qr.domain.exception.*;
+import com.restofy.qr.infrastructure.security.ratelimit.RateLimitFilter;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,6 +27,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return detail;
     }
 
+    /** ADR-QR-002 K7: a limit or the table session capacity was reached. */
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> tooManyRequests(RateLimitExceededException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage()));
+    }
+
+    /** ADR-QR-002 K7: the counters could not be used, so the request is refused instead of served without a limit. */
+    @ExceptionHandler(com.restofy.qr.infrastructure.security.ratelimit.RateLimitUnavailableException.class)
+    ProblemDetail limitsUnavailable(RuntimeException exception) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "The request could not be accepted now. Retry later.");
+    }
+
     @ExceptionHandler({QrImageUnavailableException.class, SessionClosureUnavailableException.class})
     ProblemDetail unavailable(RuntimeException exception) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
@@ -35,15 +51,44 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * {@code detail}; it deliberately does not say why (unknown, expired, closed or another restaurant's guest).
      */
     @ExceptionHandler(InvalidGuestSessionException.class)
-    ProblemDetail guestSessionUnavailable(InvalidGuestSessionException exception) {
+    ResponseEntity<ProblemDetail> guestSessionUnavailable(InvalidGuestSessionException exception, HttpServletRequest request) {
+        var refused = unknownOverBudget(request, exception.unknownCredential());
+        if (refused != null) {
+            return refused;
+        }
         var detail = problem(HttpStatus.NOT_FOUND, exception.getMessage());
         detail.setProperty("code", InvalidGuestSessionException.CODE);
-        return detail;
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(detail);
     }
 
-    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class, InvalidQrCodeException.class})
+    /** Same 404 for unknown and unusable QR codes; only the rate limiter learns which one it was. */
+    @ExceptionHandler(InvalidQrCodeException.class)
+    ResponseEntity<ProblemDetail> invalidQrCode(InvalidQrCodeException exception, HttpServletRequest request) {
+        var refused = unknownOverBudget(request, exception.unknownCredential());
+        return refused != null ? refused
+                : ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem(HttpStatus.NOT_FOUND, exception.getMessage()));
+    }
+
+    @ExceptionHandler({TableNotFoundException.class, QrCodeNotFoundException.class})
     ProblemDetail notFound(RuntimeException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
+
+    /**
+     * ADR-QR-002 K7: a credential matching nothing of ours costs the address's failure budget (RateLimitFilter). Once
+     * that budget is spent, such a credential gets 429 instead of 404; known QR codes and guests never reach this.
+     *
+     * @return the 429 response, or {@code null} when the usual 404 applies
+     */
+    private ResponseEntity<ProblemDetail> unknownOverBudget(HttpServletRequest request, boolean unknownCredential) {
+        if (!unknownCredential) {
+            return null;
+        }
+        if (request.getAttribute(RateLimitFilter.FAILURE_RETRY_AFTER) instanceof Long retryAfter) {
+            return tooManyRequests(new RateLimitExceededException(retryAfter));
+        }
+        request.setAttribute(RateLimitFilter.UNKNOWN_CREDENTIAL, Boolean.TRUE);
+        return null;
     }
 
     @ExceptionHandler({TableConflictException.class, OptimisticLockingFailureException.class, DataIntegrityViolationException.class})

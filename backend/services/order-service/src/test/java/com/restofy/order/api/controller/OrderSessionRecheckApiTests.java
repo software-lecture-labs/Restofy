@@ -157,7 +157,7 @@ class OrderSessionRecheckApiTests {
         Mockito.doAnswer(call -> {
             stateAtQr.set(SessionState.CLOSED);   // the waiter closes the table while the checkout transaction runs
             return call.callRealMethod();
-        }).when(orderMapper).toPlacedEvent(any(), any(), any(), any());
+        }).when(orderMapper).toPlacedEvent(any(), any(), any(), any(), any());
 
         order().andExpect(status().isCreated());
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM orders", Integer.class),

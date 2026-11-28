@@ -1,5 +1,7 @@
 package com.restofy.order.domain.event;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -12,7 +14,8 @@ import java.util.UUID;
 public record OrderPlacedEvent(UUID eventId, String eventType, int schemaVersion, Instant occurredAt,
                                String correlationId, UUID restaurantId, UUID tableId, UUID tableSessionId,
                                UUID guestSessionId, UUID orderId, String orderNo, String fulfillmentStatus,
-                               String currency, Amounts amounts, String note, Instant placedAt, List<Item> items) {
+                               String currency, Amounts amounts, String note, Instant placedAt, List<Item> items,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String tableNumber) {
 
     public static final String TYPE = "OrderPlaced";
     public static final int SCHEMA_VERSION = 1;
